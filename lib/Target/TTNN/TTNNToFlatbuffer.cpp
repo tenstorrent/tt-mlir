@@ -801,10 +801,10 @@ createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  auto memoryConfigDesc = op.getMemoryConfig().has_value()
-                              ? cache.getOrCreate(op.getMemoryConfig().value(),
-                                                  memoryConfigToFlatbuffer)
-                              : 0;
+  auto memoryConfigDesc =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
 
   return ::tt::target::ttnn::CreateReductionProdOp(
       *cache.fbb, in, output, op.getAllDimensions(), op.getDimArg(),
