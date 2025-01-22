@@ -1,9 +1,9 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-implicit-broadcast-folding-pass=false system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-repeat-folding-workaround-pass=false enable-implicit-broadcast-folding-pass=false system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module {
   func.func @main(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
-    // CHECK: %{{[0-9]+}} = "ttnn.repeat"(%{{[0-9]+}})
+    // CHECK: %{{[0-9]+}} = "ttnn.repeat"
     %0 = tensor.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i32 : 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = tensor.empty() : tensor<1x16x32xf32>
@@ -15,7 +15,7 @@ module {
 module {
   func.func public @main(%arg0: tensor<1xf32>, %arg1: tensor<512x512xf32>) -> (tensor<512x512xf32>) {
     // CHECK: [[VAL0:%[0-9]+]] = "ttnn.reshape"(%{{[0-9]+}})
-    // CHECK: %{{[0-9]+}} = "ttnn.repeat"([[VAL0]])
+    // CHECK: %{{[0-9]+}} = "ttnn.repeat"([[VAL0]], %{{[0-9]+}})
     %0 = tensor.empty() : tensor<1x1xf32>
     %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 1 : i32]}> : (tensor<1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
     %2 = tensor.empty() : tensor<512x512xf32>

@@ -809,24 +809,29 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
-    let summary = "Reshape op.";
-    let description = [{
-      Reshape tensor.
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$shape);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let hasVerifier = 1;
-}
-
 def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let summary = "Repeat op.";
     let description = [{
       Repeat the input tensor according to number of times specified in repeat_dimensions.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         AnyRankedTensor:$output,
+                         I32ArrayAttr:$shape);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
+    let summary = "Reshape op.";
+    let description = [{
+      Reshape tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

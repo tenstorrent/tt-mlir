@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
@@ -410,6 +411,31 @@ public:
   }
 };
 
+class TTNNBroadcastWorkaround : public OpRewritePattern<ttnn::RepeatOp> {
+public:
+  using OpRewritePattern<ttnn::RepeatOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::RepeatOp op,
+                                PatternRewriter &rewriter) const override {
+    Value device = ttnn::utils::getOrInsertDevice(
+        rewriter, op.getOperand(0).getDefiningOp());
+    float fillValue = 0;
+    ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
+
+    ttnn::FullOp zeroOp = rewriter.create<ttnn::FullOp>(
+        op->getLoc(), op.getResult().getType(), device, fillValueAttr);
+
+    SmallVector<Value> addInputs;
+    addInputs.push_back(op.getOperand(0));
+    addInputs.push_back(zeroOp.getResult());
+
+    rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, op.getResult().getType(),
+                                             addInputs, op.getOperand(1));
+
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -438,6 +464,11 @@ public:
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
+    }
+    if (repeatFoldingWorkaroundEnabled) {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTNNBroadcastWorkaround>(&getContext());
+      runRewritePatterns(std::move(patterns), GreedyRewriteConfig::kNoLimit);
     }
     if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());

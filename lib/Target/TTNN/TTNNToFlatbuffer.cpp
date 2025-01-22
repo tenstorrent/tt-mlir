@@ -891,8 +891,8 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
 template <typename RepeatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
-  auto in =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto in = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getInputs().front()));
   auto shape =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(cache, op.getShape());
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
