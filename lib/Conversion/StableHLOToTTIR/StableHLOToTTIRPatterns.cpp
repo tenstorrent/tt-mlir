@@ -530,12 +530,18 @@ public:
                        SmallVector<int64_t>(windowDimensions.size() * 2, 0));
 
     mlir::tt::ttir::PoolingMethod poolingMethod;
-    int64_t dimArgValue = -1;
+    int64_t dimArg = -1;
     if (isMaxPool(srcOp)) {
       poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
     }
-    if (isCumSum(srcOp, adaptor, dimArgValue)) {
-      llvm::errs() << "CumSum op found\n";
+    if (isCumSum(srcOp, adaptor, dimArg)) {
+      llvm::errs() << "CumSum op found: " << dimArg << "\n";
+      llvm::errs() << "input.size: " << adaptor.getInputs().size() << '\t'
+                   << outputs.size() << '\n';
+      rewriter.replaceOpWithNewOp<ttir::MorehCumSumOp>(
+          srcOp, outputType, adaptor.getInputs()[0], outputs[0],
+          rewriter.getI32IntegerAttr(dimArg));
+      return success();
     } else {
       llvm::errs() << "Unsupported pooling method\n";
       return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
@@ -561,6 +567,10 @@ private:
       return false;
     }
 
+    if (srcOp.getInputs().size() != 1 || srcOp->getResults().size() != 1) {
+      return false;
+    }
+
     // Find constant input(s)
     Operation *initValue;
     for (uint64_t i = 0; i < srcOp.getInitValues().size(); i++) {
@@ -581,6 +591,9 @@ private:
     }
 
     Block &block = *srcOp.getBody().getBlocks().begin();
+    llvm::errs() << "block.size: " << block.getOperations().size() << '\n';
+    // llvm::errs() << "block.size: " <<
+    // srcOp.getBody().getBlocks().begin().size
     uint32_t opIdx = 0;
     for (Operation &op : block) {
       if (opIdx == 0 && !isa<mlir::stablehlo::AddOp>(op)) {

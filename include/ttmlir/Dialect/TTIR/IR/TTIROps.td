@@ -743,6 +743,25 @@ def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
     let hasVerifier = 1;
 }
 
+def TTIR_MorehCumSumOp : TTIR_DPSOp<"moreh_cumsum"> {
+    let summary = "Cummulative Sum op.";
+    let description = [{
+      Cummulative Sum operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32Attr:$dim_arg);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    //let hasVerifier = 1;
+}
+
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let summary = "Softmax operation.";
     let description = [{
