@@ -28,7 +28,7 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 
-#ifdef TTMLIR_ENABLE_STABLEHLOP
+#ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/dialect/Register.h"
 #endif
 

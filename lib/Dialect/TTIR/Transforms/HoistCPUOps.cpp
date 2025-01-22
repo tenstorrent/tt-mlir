@@ -134,9 +134,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
     builder.clone(*opToHoist, mapping);
 
-    // // Add a return operation to the function.
-    // builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
-    //                                      clonedOp->getResults());
+    // Add a return operation to the function.
     builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(), ValueRange());
 
     // Declare the function prototype in the source module.
@@ -198,21 +196,7 @@ public:
     if (rootModule->getParentOp() != nullptr) {
       return;
     }
-    // Search upwards for root ModuleOp
 
-    // Operation *parentOp = moduleOp->getParentOp();
-    // while (parentOp) {
-    //     if (auto parentModule = dyn_cast<ModuleOp>(parentOp)) {
-    //         // We found another ModuleOp above us - check if it's the root
-    //         if (parentOp->getParentOp() == nullptr) {
-    //           rootModule = parentModule;
-    //             // This is a nested ModuleOp since we found the root above us
-    //             // Continue with the pass on this nested ModuleOp
-    //             break;
-    //         }
-    //     }
-    //     parentOp = parentOp->getParentOp();
-    // }
     tt::DeviceModuleOp deviceModule;
     for (Operation &op : rootModule.getBodyRegion().front()) {
       if (auto maybeDeviceModule = dyn_cast<tt::DeviceModuleOp>(op)) {
