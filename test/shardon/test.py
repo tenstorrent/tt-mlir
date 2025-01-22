@@ -3,54 +3,60 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # RUN: %python %s | FileCheck %s
-# CHECK: %[[CONST:.*]] = "arith.constant"() <{value = 10 : i32}> : () -> i32
 
 from shardon.shardon_ast import *
 
 @ttkernel_compile
-def test_constant():
-    a = 10
+def test_assign_constant_int():
+    # CHECK: module {
+    # CHECK: func.func @[[C:.*]]
+    # CHECK: %[[CONST:.*]] = arith.constant{{.*}} : i32
+    # CHECK: %[[ALLOCA:.*]] = memref.alloca() : memref<1xi32>
+    # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
+    a = 1
 
-test_constant()
+    # CHECK: %[[CONST:.*]] = arith.constant{{.*}} : i32
+    # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
+    a = 2
 
+    # CHECK: return[[RET:.*]]
+    return a
 
+@ttkernel_compile
+def test_ifstmt():
+    # CHECK: module {
+    # CHECK: func.func @[[C:.*]]
+    # CHECK: %[[C1:.*]] = arith.constant{{.*}} : i32
+    # CHECK: %[[A_a:.*]] = memref.alloca() : memref<1xi32>
+    # CHECK: memref.store %[[C1]], %[[A_a]]{{.*}} : memref<1xi32>
+    a = 1
+    #CHECK: scf.if{{.*}}
+    if(1):
+        # CHECK: %[[C2:.*]] = arith.constant{{.*}} : i32
+        # CHECK: memref.store %[[C2]], %[[A_a]]{{.*}} : memref<1xi32>
+        a = 10
+        # CHECK: %[[C3:.*]] = arith.constant{{.*}} : i32
+        # CHECK: %[[A_b:.*]] = memref.alloca() : memref<1xi32>
+        # CHECK: memref.store %[[C3]], %[[A_b]]{{.*}} : memref<1xi32>
+        b = 5
+    else:
+        # CHECK: %[[C2:.*]] = arith.constant{{.*}} : i32
+        # CHECK: memref.store %[[C2]], %[[A_a]]{{.*}} : memref<1xi32>
+        a = 20
+        # CHECK: %[[C3:.*]] = arith.constant{{.*}} : i32
+        # CHECK: %[[A_c:.*]] = memref.alloca() : memref<1xi32>
+        # CHECK: memref.store %[[C3]], %[[A_c]]{{.*}} : memref<1xi32>
+        c = 1
 
-# class Tensor:
-#     def __init__(self, shape, dtype):
-#         self.shape = shape
-#         self.dtype = dtype
+    # CHECK: memref.store {{.*}}, %[[A_a]]{{.*}} : memref<1xi32>
+    # CHECK: %[[A_b:.*]] = memref.alloca() : memref<1xi32>
+    # CHECK: memref.store {{.*}}, %[[A_b]]{{.*}} : memref<1xi32>
+    # CHECK: %[[A_c:.*]] = memref.alloca() : memref<1xi32>
+    # CHECK: memref.store {{.*}}, %[[A_c]]{{.*}} : memref<1xi32>
+    a = 1
+    b = 2
+    c = 3
+    return
 
-# @ttkernel_compile
-# def eltwise(
-#     in0,
-#     in1,
-#     out,
-#     index_maps=[
-#         lambda *dn, m, n: (*dn, m, n),
-#         lambda *dn, m, n: (*dn, m, n),
-#         lambda *dn, m, n: (*dn, m, n),
-#     ],
-#     iterator_types=["parallel", "parallel", "parallel"],
-#     dynamic_shapes=False,
-# ):
-#     t6 = Tensix(in0, in1, out)
-#     for dn in range(in0.shape[-3]):
-#         for m in range(in0.shape[-2]):
-#             for n in range(in0.shape[-1]):
-#                 in0.wait()
-#                 in1.wait()
-#                 out.reserve()
-#                 t6.tile_regs_acquire()
-#                 t6.unpack_ab(in0, 0, in1, 0)
-#                 t6.add(0)
-#                 t6.pack(0, out, 0)
-#                 t6.tile_regs_release()
-#                 in0.pop()
-#                 in1.pop()
-#                 out.push()
-
-
-# a = Tensor((8, 128, 128), "float32")
-# b = Tensor((8, 128, 128), "float32")
-# out = Tensor((8, 128, 128), "float32")
-# eltwise(a, b, out)
+test_assign_constant_int()
+test_ifstmt()
