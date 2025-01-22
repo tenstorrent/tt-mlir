@@ -18,4 +18,4 @@ individual dialect documentation for more details.:
   - `ttkernel.[matmul|add|multiply]`: Computations on tiles in source register space, store the result in dest register space.
   - `ttkernel.sfpu_*`: Computations on tiles in dest register space using sfpu coprocessor.
 - `ttmetal`: Operations that dispatch work from host to device.
-  - `ttmetal.dispatch`: Dispatch a grid of compute work.
+  - `ttmetal.enqueue_program`: Dispatch a grid of compute work.
