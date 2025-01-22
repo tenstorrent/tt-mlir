@@ -76,7 +76,7 @@ static TTNNLayoutAttr createLayoutAttr(
 // To layout pass
 //===----------------------------------------------------------------------===//
 
-// Converts tensor types to have a ttnn layout attribute with deault values
+// Converts tensor types to have a ttnn layout attribute with default values
 //
 // Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
 // where ttnn_layout<...> is constructed with default values
