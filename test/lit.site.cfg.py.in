@@ -7,6 +7,7 @@ config.enable_bindings_python = @MLIR_ENABLE_BINDINGS_PYTHON@ and "@TTMLIR_ENABL
 config.ttmlir_obj_root = "@TTMLIR_BINARY_DIR@"
 config.llvm_shlib_ext = "@SHLIBEXT@"
 config.enable_stablehlo = "@TTMLIR_ENABLE_STABLEHLO@" and "@TTMLIR_ENABLE_STABLEHLO@" == "ON"
+config.enable_shardon = "@TTMLIR_ENABLE_SHARDON@" and "@TTMLIR_ENABLE_SHARDON@" == "ON"
 
 import lit.llvm
 lit.llvm.initialize(lit_config, config)

@@ -146,20 +146,20 @@ add_mlir_python_modules(TTMLIRPythonModules
     TTMLIRPythonCAPI
 )
 
+if(TTMLIR_ENABLE_SHARDON)
+  set(TTSHARDON_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shardon")
+  declare_mlir_python_sources(TTSHARDONPythonSources
+    ROOT_DIR "${TTSHARDON_PYTHON_ROOT_DIR}"
+    SOURCES
+      shardon_ast.py
+  )
+  add_mlir_python_modules(TTSHARDONPythonModules
+    ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/shardon"
+    INSTALL_PREFIX "python_packages/shardon"
+    DECLARED_SOURCES TTSHARDONPythonSources
+  )
+endif()
+
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT Test EXCLUDE_FROM_ALL)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packages COMPONENT Test EXCLUDE_FROM_ALL)
 
-
-set(TTSHARDON_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shardon")
-
-# cmake flags for optional build
-declare_mlir_python_sources(TTSHARDONPythonSources
-  ROOT_DIR "${TTSHARDON_PYTHON_ROOT_DIR}"
-  SOURCES
-    shardon_ast.py
-)
-add_mlir_python_modules(TTSHARDONPythonModules
-  ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/shardon"
-  INSTALL_PREFIX "python_packages/shardon"
-  DECLARED_SOURCES TTSHARDONPythonSources
-)

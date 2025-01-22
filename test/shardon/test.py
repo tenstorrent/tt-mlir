@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # RUN: %python %s | FileCheck %s
+# REQUIRES: shardon
 
 from shardon.shardon_ast import *
 
