@@ -22,7 +22,7 @@
 /lib/Dialect/TTKernel/ @nsmithtt @rjakovljevicTT
 /lib/Dialect/TTMetal/ @nsmithtt
 /lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
-/lib/Dialect/TTNN/Analysis/ @odjuricicTT
+/lib/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /lib/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /python/ @nsmithtt @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
 /python/test_infra/ @nsmithtt @tapspatel @vprajapati-tt
