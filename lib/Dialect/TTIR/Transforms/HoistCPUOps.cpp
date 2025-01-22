@@ -88,7 +88,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
 
   const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
-  const llvm::Twine localFunctionName = functionName + "_decl";
+  llvm::SmallString<16> localFunctionName = functionName;
+  localFunctionName.append("_decl");
 
   auto localFunc = llvm::dyn_cast_or_null<func::FuncOp>(
       sourceModule.lookupSymbol(localFunctionName.str()));

@@ -90,19 +90,21 @@ void DeviceModuleOp::build(OpBuilder &builder, OperationState &state) {
 template <typename ModuleOpTy>
 static LogicalResult verifyModuleWrapper(ModuleOpTy op) {
   Block &body = op.getBodyRegion().front();
-  if (!llvm::hasSingleElement(body))
+  if (!llvm::hasSingleElement(body)) {
     return op.emitOpError("expected exactly one block");
+  }
 
-  int moduleCount = 0;
+  size_t moduleCount = 0;
   for (Operation &innerOp : body) {
     if (isa<mlir::ModuleOp>(innerOp)) {
       moduleCount++;
     }
   }
 
-  if (moduleCount != 1)
+  if (moduleCount != 1) {
     return op.emitOpError("expected exactly one ModuleOp but found ")
            << moduleCount;
+  }
 
   return success();
 }
