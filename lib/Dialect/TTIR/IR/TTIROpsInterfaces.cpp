@@ -4,7 +4,9 @@
 
 #include <cstdint>
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 
 #include <llvm/ADT/ArrayRef.h>
@@ -32,8 +34,8 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
   for (const auto operandShape :
        llvm::drop_end(operandShapes, outputSegmentSize)) {
     const auto prevBroadcastedShape = broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(prevBroadcastedShape, operandShape,
-                                            broadcastedShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            prevBroadcastedShape, operandShape, broadcastedShape)) {
       return op->emitOpError("Operands are not broadcast compatible");
     }
   }
