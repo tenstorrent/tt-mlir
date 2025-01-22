@@ -60,24 +60,6 @@ source env/activate
 cmake --build build -- check-ttmlir
 ```
 
-### llvm-lit
-
-Under the hood the check-ttmlir cmake target is running `llvm-lit`. With it you
-can:
-
-```bash
-# Query which tests are available
-llvm-lit -sv ./build/test --show-tests
-
-# Run an individual test:
-llvm-lit -sv ./build/test/ttmlir/Dialect/TTIR/test_allocate.mlir
-
-# Run a sub-suite:
-llvm-lit -sv ./build/test/ttmlir/Dialect/TTIR
-```
-
-> See the full [llvm-lit documentation](https://llvm.org/docs/CommandGuide/lit.html) for more information.
-
 ## Lint
 
 ```bash

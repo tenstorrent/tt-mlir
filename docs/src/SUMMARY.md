@@ -6,6 +6,9 @@
 
 - [Building](./build.md)
   - [Docker Notes](./docker-notes.md)
+- [Testing](./testing.md)
+  - [Lit testing](./lit-testing.md)
+  - [EmitC testing](./emitc-testing.md)
 - [Tools](./tools.md)
   - [ttmlir-opt](./ttmlir-opt.md)
   - [ttmlir-translate](./ttmlir-translate.md)
@@ -13,6 +16,7 @@
   - [tt-explorer](./tt-explorer.md)
     - [Usage & API](./tt-explorer-usage-api.md)
     - [Roadmap](./tt-explorer-roadmap.md)
+  - [ttnn-standalone](./ttnn-standalone.md)
 - [Flatbuffers](./flatbuffers.md)
 - [CI](./ci.md)
 - [Additional Reading](./additional-reading.md)

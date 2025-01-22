@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-emitc-pipeline="system-desc-path=%system_desc_path%" %s > %direct.mlir
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --convert-ttnn-to-emitc %s > %indirect.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttnn-create-input-gens --convert-ttnn-to-emitc %s > %indirect.mlir
 // RUN: diff %direct.mlir %indirect.mlir
 //
 // This test checks that the (TTIR to EmitC pipeline) is equivalent to (TTIR to TTNN pipeline + dialect conversion from TTNN to EmitC).
