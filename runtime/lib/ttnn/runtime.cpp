@@ -205,6 +205,7 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
   bool enableAsync = debug::Env::get().enableAsyncTTNN;
   for (::ttnn::IDevice *device : meshDevice->get_devices()) {
     device->enable_async(enableAsync);
+    device->enable_program_cache();
   }
 
   return Device(std::static_pointer_cast<void>(meshDevice),
