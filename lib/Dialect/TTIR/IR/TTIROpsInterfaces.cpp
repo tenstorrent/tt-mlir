@@ -33,8 +33,8 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
   for (const auto operandShape :
        llvm::drop_end(operandShapes, outputSegmentSize)) {
     const auto prevBroadcastedShape = broadcastedShape;
-    if (!mlir::OpTrait::util::getBroadcastedShape(prevBroadcastedShape, operandShape,
-                                            broadcastedShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            prevBroadcastedShape, operandShape, broadcastedShape)) {
       return op->emitOpError("Operands are not broadcast compatible");
     }
   }
@@ -49,7 +49,8 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
   return success();
 }
 
-mlir::LogicalResult mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
+mlir::LogicalResult
+mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
   mlir::Operation *parent = op->getParentOp();
 
   if (!parent) {
@@ -59,6 +60,6 @@ mlir::LogicalResult mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation 
   if (llvm::dyn_cast_or_null<ttir::GenericOp>(parent)) {
     return success();
   }
-  
+
   return op->emitOpError("TTIR Tile Ops must be inside a generic region");
 }
