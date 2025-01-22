@@ -9,6 +9,7 @@
 #include "mlir/Interfaces/FoldInterfaces.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -95,6 +96,10 @@ void TTIRDialect::initialize() {
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
       >();
   addInterfaces<TTIRInlinerInterface, TTIRDialectFoldInterface>();
+  addOperations<
+#define GET_OP_LIST
+#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.cpp.inc"
+      >();
   // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
