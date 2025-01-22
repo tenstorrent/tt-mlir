@@ -304,7 +304,7 @@ ttrt run out.ttnn
 After adding runtime support, we're ready to test our Op on silicon. All silicon tests are located
 under `test/ttmlir/Silicon`. The process is similar to [adding a compiler unit test](#4-add-a-compiler-unit-test-for-the-op).
 
-In our specific case, we create a unit test here: `test/ttmlir/Silicon/TTNN/simple_matmul.mlir`:
+In our specific case, we create a unit test here:
 
 #### `test/ttmlir/Silicon/TTNN/matmul/simple_matmul.mlir`
 ```mlir
