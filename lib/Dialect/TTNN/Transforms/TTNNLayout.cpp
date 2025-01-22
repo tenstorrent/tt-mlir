@@ -133,7 +133,6 @@ public:
     }
 
     Block &entryBlock = funcOp.getBody().front();
-
     for (unsigned i = 0; i < entryBlock.getNumArguments(); ++i) {
       entryBlock.getArgument(i).setType(inputTypes[i]);
     }
@@ -464,8 +463,10 @@ public:
       patterns.add<TTNNLayoutDPSOperandsRewriter>(&getContext());
       // Takes func::Return and ttir::MeshShard ops and set layout which will
       // move it's operands to host
-      patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
-
+      patterns.add<TTNNLayoutForceSystemMemoryRewriter<ttir::MeshShardOp>>(
+          &getContext());
+      patterns.add<TTNNLayoutForceSystemMemoryRewriter<mlir::func::ReturnOp>>(
+          &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
