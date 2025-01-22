@@ -157,8 +157,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Erase the original operation.
   opToHoist->erase();
-
-  targetModule->dump();
 }
 
 // An analysis class which currently relies on manually tagging ops with a
