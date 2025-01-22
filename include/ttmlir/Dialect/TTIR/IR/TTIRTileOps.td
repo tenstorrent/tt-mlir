@@ -92,6 +92,8 @@ def TTIR_TileMatmulBlockOp : TTIR_Op<"tile_matmul_block", [TTIR_GenericParent]>{
 
     let arguments = (ins AnyNon0RankedMemRef:$a, AnyNon0RankedMemRef:$b);
     let results = (outs AnyNon0RankedMemRef:$result);
+
+    let hasVerifier = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTILEOPS_TD
