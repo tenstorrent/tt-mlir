@@ -51,7 +51,7 @@ public:
       TTUnwrapDeviceModulePass>::TTUnwrapDeviceModulePassBase;
   void runOnOperation() override {
     ModuleOp rootModule = getOperation();
-    // Ensure we only run this on top-level ModuleOp, if others are present.
+    // Ensure we only run this on top-level ModuleOp.
     if (rootModule->getParentOp() != nullptr) {
       return;
     }
