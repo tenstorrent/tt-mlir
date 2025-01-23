@@ -1,0 +1,152 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+index 0000000..5e3e97c
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,52 @@
++# Custom embedded build for Shardy, targgeting minimal build as a part of
++# tt-mlir MLIR project. This CMakeLists.txt file is mainly from StableHLO.
++
++cmake_minimum_required(VERSION 3.15.0)
++
++# CMP0116: Ninja generators transform `DEPFILE`s from `add_custom_command()`
++# New in CMake 3.20. https://cmake.org/cmake/help/latest/policy/CMP0116.html
++if(POLICY CMP0116)
++  cmake_policy(SET CMP0116 OLD)
++endif()
++
++option(SHARDY_EMBEDDED_BUILD "Build Shardy as part of another project" ON)
++option(SHARDY_ENABLE_LLD "Use LLD as the linker if available" OFF)
++
++message(STATUS "Building Shardy embedded in another project")
++project(shardy LANGUAGES CXX C)
++set(CMAKE_C_STANDARD 11)
++set(CMAKE_CXX_STANDARD 17)
++
++find_package(MLIR REQUIRED CONFIG)
++
++set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
++set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
++list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
++list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
++include(HandleLLVMOptions)
++
++include(TableGen)
++include(AddLLVM)
++include(AddMLIR)
++
++include(CheckCXXCompilerFlag)
++include(CheckLinkerFlag)
++
++if (SHARDY_ENABLE_LLD)
++  message(STATUS "Enabling LLD as the linker")
++  add_link_options("-fuse-ld=lld")
++endif()
++
++include_directories(${LLVM_INCLUDE_DIRS})
++include_directories(${MLIR_INCLUDE_DIRS})
++include_directories(${CMAKE_CURRENT_SOURCE_DIR})
++include_directories(${CMAKE_CURRENT_BINARY_DIR})
++link_directories(${LLVM_BUILD_LIBRARY_DIR})
++add_definitions(${LLVM_DEFINITIONS})
++
++set(SHARDY_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
++set(SHARDY_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
++
++add_compile_options(-Wno-deprecated-declarations -Wno-unused-but-set-variable -Wno-sign-compare)
++
++add_subdirectory(shardy/dialect/sdy/ir)
+diff --git a/shardy/dialect/sdy/ir/CMakeLists.txt b/shardy/dialect/sdy/ir/CMakeLists.txt
+new file mode 100644
+index 0000000..07d6a97
+--- /dev/null
++++ b/shardy/dialect/sdy/ir/CMakeLists.txt
+@@ -0,0 +1,88 @@
++# Shardy MLIR dialect.
++
++set(LLVM_TARGET_DEFINITIONS dialect.td)
++mlir_tablegen(dialect.h.inc -gen-dialect-decls -dialect=sdy)
++mlir_tablegen(dialect.cc.inc -gen-dialect-defs -dialect=sdy)
++add_public_tablegen_target(SdyDialectIncGen)
++add_dependencies(mlir-headers SdyDialectIncGen)
++add_mlir_doc(dialect SdyDialect src/autogen/md/Dialect/ -gen-dialect-doc)
++
++set(LLVM_TARGET_DEFINITIONS ops.td)
++mlir_tablegen(ops.h.inc -gen-op-decls)
++mlir_tablegen(ops.cc.inc -gen-op-defs)
++add_public_tablegen_target(SdyOpsIncGen)
++add_dependencies(mlir-headers SdyOpsIncGen)
++
++set(LLVM_TARGET_DEFINITIONS attrs.td)
++mlir_tablegen(attrs.h.inc -gen-attrdef-decls)
++mlir_tablegen(attrs.cc.inc -gen-attrdef-defs)
++add_public_tablegen_target(SdyAttrsIncGen)
++add_dependencies(mlir-headers SdyAttrsIncGen)
++
++set(LLVM_TARGET_DEFINITIONS enums.td)
++mlir_tablegen(enums.h.inc -gen-enum-decls)
++mlir_tablegen(enums.cc.inc -gen-enum-defs)
++add_public_tablegen_target(SdyEnumsIncGen)
++add_dependencies(mlir-headers SdyEnumsIncGen)
++
++set(LLVM_TARGET_DEFINITIONS op_interface.td)
++mlir_tablegen(op_interface.h.inc -gen-op-interface-decls)
++mlir_tablegen(op_interface.cc.inc -gen-op-interface-defs)
++add_public_tablegen_target(SdyOpInterfaceIncGen)
++add_dependencies(mlir-headers SdyOpInterfaceIncGen)
++
++set(LLVM_TARGET_DEFINITIONS canonicalization.td)
++mlir_tablegen(canonicalization.cc.inc -gen-rewriters)
++add_public_tablegen_target(SdyCanonicalizationIncGen)
++add_dependencies(mlir-headers SdyCanonicalizationIncGen)
++
++add_mlir_library(SdyDialect
++  canonicalization.cc
++  data_flow_utils.cc
++  dialect.cc
++  parsers.cc
++  printers.cc
++  utils.cc
++  verifiers.cc
++
++  DEPENDS
++  SdyDialectIncGen
++  SdyOpsIncGen
++  SdyAttrsIncGen
++  SdyEnumsIncGen
++  SdyOpInterfaceIncGen
++  SdyCanonicalizationIncGen
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRBytecodeOpInterface
++  MLIRFuncDialect
++  MLIRIR
++  MLIRInferTypeOpInterface
++  MLIRShapeDialect
++  MLIRSideEffectInterfaces
++  MLIRSupport
++  StablehloAssemblyFormat
++  StablehloOps
++  StablehloTypeInference
++)
++
++target_include_directories(SdyDialect INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)
++
++add_mlir_dialect_library(SdyRegister
++  register.cc
++
++  LINK_LIBS PUBLIC
++  SdyDialect
++  MLIRFuncDialect
++  MLIRIR
++  StablehloOps
++)
++
++target_include_directories(SdyRegister INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)

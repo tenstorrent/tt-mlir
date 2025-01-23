@@ -16,6 +16,7 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Pass/Pass.h>
 
+#include <shardy/dialect/sdy/ir/dialect.h>
 #include <stablehlo/dialect/StablehloOps.h>
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
@@ -93,6 +94,7 @@ struct ConvertStableHLOToTTIRPass
 
     target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
 
+    target.addLegalDialect<mlir::sdy::SdyDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tensor::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
