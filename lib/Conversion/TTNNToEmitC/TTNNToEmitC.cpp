@@ -39,7 +39,7 @@ using namespace mlir::tt;
 
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
-      "static_cast<::ttnn::Device *>(nullptr)");
+      "static_cast<::ttnn::IDevice *>(nullptr)");
 }
 
 // Base class for TTNN to EmitC OpConversionPattern.
@@ -951,16 +951,16 @@ public:
     // Attrs (like shape) need to be instantiated into objects before being
     // passed to the op. Therefore:
     //
-    // We first create a ttnn::Shape object (SSA) by calling createShapeOp()
-    // and add it to the operands vector, but also add an IndexAttr in
-    // ArrayAttr to reference it (this is an EmitC mechanism that allows for
-    // combining Attrs and Values when calling an OpaqueOp). All the other
-    // input params are optional, so we create them on-the-fly into the
+    // We first create a ttnn::SimpleShape object (SSA) by calling
+    // createShapeOp() and add it to the operands vector, but also add an
+    // IndexAttr in ArrayAttr to reference it (this is an EmitC mechanism that
+    // allows for combining Attrs and Values when calling an OpaqueOp). All the
+    // other input params are optional, so we create them on-the-fly into the
     // ArrayAttr, whether they are an actual Attr, or a Value pointed to by
     // IndexAttr. If they are present, we create the object and pass it to the
     // op. If not, we pass std::nullopt.
 
-    // Create ttnn::Shape() call
+    // Create ttnn::SimpleShape() call
     //
     emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
@@ -976,7 +976,7 @@ public:
     //
     size_t operandIndex = 0;
     ArrayAttr arrayAttr = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(operandIndex++), // ttnn::Shape
+        rewriter.getIndexAttr(operandIndex++), // ttnn::SimpleShape
         srcOp.getDtype().has_value()
             ? ttnn_to_emitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())
             : ttnn_to_emitc::utils::createStdNullopt(
@@ -1348,6 +1348,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Conv ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::Conv2dOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::ConvTranspose2dOp>>(
+      typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::MaxPool2dOp>>(typeConverter,
                                                               ctx);
 
