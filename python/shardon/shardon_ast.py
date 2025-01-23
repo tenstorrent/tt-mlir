@@ -8,23 +8,21 @@ import ast
 import inspect
 import functools
 
+
 def get_supported_nodes():
     return [
         # Variables
         ast.Name,
-        ast.Load, 
+        ast.Load,
         ast.Store,
-
         # control-flow
         ast.If,
         ast.For,
         ast.While,
         ast.Break,
         ast.Continue,
-
         # Literals
         ast.Constant,
-
         # Expressions
         ast.Attribute,
         ast.Expr,
@@ -58,15 +56,12 @@ def get_supported_nodes():
         ast.LtE,
         ast.Gt,
         ast.GtE,
-
         # Subscripting
         ast.Subscript,
-
         # Statements
         ast.Pass,
         ast.Assign,
         ast.AugAssign,
-
         # Function-and-class-definitions
         ast.Module,
         ast.FunctionDef,
@@ -74,6 +69,7 @@ def get_supported_nodes():
         ast.arguments,
         ast.arg,
     ]
+
 
 class TTKernelCompiler(ast.NodeVisitor):
     def __init__(self, name):
@@ -87,7 +83,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.supported_nodes = get_supported_nodes()
 
         ttkernel.register_dialect(self.ctx)
-    
+
     def var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
             if var_name in sym_table:
@@ -103,16 +99,19 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         # TODO: add alloca args name into symbol table
-        if(self.func_entry): raise IndexError("Cannot declare function within a function")
+        if self.func_entry:
+            raise IndexError("Cannot declare function within a function")
 
-        self.symbol_tables.append({}) 
+        self.symbol_tables.append({})
         arg_types = []
         for arg in node.args.args:
-            if (arg.annotation.id == "int"):
+            if arg.annotation.id == "int":
                 arg_types.append(IntegerType.get_signless(32, self.ctx))
-            else: 
-                raise NotImplementedError(f"function arg type {arg.annotation.id} not implemented")
-        
+            else:
+                raise NotImplementedError(
+                    f"function arg type {arg.annotation.id} not implemented"
+                )
+
         self.func_entry = func.FuncOp(name=node.name, type=(arg_types, []))
         func_bb = self.func_entry.add_entry_block()
 
@@ -127,7 +126,7 @@ class TTKernelCompiler(ast.NodeVisitor):
     def visit_Return(self, node):
         # TODO: handle more than one return, i.e. tuples, expressions etc.
         # TODO: need a symbol table in order to return the right thing
-        if (node.value):
+        if node.value:
             self.visit(node.value)
         func.ReturnOp([])
 
@@ -137,19 +136,21 @@ class TTKernelCompiler(ast.NodeVisitor):
         # NOTE: Only handling Compare for if statements right now
         # TODO: if cond can be: Name, Expr, Compare, Call, UnaryOp, BoolOp
         print((node.test))
-        assert isinstance(node.test, ast.Compare), "Only Compare supported in if statements"
+        assert isinstance(
+            node.test, ast.Compare
+        ), "Only Compare supported in if statements"
         if_cond = self.visit(node.test)
         # if not if_cond.result.type.width == 1 or not if_cond.result.type.is_signless:
-            # if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
+        # if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
         if_exp = scf.IfOp(cond=if_cond, hasElse=bool(node.orelse))
 
         with InsertionPoint(if_exp.then_block), Location.unknown():
             self.symbol_tables.append({})
-            for stmt in node.body: 
+            for stmt in node.body:
                 self.visit(stmt)
             scf.YieldOp([])
             self.symbol_tables.pop()
-        
+
         if node.orelse:
             with InsertionPoint(if_exp.else_block), Location.unknown():
                 self.symbol_tables.append({})
@@ -157,15 +158,17 @@ class TTKernelCompiler(ast.NodeVisitor):
                     self.visit(stmt)
                 scf.YieldOp([])
                 self.symbol_tables.pop()
-    
+
     def visit_For(self, node):
         assert node.iter.func.id == "range", "Only range() supported in for loops"
-        assert len(node.iter.args) == 3, "Must specify range(start, end, step) in for loops"
+        assert (
+            len(node.iter.args) == 3
+        ), "Must specify range(start, end, step) in for loops"
         lower_bound = self.visit(node.iter.args[0])
         upper_bound = self.visit(node.iter.args[1])
         step = self.visit(node.iter.args[2])
         for_op = scf.ForOp(lower_bound, upper_bound, step)
-        with(InsertionPoint(for_op.body)), Location.unknown():
+        with (InsertionPoint(for_op.body)), Location.unknown():
             self.symbol_tables.append({})
             for stmt in node.body:
                 self.visit(stmt)
@@ -186,7 +189,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         #     while_cond = self.visit(node.test)
         #     while_cond = arith.TruncIOp(IntegerType.get_signless(1), while_cond)
         #     scf.ConditionOp(while_cond, while_cond_bb.arguments)
-        
+
         # while_body_bb = Block.create_at_start(while_op.after)
         # with InsertionPoint(while_body_bb), Location.unknown():
         #     self.symbol_tables.append({})
@@ -195,7 +198,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         #     scf.YieldOp(while_body_bb.arguments)
         #     self.symbol_tables.pop()
         raise NotImplementedError("While loops not supported yet")
-
 
     def visit_Break():
         raise NotImplementedError("Break not supported yet")
@@ -209,9 +211,8 @@ class TTKernelCompiler(ast.NodeVisitor):
         existing_var_table = self.var_exists(var_name)
         if existing_var_table:
             return existing_var_table[var_name]
-        
-        return None
 
+        return None
 
     def visit_Assign(self, node):
         # print(f"visit_Assign")
@@ -237,7 +238,7 @@ class TTKernelCompiler(ast.NodeVisitor):
     def visit_Call(self, node):
         # print(f"visit_Call")
         return None
-    
+
     def visit_Expr(self, node):
         # NOTE: will catch function calls and expressions where return values not used.
         return self.visit(node.value)
@@ -249,14 +250,14 @@ class TTKernelCompiler(ast.NodeVisitor):
         rhs = self.visit(node.right)
         if not lhs or not rhs:
             raise ValueError("Binary operands not found")
-        
+
         # load variable if needed
         if isinstance(lhs.type, memref.MemRefType):
             lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
         if isinstance(rhs.type, memref.MemRefType):
             rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
-        
-        match(node.op):
+
+        match (node.op):
             case ast.Add():
                 return arith.addi(lhs, rhs)
             case ast.Sub():
@@ -264,19 +265,23 @@ class TTKernelCompiler(ast.NodeVisitor):
             case ast.Mult():
                 return arith.muli(lhs, rhs)
             # case ast.Div(): # only worried about integers right now
-                # return arith.divf(lhs, rhs)
+            # return arith.divf(lhs, rhs)
             case _:
-                raise NotImplementedError(f"Binary operator {type(node.op).__name__} not implemented")
-    
+                raise NotImplementedError(
+                    f"Binary operator {type(node.op).__name__} not implemented"
+                )
+
     def visit_UnaryOp(self, node):
         operand = self.visit(node.operand)
         if not operand:
             raise ValueError("Unary operand not found")
 
         if isinstance(operand.type, memref.MemRefType):
-            operand = memref.LoadOp(operand, arith.ConstantOp(IndexType.get(self.ctx), 0))
-        
-        match(node.op):
+            operand = memref.LoadOp(
+                operand, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            )
+
+        match (node.op):
             # need to expose emitc for these unary operators, not sure if this is necessary yet
             # case ast.USub():
             #     # emitc has a unary minus operator
@@ -286,7 +291,9 @@ class TTKernelCompiler(ast.NodeVisitor):
             # case ast.Invert():
             #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), -1))
             case _:
-                raise NotImplementedError(f"Unary operator {type(node.op).__name__} not implemented")
+                raise NotImplementedError(
+                    f"Unary operator {type(node.op).__name__} not implemented"
+                )
 
     def visit_Compare(self, node):
         assert len(node.ops) == 1, "Only single operators supported"
@@ -295,13 +302,13 @@ class TTKernelCompiler(ast.NodeVisitor):
         rhs = self.visit(node.comparators[0])
         if not lhs or not rhs:
             raise ValueError("Compare operands not found")
-        
+
         if isinstance(lhs.type, memref.MemRefType):
             lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
         if isinstance(rhs.type, memref.MemRefType):
             rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
-        
-        match(node.ops[0]):
+
+        match (node.ops[0]):
             case ast.Eq():
                 return arith.cmpi(arith.CmpIPredicate.eq, lhs, rhs)
             case ast.NotEq():
@@ -314,22 +321,28 @@ class TTKernelCompiler(ast.NodeVisitor):
                 return arith.cmpi(arith.CmpIPredicate.slt, lhs, rhs)
             case ast.LtE():
                 return arith.cmpi(arith.CmpIPredicate.sle, lhs, rhs)
-            case _: 
-                raise NotImplementedError(f"Compare operator {type(node.ops).__name__} not implemented")
+            case _:
+                raise NotImplementedError(
+                    f"Compare operator {type(node.ops).__name__} not implemented"
+                )
 
     # Literals
     def visit_Constant(self, node):
         if isinstance(node.value, int):
             return arith.ConstantOp(IntegerType.get_signless(32, self.ctx), node.value)
         else:
-            raise NotImplementedError(f"constant type {type(node.value).__name__} not implemented")
+            raise NotImplementedError(
+                f"constant type {type(node.value).__name__} not implemented"
+            )
 
-
-    def visit(self, node : ast.AST):
-        if any(isinstance(node, supported_node) for supported_node in self.supported_nodes):
+    def visit(self, node: ast.AST):
+        if any(
+            isinstance(node, supported_node) for supported_node in self.supported_nodes
+        ):
             return super().visit(node)
         else:
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
+
 
 def ttkernel_compile(f):
     @functools.wraps(f)
@@ -344,4 +357,3 @@ def ttkernel_compile(f):
         b.module.operation.verify()
 
     return _wrapper
-

@@ -7,6 +7,7 @@
 
 from shardon.shardon_ast import *
 
+
 @ttkernel_compile
 def test_assign_constant_int():
     # CHECK: module {
@@ -22,6 +23,7 @@ def test_assign_constant_int():
 
     # CHECK: return[[RET:.*]]
     return a
+
 
 @ttkernel_compile
 def test_ifstmt():
@@ -61,6 +63,7 @@ def test_ifstmt():
     c = 3
     return
 
+
 @ttkernel_compile
 def test_for():
     # CHECK: module {
@@ -70,6 +73,7 @@ def test_for():
         a = 1
 
     return
+
 
 @ttkernel_compile
 def test_binops():
@@ -92,6 +96,7 @@ def test_binops():
     a + b - a * b
     return
 
+
 @ttkernel_compile
 def test_compare_expr():
     # CHECK: module {
@@ -111,6 +116,7 @@ def test_compare_expr():
     # CHECK: %{{.*}} = arith.cmpi sge{{.*}}
     a >= b
     return
+
 
 test_assign_constant_int()
 test_ifstmt()
