@@ -1546,6 +1546,28 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
   return mlir::success();
 }
 
+// Verifier for Reduce ProdOp.
+static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
+                                              mlir::RankedTensorType inputType,
+                                              bool allDimensions) {
+  int64_t inputTensorRank = inputType.getRank();
+  mlir::Type elementType = inputType.getElementType();
+
+  if (inputTensorRank > 4) {
+    return reduceOp->emitOpError(
+        "Input tensor rank is greater than 4 for reduce(product).");
+  }
+  // [TODO](mmanzoor) Add workaround to typecast the input tensor to bfloat16
+  // then typecast the output again to match the requirements.
+  // https://github.com/tenstorrent/tt-mlir/issues/1864
+  if (allDimensions && !elementType.isBF16()) {
+    return reduceOp->emitOpError("TTNN only supports Reduce(prod) along all "
+                                 "dimensions for bfloat16 datatype.");
+  }
+
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // MaxOp
 //===----------------------------------------------------------------------===//
@@ -1580,6 +1602,16 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
 // MinOp verification.
 ::mlir::LogicalResult MinOp::verify() {
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// Reduce ProdOp
+//===----------------------------------------------------------------------===//
+
+// ProdOp verification.
+::mlir::LogicalResult ProdOp::verify() {
+  return verifyReduceProdOp(getOperation(), getInput().getType(),
+                            getAllDimensions());
 }
 
 } // namespace mlir::tt::ttnn
