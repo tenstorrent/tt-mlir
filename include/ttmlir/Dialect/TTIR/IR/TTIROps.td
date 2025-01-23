@@ -704,6 +704,27 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
   }];
 }
 
+def TTIR_MinOp : TTIR_ReductionOp<"min"> {
+  let summary = "Min reduction op.";
+  let description = [{
+    This op computes the minimum of all elements of the tensor or along
+    specified dimension.
+
+    Example:
+      input: [[1, 5, 3],
+              [4, 2, 6]]
+
+      // Computing along dim 0
+      output: [1, 2, 3]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 1
+  }];
+}
+
 def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{

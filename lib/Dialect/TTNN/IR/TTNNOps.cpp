@@ -1573,4 +1573,13 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
 
+//===----------------------------------------------------------------------===//
+// Reduce MinOp
+//===----------------------------------------------------------------------===//
+
+// MinOp verification.
+::mlir::LogicalResult MinOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
 } // namespace mlir::tt::ttnn

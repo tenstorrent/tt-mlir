@@ -2260,3 +2260,19 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
+
+//===----------------------------------------------------------------------===//
+// Reduce MinOp
+//===----------------------------------------------------------------------===//
+
+// MinOp kernel builder.
+void mlir::tt::ttir::MinOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "min");
+}
+
+// MinOp verification.
+::mlir::LogicalResult mlir::tt::ttir::MinOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
