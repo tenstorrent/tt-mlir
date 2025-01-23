@@ -4,6 +4,7 @@
 
 #include <cstdint>
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
@@ -53,8 +54,12 @@ mlir::LogicalResult
 mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
   mlir::Operation *parent = op->getParentOp();
 
-  if (llvm::dyn_cast_or_null<ttir::GenericOp>(parent)) {
-    return success();
+  while (parent) {
+    if (llvm::dyn_cast<ttir::GenericOp>(parent) ||
+        llvm::dyn_cast<linalg::GenericOp>(parent)) {
+      return success();
+    }
+    parent = op->getParentOp();
   }
 
   return op->emitOpError("TTIR Tile Ops must be inside a generic region");
