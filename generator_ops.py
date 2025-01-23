@@ -77,7 +77,22 @@ def create_relu(inputs, output_shape_list, golden_inputs):
     )
     relu_index += 1
 
+    print("relu-golden-pre----------start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("relu-golden-pre---------end")
+    print()
+    print()
+
     golden_output = torch.relu(*golden_inputs)
+
+    print("relu-golden-post----------start")
+    print()
+    print(golden_output.shape)
+    print("relu-golden-post---------end")
+    print()
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -100,7 +115,22 @@ def create_sigmoid(inputs, output_shape_list, golden_inputs):
     )
     sigmoid_index += 1
 
+    print("sigmoid-golden-pre----------start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("sigmoid-golden-pre---------end")
+    print()
+    print()
+
     golden_output = torch.sigmoid(*golden_inputs)
+
+    print("sigmoid-golden-post----------start")
+    print()
+    print(golden_output.shape)
+    print("sigmoid-golden-post---------end")
+    print()
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -276,7 +306,24 @@ def create_add(input_one, input_two, output_shape_list, golden_inputs):
     )
     add_index += 1
 
+    print("add-golden-pre----------start")
+    print()
+    a = golden_inputs[0]
+    b = golden_inputs[0]
+    print(a.shape)
+    print(b.shape)
+    print("add-golden-pre---------end")
+    print()
+    print()
+
     golden_output = torch.add(*golden_inputs)
+
+    print("add-golden-post----------start")
+    print()
+    print(golden_output.shape)
+    print("add-golden-post---------end")
+    print()
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -299,7 +346,23 @@ def create_multiply(input_one, input_two, output_shape_list, golden_inputs):
     )
     multiply_index += 1
 
+    print("multiply-golden-pre-----------start")
+    print()
+    a = golden_inputs[0]
+    b = golden_inputs[1]
+    print(a.shape)
+    print(b.shape)
+    print("multiply-golden-pre-----------end")
+    print()
+
     golden_output = torch.multiply(*golden_inputs)
+
+    print("multiply-golden-post----------start")
+    print()
+    print(golden_output.shape)
+    print("multiply-golden-post---------end")
+    print()
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -323,7 +386,20 @@ def create_softmax(inputs, output_shape_list, dim, golden_inputs):
     )
     softmax_index += 1
 
+    print("softmax-golden-pre-----------start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("softmax-golden-pre-----------end")
+    print()
+
     golden_output = torch.softmax(*golden_inputs, dim)
+
+    print("softmax-golden-post-----------start")
+    print()
+    print(golden_output.shape)
+    print("softmax-golden-post-----------end")
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -344,7 +420,20 @@ def create_cos(inputs, output_shape_list, golden_inputs):
     )
     cos_index += 1
 
+    print("cos-golden-pre------start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("cos-golden-pre------end")
+    print()
+
     golden_output = torch.cos(*golden_inputs)
+
+    print("cos-golden-post------start")
+    print()
+    print(golden_output.shape)
+    print("cos-golden-post------end")
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -365,7 +454,20 @@ def create_sin(inputs, output_shape_list, golden_inputs):
     )
     sin_index += 1
 
+    print("sin-golden-pre------start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("sin-golden-pre------end")
+    print()
+
     golden_output = torch.sin(*golden_inputs)
+
+    print("sin-golden-post------start")
+    print()
+    print(golden_output.shape)
+    print("sin-golden-post------end")
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -390,7 +492,20 @@ def create_transpose(inputs, output_shape_list, dim0, dim1, golden_inputs):
     )
     transpose_index += 1
 
+    print("transpose-golden-pre------start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("transpose-golden-pre------end")
+    print()
+
     golden_output = torch.transpose(*golden_inputs, dim0, dim1)
+
+    print("transpose-golden-post------start")
+    print()
+    print(golden_output.shape)
+    print("transpose-golden-post------end")
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -414,7 +529,20 @@ def create_unsqueeze(inputs, output_shape_list, dim, golden_inputs):
     )
     unsqueeze_index += 1
 
+    print("unsqueeze-golden-pre-----start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("unsqueeze-golden-pre-----end")
+    print()
+
     golden_output = torch.unsqueeze(*golden_inputs, dim)
+
+    print("unsqueeze-golden-post-----start")
+    print()
+    print(golden_output.shape)
+    print("unsqueeze-golden-post-----end")
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -438,7 +566,20 @@ def create_squeeze(inputs, output_shape_list, dim, golden_inputs):
     )
     squeeze_index += 1
 
+    print("squeeze-golden-pre-----start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("squeeze-golden-pre-----end")
+    print()
+
     golden_output = torch.squeeze(*golden_inputs, dim)
+
+    print("squeeze-golden-post-----start")
+    print()
+    print(golden_output.shape)
+    print("squeeze-golden-post-----end")
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -462,7 +603,22 @@ def create_concat(input_one, input_two, output_shape_list, dim, golden_inputs):
     )
     concat_index += 1
 
+    print("concat-golden-pre-------start")
+    print()
+    a = golden_inputs[0]
+    b = golden_inputs[1]
+    print(a.shape)
+    print(b.shape)
+    print("concat-golden-pre-------end")
+    print()
+
     golden_output = torch.concat(golden_inputs, dim)
+
+    print("concat-------start")
+    print()
+    print(golden_output.shape)
+    print("concat-------end")
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -511,7 +667,22 @@ def create_reshape(inputs, output_shape_list, golden_inputs):
     )
     reshape_index += 1
 
+    print("reshape-golden-pre----------start")
+    print()
+    a = golden_inputs[0]
+    print(a.shape)
+    print("reshape-golden-pre---------end")
+    print()
+    print()
+
     golden_output = torch.reshape(*golden_inputs, output_shape_list[0])
+
+    print("reshape-golden-post---------start")
+    print()
+    print(golden_output.shape)
+    print("reshape-golden-post---------end")
+    print()
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -556,7 +727,24 @@ def create_matmul(input_one, input_two, output_shape_list, golden_inputs):
     )
     matmul_index += 1
 
+    print("matmul-golden-pre----------start")
+    print()
+    a = golden_inputs[0]
+    b = golden_inputs[1]
+    print(a.shape)
+    print(b.shape)
+    print("matmul-golden-pre---------end")
+    print()
+    print()
+
     golden_output = torch.matmul(*golden_inputs)
+
+    print("matmul-golden-post----------start")
+    print()
+    print(golden_output.shape)
+    print("matmul-golden-post---------end")
+    print()
+    print()
 
     return res, {"location": location, "golden_output": golden_output}
 

@@ -689,7 +689,7 @@ def test_transpose():
         module = Module.create()
         with InsertionPoint(module.body):
 
-            input_shape_list = [(1, 128)]
+            input_shape_list = [(1, 12, 32, 100)]
 
             input_operands = []
             for shape in input_shape_list:
@@ -704,7 +704,7 @@ def test_transpose():
             @func.func(*input_operands, name=f"{function_name}")
             def transpose(inputs):
                 ttir_op_res, golden_dict = create_transpose(
-                    inputs, [(128, 1)], 0, 1, golden_inputs
+                    inputs, [(1, 32, 12, 100)], -3, -2, golden_inputs
                 )
                 golden_map[golden_dict["location"]] = golden_dict["golden_output"]
                 return ttir_op_res
@@ -1028,21 +1028,21 @@ def test_llama_attention():
         module = Module.create()
         with InsertionPoint(module.body):
 
-            input_shape_list = [(1, 12, 3200),
-                                (1, 1, 12, 12),
-                                (1, 12),
-                                (1, 50, 1),
-                                (1, 32, 50, 100),
-                                (1),
-                                (1, 32, 50, 100),
-                                (1, 32, 50, 100),
-                                (1),
-                                (1, 32, 50, 100),
-                                (1),
-                                (3200, 3200),
-                                (3200, 3200),
-                                (3200, 3200),
-                                (3200, 3200)]
+            input_shape_list = [(1, 12, 3200),      # arg0
+                                (1, 1, 12, 12),     # arg1
+                                (1, 12),            # arg2
+                                (1, 50, 1),         # arg3
+                                (1, 32, 50, 100),   # arg4
+                                (1, 1),             # arg5
+                                (1, 32, 50, 100),   # arg6
+                                (1, 32, 50, 100),   # arg7
+                                (1, 1),             # arg8
+                                (1, 32, 50, 100),   # arg9
+                                (1, 1),             # arg10
+                                (3200, 3200),       # arg11
+                                (3200, 3200),       # arg12
+                                (3200, 3200),       # arg13
+                                (3200, 3200)]       # arg14
 
             input_operands = []
             for shape in input_shape_list:
@@ -1056,17 +1056,187 @@ def test_llama_attention():
 
             @func.func(*input_operands, name=f"{function_name}")
             def llama_attention(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14):
-                ttir_op_res, golden_dict = create_squeeze(
-                    inputs, [(12, 3200)], 0, golden_inputs
-                )
-                golden_map[golden_dict["location"]] = golden_dict["golden_output"]
+                
+                output1, golden_dict1 = create_squeeze(arg0, [(12, 3200)], 0, [golden_inputs[0]])
+                golden_map[golden_dict1["location"]] = golden_dict1["golden_output"]
 
+                output3, golden_dict3 = create_matmul(output1, arg11, [(12, 3200)], [golden_dict1["golden_output"], golden_inputs[11]])
+                golden_map[golden_dict3["location"]] = golden_dict3["golden_output"]
 
-                return ttir_op_res
+                output5, golden_dict5 = create_reshape(output3, [(1, 12, 32, 100)], [golden_dict3["golden_output"]])
+                golden_map[golden_dict5["location"]] = golden_dict5["golden_output"]
+
+                output7, golden_dict7 = create_transpose(output5, [(1, 32, 12, 100)], -3, -2, [golden_dict5["golden_output"]])
+                golden_map[golden_dict7["location"]] = golden_dict7["golden_output"]
+
+                output9, golden_dict9 = create_unsqueeze(arg2, [(1, 1, 12)], 1, [golden_inputs[2]])
+                golden_map[golden_dict9["location"]] = golden_dict9["golden_output"]
+
+                output11, golden_dict11 = create_matmul(arg3, output9, [(1, 50, 12)], [golden_inputs[3], golden_dict9["golden_output"]])
+                golden_map[golden_dict11["location"]] = golden_dict11["golden_output"]
+
+                output13, golden_dict13 = create_transpose(output11, [(1, 12, 50)], -2, -1, [golden_dict11["golden_output"]])
+                golden_map[golden_dict13["location"]] = golden_dict13["golden_output"]
+
+                output15, golden_dict15 = create_concat(output13, output13, [(1, 12, 100)], -1, [golden_dict13["golden_output"], golden_dict13["golden_output"]])
+                golden_map[golden_dict15["location"]] = golden_dict15["golden_output"]
+
+                output17, golden_dict17 = create_cos(output15, [(1, 12, 100)], [golden_dict15["golden_output"]])
+                golden_map[golden_dict17["location"]] = golden_dict17["golden_output"]
+
+                output19, golden_dict19 = create_unsqueeze(output17, [(1, 1, 12, 100)], 1, [golden_dict17["golden_output"]])
+                golden_map[golden_dict19["location"]] = golden_dict19["golden_output"]
+
+                output21, golden_dict21 = create_multiply(output7, output19, [(1, 32, 12, 100)], [golden_dict7["golden_output"], golden_dict19["golden_output"]])
+                golden_map[golden_dict21["location"]] = golden_dict21["golden_output"]
+
+                output23, golden_dict23 = create_transpose(output7, [(1, 32, 100, 12)], -2, -1, [golden_dict7["golden_output"]])
+                golden_map[golden_dict23["location"]] = golden_dict23["golden_output"]
+
+                output25, golden_dict25 = create_matmul(arg4, output23, [(1, 32, 50, 12)], [golden_inputs[4], golden_dict23["golden_output"]])
+                golden_map[golden_dict25["location"]] = golden_dict25["golden_output"]
+
+                output27, golden_dict27 = create_transpose(output25, [(1, 32, 12, 50)], -2, -1, [golden_dict25["golden_output"]])
+                golden_map[golden_dict27["location"]] = golden_dict27["golden_output"]
+
+                output29, golden_dict29 = create_multiply(output27, arg5, [(1, 32, 12, 50)], [golden_dict27["golden_output"], golden_inputs[5]])
+                golden_map[golden_dict29["location"]] = golden_dict29["golden_output"]
+                
+                output31, golden_dict31 = create_transpose(output7, [(1, 32, 100, 12)], -2, -1, [golden_dict7["golden_output"]])
+                golden_map[golden_dict31["location"]] = golden_dict31["golden_output"]
+
+                output33, golden_dict33 = create_matmul(arg6, output31, [(1, 32, 50, 12)], [golden_inputs[6], golden_dict31["golden_output"]])
+                golden_map[golden_dict33["location"]] = golden_dict33["golden_output"]
+
+                output35, golden_dict35 = create_transpose(output33, [(1, 32, 12, 50)], -2, -1, [golden_dict33["golden_output"]])
+                golden_map[golden_dict35["location"]] = golden_dict35["golden_output"]
+
+                output37, golden_dict37 = create_concat(output29, output35, [(1, 32, 12, 100)], -1, [golden_dict29["golden_output"], golden_dict35["golden_output"]])
+                golden_map[golden_dict37["location"]] = golden_dict37["golden_output"]
+
+                output39, golden_dict39 = create_sin(output15, [(1, 12, 100)], [golden_dict15["golden_output"]])
+                golden_map[golden_dict39["location"]] = golden_dict39["golden_output"]
+
+                output41, golden_dict41 = create_unsqueeze(output39, [(1, 1, 12, 100)], 1, [golden_dict39["golden_output"]])
+                golden_map[golden_dict41["location"]] = golden_dict41["golden_output"]
+
+                output43, golden_dict43 = create_multiply(output37, output41, [(1, 32, 12, 100)], [golden_dict37["golden_output"], golden_dict41["golden_output"]])
+                golden_map[golden_dict43["location"]] = golden_dict43["golden_output"]
+
+                output45, golden_dict45 = create_add(output21, output43, [(1, 32, 12, 100)], [golden_dict21["golden_output"], golden_dict43["golden_output"]])
+                golden_map[golden_dict45["location"]] = golden_dict45["golden_output"]
+
+                output47, golden_dict47 = create_squeeze(output45, [(32, 12, 100)], 0, [golden_dict45["golden_output"]])
+                golden_map[golden_dict47["location"]] = golden_dict47["golden_output"]
+
+                output49, golden_dict49 = create_matmul(output1, arg12, [(12, 3200)], [golden_dict1["golden_output"], golden_inputs[12]])
+                golden_map[golden_dict49["location"]] = golden_dict49["golden_output"]
+
+                output51, golden_dict51 = create_reshape(output49, [(1, 12, 32, 100)], [golden_dict49["golden_output"]])
+                golden_map[golden_dict51["location"]] = golden_dict51["golden_output"]
+
+                output53, golden_dict53 = create_transpose(output51, [(1, 32, 12, 100)], -3, -2, [golden_dict51["golden_output"]])
+                golden_map[golden_dict53["location"]] = golden_dict53["golden_output"]
+
+                output55, golden_dict55 = create_multiply(output53, output19, [(1, 32, 12, 100)], [golden_dict53["golden_output"], golden_dict19["golden_output"]])
+                golden_map[golden_dict55["location"]] = golden_dict55["golden_output"]
+
+                output57, golden_dict57 = create_transpose(output53, [(1, 32, 100, 12)], -2, -1, [golden_dict53["golden_output"]])
+                golden_map[golden_dict57["location"]] = golden_dict57["golden_output"]
+
+                output59, golden_dict59 = create_matmul(arg7, output57, [(1, 32, 50, 12)], [golden_inputs[7], golden_dict57["golden_output"]])
+                golden_map[golden_dict59["location"]] = golden_dict59["golden_output"]
+
+                output61, golden_dict61 = create_transpose(output59, [(1, 32, 12, 50)], -2, -1, [golden_dict59["golden_output"]])
+                golden_map[golden_dict61["location"]] = golden_dict61["golden_output"]
+
+                output63, golden_dict63 = create_multiply(output61, arg8, [(1, 32, 12, 50)], [golden_dict61["golden_output"], golden_inputs[8]])
+                golden_map[golden_dict63["location"]] = golden_dict63["golden_output"]
+
+                output65, golden_dict65 = create_transpose(output53, [(1, 32, 100, 12)], -2, -1, [golden_dict53["golden_output"]])
+                golden_map[golden_dict65["location"]] = golden_dict65["golden_output"]
+
+                output67, golden_dict67 = create_matmul(arg9, output65, [(1, 32, 50, 12)], [golden_inputs[9], golden_dict65["golden_output"]])
+                golden_map[golden_dict67["location"]] = golden_dict67["golden_output"]
+
+                output69, golden_dict69 = create_transpose(output67, [(1, 32, 12, 50)], -2, -1, [golden_dict67["golden_output"]])
+                golden_map[golden_dict69["location"]] = golden_dict69["golden_output"]
+
+                output71, golden_dict71 = create_concat(output63, output69, [(1, 32, 12, 100)], -1, [golden_dict63["golden_output"], golden_dict69["golden_output"]])
+                golden_map[golden_dict71["location"]] = golden_dict71["golden_output"]
+
+                output73, golden_dict73 = create_multiply(output71, output41, [(1, 32, 12, 100)], [golden_dict71["golden_output"], golden_dict41["golden_output"]])
+                golden_map[golden_dict73["location"]] = golden_dict73["golden_output"]
+
+                output75, golden_dict75 = create_add(output55, output73, [(1, 32, 12, 100)], [golden_dict55["golden_output"], golden_dict73["golden_output"]])
+                golden_map[golden_dict75["location"]] = golden_dict75["golden_output"]
+
+                output77, golden_dict77 = create_squeeze(output75, [(32, 12, 100)], 0, [golden_dict75["golden_output"]])
+                golden_map[golden_dict77["location"]] = golden_dict77["golden_output"]
+
+                output79, golden_dict79 = create_transpose(output77, [(32, 100, 12)], -2, -1, [golden_dict77["golden_output"]])
+                golden_map[golden_dict79["location"]] = golden_dict79["golden_output"]
+
+                output81, golden_dict81 = create_matmul(output47, output79, [(32, 12, 12)], [golden_dict47["golden_output"], golden_dict79["golden_output"]])
+                golden_map[golden_dict81["location"]] = golden_dict81["golden_output"]
+
+                output83, golden_dict83 = create_unsqueeze(output81, [(1, 32, 12, 12)], 0, [golden_dict81["golden_output"]])
+                golden_map[golden_dict83["location"]] = golden_dict83["golden_output"]
+
+                output85, golden_dict85 = create_multiply(output83, arg10, [(1, 32, 12, 12)], [golden_dict83["golden_output"], golden_inputs[10]])
+                golden_map[golden_dict85["location"]] = golden_dict85["golden_output"]
+
+                output87, golden_dict87 = create_add(output85, arg1, [(1, 32, 12, 12)], [golden_dict85["golden_output"], golden_inputs[1]])
+                golden_map[golden_dict87["location"]] = golden_dict87["golden_output"]
+
+                output89, golden_dict89 = create_softmax(output87, [(1, 32, 12, 12)], -1, [golden_dict87["golden_output"]])
+                golden_map[golden_dict89["location"]] = golden_dict89["golden_output"]
+
+                output91, golden_dict91 = create_squeeze(output89, [(32, 12, 12)], 0, [golden_dict89["golden_output"]])
+                golden_map[golden_dict91["location"]] = golden_dict91["golden_output"]
+
+                output93, golden_dict93 = create_matmul(output1, arg13, [(12, 3200)], [golden_dict1["golden_output"], golden_inputs[13]])
+                golden_map[golden_dict93["location"]] = golden_dict93["golden_output"]
+
+                output95, golden_dict95 = create_reshape(output93, [(1, 12, 32, 100)], [golden_dict93["golden_output"]])
+                golden_map[golden_dict95["location"]] = golden_dict95["golden_output"]
+
+                output97, golden_dict97 = create_transpose(output95, [(1, 32, 12, 100)], -3, -2, [golden_dict95["golden_output"]])
+                golden_map[golden_dict97["location"]] = golden_dict97["golden_output"]
+
+                output99, golden_dict99 = create_transpose(output97, [(1, 32, 100, 12)], -2, -1, [golden_dict97["golden_output"]])
+                golden_map[golden_dict99["location"]] = golden_dict99["golden_output"]
+
+                output101, golden_dict101 = create_squeeze(output99, [(32, 100, 12)], 0, [golden_dict99["golden_output"]])
+                golden_map[golden_dict101["location"]] = golden_dict101["golden_output"]
+                
+                output103, golden_dict103 = create_transpose(output101, [(32, 12, 100)], -2, -1, [golden_dict101["golden_output"]])
+                golden_map[golden_dict103["location"]] = golden_dict103["golden_output"]
+
+                output105, golden_dict105 = create_matmul(output91, output103, [(32, 12, 100)], [golden_dict91["golden_output"], golden_dict103["golden_output"]])
+                golden_map[golden_dict105["location"]] = golden_dict105["golden_output"]
+
+                output107, golden_dict107 = create_unsqueeze(output105, [(1, 32, 12, 100)], 0, [golden_dict105["golden_output"]])
+                golden_map[golden_dict107["location"]] = golden_dict107["golden_output"]
+
+                output109, golden_dict109 = create_transpose(output107, [(1, 12, 32, 100)], -3, -2, [golden_dict107["golden_output"]])
+                golden_map[golden_dict109["location"]] = golden_dict109["golden_output"]
+
+                output111, golden_dict111 = create_reshape(output109, [(12, 3200)], [golden_dict109["golden_output"]])
+                golden_map[golden_dict111["location"]] = golden_dict111["golden_output"]
+
+                output113, golden_dict113 = create_matmul(output111, arg14, [(12, 3200)], [golden_dict111["golden_output"], golden_inputs[14]])
+                golden_map[golden_dict113["location"]] = golden_dict113["golden_output"]
+
+                output115, golden_dict115 = create_unsqueeze(output113, [(1, 12, 3200)], 0, [golden_dict113["golden_output"]])
+                golden_map[golden_dict115["location"]] = golden_dict115["golden_output"]
+
+                return output115
 
         module_post_processing(module, function_name, golden_map)
 
-#test_llama_attention()
+
+test_llama_attention()
 
 #test_transpose() #dimension has to be 0-3 only corresponding to N,C,H,W
 #test_concat() #input_tensor_a.get_legacy_shape().rank() == this->slice_start.rank() && this->slice_start.rank() == this->slice_end.rank()
