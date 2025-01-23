@@ -750,19 +750,6 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
 // TTKernel Misc operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_BuiltinOp : TTKernel_Op<"builtin"> {
-    let summary = "Builtin call.";
-    let description = [{
-      Kernel operation
-    }];
-
-    let arguments = (ins FlatSymbolRefAttr:$op,
-                         FlatSymbolRefAttr:$kind,
-                         Variadic<AnyMemRefOrCB>:$args);
-
-    let hasVerifier = 1;
-}
-
 def TTKernel_ReturnOp : TTKernel_Op<"return", [Pure, ReturnLike, Terminator]> {
     let summary = "Return op.";
     let description = [{
