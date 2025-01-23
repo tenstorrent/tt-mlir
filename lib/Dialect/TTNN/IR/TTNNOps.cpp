@@ -872,7 +872,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   RankedTensorType inputTy = getInput().getType();
   RankedTensorType outputTy = getResult().getType();
   if (inputTy == outputTy) {
-    return emitOpError("Input and output tensor types must be different");
+    return emitOpError("Input and output tensor types must be different.");
   }
   return success();
 }

@@ -436,13 +436,11 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
 // return The new TTNNLayoutAttr with the given memory space.
 TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
                                               BufferType memorySpace) {
-  ttnn::TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
+  TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
   tt::GridAttr grid = getGrid();
 
-  // If the buffer type is SystemMemory or DRAM, the memory layout should be
-  // empty.
-  if (memorySpace == BufferType::SystemMemory ||
-      memorySpace == BufferType::DRAM) {
+  // For SystemMemory we need to clear memory layout attribute
+  if (memorySpace == BufferType::SystemMemory) {
     memLayoutAttr = TensorMemoryLayoutAttr{};
     grid = tt::GridAttr::get(context, grid.getShape().size());
   }
