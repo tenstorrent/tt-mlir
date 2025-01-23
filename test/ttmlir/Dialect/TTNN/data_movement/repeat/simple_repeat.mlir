@@ -2,7 +2,7 @@
 module {
   func.func @main(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
     // CHECK: %{{[0-9]+}} = "ttnn.repeat"
-    // CHECK-SAME: shape = [1 : i32, 16 : i32, 1 : i32]
+    // CHECK-SAME: repeat_dims = [1 : i32, 16 : i32, 1 : i32]
     %0 = tensor.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i32 : 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = tensor.empty() : tensor<1x16x32xf32>
@@ -15,7 +15,7 @@ module {
   func.func public @main(%arg0: tensor<1xf32>, %arg1: tensor<512x512xf32>) -> (tensor<512x512xf32>) {
     // CHECK: %{{[0-9]+}} = "ttnn.reshape"
     // CHECK: %{{[0-9]+}} = "ttnn.repeat"
-    // CHECK-SAME: shape = [512 : i32, 512 : i32]
+    // CHECK-SAME: repeat_dims = [512 : i32, 512 : i32]
     %0 = tensor.empty() : tensor<1x1xf32>
     %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 1 : i32]}> : (tensor<1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
     %2 = tensor.empty() : tensor<512x512xf32>
@@ -30,7 +30,7 @@ module {
     func.func @main(%arg0: tensor<1x23x40x1xf32>, %arg1: tensor<128xf32>) -> tensor<1x23x40x128xf32> {
       // CHECK: %{{[0-9]+}} = "ttnn.reshape"
       // CHECK: %{{[0-9]+}} = "ttnn.repeat"
-      // CHECK-SAME: shape = [1 : i32, 23 : i32, 40 : i32, 1 : i32]
+      // CHECK-SAME: repeat_dims = [1 : i32, 23 : i32, 40 : i32, 1 : i32]
       %0 = tensor.empty() : tensor<1x23x40x128xf32>
       %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32 : 1, 1, 1, 128>}> : (tensor<1x23x40x1xf32>, tensor<1x23x40x128xf32>) -> tensor<1x23x40x128xf32>
       %2 = tensor.empty() : tensor<1x1x1x128xf32>
@@ -46,7 +46,7 @@ module {
 module {
     func.func @main(%arg0: tensor<6x2xf32>) -> tensor<2400x2xf32> {
       // CHECK: %{{[0-9]+}} = "ttnn.repeat"
-      // CHECK-SAME: shape = [400 : i32, 1 : i32, 1 : i32, 1 : i32]
+      // CHECK-SAME: repeat_dims = [400 : i32, 1 : i32, 1 : i32, 1 : i32]
       %0 = tensor.empty() : tensor<1x6x2xf32>
       %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 6 : i32, 2 : i32]}> : (tensor<6x2xf32>, tensor<1x6x2xf32>) -> tensor<1x6x2xf32>
       %2 = tensor.empty() : tensor<1x6x1x2xf32>
