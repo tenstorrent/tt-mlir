@@ -797,6 +797,9 @@ def create_matmul(input_one, input_two, output_shape_list, golden_inputs):
     golden_output = torch.matmul(*golden_inputs)
     golden_output.flatten()
 
+    if dump:
+        print(golden_output)
+
     #print("matmul-golden-post----------start")
     #print()
     #print(golden_output.shape)

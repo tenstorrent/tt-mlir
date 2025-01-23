@@ -542,7 +542,7 @@ def test_multiply():
         module = Module.create()
         with InsertionPoint(module.body):
 
-            input_shape_list = [(128, 128), (128, 128)]
+            input_shape_list = [(1, 32, 12, 12), (1, 1)]
 
             input_operands = []
             for shape in input_shape_list:
@@ -557,7 +557,7 @@ def test_multiply():
             @func.func(*input_operands, name=f"{function_name}")
             def multiply(input_one, input_two):
                 ttir_op_res, golden_dict = create_multiply(
-                    input_one, input_two, [(128, 128)], golden_inputs
+                    input_one, input_two, [(1, 32, 12, 12)], golden_inputs
                 )
                 golden_map[golden_dict["location"]] = golden_dict["golden_output"]
                 return ttir_op_res
@@ -1233,11 +1233,11 @@ def test_llama_attention():
 
 
 #test_squeeze() #pass
-test_matmul()  #pass
+#test_matmul()  #pass
 #test_reshape() #pass
 #test_unsqueeze()  #pass
 #test_cos()  #pass
-#test_multiply() #pass
+test_multiply() #pass
 #test_sin() #pass
 #test_add() #pass
 #test_concat()  #pass
