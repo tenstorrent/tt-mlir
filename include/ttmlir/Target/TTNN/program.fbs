@@ -179,6 +179,15 @@ table ReductionOp {
   keep_dim: bool;
 }
 
+table ReductionProdOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  all_dimensions: bool;
+  dim_arg: int64;
+  keep_dim: bool;
+  memcfg: tt.target.MemoryConfigDesc;
+}
+
 table EmbeddingOp {
   input: tt.target.TensorRef;
   weight: tt.target.TensorRef;
@@ -369,6 +378,7 @@ union OpType {
   LinearOp,
   MatmulOp,
   ReductionOp,
+  ReductionProdOp,
   EmbeddingOp,
   EmbeddingBackwardOp,
   RepeatInterleaveOp,

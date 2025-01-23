@@ -630,6 +630,37 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   }];
 }
 
+def TTNN_ProdOp : TTNN_Op<"prod"> {
+  let summary = "Product reduction op.";
+  let description = [{
+    This op computes the product of all elements of the tensor (full product)
+    or along a specific dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Computing along dim 0
+      output: [4, 10, 18]
+
+      // Computing along dim 1
+      output: [6, 120]
+
+      // Computing full product
+      output: 720
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       BoolAttr:$all_dimensions,
+                       BoolAttr:$keep_dim,
+                       I64Attr:$dim_arg,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
