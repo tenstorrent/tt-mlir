@@ -891,7 +891,6 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     }];
 
     let hasVerifier = 1;
-
     let hasFolder = 1;
 }
 
