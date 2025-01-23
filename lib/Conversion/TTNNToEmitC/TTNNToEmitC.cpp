@@ -849,7 +849,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::SumOp>,
                DefaultOpConversionPattern<ttnn::MeanOp>,
                DefaultOpConversionPattern<ttnn::MaxOp>,
-               DefaultOpConversionPattern<ttnn::MinOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::MinOp>,
+               DefaultOpConversionPattern<ttnn::ProdOp>>(typeConverter, ctx);
 
   // Conv ops
   //

@@ -2276,3 +2276,19 @@ void mlir::tt::ttir::MinOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 ::mlir::LogicalResult mlir::tt::ttir::MinOp::verify() {
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
+
+//===----------------------------------------------------------------------===//
+// Reduce ProdOp
+//===----------------------------------------------------------------------===//
+
+// ProdOp kernel builder.
+void mlir::tt::ttir::ProdOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "prod");
+}
+
+// ProdOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ProdOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}

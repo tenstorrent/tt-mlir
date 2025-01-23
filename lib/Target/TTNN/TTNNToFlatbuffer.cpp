@@ -787,11 +787,28 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  auto dim_arg =
+  auto dimArg =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
 
   return ::tt::target::ttnn::CreateReductionOp(*cache.fbb, type, in, output,
-                                               dim_arg, op.getKeepDim());
+                                               dimArg, op.getKeepDim());
+}
+
+template <typename ReductionOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReductionProdOp>
+createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto memoryConfigDesc =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
+
+  return ::tt::target::ttnn::CreateReductionProdOp(
+      *cache.fbb, in, output, op.getAllDimensions(), op.getDimArg(),
+      op.getKeepDim(), memoryConfigDesc);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
@@ -1172,6 +1189,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto minOp = dyn_cast<MinOp>(op); minOp) {
     return createOperation(cache, createReductionOp(cache, minOp), debugString,
                            locInfo);
+  }
+  if (auto prodOp = dyn_cast<ProdOp>(op); prodOp) {
+    return createOperation(cache, createReductionProdOp(cache, prodOp),
+                           debugString, locInfo);
   }
   if (auto embeddingOp = dyn_cast<EmbeddingOp>(op); embeddingOp) {
     return createOperation(cache, createEmbeddingOp(cache, embeddingOp),
