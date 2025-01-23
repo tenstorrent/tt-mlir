@@ -130,6 +130,8 @@ def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
     let description = [{
       Must be called before copy_tile.
     }];
+
+    let arguments = (ins TTKernel_CB:$cb0);
 }
 
 def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
