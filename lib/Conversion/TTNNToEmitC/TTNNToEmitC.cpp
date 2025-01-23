@@ -385,6 +385,39 @@ public:
   }
 };
 
+// Moreh CumSum op conversion pattern
+//
+class MorehCumSumOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::MorehCumSumOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::MorehCumSumOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::MorehCumSumOp srcOp,
+                  ttnn::MorehCumSumOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
+    // an ArrayAttr object holding IndexTypes is created to denote this.
+    //
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
+        srcOp.getDimAttr(),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
 // MeanOp conversion pattern
 //
 class MeanOpConversionPattern
@@ -1163,7 +1196,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
                DefaultOpConversionPattern<ttnn::EmbeddingBackwardOp>,
-               DefaultOpConversionPattern<ttnn::WhereOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::WhereOp>,
+               MorehCumSumOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //
