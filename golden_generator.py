@@ -58,7 +58,12 @@ def module_post_processing(module, function_name, golden_map={}):
     with open(f"{function_name}_ttnn.mlir", "w") as file:
         file.write(ttnn_debug)
 
-    flatbuffer_golden_map = create_flatbuffer_golden_map(golden_map)
+    flatten_golden_map = {}
+
+    for loc, tensor in golden_map.items():
+        flatten_golden_map[loc] = tensor.flatten()
+
+    flatbuffer_golden_map = create_flatbuffer_golden_map(flatten_golden_map)
     ttnn_to_flatbuffer_file(module, f"{function_name}.ttnn", flatbuffer_golden_map)
 
 
@@ -782,7 +787,7 @@ def test_concat():
         module = Module.create()
         with InsertionPoint(module.body):
 
-            input_shape_list = [(1, 128), (1, 128)]
+            input_shape_list = [(1, 32, 12, 50), (1, 32, 12, 50)]
 
             input_operands = []
             for shape in input_shape_list:
@@ -797,7 +802,7 @@ def test_concat():
             @func.func(*input_operands, name=f"{function_name}")
             def concat(input_one, input_two):
                 ttir_op_res, golden_dict = create_concat(
-                    input_one, input_two, [(1, 128)], 0, golden_inputs
+                    input_one, input_two, [(1, 32, 12, 100)], -1, golden_inputs
                 )
                 golden_map[golden_dict["location"]] = golden_dict["golden_output"]
                 return ttir_op_res
@@ -911,7 +916,7 @@ def test_matmul():
         module = Module.create()
         with InsertionPoint(module.body):
 
-            input_shape_list = [(12, 3200), (3200, 3200)]
+            input_shape_list = [(32, 12, 12), (32, 12, 100)]
 
             input_operands = []
             for shape in input_shape_list:
@@ -926,7 +931,7 @@ def test_matmul():
             @func.func(*input_operands, name=f"{function_name}")
             def matmul(input_one, input_two):
                 ttir_op_res, golden_dict = create_matmul(
-                    input_one, input_two, [(12, 3200)], golden_inputs
+                    input_one, input_two, [(32, 12, 100)], golden_inputs
                 )
                 golden_map[golden_dict["location"]] = golden_dict["golden_output"]
                 return ttir_op_res
@@ -1228,12 +1233,12 @@ def test_llama_attention():
 
 
 #test_squeeze() #pass
-#test_matmul()  #pass
+test_matmul()  #pass
 #test_reshape() #pass
-#test_transpose() #actual_pcc=0.00531
 #test_unsqueeze()  #pass
-#test_concat()  #srcTensor.volume() * srcTensor.element_size() == dstTensor.volume() * dstTensor.element_size()
 #test_cos()  #pass
 #test_multiply() #pass
 #test_sin() #pass
 #test_add() #pass
+#test_concat()  #pass
+#test_transpose() #actual_pcc=0.00531
