@@ -213,7 +213,7 @@ private:
 
   template <typename OpType, typename... Args>
   mlir::Value createOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
-                       mlir::Value currentInput, Args... args) const {
+                       mlir::Value currentInput, Args &&...args) const {
 
     rewriter.setInsertionPoint(op);
     return rewriter.create<OpType>(op.getLoc(), op.getType(), currentInput,
@@ -223,7 +223,7 @@ private:
   template <typename OpType, typename... Args>
   mlir::Value createOp(IRRewriter &rewriter, ttnn::ToLayoutOp op,
                        RankedTensorType newResultType, mlir::Value currentInput,
-                       Args... args) const {
+                       Args &&...args) const {
     rewriter.setInsertionPoint(op);
     return rewriter.create<OpType>(op.getLoc(), newResultType, currentInput,
                                    args...);
@@ -234,7 +234,7 @@ private:
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info,
                                        bool forceCreate = false) const {
-    if (not info.opsToCreate.createToDeviceOp && !forceCreate) {
+    if (not info.opsToCreate.createToDeviceOp && not forceCreate) {
       return currentInput;
     }
     ttnn::MemoryConfigAttr memoryConfigAttr =
@@ -258,7 +258,7 @@ private:
                                          mlir::Value currentInput,
                                          const OpCreationInfo &info,
                                          bool forceCreate = false) const {
-    if (not info.opsToCreate.createFromDeviceOp && !forceCreate) {
+    if (not info.opsToCreate.createFromDeviceOp && not forceCreate) {
       return currentInput;
     }
     RankedTensorType currentInputType =

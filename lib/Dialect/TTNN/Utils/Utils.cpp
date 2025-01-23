@@ -169,8 +169,8 @@ uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
 }
 
 // Helper method to get the tensor layout attribute from the value.
-TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorValue) {
-  return mlir::cast<TTNNLayoutAttr>(tensorValue.getEncoding());
+TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType) {
+  return mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 }
 
 // Helper method to get the element type for the given tensor layout and data.

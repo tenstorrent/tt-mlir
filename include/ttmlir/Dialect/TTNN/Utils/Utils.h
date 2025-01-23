@@ -65,7 +65,7 @@ createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
 
 // Helper method to get the tensor layout attribute from the tensor value.
-TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorValue);
+TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType);
 
 // Helper method to get the element type for the given tensor layout and data.
 Type getElementType(MLIRContext *context, Layout tensorLayout,
