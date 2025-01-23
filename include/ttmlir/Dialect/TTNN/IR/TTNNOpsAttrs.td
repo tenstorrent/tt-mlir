@@ -98,6 +98,36 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   }];
 }
 
+def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
+  let summary = "TTNN Conv2dConfig attribute";
+  let description = [{
+    TTNN conv2d config attribute
+  }];
+
+  let parameters = (ins
+                        "DataType":$dtype,
+                        "DataType":$weightsDtype,
+                        "StringAttr":$activation,
+                        "IntegerAttr":$inputChannelsAlignment,
+                        "BoolAttr":$deallocateActivation,
+                        "BoolAttr":$reallocateHaloOutput,
+                        "IntegerAttr":$actBlockHOverride,
+                        "IntegerAttr":$actBlockWDiv,
+                        "BoolAttr":$reshardIfNotOptimal,
+                        "BoolAttr":$overrideShardingConfig,
+                        OptionalParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$shardLayout,
+                        // TODO: Finish adding this attribute
+                        "Attribute":$coreGrid,
+                        "BoolAttr":$transposeShards,
+                        "Layout":$outputLayout,
+                        "BoolAttr":$enableActDoubleBuffer,
+                        "BoolAttr":$enableWeightsDoubleBuffer,
+                        "BoolAttr":$enableSplitReader,
+                        "BoolAttr":$enableSubblockPadding);
+
+  let assemblyFormat = "`<` params `>`";
+}
+
 def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {
   let summary = "TTNN Mesh Shape";
   let description = [{

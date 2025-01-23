@@ -882,7 +882,7 @@ public:
         adaptor.getBias(), convDPSOutput, device, in_channels, out_channels,
         batch_size, input_height, input_width, kernel_height, kernel_width,
         stride_height, stride_width, padding_height, padding_width,
-        dilation_height, dilation_width, groups);
+        dilation_height, dilation_width, groups, nullptr);
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(new_conv, output_shape, rewriter);
