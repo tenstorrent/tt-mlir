@@ -96,13 +96,12 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Root Nodes
     def visit_Module(self, node):
-        # set default basic block
+        # Set default basic block
         with InsertionPoint(self.insert_point), Location.unknown():
             for stmt in node.body:
                 self.visit(stmt)
 
     def visit_FunctionDef(self, node):
-        # print(f"visit_FunctionDef")
         # TODO: add alloca args name into symbol table
         if(self.func_entry): raise IndexError("Cannot declare function within a function")
 
@@ -135,10 +134,13 @@ class TTKernelCompiler(ast.NodeVisitor):
     # Control Flow
     def visit_If(self, node):
         # NOTE: else-if blocks are not supported in SCF dialect
+        # NOTE: Only handling Compare for if statements right now
         # TODO: if cond can be: Name, Expr, Compare, Call, UnaryOp, BoolOp
+        print((node.test))
+        assert isinstance(node.test, ast.Compare), "Only Compare supported in if statements"
         if_cond = self.visit(node.test)
-        if not if_cond.result.type.width == 1 or not if_cond.result.type.is_signless:
-            if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
+        # if not if_cond.result.type.width == 1 or not if_cond.result.type.is_signless:
+            # if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
         if_exp = scf.IfOp(cond=if_cond, hasElse=bool(node.orelse))
 
         with InsertionPoint(if_exp.then_block), Location.unknown():
@@ -157,7 +159,6 @@ class TTKernelCompiler(ast.NodeVisitor):
                 self.symbol_tables.pop()
     
     def visit_For(self, node):
-        # print(help(node))
         assert node.iter.func.id == "range", "Only range() supported in for loops"
         assert len(node.iter.args) == 3, "Must specify range(start, end, step) in for loops"
         lower_bound = self.visit(node.iter.args[0])
@@ -193,18 +194,17 @@ class TTKernelCompiler(ast.NodeVisitor):
         #         self.visit(stmt)
         #     scf.YieldOp(while_body_bb.arguments)
         #     self.symbol_tables.pop()
-        pass
+        raise NotImplementedError("While loops not supported yet")
 
 
     def visit_Break():
-        pass
+        raise NotImplementedError("Break not supported yet")
 
     def visit_Continue():
-        pass
+        raise NotImplementedError("Continue not supported yet")
 
     # Statements
     def visit_Name(self, node):
-        # print(f"visit_Name")
         var_name = node.id
         existing_var_table = self.var_exists(var_name)
         if existing_var_table:
@@ -231,7 +231,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     def visit_AugAssign(self, node):
-        pass
+        raise NotImplementedError("AugAssign not supported yet")
 
     # Expressions
     def visit_Call(self, node):
@@ -247,8 +247,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         # TODO: need to handle float, unsigned, and signed operations
         lhs = self.visit(node.left)
         rhs = self.visit(node.right)
-        # print(help(lhs.type))
-        # print(f"types: {lhs.type}, {rhs.type}")
         if not lhs or not rhs:
             raise ValueError("Binary operands not found")
         
@@ -341,6 +339,9 @@ def ttkernel_compile(f):
         # print(ast.dump(m, indent=4) + "\n")
         b.visit(m)
         print(b.module)
+
+        # Check if generated IR is valid
+        b.module.operation.verify()
 
     return _wrapper
 

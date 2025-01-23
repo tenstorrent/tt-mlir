@@ -31,8 +31,10 @@ def test_ifstmt():
     # CHECK: %[[A_a:.*]] = memref.alloca() : memref<1xi32>
     # CHECK: memref.store %[[C1]], %[[A_a]]{{.*}} : memref<1xi32>
     a = 1
-    #CHECK: scf.if{{.*}}
-    if 1:
+    # CHECK: %[[L_a:.*]] = memref.load %[[A_a]]{{.*}} : memref<1xi32>
+    # CHECK: %[[COND:.*]] = arith.cmpi eq, %[[L_a]]{{.*}}
+    # CHECK: scf.if %[[COND]]{{.*}}
+    if a == 1:
         # CHECK: %[[C2:.*]] = arith.constant{{.*}} : i32
         # CHECK: memref.store %[[C2]], %[[A_a]]{{.*}} : memref<1xi32>
         a = 10
