@@ -53,10 +53,6 @@ mlir::LogicalResult
 mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
   mlir::Operation *parent = op->getParentOp();
 
-  if (!parent) {
-    return op->emitOpError("TTIR Tile Ops must be inside a generic region");
-  }
-
   if (llvm::dyn_cast_or_null<ttir::GenericOp>(parent)) {
     return success();
   }
