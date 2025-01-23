@@ -1112,22 +1112,55 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
-     Applies a 2D convolution over an input image composed of several input planes.
+      Applies a 2D convolution over an input image composed of several input planes.
+
+      Inputs:
+      - `input` AnyRankedTensor: expected in the following format (N, H_in, W_in, C) where:
+        - N is the batch size
+        - H_in is the height of the input planes
+        - W_in is the width of the input planes
+        - C is the number of channels
+
+      - `weight` AnyRankedTensor: expected in the following format (O, C/G, K_H, K_W).
+      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O) where:
+        - C is the number of input channels
+        - O is the number of output channels
+        - G is the number of groups
+        - K_H is the height of the kernel
+        - K_W is the width of the kernel
+
+      - `output` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
+        - `H_out = (H_in + padding_top + padding_bottom - dilation[0] * (K_H - 1) - 1) / stride[0] + 1`
+        - `W_out = (W_in + padding_left + padding_right - dilation[1] * (K_W - 1) - 1) / stride[1] + 1`
+
+      Attributes:
+      - `stride` (i32 | array<2xi32>): Stride of the convolution.
+      - `padding` (i32 | array<2xi32> | array<4xi32>): Padding on height/width. Can be symmetric (`[pH, pW]`) or asymmetric (`[pT, pL, pB, pR]`).
+      - `dilation` (i32 | array<2xi32>): Spacing between kernel elements.
+      - `groups` i32: Number of blocked connections from input channels to output channels. input and output channels must both be divisible by groups.
+
+      Example:
+        %input = tensor.empty() : () -> tensor<1x32x32x64xbf16>
+        %weight = tensor.empty() : () -> tensor<64x64x3x3xbf16>
+        %bias = tensor.empty() : () -> tensor<1x1x1x64xbf16>
+        %output = tensor.empty() : () -> tensor<1x30x30x64xbf16>
+        %0 = "ttir.conv2d"(%input, %weight, %bias, %output)
+          <{
+            stride = 1: i32,
+            padding = 0: i32,
+            dilation = 1: i32,
+            groups = 1: i32
+          > : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
                          AnyRankedTensor:$output,
-                         SI32Attr:$stride_height,
-                         SI32Attr:$stride_width,
-                         SI32Attr:$dilation_height,
-                         SI32Attr:$dilation_width,
-                         SI32Attr:$groups,
-                         SI32Attr:$padding_left,
-                         SI32Attr:$padding_right,
-                         SI32Attr:$padding_top,
-                         SI32Attr:$padding_bottom);
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         I32Attr:$groups);
 
     let results = (outs AnyRankedTensor:$result);
 
