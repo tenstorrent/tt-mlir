@@ -844,6 +844,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::LinearOp>,
                MatmulOpConversionPattern>(typeConverter, ctx);
 
+  // Moreh ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::MorehCumSumOp>>(typeConverter,
+                                                                ctx);
   // Reduction ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::SumOp>,

@@ -2292,3 +2292,16 @@ void mlir::tt::ttir::ProdOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 ::mlir::LogicalResult mlir::tt::ttir::ProdOp::verify() {
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
+
+//===----------------------------------------------------------------------===//
+// MorehCumSumOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::MorehCumSumOp::verify() {
+  int64_t dim = getDim();
+  if (dim < 0) {
+    return emitOpError("specified dimension cannot be negative.");
+  }
+
+  return success();
+}
