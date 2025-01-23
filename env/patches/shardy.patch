@@ -58,10 +58,10 @@ index 0000000..5e3e97c
 +add_subdirectory(shardy/dialect/sdy/ir)
 diff --git a/shardy/dialect/sdy/ir/CMakeLists.txt b/shardy/dialect/sdy/ir/CMakeLists.txt
 new file mode 100644
-index 0000000..07d6a97
+index 0000000..ae91353
 --- /dev/null
 +++ b/shardy/dialect/sdy/ir/CMakeLists.txt
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,90 @@
 +# Shardy MLIR dialect.
 +
 +set(LLVM_TARGET_DEFINITIONS dialect.td)
@@ -121,6 +121,7 @@ index 0000000..07d6a97
 +  LLVMSupport
 +  MLIRBytecodeOpInterface
 +  MLIRFuncDialect
++  MLIRFuncAllExtensions
 +  MLIRIR
 +  MLIRInferTypeOpInterface
 +  MLIRShapeDialect
@@ -142,6 +143,7 @@ index 0000000..07d6a97
 +  LINK_LIBS PUBLIC
 +  SdyDialect
 +  MLIRFuncDialect
++  MLIRFuncAllExtensions
 +  MLIRIR
 +  StablehloOps
 +)
