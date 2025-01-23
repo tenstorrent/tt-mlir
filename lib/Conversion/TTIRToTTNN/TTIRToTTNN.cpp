@@ -439,6 +439,20 @@ public:
   }
 };
 
+class CumSumOpConversionPattern : public OpConversionPattern<ttir::CumSumOp> {
+public:
+  using OpConversionPattern<ttir::CumSumOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumSumOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::MorehCumSumOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getDim(), adaptor.getOutput(), nullptr);
+    return success();
+  }
+};
+
 class RepeatInterleaveOpConversionPattern
     : public OpConversionPattern<ttir::RepeatInterleaveOp> {
 public:
@@ -1373,6 +1387,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
+           CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
