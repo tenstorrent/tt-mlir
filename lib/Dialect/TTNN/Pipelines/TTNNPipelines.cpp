@@ -138,7 +138,7 @@ void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   llvm::outs() << "createTTIRToTTNNBackendPipeline pm addr:" << &pm << "\n";
-  pm.addPass(tt::createWrapDeviceModulePass());
+  pm.addPass(tt::createTTWrapDeviceModulePass());
 
   // create CPUModuleOp w/ hoisted ops (if any)
   pm.addPass(ttir::createTTIRHoistTransform());
