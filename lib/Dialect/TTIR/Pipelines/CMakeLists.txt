@@ -1,3 +1,12 @@
+set(link_libs
+MLIR
+MLIRTTIRDialect
+)
+
+if (TTMLIR_ENABLE_STABLEHLO)
+list(APPEND link_libs StablehloRegister SdyRegister)
+endif()
+
 add_mlir_dialect_library(MLIRTTIRPipelines
   TTIRPipelines.cpp
 
@@ -6,6 +15,5 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/ArithToLLVM
 
   LINK_LIBS PUBLIC
-  MLIR
-  MLIRTTIRDialect
+  ${link_libs}
 )
