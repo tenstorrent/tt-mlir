@@ -39,6 +39,11 @@ enum class DeviceRuntime {
   TTMetal,
 };
 
+enum class DispatchCoreType {
+  WORKER,
+  ETH,
+};
+
 namespace detail {
 struct ObjectImpl {
 

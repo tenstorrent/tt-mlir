@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
@@ -193,14 +194,22 @@ size_t getNumAvailableDevices() {
 }
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize) {
+                  std::optional<size_t> l1SmallSize,
+                  std::optional<DispatchCoreType> dispatchCoreType) {
+
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+
   LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
   size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid},
-      l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
-      ::tt::tt_metal::DispatchCoreType::WORKER);
+      l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
+
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
 
   bool enableAsync = debug::Env::get().enableAsyncTTNN;
   for (::ttnn::IDevice *device : meshDevice->get_devices()) {
