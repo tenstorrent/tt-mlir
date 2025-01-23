@@ -777,6 +777,8 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
     type = ::tt::target::ttnn::ReductionOpType::Mean;
   } else if constexpr (std::is_same_v<ReductionOp, MaxOp>) {
     type = ::tt::target::ttnn::ReductionOpType::Max;
+  } else if constexpr (std::is_same_v<ReductionOp, MinOp>) {
+    type = ::tt::target::ttnn::ReductionOpType::Min;
   } else {
     llvm_unreachable("unhandled ReductionOp");
   }
@@ -1165,6 +1167,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto maxOp = dyn_cast<MaxOp>(op); maxOp) {
     return createOperation(cache, createReductionOp(cache, maxOp), debugString,
+                           locInfo);
+  }
+  if (auto minOp = dyn_cast<MinOp>(op); minOp) {
+    return createOperation(cache, createReductionOp(cache, minOp), debugString,
                            locInfo);
   }
   if (auto embeddingOp = dyn_cast<EmbeddingOp>(op); embeddingOp) {

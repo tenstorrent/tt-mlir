@@ -84,6 +84,10 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::MaxOp>(srcOp, adaptor,
                                                             rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::MinOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::MinOp>(srcOp, adaptor,
+                                                            rewriter);
+    }
 
     return failure();
   }
