@@ -32,7 +32,7 @@ def test_ifstmt():
     # CHECK: memref.store %[[C1]], %[[A_a]]{{.*}} : memref<1xi32>
     a = 1
     #CHECK: scf.if{{.*}}
-    if(1):
+    if 1:
         # CHECK: %[[C2:.*]] = arith.constant{{.*}} : i32
         # CHECK: memref.store %[[C2]], %[[A_a]]{{.*}} : memref<1xi32>
         a = 10
@@ -59,5 +59,59 @@ def test_ifstmt():
     c = 3
     return
 
+@ttkernel_compile
+def test_for():
+    # CHECK: module {
+    # CHECK: func.func @[[C:.*]]
+    # CHECK: scf.for {{.*}} to {{.*}} step {{.*}}
+    for i in range(0, 10, 1):
+        a = 1
+
+    return
+
+@ttkernel_compile
+def test_binops():
+    # CHECK: module {
+    # CHECK: func.func @[[C:.*]]
+    a = 1
+    b = 1
+    # CHECK: %{{.*}} = arith.addi{{.*}}
+    a + b
+    # CHECK: %{{.*}} = arith.subi{{.*}}
+    a - b
+    # CHECK: %{{.*}} = arith.muli{{.*}}
+    a * b
+    # CHECK: %{{.*}} = arith.addi{{.*}}
+    # CHECK: %{{.*}} = arith.subi{{.*}}
+    a + b - a
+    # CHECK: %{{.*}} = arith.addi{{.*}}
+    # CHECK: %{{.*}} = arith.muli{{.*}}
+    # CHECK: %{{.*}} = arith.subi{{.*}}
+    a + b - a * b
+    return
+
+@ttkernel_compile
+def test_compare_expr():
+    # CHECK: module {
+    # CHECK: func.func @[[C:.*]]
+    a = 1
+    b = 2
+    # CHECK: %{{.*}} = arith.cmpi eq{{.*}}
+    a == b
+    # CHECK: %{{.*}} = arith.cmpi ne{{.*}}
+    a != b
+    # CHECK: %{{.*}} = arith.cmpi slt{{.*}}
+    a < b
+    # CHECK: %{{.*}} = arith.cmpi sle{{.*}}
+    a <= b
+    # CHECK: %{{.*}} = arith.cmpi sgt{{.*}}
+    a > b
+    # CHECK: %{{.*}} = arith.cmpi sge{{.*}}
+    a >= b
+    return
+
 test_assign_constant_int()
 test_ifstmt()
+test_for()
+test_binops()
+test_compare_expr()

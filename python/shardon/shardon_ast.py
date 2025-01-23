@@ -137,7 +137,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         # NOTE: else-if blocks are not supported in SCF dialect
         # TODO: if cond can be: Name, Expr, Compare, Call, UnaryOp, BoolOp
         if_cond = self.visit(node.test)
-        if not isinstance (if_cond, Value): # not sure if Value is the right type here.. need IntegerType i1
+        if not if_cond.result.type.width == 1 or not if_cond.result.type.is_signless:
             if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
         if_exp = scf.IfOp(cond=if_cond, hasElse=bool(node.orelse))
 
@@ -156,11 +156,45 @@ class TTKernelCompiler(ast.NodeVisitor):
                 scf.YieldOp([])
                 self.symbol_tables.pop()
     
-    def visit_For():
+    def visit_For(self, node):
+        # print(help(node))
+        assert node.iter.func.id == "range", "Only range() supported in for loops"
+        assert len(node.iter.args) == 3, "Must specify range(start, end, step) in for loops"
+        lower_bound = self.visit(node.iter.args[0])
+        upper_bound = self.visit(node.iter.args[1])
+        step = self.visit(node.iter.args[2])
+        for_op = scf.ForOp(lower_bound, upper_bound, step)
+        with(InsertionPoint(for_op.body)), Location.unknown():
+            self.symbol_tables.append({})
+            for stmt in node.body:
+                self.visit(stmt)
+            scf.YieldOp([])
+            self.symbol_tables.pop()
+
+    def visit_While(self, node):
+        # TODO: while cond like if stmt, need support for at least: Name, Expr, Compare, Call, UnaryOp, BoolOp
+        # TODO: support initial values based off variables used in the while loop
+        # NOTE: while loops are hard since scf.WhileOp doesn't support basic blocks?
+        # init_values = [arith.ConstantOp(IntegerType.get_signless(1), 0)]
+        # result_types = [IntegerType.get_signless(1)]
+
+        # while_op = scf.WhileOp(result_types, init_values)
+        # while_cond_bb = Block.create_at_start(while_op.before)
+
+        # with InsertionPoint(while_cond_bb), Location.unknown():
+        #     while_cond = self.visit(node.test)
+        #     while_cond = arith.TruncIOp(IntegerType.get_signless(1), while_cond)
+        #     scf.ConditionOp(while_cond, while_cond_bb.arguments)
+        
+        # while_body_bb = Block.create_at_start(while_op.after)
+        # with InsertionPoint(while_body_bb), Location.unknown():
+        #     self.symbol_tables.append({})
+        #     for stmt in node.body:
+        #         self.visit(stmt)
+        #     scf.YieldOp(while_body_bb.arguments)
+        #     self.symbol_tables.pop()
         pass
 
-    def visit_While():
-        pass
 
     def visit_Break():
         pass
@@ -200,9 +234,90 @@ class TTKernelCompiler(ast.NodeVisitor):
         pass
 
     # Expressions
+    def visit_Call(self, node):
+        # print(f"visit_Call")
+        return None
+    
     def visit_Expr(self, node):
-        # print(f"visit_Expr")
+        # NOTE: will catch function calls and expressions where return values not used.
         return self.visit(node.value)
+
+    def visit_BinOp(self, node):
+        # TODO: need to load MemRef types when using variables
+        # TODO: need to handle float, unsigned, and signed operations
+        lhs = self.visit(node.left)
+        rhs = self.visit(node.right)
+        # print(help(lhs.type))
+        # print(f"types: {lhs.type}, {rhs.type}")
+        if not lhs or not rhs:
+            raise ValueError("Binary operands not found")
+        
+        # load variable if needed
+        if isinstance(lhs.type, memref.MemRefType):
+            lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+        if isinstance(rhs.type, memref.MemRefType):
+            rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+        
+        match(node.op):
+            case ast.Add():
+                return arith.addi(lhs, rhs)
+            case ast.Sub():
+                return arith.subi(lhs, rhs)
+            case ast.Mult():
+                return arith.muli(lhs, rhs)
+            # case ast.Div(): # only worried about integers right now
+                # return arith.divf(lhs, rhs)
+            case _:
+                raise NotImplementedError(f"Binary operator {type(node.op).__name__} not implemented")
+    
+    def visit_UnaryOp(self, node):
+        operand = self.visit(node.operand)
+        if not operand:
+            raise ValueError("Unary operand not found")
+
+        if isinstance(operand.type, memref.MemRefType):
+            operand = memref.LoadOp(operand, arith.ConstantOp(IndexType.get(self.ctx), 0))
+        
+        match(node.op):
+            # need to expose emitc for these unary operators, not sure if this is necessary yet
+            # case ast.USub():
+            #     # emitc has a unary minus operator
+            #     return arith.subi(arith.ConstantOp(IntegerType.get_signless(32, self.ctx), 0), operand)
+            # case ast.Not():
+            #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), 1))
+            # case ast.Invert():
+            #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), -1))
+            case _:
+                raise NotImplementedError(f"Unary operator {type(node.op).__name__} not implemented")
+
+    def visit_Compare(self, node):
+        assert len(node.ops) == 1, "Only single operators supported"
+        assert len(node.comparators) == 1, "Only single comparators supported"
+        lhs = self.visit(node.left)
+        rhs = self.visit(node.comparators[0])
+        if not lhs or not rhs:
+            raise ValueError("Compare operands not found")
+        
+        if isinstance(lhs.type, memref.MemRefType):
+            lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+        if isinstance(rhs.type, memref.MemRefType):
+            rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+        
+        match(node.ops[0]):
+            case ast.Eq():
+                return arith.cmpi(arith.CmpIPredicate.eq, lhs, rhs)
+            case ast.NotEq():
+                return arith.cmpi(arith.CmpIPredicate.ne, lhs, rhs)
+            case ast.Gt():
+                return arith.cmpi(arith.CmpIPredicate.sgt, lhs, rhs)
+            case ast.GtE():
+                return arith.cmpi(arith.CmpIPredicate.sge, lhs, rhs)
+            case ast.Lt():
+                return arith.cmpi(arith.CmpIPredicate.slt, lhs, rhs)
+            case ast.LtE():
+                return arith.cmpi(arith.CmpIPredicate.sle, lhs, rhs)
+            case _: 
+                raise NotImplementedError(f"Compare operator {type(node.ops).__name__} not implemented")
 
     # Literals
     def visit_Constant(self, node):
