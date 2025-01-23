@@ -6,18 +6,6 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/ArithToLLVM
 
   LINK_LIBS PUBLIC
-  MLIRLinalgTransforms
-  MLIRArithToLLVM
-  MLIRBufferizationPipelines
-  MLIRBufferizationToMemRef
-  MLIRControlFlowToLLVM
-  MLIRFuncToLLVM
-  MLIRMemRefToLLVM
-  MLIRMemRefTransforms
-  MLIRReconcileUnrealizedCasts
-  MLIRSCFToControlFlow
-  MLIRTensorToLinalg
+  MLIR
   MLIRTTIRDialect
-  MLIRPass
-  MLIRTransforms
 )

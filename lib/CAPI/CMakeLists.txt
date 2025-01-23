@@ -11,9 +11,6 @@ add_mlir_public_c_api_library(TTMLIRCAPI
   ENABLE_AGGREGATION
 
   LINK_LIBS PUBLIC
-  MLIRIR
-  MLIRCAPITransforms
-  MLIRSupport
-  MLIRTargetCpp
+  MLIR
   TTMLIRStatic
 )
