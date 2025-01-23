@@ -17,6 +17,9 @@ public:
   using NameLoc::NameLoc;
 
   static PassOpLoc get(mlir::StringRef name, mlir::Location loc) {
+    if (auto passOpLoc = mlir::dyn_cast<PassOpLoc>(loc)) {
+      loc = passOpLoc.getChildLoc();
+    }
     return mlir::cast<PassOpLoc>(mlir::NameLoc::get(
         mlir::StringAttr::get(loc.getContext(), prefix + name), loc));
   }
@@ -30,7 +33,7 @@ public:
   static constexpr llvm::StringRef name = "ttmlir.pass_op_loc";
 
 private:
-  static constexpr llvm::StringRef prefix = "-";
+  static constexpr llvm::StringRef prefix = "pass-";
 };
 
 class PassOpLocFrom {
