@@ -459,10 +459,15 @@ class Run:
                             for i in range(len(program.program["inputs"])):
                                 golden_tensor = None
 
+                                self.logging.info("tapssssss")
+
                                 if not self["--disable-golden"]:
                                     golden_tensor = bin.fbb.get_debug_info_golden(
                                         f"input_{i}"
                                     )
+
+                                self.logging.info("tapssssss")
+                                #breakpoint()
 
                                 if golden_tensor is not None:
 
@@ -474,6 +479,10 @@ class Run:
                                         golden_tensor, dtype=dtype
                                     )
                                     golden_inputs.append(golden_tensor_torch)
+
+                                    self.logging.info("tapssssss")
+                                    self.logging.info(golden_tensor_torch)
+                                    self.logging.info("tapssssss")
 
                             program.populate_inputs(
                                 Run.TorchInitializer.get_initilizer(self["--init"]),

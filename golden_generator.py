@@ -150,7 +150,7 @@ def test_relu_decomp():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def relu(inputs):
@@ -196,7 +196,7 @@ def test_relu():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def relu(inputs):
@@ -232,7 +232,7 @@ def test_sigmoid():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def sigmoid(inputs):
@@ -267,7 +267,7 @@ def test_exp():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def exp(inputs):
@@ -302,7 +302,7 @@ def test_abs():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def abs(inputs):
@@ -337,7 +337,7 @@ def test_logical_not():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def logical_not(inputs):
@@ -372,7 +372,7 @@ def test_neg():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def neg(inputs):
@@ -407,7 +407,7 @@ def test_sqrt():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def sqrt(inputs):
@@ -442,7 +442,7 @@ def test_rsqrt():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def rsqrt(inputs):
@@ -477,7 +477,7 @@ def test_reciprocal():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def reciprocal(inputs):
@@ -512,7 +512,7 @@ def test_add():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def add(input_one, input_two):
@@ -547,7 +547,7 @@ def test_multiply():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def multiply(input_one, input_two):
@@ -582,7 +582,7 @@ def test_softmax():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def softmax(inputs):
@@ -617,7 +617,7 @@ def test_cos():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def cos(inputs):
@@ -652,7 +652,7 @@ def test_sin():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def sin(inputs):
@@ -687,7 +687,7 @@ def test_transpose():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def transpose(inputs):
@@ -722,7 +722,7 @@ def test_unsqueeze():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def unsqueeze(inputs):
@@ -757,7 +757,7 @@ def test_squeeze():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def squeeze(inputs):
@@ -792,7 +792,7 @@ def test_concat():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def concat(input_one, input_two):
@@ -827,7 +827,7 @@ def test_mean():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def mean(inputs):
@@ -862,7 +862,7 @@ def test_reshape():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def reshape(inputs):
@@ -921,7 +921,7 @@ def test_matmul():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def matmul(input_one, input_two):
@@ -956,7 +956,7 @@ def test_embedding():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def embedding(input_one, input_two):
@@ -1040,8 +1040,7 @@ def test_llama_attention():
             for index, shape in enumerate(input_shape_list):
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
-                golden_map[f"input_{index}"] = torch_input_golden
-                torch.save(torch_input_golden, f"/code/tt-mlir/builder_goldens/input_{index}.pt")
+                golden_map[f"input_{index}"] = torch_input_golden.flatten()
 
             @func.func(*input_operands, name=f"{function_name}")
             def llama_attention(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14):
@@ -1227,7 +1226,14 @@ def test_llama_attention():
 
 #test_llama_attention()
 
-#test_transpose() #actual_pcc=-0.00155016
-#test_concat() #All dimensions must be the same size except for the dimension along which the contenation is taking place.
-#test_reshape() #pcc=-0.00439
-#test_matmul() #ttnn.matmul: The width of the first tensor must be equal to the height of the second tensor (3200 != 12).
+
+#test_squeeze() #pass
+#test_matmul()  #pass
+#test_reshape() #pass
+#test_transpose() #actual_pcc=0.00531
+#test_unsqueeze()  #pass
+#test_concat()  #srcTensor.volume() * srcTensor.element_size() == dstTensor.volume() * dstTensor.element_size()
+#test_cos()  #pass
+#test_multiply() #pass
+#test_sin() #pass
+#test_add() #pass

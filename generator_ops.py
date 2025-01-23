@@ -86,6 +86,7 @@ def create_relu(inputs, output_shape_list, golden_inputs):
     #print()
 
     golden_output = torch.relu(*golden_inputs)
+    golden_output.flatten()
 
     #print("relu-golden-post----------start")
     #print()
@@ -126,6 +127,7 @@ def create_sigmoid(inputs, output_shape_list, golden_inputs):
     #print()
 
     golden_output = torch.sigmoid(*golden_inputs)
+    golden_output.flatten()
 
     #print("sigmoid-golden-post----------start")
     #print()
@@ -156,6 +158,7 @@ def create_exp(inputs, output_shape_list, golden_inputs):
     exp_index += 1
 
     golden_output = torch.exp(*golden_inputs)
+    golden_output.flatten()
 
     torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
 
@@ -179,6 +182,7 @@ def create_abs(inputs, output_shape_list, golden_inputs):
     abs_index += 1
 
     golden_output = torch.abs(*golden_inputs)
+    golden_output.flatten()
 
     torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
 
@@ -204,7 +208,7 @@ def create_logical_not(inputs, output_shape_list, golden_inputs):
     logical_not_index += 1
 
     golden_output = torch.logical_not(*golden_inputs)
-    torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
+    golden_output.flatten()
 
     return res, {"location": location, "golden_output": golden_output}
 
@@ -226,6 +230,7 @@ def create_neg(inputs, output_shape_list, golden_inputs):
     neg_index += 1
 
     golden_output = torch.neg(*golden_inputs)
+    golden_output.flatten()
     torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
 
     return res, {"location": location, "golden_output": golden_output}
@@ -250,6 +255,7 @@ def create_sqrt(inputs, output_shape_list, golden_inputs):
     sqrt_index += 1
 
     golden_output = torch.sqrt(*golden_inputs)
+    golden_output.flatten()
     torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
 
     return res, {"location": location, "golden_output": golden_output}
@@ -274,6 +280,7 @@ def create_rsqrt(inputs, output_shape_list, golden_inputs):
     rsqrt_index += 1
 
     golden_output = torch.rsqrt(*golden_inputs)
+    golden_output.flatten()
     torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
 
     return res, {"location": location, "golden_output": golden_output}
@@ -298,6 +305,7 @@ def create_reciprocal(inputs, output_shape_list, golden_inputs):
     reciprocal_index += 1
 
     golden_output = torch.reciprocal(*golden_inputs)
+    golden_output.flatten()
     torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
 
     return res, {"location": location, "golden_output": golden_output}
@@ -330,6 +338,7 @@ def create_add(input_one, input_two, output_shape_list, golden_inputs):
     #print()
 
     golden_output = torch.add(*golden_inputs)
+    golden_output.flatten()
 
     #print("add-golden-post----------start")
     #print()
@@ -371,6 +380,7 @@ def create_multiply(input_one, input_two, output_shape_list, golden_inputs):
     #print()
 
     golden_output = torch.multiply(*golden_inputs)
+    golden_output.flatten()
 
     #print("multiply-golden-post----------start")
     #print()
@@ -411,6 +421,7 @@ def create_softmax(inputs, output_shape_list, dim, golden_inputs):
     #print()
 
     golden_output = torch.softmax(*golden_inputs, dim)
+    golden_output.flatten()
 
     #print("softmax-golden-post-----------start")
     #print()
@@ -447,6 +458,7 @@ def create_cos(inputs, output_shape_list, golden_inputs):
     #print()
 
     golden_output = torch.cos(*golden_inputs)
+    golden_output.flatten()
 
     #print("cos-golden-post------start")
     #print()
@@ -483,6 +495,7 @@ def create_sin(inputs, output_shape_list, golden_inputs):
     #print()
 
     golden_output = torch.sin(*golden_inputs)
+    golden_output.flatten()
 
     #print("sin-golden-post------start")
     #print()
@@ -523,6 +536,7 @@ def create_transpose(inputs, output_shape_list, dim0, dim1, golden_inputs):
     #print()
 
     golden_output = torch.transpose(*golden_inputs, dim0, dim1)
+    golden_output.flatten()
 
     #print("transpose-golden-post------start")
     #print()
@@ -562,6 +576,7 @@ def create_unsqueeze(inputs, output_shape_list, dim, golden_inputs):
     #print()
 
     golden_output = torch.unsqueeze(*golden_inputs, dim)
+    golden_output.flatten()
 
     #print("unsqueeze-golden-post-----start")
     #print()
@@ -601,6 +616,7 @@ def create_squeeze(inputs, output_shape_list, dim, golden_inputs):
     #print()
 
     golden_output = torch.squeeze(*golden_inputs, dim)
+    golden_output.flatten()
 
     #print("squeeze-golden-post-----start")
     #print()
@@ -642,6 +658,7 @@ def create_concat(input_one, input_two, output_shape_list, dim, golden_inputs):
     #print()
 
     golden_output = torch.concat(golden_inputs, dim)
+    golden_output.flatten()
 
     #print("concat-------start")
     #print()
@@ -675,6 +692,7 @@ def create_mean(inputs, output_shape_list, keep_dim, dim_arg, golden_inputs):
     mean_index += 1
 
     golden_output = torch.mean(*golden_inputs)
+    golden_output.flatten()
 
     torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
 
@@ -703,11 +721,14 @@ def create_reshape(inputs, output_shape_list, golden_inputs):
     #print("reshape-golden-pre----------start")
     #print()
     a = golden_inputs[0]
+    print(a)
+    print(a.flatten())
     #print(a.shape)
     #print("reshape-golden-pre---------end")
     #print()
     #print()
     golden_output = torch.reshape(*golden_inputs, output_shape_list[0])
+    golden_output.flatten()
     print(golden_output)
     print(golden_output.flatten())
 
@@ -774,6 +795,7 @@ def create_matmul(input_one, input_two, output_shape_list, golden_inputs):
     #print()
 
     golden_output = torch.matmul(*golden_inputs)
+    golden_output.flatten()
 
     #print("matmul-golden-post----------start")
     #print()
@@ -807,6 +829,7 @@ def create_embedding(input_one, input_two, output_shape_list, golden_inputs):
     embedding_index += 1
 
     golden_output = torch.embedding(*golden_inputs)
+    golden_output.flatten()
 
     torch.save(golden_output, f"/code/tt-mlir/builder_goldens/{location}.pt")
 
