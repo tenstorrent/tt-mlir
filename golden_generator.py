@@ -13,6 +13,7 @@ from ttmlir.dialects import ttir, tt, ttnn, func, tensor
 from ttmlir.passes import *
 import torch
 from generator_ops import *
+from ttmlir.util import debug_print_module
 
 
 def create_flatbuffer_golden_map(golden_map):
@@ -46,29 +47,16 @@ def print_module(module):
 
 
 def module_post_processing(module, function_name, golden_map={}):
-    print("xxxxxxxxxxxxxxxxxxxxTTIRxxxxxxxxxxxxxxxxxxxxxxxxx")
-    print(module)
-    print("xxxxxxxxxxxxxxxxxxxxTTIRxxxxxxxxxxxxxxxxxxxxxxxxx")
 
-    print("xxxxxxxxxxxxxxxxxxxxTTIRxxxxxxxxxxxxxxxxxxxxxxxxx")
-    print_module(module)
-    print("xxxxxxxxxxxxxxxxxxxxTTIRxxxxxxxxxxxxxxxxxxxxxxxxx")
-
+    ttir_debug = debug_print_module(module)
     with open(f"{function_name}_ttir.mlir", "w") as file:
-        file.write(str(module))
+        file.write(ttir_debug)
 
     ttir_to_ttnn_backend_pipeline(module, f"system-desc-path={SYSTEM_DESC_PATH}")
 
-    print("xxxxxxxxxxxxxxxxxxxxTTNNxxxxxxxxxxxxxxxxxxxxxxxxx")
-    print(module)
-    print("xxxxxxxxxxxxxxxxxxxxTTNNxxxxxxxxxxxxxxxxxxxxxxxxx")
-
-    print("xxxxxxxxxxxxxxxxxxxxTTNNxxxxxxxxxxxxxxxxxxxxxxxxx")
-    print_module(module)
-    print("xxxxxxxxxxxxxxxxxxxxTTNNxxxxxxxxxxxxxxxxxxxxxxxxx")
-
+    ttnn_debug = debug_print_module(module)
     with open(f"{function_name}_ttnn.mlir", "w") as file:
-        file.write(str(module))
+        file.write(ttnn_debug)
 
     flatbuffer_golden_map = create_flatbuffer_golden_map(golden_map)
     ttnn_to_flatbuffer_file(module, f"{function_name}.ttnn", flatbuffer_golden_map)
@@ -864,7 +852,7 @@ def test_reshape():
         module = Module.create()
         with InsertionPoint(module.body):
 
-            input_shape_list = [(12, 3200)]
+            input_shape_list = [(1, 12, 3200)]
 
             input_operands = []
             for shape in input_shape_list:
@@ -879,7 +867,7 @@ def test_reshape():
             @func.func(*input_operands, name=f"{function_name}")
             def reshape(inputs):
                 ttir_op_res, golden_dict = create_reshape(
-                    inputs, [(1, 12, 32, 100)], golden_inputs
+                    inputs, [(12, 3200)], golden_inputs
                 )
                 golden_map[golden_dict["location"]] = golden_dict["golden_output"]
                 return ttir_op_res
@@ -1053,6 +1041,7 @@ def test_llama_attention():
                 torch_input_golden = torch.randn(shape, dtype=torch.float32)
                 golden_inputs.append(torch_input_golden)
                 golden_map[f"input_{index}"] = torch_input_golden
+                torch.save(torch_input_golden, f"/code/tt-mlir/builder_goldens/input_{index}.pt")
 
             @func.func(*input_operands, name=f"{function_name}")
             def llama_attention(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14):
@@ -1209,7 +1198,7 @@ def test_llama_attention():
 
                 output101, golden_dict101 = create_squeeze(output99, [(32, 100, 12)], 0, [golden_dict99["golden_output"]])
                 golden_map[golden_dict101["location"]] = golden_dict101["golden_output"]
-                
+
                 output103, golden_dict103 = create_transpose(output101, [(32, 12, 100)], -2, -1, [golden_dict101["golden_output"]])
                 golden_map[golden_dict103["location"]] = golden_dict103["golden_output"]
 
@@ -1236,9 +1225,9 @@ def test_llama_attention():
         module_post_processing(module, function_name, golden_map)
 
 
-test_llama_attention()
+#test_llama_attention()
 
-#test_transpose() #dimension has to be 0-3 only corresponding to N,C,H,W
-#test_concat() #input_tensor_a.get_legacy_shape().rank() == this->slice_start.rank() && this->slice_start.rank() == this->slice_end.rank()
-#test_reshape() #Statically allocated circular buffers on core range [(x=0,y=0) - (x=0,y=0)] grow to 9929504 B which is beyond max L1 size of 1499136 B
-#test_matmul() #Always | FATAL    | ttnn.matmul: The width of the first tensor must be equal to the height of the second tensor (38400 != 1). The shape of first tensor was ttnn.Shape([1[32], 38400]) and the shape of second tensor was ttnn.Shape([1[32], 10240000]))
+#test_transpose() #actual_pcc=-0.00155016
+#test_concat() #All dimensions must be the same size except for the dimension along which the contenation is taking place.
+#test_reshape() #pcc=-0.00439
+#test_matmul() #ttnn.matmul: The width of the first tensor must be equal to the height of the second tensor (3200 != 12).

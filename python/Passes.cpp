@@ -153,6 +153,9 @@ void populatePassesModule(py::module &m) {
   m.def(
       "convert_ttir_to_ttnn_pass",
       [](MlirModule module, std::string options = "") {
+        mlir::OpPrintingFlags flags;
+        flags.enableDebugInfo(); // Enable the debug print
+        
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
 
@@ -224,6 +227,9 @@ void populatePassesModule(py::module &m) {
   m.def(
       "ttir_to_ttnn_backend_pipeline",
       [](MlirModule module, std::string options = "") {
+        mlir::OpPrintingFlags flags;
+        flags.enableDebugInfo(); // Enable the debug print
+
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
 
@@ -235,9 +241,6 @@ void populatePassesModule(py::module &m) {
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
-
-        pm.getContext()->disableMultithreading();
-        pm.enableIRPrinting();
 
         pm.getContext()->printOpOnDiagnostic(
             true); // Ensures diagnostic printing includes the operation.
