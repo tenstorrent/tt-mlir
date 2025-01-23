@@ -867,6 +867,40 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
+def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
+  let summary = "Repeat operation.";
+  let description = [{
+    The `repeat` operation creates a new tensor by replicating the input tensor's elements
+    along specified dimensions. The number of repetitions for each dimension is defined by
+    the `repeats` attribute, which must have the same rank as the input tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of times to repeat this tensor along each dimension.
+
+    ### Example IR Usage:
+    ```mlir
+    // Input tensor of shape (2, 3)
+    %input = ... : tensor<2x3xf32>
+
+    // Repeat each dimension twice
+    %repeated = "repeat"(%input) {repeat_dimensions = dense<[2, 2]> : tensor<2xi64>} : tensor<2x3xf32> -> tensor<4x6xf32>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       DenseI32ArrayAttr:$repeat_dimensions);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
     let summary = "Repeat interleave op.";
     let description = [{

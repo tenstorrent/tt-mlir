@@ -696,6 +696,23 @@ public:
   }
 };
 
+class RepeatOpConversionPattern : public OpConversionPattern<ttir::RepeatOp> {
+  using OpConversionPattern<ttir::RepeatOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::RepeatOp op, ttir::RepeatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto repeatDimensionsAttr = adaptor.getRepeatDimensionsAttr();
+
+    rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), rewriter.getI32ArrayAttr(repeatDimensionsAttr));
+
+    return success();
+  }
+};
+
 class UnsqueezeOpConversionPattern
     : public OpConversionPattern<ttir::UnsqueezeOp> {
 public:
@@ -1373,6 +1390,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
+           RepeatOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,

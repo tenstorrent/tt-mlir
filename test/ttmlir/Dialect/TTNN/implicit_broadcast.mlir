@@ -17,7 +17,7 @@ func.func @main(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) -> tensor<784x12
     // CHECK-NOT: "ttnn.repeat"
     // CHECK: %{{[0-9]+}} = "ttnn.reshape"
     // CHECK: %{{[0-9]+}} = "ttnn.repeat"
-    // CHECK-SAME: shape = [784 : i32, 1 : i32]
+    // CHECK-SAME: repeat_dims = [784 : i32, 1 : i32]
     // CHECK: %{{[0-9]+}} = "ttnn.add"
     %0 = tensor.empty() : tensor<1x128xf32>
     %1 = "ttir.reshape"(%arg0, %0) <{shape = [1 : i32, 128 : i32]}> : (tensor<128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
@@ -35,7 +35,7 @@ func.func @main(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) -> tensor<784x12
 
 module {   func.func @main(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
     // CHECK: [[VAL0:%[0-9]+]] = "ttnn.repeat"
-    // CHECK-SAME: shape = [1 : i32, 16 : i32, 1 : i32]
+    // CHECK-SAME: repeat_dims = [1 : i32, 16 : i32, 1 : i32]
     // CHECK: %{{[0-9]+}} = "ttnn.multiply"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}})
     // CHECK: %{{[0-9]+}} = "ttnn.bitwise_and"([[VAL0]], %{{[0-9]+}}, %{{[0-9]+}})
     %0 = tensor.empty() : tensor<1x16x32xf32>

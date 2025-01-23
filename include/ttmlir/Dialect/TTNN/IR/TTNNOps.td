@@ -826,11 +826,15 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
 def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let summary = "Repeat op.";
     let description = [{
-      Repeat the input tensor according to number of times specified in repeat_dimensions.
+      Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.
+
+      Parameters:
+        - `input_tensor` (ttnn.Tensor): the input tensor.
+        - `repeat_dims` (number): The number of repetitions for each element.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$shape);
+                         I32ArrayAttr:$repeat_dims);
 
     let results = (outs AnyRankedTensor:$result);
 
