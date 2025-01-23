@@ -25,6 +25,7 @@ set(TTMLIR_LIBS
     MLIRTTNNPipelines
     MLIRTTMetalPipelines
     TTMLIRTTNNToEmitC
+    TTLLVMToDynamicLib
 )
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.

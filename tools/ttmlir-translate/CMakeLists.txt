@@ -10,20 +10,9 @@ add_llvm_executable(ttmlir-translate ttmlir-translate.cpp DISABLE_LLVM_LINK_LLVM
 
 llvm_update_compile_flags(ttmlir-translate)
 target_link_libraries(ttmlir-translate PRIVATE
-  ${dialect_libs}
-  ${conversion_libs}
-  ${translation_libs}
-  ${extension_libs}
-  MLIRIR
-  MLIRSupport
-  MLIRTranslateLib
-  ${target_libs}
-  LLVMX86AsmParser
-  LLVMX86CodeGen
-  LLVMX86Desc
-  LLVMX86Disassembler
-  LLVMX86Info
-  LLVMX86TargetMCA
+  MLIR
+  TTMLIR
+  LLVM
 )
 
 mlir_check_link_libraries(ttmlir-translate)
