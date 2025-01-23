@@ -37,9 +37,10 @@ RUN apt-get update && apt-get install -y \
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod u+x llvm.sh && \
     ./llvm.sh 17 && \
-    apt install -y libc++-17-dev libc++abi-17-dev && \
+    apt install -y libc++-17-dev libc++abi-17-dev clang-tools-17 && \
     ln -s /usr/bin/clang-17 /usr/bin/clang && \
-    ln -s /usr/bin/clang++-17 /usr/bin/clang++
+    ln -s /usr/bin/clang++-17 /usr/bin/clang++ && \
+    ln -s /usr/bin/clang-scan-deps-17 /usr/bin/clang-scan-deps
 
 # Install python packages
 RUN pip install cmake
