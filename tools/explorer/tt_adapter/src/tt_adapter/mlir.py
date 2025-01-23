@@ -324,6 +324,9 @@ def parse_force(attr):
 @AttrHandler.register_handler("dtype")
 def parse_dtype(attr):
     dtype = tt.ir.DataTypeAttr.maybe_downcast(attr)
+    if dtype is None:
+        # Potential for dtype to be StringAttr instead of tt.DataTypeAttr
+        return [graph_builder.KeyValue(key="dtype", value=str(attr))]
     return [
         graph_builder.KeyValue(
             key="dtype", value=str(tt.DataType(dtype.data_type_as_int))
