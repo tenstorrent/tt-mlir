@@ -212,7 +212,7 @@ void populatePassesModule(py::module &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
 
-        tt::ttnn::createTTNNPipelineTTIRBroadcastFoldPassFromString(pm,
+        tt::ttnn::createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(pm,
                                                                     options);
 
         if (mlir::failed(pm.run(moduleOp))) {

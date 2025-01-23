@@ -199,8 +199,9 @@ void createTTNNWorkaroundsFromString(OpPassManager &pm, std::string options);
 
 void createCanonicalizerPassFromString(OpPassManager &pm, std::string options);
 
-void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
-                                                       std::string options);
+void createTTNNPipelineTTIRImplicitBroadcastFoldPass(OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(OpPassManager &pm, std::string options);
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);

@@ -1067,16 +1067,8 @@ def test_llama_attention():
         module_post_processing(module, function_name, golden_map)
 
 #test_llama_attention()
-#test_relu() # pcc=1
-#test_sigmoid() # pcc=0.99
-#test_add() # pcc=1
-#test_multiply() # pcc=1
-#test_softmax() #pcc=0.98965
-#test_cos() #pcc=0.999999
-#test_sin() #pcc=0.999999
-#test_transpose() #PCC=0.03773
-#test_unsqueeze() #pcc=-0.110075
-#test_squeeze() #pcc=-0.1644
-#test_concat() #srcTensor.volume() * srcTensor.element_size() == dstTensor.volume() * dstTensor.element_size()
+
+#test_transpose() #dimension has to be 0-3 only corresponding to N,C,H,W
+#test_concat() #input_tensor_a.get_legacy_shape().rank() == this->slice_start.rank() && this->slice_start.rank() == this->slice_end.rank()
 #test_reshape() #Statically allocated circular buffers on core range [(x=0,y=0) - (x=0,y=0)] grow to 9929504 B which is beyond max L1 size of 1499136 B
 #test_matmul() #Always | FATAL    | ttnn.matmul: The width of the first tensor must be equal to the height of the second tensor (38400 != 1). The shape of first tensor was ttnn.Shape([1[32], 38400]) and the shape of second tensor was ttnn.Shape([1[32], 10240000]))

@@ -176,7 +176,7 @@ void createTTNNWorkaroundsFromString(OpPassManager &pm, std::string options) {
   auto optionsStruct =
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
   TTNNWorkaroundsOptions workaroundOptions{
-      optionsStruct->layouotWorkaroundsEnabled,
+      optionsStruct->layoutWorkaroundsEnabled,
       optionsStruct->decompositionWorkaroundsEnabled};
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
 }
@@ -187,7 +187,7 @@ void createCanonicalizerPassFromString(OpPassManager &pm, std::string options) {
   pm.addPass(mlir::createCanonicalizerPass());
 }
 
-void createTTNNPipelineTTIRBroadcastFoldPass(
+void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.implicitBroadcastFoldingEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
