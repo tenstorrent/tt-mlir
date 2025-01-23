@@ -97,7 +97,7 @@ table MemoryConfigDesc {
   shard_spec: ShardSpec;
 }
 
-table Conv2dConfig {
+table Conv2dConfigDesc {
   dtype: DataType;
   weights_dtype: DataType;
   activation: string;

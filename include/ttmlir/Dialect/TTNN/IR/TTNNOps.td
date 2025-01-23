@@ -845,14 +845,10 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
                          I32Attr:$batch_size,
                          I32Attr:$input_height,
                          I32Attr:$input_width,
-                         I32Attr:$kernel_height,
-                         I32Attr:$kernel_width,
-                         I32Attr:$stride_height,
-                         I32Attr:$stride_width,
-                         I32Attr:$padding_height,
-                         I32Attr:$padding_width,
-                         I32Attr:$dilation_height,
-                         I32Attr:$dilation_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
 
@@ -871,10 +867,24 @@ def TTNN_ConvTranspose2dOp : TTNN_NamedDPSOp<"conv_transpose2d"> {
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
 
       Inputs:
-      - `input` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
-      - `weight` AnyRankedTensor: OIHW format (output_channels x input_channels x height x width)
-      - `bias` Optional<AnyRankedTensor>: (1 x 1 x 1 x output_channels)
-      - `output` AnyRankedTensor: (1 x 1 x (batch_size * height * width) x channels)
+      - `input (AnyRankedTensor): Expected format `(N x H_in x W_in x C)`
+        - `N`: Batch size
+        - `H_in`: Height of the input
+        - `W_in`: Width of the input
+        - `C`: Number of input channels
+
+      - `weight` (AnyRankedTensor): Expected format `(C x O / G x K_H x K_W)`
+        - `C`: Number of input channels
+        - `O`: Number of output channels
+        - `G`: Number of groups
+        - `K_H`: Kernel height
+        - `K_W`: Kernel width
+
+      - `bias` (Optional<AnyRankedTensor>): Expected format `(1 x 1 x 1 x O / G)`
+
+      - `output` (AnyRankedTensor): Expected format `(1 x 1 x (N * H_out * W_out) x O)`
+        - `H_out = (H_in - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel_size[0] - 1) + output_padding[0] + 1`
+        - `W_out = (W_in - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel_size[1] - 1) + output_padding[1] + 1`
 
       Attributes:
       - `in_channels` i32: The number of input channels.

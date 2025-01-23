@@ -29,5 +29,8 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
 ::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
     const ::tt::target::DistributionStrategy *strategy);
 
+::ttnn::operations::conv::conv2d::Conv2dConfig
+createConv2dConfig(const ::tt::target::Conv2dConfigDesc *memcfg);
+
 } // namespace tt::runtime::ttnn::operations::utils
 #endif

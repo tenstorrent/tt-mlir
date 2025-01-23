@@ -372,31 +372,29 @@ public:
       return failure();
     }
 
-    auto strideHeightAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWindowStrides()[SPATIAL_DIM_HEIGHT]);
-    auto strideWidthAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWindowStrides()[SPATIAL_DIM_WIDTH]);
-    auto dilationHeightAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT]);
-    auto dilationWidthAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH]);
+    auto strideAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_HEIGHT]),
+        static_cast<int32_t>(adaptor.getWindowStrides()[SPATIAL_DIM_WIDTH]),
+    });
+    auto dilationAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(adaptor.getWeightDilation()[SPATIAL_DIM_HEIGHT]),
+        static_cast<int32_t>(adaptor.getWeightDilation()[SPATIAL_DIM_WIDTH]),
+    });
 
     // Padding is a list of 2-tuples, the order of the 2-tuples is in
     // most-significant spatial dimension first order For Conv2d the most
     // significant spatial dimension is the height, followed by the width.
     auto paddingMatrix =
         getPaddingMatrix<NUM_SPATIAL_DIMS>(adaptor.getPadding());
-    auto paddingTopAttr =
-        rewriter.getSI32IntegerAttr(paddingMatrix[SPATIAL_DIM_HEIGHT][0]);
-    auto paddingBottomAttr =
-        rewriter.getSI32IntegerAttr(paddingMatrix[SPATIAL_DIM_HEIGHT][1]);
-    auto paddingLeftAttr =
-        rewriter.getSI32IntegerAttr(paddingMatrix[SPATIAL_DIM_WIDTH][0]);
-    auto paddingRightAttr =
-        rewriter.getSI32IntegerAttr(paddingMatrix[SPATIAL_DIM_WIDTH][1]);
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_HEIGHT][0]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_HEIGHT][1]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][0]),
+        static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][1]),
+    });
 
     auto groupsAttr =
-        rewriter.getSI32IntegerAttr(adaptor.getFeatureGroupCount());
+        rewriter.getI32IntegerAttr(adaptor.getFeatureGroupCount());
 
     llvm::ArrayRef<int64_t> outputShape = op.getResult().getType().getShape();
     llvm::SmallVector<int64_t> newOutputShape{
@@ -438,9 +436,7 @@ public:
         weightDPSOutput, kernelPermutation);
     ttir::Conv2dOp newConv = rewriter.create<ttir::Conv2dOp>(
         op.getLoc(), outputType, input, weight, adaptor.getBias(),
-        convDPSOutput, strideHeightAttr, strideWidthAttr, dilationHeightAttr,
-        dilationWidthAttr, groupsAttr, paddingLeftAttr, paddingRightAttr,
-        paddingTopAttr, paddingBottomAttr);
+        convDPSOutput, strideAttr, paddingAttr, dilationAttr, groupsAttr);
 
     // Applying the inverse of permutation to the output will restore the
     // tensor to the original layout.

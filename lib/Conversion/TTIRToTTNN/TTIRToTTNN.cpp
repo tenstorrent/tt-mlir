@@ -27,6 +27,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <iostream>
 #include <llvm/Support/LogicalResult.h>
 
 #include <cstdint>
@@ -808,87 +809,102 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto kernel_ty =
-        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    llvm::ArrayRef<std::int64_t> kernel_shape = kernel_ty.getShape();
 
-    auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
 
-    auto output_ty =
-        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
-    llvm::ArrayRef<std::int64_t> output_shape = output_ty.getShape();
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
+    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
+    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
 
-    auto in_channels =
-        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 1]);
-    auto out_channels =
-        rewriter.getI32IntegerAttr(output_shape[output_shape.size() - 1]);
-    auto batch_size =
-        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 4]);
-    auto input_height =
-        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 3]);
-    auto input_width =
-        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 2]);
+    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(kernelTy.getDimSize(2)),
+         static_cast<int32_t>(kernelTy.getDimSize(3))});
 
-    auto kernel_height =
-        rewriter.getI32IntegerAttr(kernel_shape[kernel_shape.size() - 2]);
-    auto kernel_width =
-        rewriter.getI32IntegerAttr(kernel_shape[kernel_shape.size() - 1]);
+    auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
+    if (auto error = strideAttr.takeError()) {
+      return LogicalResult::failure();
+    }
 
-    auto stride_height = rewriter.getI32IntegerAttr(adaptor.getStrideHeight());
-    auto stride_width = rewriter.getI32IntegerAttr(adaptor.getStrideWidth());
+    DenseI32ArrayAttr paddingArrayAttr;
+    if (auto paddingAttr =
+            mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
+                adaptor.getPaddingAttr());
+        paddingAttr.size() == 4) {
+      if (paddingAttr[0] != paddingAttr[1] ||
+          paddingAttr[2] != paddingAttr[3]) {
+        return rewriter.notifyMatchFailure(
+            op,
+            "TTNN only supports padding height/width attributes. Thus, "
+            "padding_top/padding_left must equal padding_bottom/padding_right "
+            "for the op to execute as expected.");
+      }
 
-    assert(
-        adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
-        "TTNN only supports padding height/width attributes. Thus, padding_top "
-        "must equal padding_bottom for the op to execute as expected.");
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
-           "TTNN only supports padding height/width attributes. Thus, "
-           "padding_left must equal padding_right for the op to execute as "
-           "expected.");
-    auto padding_height = rewriter.getI32IntegerAttr(adaptor.getPaddingTop());
-    auto padding_width = rewriter.getI32IntegerAttr(adaptor.getPaddingRight());
+      paddingArrayAttr =
+          rewriter.getDenseI32ArrayAttr({paddingAttr[0], paddingAttr[2]});
+    } else {
+      auto pairPaddingAttr =
+          attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter);
+      if (auto error = pairPaddingAttr.takeError()) {
+        return LogicalResult::failure();
+      }
 
-    auto dilation_height =
-        rewriter.getI32IntegerAttr(adaptor.getDilationHeight());
-    auto dilation_width =
-        rewriter.getI32IntegerAttr(adaptor.getDilationWidth());
-    auto groups = rewriter.getI32IntegerAttr(adaptor.getGroups());
+      paddingArrayAttr = pairPaddingAttr.get();
+    }
 
-    std::vector<int64_t> flattenedInputShape = {
-        1, 1, input_shape[0] * input_shape[1] * input_shape[2], input_shape[3]};
-    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter);
+    auto dilationAttr =
+        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
+    if (auto error = dilationAttr.takeError()) {
+      return LogicalResult::failure();
+    }
 
-    std::vector<int64_t> flattenedOutputShape = {
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    // Convolution in ttnn returns a tensor in a flattened shape
+    // (1 x 1 x N * H * W x C)
+    llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
+    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
         1, 1, output_shape[0] * output_shape[1] * output_shape[2],
         output_shape[3]};
-
-    output_ty = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        output_ty.cloneWith(flattenedOutputShape, output_ty.getElementType())));
+    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
     // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
     // attribute determination
     auto convDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
         adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
-        output_ty.getElementType());
+        outputTy.getElementType());
 
     // Must set the type to the output type to maintain the layout attributes
-    convDPSOutput.getResult().setType(output_ty);
+    convDPSOutput.getResult().setType(outputTy);
 
     ttnn::Conv2dOp new_conv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), output_ty, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), convDPSOutput, device, in_channels, out_channels,
-        batch_size, input_height, input_width, kernel_height, kernel_width,
-        stride_height, stride_width, padding_height, padding_width,
-        dilation_height, dilation_width, groups, nullptr);
+        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
+        adaptor.getBias(), convDPSOutput, device, inChannelsAttr,
+        outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
+        kernelSizeAttr, *strideAttr, paddingArrayAttr, *dilationAttr,
+        groupsAttr, nullptr);
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(new_conv, output_shape, rewriter);
 
     rewriter.replaceOp(op, output);
     return success();
+  }
+
+private:
+  llvm::Expected<DenseI32ArrayAttr>
+  attrToDenseI32ArrayAttr(mlir::Attribute attr,
+                          ConversionPatternRewriter &rewriter) const {
+    auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
+    if (auto error = pair.takeError()) {
+      return error;
+    }
+
+    return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
   }
 };
 

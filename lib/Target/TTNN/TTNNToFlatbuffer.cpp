@@ -445,25 +445,33 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
 createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
-  auto in0 =
+  auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto in1 = cache.at<::tt::target::TensorRef>(
+  auto weight = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getWeight()));
-  auto in2 = op.getODSOperands(2).empty()
-                 ? flatbuffers::Offset<::tt::target::TensorRef>()
-                 : cache.at<::tt::target::TensorRef>(
-                       getOperandThroughDPSOps(op.getBias()));
+  auto bias = op.getODSOperands(2).empty()
+                  ? flatbuffers::Offset<::tt::target::TensorRef>()
+                  : cache.at<::tt::target::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()));
   auto output = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
 
   auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+
   return ::tt::target::ttnn::CreateConv2dOp(
-      *cache.fbb, in0, in1, in2, output,
+      *cache.fbb, input, weight, bias, output,
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
-      op.getInputWidth(), op.getKernelHeight(), op.getKernelWidth(),
-      op.getStrideHeight(), op.getStrideWidth(), op.getPaddingHeight(),
-      op.getPaddingWidth(), op.getDilationHeight(), op.getDilationWidth(),
+      op.getInputWidth(), kernelSize, stride, padding, dilation,
       op.getGroups());
 }
 
