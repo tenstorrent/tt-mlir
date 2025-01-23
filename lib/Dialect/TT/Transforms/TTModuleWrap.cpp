@@ -15,8 +15,10 @@
 #include <llvm/Support/Casting.h>
 
 namespace mlir::tt {
+#define GEN_PASS_DEF_TTUNWRAPDEVICEMODULEPASS
 #define GEN_PASS_DEF_TTWRAPDEVICEMODULEPASS
 #include "ttmlir/Dialect/TT/Transforms/Passes.h.inc"
+
 class TTWrapDeviceModulePass
     : public impl::TTWrapDeviceModulePassBase<TTWrapDeviceModulePass> {
 public:
@@ -24,52 +26,24 @@ public:
       TTWrapDeviceModulePass>::TTWrapDeviceModulePassBase;
   void runOnOperation() override {
     ModuleOp rootModule = getOperation();
-
-    // ensure we only lower top-level module, not any nested modules
-    if (rootModule->getParentOp() != nullptr) {
+    if (rootModule->getParentOp() != nullptr ||
+        llvm::any_of(rootModule.getOps<tt::DeviceModuleOp>(),
+                     [](auto) { return true; })) {
       return;
     }
-    // Check if module already contains a DeviceModuleOp, and do nothing if so.
-    for (Operation &op : rootModule.getBodyRegion().front()) {
-      if (isa<tt::DeviceModuleOp>(op)) {
-        return;
-      }
-    }
 
-    // Create new DeviceModuleOp
     OpBuilder builder(&getContext());
+    auto innerModule = ModuleOp::create(rootModule.getLoc());
+    innerModule.getBodyRegion().takeBody(rootModule.getBodyRegion());
+    rootModule.getRegion().emplaceBlock();
     builder.setInsertionPointToStart(&rootModule.getBodyRegion().front());
     auto deviceModule = builder.create<tt::DeviceModuleOp>(rootModule.getLoc());
-
-    // Create nested ModuleOp inside DeviceModuleOp
     builder.setInsertionPointToStart(&deviceModule.getBodyRegion().front());
-    auto nestedModule = builder.create<ModuleOp>(rootModule.getLoc());
-
-    // Move all operations from top-level module to nested module
-    Block *nestedBlock = &nestedModule.getBodyRegion().front();
-    Block *originalBlock = &rootModule.getBodyRegion().front();
-    // Since we'll be moving ops which could invalidate iterators,
-    // collect ops to move first.
-    SmallVector<Operation *> opsToMove;
-    for (Operation &op : originalBlock->getOperations()) {
-      // We ignore CPUModuleOp's so that we can hoist before calling this pass
-      // if desired; and we mustn't move our new DeviceModuleOp either.
-      if (!isa<tt::CPUModuleOp>(op) && !isa<tt::DeviceModuleOp>(op)) {
-        opsToMove.push_back(&op);
-      }
-    }
-
-    // Now move the collected ops.
-    for (Operation *op : opsToMove) {
-      op->moveBefore(nestedBlock, nestedBlock->begin());
-    }
+    builder.clone(*innerModule);
+    innerModule->erase();
   }
 };
-} // namespace mlir::tt
 
-namespace mlir::tt {
-#define GEN_PASS_DEF_TTUNWRAPDEVICEMODULEPASS
-#include "ttmlir/Dialect/TT/Transforms/Passes.h.inc"
 class TTUnwrapDeviceModulePass
     : public impl::TTUnwrapDeviceModulePassBase<TTUnwrapDeviceModulePass> {
 public:
@@ -77,43 +51,41 @@ public:
       TTUnwrapDeviceModulePass>::TTUnwrapDeviceModulePassBase;
   void runOnOperation() override {
     ModuleOp rootModule = getOperation();
-
-    // ensure we only lower top-level module, not any nested modules
+    // Ensure we only run this on top-level ModuleOp, if others are present.
     if (rootModule->getParentOp() != nullptr) {
       return;
     }
-    // Find DeviceModuleOp, and erase CPUModuleOp if present.
-    tt::DeviceModuleOp deviceModuleOp;
-    for (Operation &op : rootModule.getBodyRegion().front()) {
-      if (auto maybeDeviceModuleOp = dyn_cast<tt::DeviceModuleOp>(op)) {
-        deviceModuleOp = maybeDeviceModuleOp;
-      } else if (isa<tt::CPUModuleOp>(op)) {
-        op.erase();
-      }
-    }
 
-    // If we don't have a deviceModuleOp inside the top-level ModuleOp, this
-    // Pass isn't meaningful.
-    if (!deviceModuleOp) {
+    tt::DeviceModuleOp deviceOp;
+    if (auto deviceOpsList = rootModule.getOps<tt::DeviceModuleOp>();
+        !deviceOpsList.empty()) {
+      assert(std::distance(deviceOpsList.begin(), deviceOpsList.end()) == 1 &&
+             "Top-level ModuleOp must contain 0 or 1 DeviceModuleOps!");
+      deviceOp = *deviceOpsList.begin();
+    } else {
       return;
     }
 
-    auto nestedModule = llvm::dyn_cast_or_null<ModuleOp>(
-        deviceModuleOp.getBodyRegion().front().front());
-    assert(
-        nestedModule &&
-        "device_module did not contain ModuleOp, which isn't a legal state!");
+    if (auto cpuOpsList = rootModule.getOps<tt::CPUModuleOp>();
+        !cpuOpsList.empty()) {
+      assert(std::distance(cpuOpsList.begin(), cpuOpsList.end()) == 1 &&
+             "Top-level ModuleOp must contain 0 or 1 CPUModuleOps!");
+      (*cpuOpsList.begin())->erase();
+    }
 
-    // Move operations from nested ModuleOp to top-level ModuleOp
-    Block *topLevelBlock = &rootModule.getBodyRegion().front();
-    Block *nestedBlock = &nestedModule.getBodyRegion().front();
+    auto innerModule = dyn_cast_or_null<ModuleOp>(deviceOp.getBody()->front());
+    assert(innerModule &&
+           "tt.device_module must always contain single builtin.module!");
 
-    // Insert point should be before the DeviceModuleOp
-    topLevelBlock->getOperations().splice(deviceModuleOp->getIterator(),
-                                          nestedBlock->getOperations());
+    auto &innerBody = innerModule.getBodyRegion().front();
+    auto &topLevelBody = rootModule.getBodyRegion().front();
 
-    // Erase the emptied DeviceModuleOp.
-    deviceModuleOp->erase();
+    // Move operations from inner module's block to the top-level module's
+    // block.
+    topLevelBody.getOperations().splice(topLevelBody.end(),
+                                        innerBody.getOperations());
+
+    deviceOp->erase();
   }
 };
 } // namespace mlir::tt
