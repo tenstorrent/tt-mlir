@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Location/PassOpLoc.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDECOMPOSELAYOUTS
@@ -216,7 +217,7 @@ private:
                        mlir::Value currentInput, Args... args) const {
 
     rewriter.setInsertionPoint(op);
-    return rewriter.create<OpType>(op.getLoc(), op.getType(), currentInput,
+    return rewriter.create<OpType>(loc(op.getLoc()), op.getType(), currentInput,
                                    args...);
   }
 
@@ -783,5 +784,9 @@ private:
     }
     handleDeviceInputLayoutConversion(op, rewriter, currentInput, info);
   }
+
+public:
+  inline static mlir::ttmlir::PassOpLocFrom loc =
+      mlir::ttmlir::PassOpLocFrom(TTNNDecomposeLayouts::getArgumentName());
 };
 } // namespace mlir::tt::ttnn

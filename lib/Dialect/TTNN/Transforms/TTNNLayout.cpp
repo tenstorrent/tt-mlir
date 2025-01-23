@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Location/PassOpLoc.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -30,26 +31,12 @@ static const BufferType g_defaultMemorySpaceDevice = BufferType::DRAM;
 static const TensorMemoryLayout g_defaultMemoryLayout =
     TensorMemoryLayout::Interleaved;
 
-//===----------------------------------------------------------------------===//
-// Helper methods
-//===----------------------------------------------------------------------===//
-
-inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
-  if (isa<NameLoc>(loc)) {
-    NameLoc oldLoc = mlir::cast<NameLoc>(loc);
-    StringAttr newName = StringAttr::get(
-        loc->getContext(), oldLoc.getName().str() + "_in_" +
-                               std::to_string(operandIndex) + "_layout");
-
-    return NameLoc::get(newName, oldLoc.getChildLoc());
-  }
-
-  return loc;
-}
-
-//===----------------------------------------------------------------------===//
-// To layout pass
-//===----------------------------------------------------------------------===//
+// Forward declarations.
+class TTNNLayoutTensorTypeConverter;
+class TTNNLayoutTensorTypeRewriter;
+class TTNNLayoutDPSOperandsRewriter;
+template <typename SrcOp>
+class TTNNLayoutForceSystemMemoryRewriter;
 
 // Converts tensor types to have a ttnn layout attribute with default values
 //
@@ -82,6 +69,82 @@ public:
     });
   }
 };
+
+class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
+public:
+  using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
+
+  void runOnOperation() final {
+    // First add default attribute to all tensors. Example:
+    // Given tensor type: tensor<15x10x32xf32>
+    // we construct a ttnn layout attribute with default values:
+    // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
+    {
+      DeviceAttr device = getCurrentScopeDevice(getOperation());
+      assert(device && "Device not found");
+      TTNNLayoutTensorTypeConverter typeConverter(&getContext(),
+                                                  device.getWorkerGrid());
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTNNLayoutTensorTypeRewriter>(typeConverter, &getContext());
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    {
+      RewritePatternSet patterns(&getContext());
+      // Takes all TTIR ops which have DPS operands
+      // and rewrites its operands and result to have the correct layout
+      // with respect to operand constraints.
+      patterns.add<TTNNLayoutDPSOperandsRewriter>(&getContext());
+      // Takes func::Return and ttir::MeshShard ops and set layout which will
+      // move it's operands to host
+      patterns.add<TTNNLayoutForceSystemMemoryRewriter<ttir::MeshShardOp>>(
+          &getContext());
+      patterns.add<TTNNLayoutForceSystemMemoryRewriter<mlir::func::ReturnOp>>(
+          &getContext());
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      GreedyRewriteConfig config = GreedyRewriteConfig();
+      config.useTopDownTraversal = true;
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
+                                              config))) {
+        signalPassFailure();
+        return;
+      }
+    }
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
+    registry.insert<mlir::func::FuncDialect>();
+  }
+
+  inline static mlir::ttmlir::PassOpLocFrom loc =
+      mlir::ttmlir::PassOpLocFrom(TTNNLayout::getArgumentName());
+};
+
+//===----------------------------------------------------------------------===//
+// Helper methods
+//===----------------------------------------------------------------------===//
+
+inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
+  if (isa<NameLoc>(loc)) {
+    NameLoc oldLoc = mlir::cast<NameLoc>(loc);
+    StringAttr newName = StringAttr::get(
+        loc->getContext(), oldLoc.getName().str() + "_in_" +
+                               std::to_string(operandIndex) + "_layout");
+
+    return NameLoc::get(newName, oldLoc.getChildLoc());
+  }
+
+  return loc;
+}
+
+//===----------------------------------------------------------------------===//
+// To layout pass
+//===----------------------------------------------------------------------===//
 
 // Rewrites tensor types to have a ttnn layout attribute with default values
 class TTNNLayoutTensorTypeRewriter : public RewritePattern {
@@ -251,7 +314,8 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 
 static bool changeLayoutToHost(DestinationStyleOpInterface &op,
                                OpOperand &operand, PatternRewriter &rewriter) {
-  Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+  Location newLoc = TTNNLayout::loc(
+      appendInputSuffix(op.getLoc(), operand.getOperandNumber()));
   std::optional<Value> layout =
       createToLayoutOp(rewriter, newLoc, operand.get(),
                        BufferType::SystemMemory, nullptr, false /* tiled */);
@@ -357,58 +421,6 @@ public:
       }
     }
     return modified ? success() : failure();
-  }
-};
-
-class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
-public:
-  using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
-
-  void runOnOperation() final {
-    // First add default attribute to all tensors. Example:
-    // Given tensor type: tensor<15x10x32xf32>
-    // we construct a ttnn layout attribute with default values:
-    // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
-    {
-      DeviceAttr device = getCurrentScopeDevice(getOperation());
-      assert(device && "Device not found");
-      TTNNLayoutTensorTypeConverter typeConverter(&getContext(),
-                                                  device.getWorkerGrid());
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNLayoutTensorTypeRewriter>(typeConverter, &getContext());
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
-        signalPassFailure();
-        return;
-      }
-    }
-    {
-      RewritePatternSet patterns(&getContext());
-      // Takes all TTIR ops which have DPS operands
-      // and rewrites its operands and result to have the correct layout
-      // with respect to operand constraints.
-      patterns.add<TTNNLayoutDPSOperandsRewriter>(&getContext());
-      // Takes func::Return and ttir::MeshShard ops and set layout which will
-      // move it's operands to host
-      patterns.add<TTNNLayoutForceSystemMemoryRewriter<ttir::MeshShardOp>>(
-          &getContext());
-      patterns.add<TTNNLayoutForceSystemMemoryRewriter<mlir::func::ReturnOp>>(
-          &getContext());
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      config.useTopDownTraversal = true;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
-        signalPassFailure();
-        return;
-      }
-    }
-  }
-
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::TTDialect>();
-    registry.insert<mlir::func::FuncDialect>();
   }
 };
 
