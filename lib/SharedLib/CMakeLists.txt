@@ -32,7 +32,13 @@ set(TTMLIR_LIBS
 )
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
+
 add_library(TTMLIR SHARED empty.cpp)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Asan")
+  target_compile_options(TTMLIR PRIVATE -shared-libasan)
+  target_link_options(TTMLIR PRIVATE -shared-libasan)
+endif()
 
 add_dependencies(TTMLIR
     ${TTMLIR_LIBS}
