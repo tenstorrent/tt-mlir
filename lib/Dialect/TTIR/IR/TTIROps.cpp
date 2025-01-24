@@ -508,10 +508,14 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // PadOp verification
 ::mlir::LogicalResult mlir::tt::ttir::PadOp::verify() {
 
-  // Check that either one of low or high PadOp is non empty
-  if (getLow().empty() && getHigh().empty()) {
-    return emitOpError("At least one of the low or high padding dimensions "
-                       "must be non-empty.");
+  ::mlir::RankedTensorType inputType = getInput().getType();
+
+  // Check that size of padding is correct
+  int64_t paddingSize = getPadding().size() / 2;
+  if (paddingSize > inputType.getRank()) {
+    return emitOpError() << "Padding size / 2" << paddingSize
+                         << "should be equal or less than input dimension size "
+                         << inputType.getRank();
   }
 
   return success();

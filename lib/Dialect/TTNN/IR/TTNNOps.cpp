@@ -499,6 +499,25 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// PadOp
+//===----------------------------------------------------------------------===//
+
+// PadOp verification
+::mlir::LogicalResult mlir::tt::ttnn::PadOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+
+  // Check that size of padding is correct
+  int64_t paddingSize = getPadding().size() / 2;
+  if (paddingSize > inputType.getRank()) {
+    return emitOpError() << "Padding size / 2" << paddingSize
+                         << "should be equal or less than input dimension size "
+                         << inputType.getRank();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // SliceOp
 //===----------------------------------------------------------------------===//
 

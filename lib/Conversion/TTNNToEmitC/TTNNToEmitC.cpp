@@ -837,7 +837,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::RepeatOp>,
                DefaultOpConversionPattern<ttnn::RepeatInterleaveOp>,
                DefaultOpConversionPattern<ttnn::SliceOp>,
-               DefaultOpConversionPattern<ttnn::PermuteOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::PermuteOp>,
+               DefaultOpConversionPattern<ttnn::PadOp>>(typeConverter, ctx);
 
   // Matmul ops
   //
