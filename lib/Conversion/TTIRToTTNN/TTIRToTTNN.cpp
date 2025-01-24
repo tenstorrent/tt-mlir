@@ -688,8 +688,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(),
-        rewriter.getI32ArrayAttr(shapeAttr));
+        adaptor.getInput(), rewriter.getI32ArrayAttr(shapeAttr));
 
     return success();
   }

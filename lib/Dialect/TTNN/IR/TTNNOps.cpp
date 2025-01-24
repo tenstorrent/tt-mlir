@@ -410,8 +410,7 @@ namespace mlir::tt::ttnn {
 
 // RepeatOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::RepeatOp::verify() {
-  ::mlir::RankedTensorType inputType =
-      mlir::cast<RankedTensorType>(getInputs().front().getType());
+  ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   auto shape = getShape();
