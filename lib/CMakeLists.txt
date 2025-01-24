@@ -30,7 +30,7 @@ MLIRTTMetalPipelines
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)
-list(APPEND link_libs StablehloRegister SdyRegister)
+list(APPEND link_libs StablehloRegister)
 endif()
 
 add_mlir_library(TTMLIRStatic STATIC RegisterAll.cpp
