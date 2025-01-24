@@ -1271,8 +1271,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   }
 
   auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
+  std::string testString = "Hello World!";
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(
-      fbb, mlir, cpp.c_str(), goldenInfo, &moduleCacheList);
+      fbb, mlir, cpp.c_str(), goldenInfo, &moduleCacheList, testString.c_str());
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {
