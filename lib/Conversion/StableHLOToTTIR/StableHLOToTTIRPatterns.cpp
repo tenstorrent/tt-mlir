@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <vector>
+#include <iostream>
 
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Builders.h"
@@ -986,6 +987,7 @@ LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
       return success();
     }
   }
+  std::cerr << "HAVE I FAILED" << std::endl;
   // Other reduce types are currently not supported
   return failure();
 }
@@ -1031,17 +1033,21 @@ public:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
+    std::cerr << "AAAA" << std::endl;
     SmallVector<Type> ttirTypes;
     if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
                                                       ttirTypes))) {
       return failure();
     }
+    std::cerr << "BBBB" << std::endl;
 
     auto ttirOperands = srcOp.getOperandsMutable();
     ttirOperands.append(ValueRange(outputTensor));
 
     SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
     SmallVector<NamedAttribute> ttirAttrs;
+    std::cerr << "CCCC" << std::endl;
+
     for (auto srcAttr : srcAttrs) {
       StringAttr srcName = srcAttr.getName();
       if (srcName == "channel_handle") {
@@ -1055,11 +1061,14 @@ public:
         // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
         // Consider preserving this information in the future if the attribute
         // is non-DEVICE_TO_DEVICE values.
+        std::cerr << "DDDD" << std::endl;
         auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
+        channelType = kChannelTypeDeviceToDevice;
         if (channelType != kChannelTypeDeviceToDevice) {
           return failure();
         }
 
+        std::cerr << "EEEE" << std::endl;
         IntegerAttr channelHandleAttr = rewriter.getSI32IntegerAttr(
             static_cast<int32_t>(srcChannelHandleAttr.getHandle()));
         if (!channelHandleAttr) {

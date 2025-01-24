@@ -7,6 +7,7 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+#include <cstdint>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
@@ -137,14 +138,14 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
+                    std::uint32_t itemsize, ::tt::target::DataType dataType, bool owned) {
   LOG_ASSERT(not shape.empty());
   LOG_ASSERT(not stride.empty());
   LOG_ASSERT(itemsize > 0);
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::createTensor(data, shape, stride, itemsize,
-                                             dataType);
+                                             dataType, owned);
   }
 #endif
 
@@ -467,6 +468,47 @@ std::vector<float> getTensorData(Tensor tensor) {
 #endif
 
   LOG_FATAL("runtime is not enabled");
+}
+
+Tensor mergeTensors(Tensor& a, Tensor& b)
+{
+    ::ttnn::Tensor tensor1 = a.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    ::ttnn::Tensor tensor2 = b.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    // Validate input dimensions
+    if (tensor1.shape().size() != tensor2.shape().size()) {
+        throw std::invalid_argument("Tensors must have the same number of dimensions");
+    }
+
+    auto shape = tensor1.legacy_shape();
+    std::vector<std::uint32_t> outputShape = {shape[0], shape[1]};
+    outputShape[1] += tensor2.shape()[1];
+    std::cerr << "shape=" << outputShape[0] << " " << outputShape[1] << std::endl;
+
+    // Calculate the size of the new tensor
+    std::uint32_t totalElements = 1;
+    for (auto dim : outputShape) {
+        totalElements *= dim;
+    }
+    std::uint32_t totalBytes = totalElements * 4;
+
+    // Allocate memory for the new tensor
+    auto outputData = std::shared_ptr<void>(std::malloc(totalBytes), std::free);
+    if (!outputData) {
+        throw std::runtime_error("Memory allocation failed for the merged tensor");
+    }
+
+    // Copy data from tensor1 and tensor2 into the new tensor
+    void* outputPtr = static_cast<void*>(outputData.get());
+
+    // Compute the size of the segments to copy
+    std::uint32_t size1 = tensor1.volume() * 4;
+
+    memcpy(outputPtr, a);
+    memcpy(static_cast<uint8_t*>(outputPtr) + size1, b);
+
+    // Create the new tensor
+    std::vector<std::uint32_t> stride = {1,1};
+    return createTensor(outputData, outputShape, stride, 4, ::tt::target::DataType::Float32, false);
 }
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
