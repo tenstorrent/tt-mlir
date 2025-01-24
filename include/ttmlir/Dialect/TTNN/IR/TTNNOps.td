@@ -288,7 +288,7 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
 }
 
 def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Eltwise ReLU.";
     let description = [{

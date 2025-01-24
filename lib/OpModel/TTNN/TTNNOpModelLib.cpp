@@ -69,6 +69,32 @@ getOpConstraints(const std::string_view &name, Callable &callable,
                       query.resource_usage.l1_output_buffer_per_core),
       std::nullopt);
 }
+
+template <class Callable>
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+getOpRuntime(const std::string_view &name, Callable &callable,
+                 auto &&...args) {
+  ::ttnn::graph::RuntimeQueryResponse query;
+  try {
+    query = callable(std::forward<decltype(args)>(args)...);
+  } catch (const std::exception &e) {
+    query.status = ::ttnn::graph::ExecutionStatus::Error;
+    query.error_message = e.what();
+  }
+
+  // check if query was successful
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
+    return std::make_tuple(
+        false, std::nullopt,
+        query.error_message.value_or("<error message not set>"));
+  }
+
+  return std::make_tuple(
+      true,
+      query.runtime,
+      std::nullopt);
+}
+
 } // namespace operation
 
 namespace detail {
@@ -191,6 +217,44 @@ ReluOpInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("ReluOpInterface", reluOpQuery, inputShape,
+                                     inputLayout, outputShape, outputLayout);
+#else
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+ReluOpInterface::getOpRuntime(
+    const ::llvm::ArrayRef<int64_t> &inputShape,
+    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+    const ::llvm::ArrayRef<int64_t> &outputShape,
+    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto reluOpQuery = [](const ::llvm::ArrayRef<int64_t> &inputShape,
+                        const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+                        const ::llvm::ArrayRef<int64_t> &outputShape,
+                        const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const ::ttnn::TensorSpec input_spec =
+        conversion::getTensorSpec(inputShape, inputLayout);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      input_spec.memory_config());
+    const ::ttnn::TensorSpec output_spec =
+        conversion::getTensorSpec(outputShape, outputLayout);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      output_spec.memory_config());
+
+    // run op constraint query
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::relu, device, input_spec,
+        output_spec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpRuntime("ReluOpInterface", reluOpQuery, inputShape,
                                      inputLayout, outputShape, outputLayout);
 #else
   return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);

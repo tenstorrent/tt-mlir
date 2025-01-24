@@ -62,6 +62,23 @@ ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       input_shape, inputs[0], output_shape, output);
 }
 
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                 const TTNNLayoutAttr &output) {
+        
+    assert(inputs.size() == 1);
+
+    const auto input_shape =
+        mlir::cast<RankedTensorType>(getDpsInputOperand(0)->get().getType())
+            .getShape();
+
+    const auto output_shape =
+        mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
+
+    return op_model::ttnn::ReluOpInterface::getOpRuntime(
+        input_shape, inputs[0], output_shape, output);
+}
+
 //===----------------------------------------------------------------------===//
 // AddOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
