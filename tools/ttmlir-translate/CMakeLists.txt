@@ -14,7 +14,6 @@ target_link_libraries(ttmlir-translate PRIVATE
   MLIRIR
   MLIRSupport
   MLIRTranslateLib
-  ${target_libs}
   LLVM
 )
 
