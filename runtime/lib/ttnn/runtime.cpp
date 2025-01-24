@@ -81,7 +81,7 @@ createOwnedTensor(std::shared_ptr<void> data,
 
   return ::ttnn::Tensor(
       createStorage<OwnedStorage>(data.get(), numElements, dataType),
-      ::ttnn::Shape(small_vector_shape), utils::toTTNNDataType(dataType),
+      ::ttnn::SimpleShape(small_vector_shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
 }
 
@@ -128,7 +128,7 @@ Tensor createTensor(std::shared_ptr<void> data,
 
   auto tensor = std::make_shared<::ttnn::Tensor>(
       createStorage<BorrowedStorage>(data.get(), numElements, dataType),
-      ::ttnn::Shape(small_vector_shape), utils::toTTNNDataType(dataType),
+      ::ttnn::SimpleShape(small_vector_shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
                 DeviceRuntime::TTNN);
