@@ -81,3 +81,111 @@ module @jit_matmul_basic3 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_re
     return %1 : tensor<8192x16384xf32>
   }
 }
+
+// jax/pjrt shardding target 2x4 for t3k - GSPMD negative, sharding [None, "x", None, "y"]
+module @jit_neg_basic0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,2,1,4]<=[8]}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x512x128x256xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    %2 = call @shmap_body(%1) : (tensor<1x512x128x256xf32>) -> tensor<1x512x128x256xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x512x128x256xf32>) -> tensor<1x512x128x256xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,2,1,4]<=[8]}"} : (tensor<1x512x128x256xf32>) -> tensor<1x1024x128x1024xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    return %4 : tensor<1x1024x128x1024xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<1x512x128x256xf32>) -> (tensor<1x512x128x256xf32> {jax.result_info = "[None, ('x',), None, ('y',)]"}) {
+    %0 = stablehlo.negate %arg0 : tensor<1x512x128x256xf32>
+    return %0 : tensor<1x512x128x256xf32>
+  }
+}
+
+// jax/pjrt shardding target 2x4 for t3k - GSPMD negative, sharding [None, "x", None, None]
+module @jit_neg_basic1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,2,1,1,4]<=[8] last_tile_dim_replicate}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x512x128x1024xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    %2 = call @shmap_body(%1) : (tensor<1x512x128x1024xf32>) -> tensor<1x512x128x1024xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x512x128x1024xf32>) -> tensor<1x512x128x1024xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,2,1,1,4]<=[8] last_tile_dim_replicate}"} : (tensor<1x512x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    return %4 : tensor<1x1024x128x1024xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<1x512x128x1024xf32>) -> (tensor<1x512x128x1024xf32> {jax.result_info = "[None, ('x',), None, None]"}) {
+    %0 = stablehlo.negate %arg0 : tensor<1x512x128x1024xf32>
+    return %0 : tensor<1x512x128x1024xf32>
+  }
+}
+
+// jax/pjrt shardding target 2x4 for t3k - GSPMD negative, sharding [None, None, None, "y"]
+module @jit_neg_basic2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,1,1,4,2]<=[2,4]T(1,0) last_tile_dim_replicate}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x256xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    %2 = call @shmap_body(%1) : (tensor<1x1024x128x256xf32>) -> tensor<1x1024x128x256xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1024x128x256xf32>) -> tensor<1x1024x128x256xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,1,1,4,2]<=[2,4]T(1,0) last_tile_dim_replicate}"} : (tensor<1x1024x128x256xf32>) -> tensor<1x1024x128x1024xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    return %4 : tensor<1x1024x128x1024xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<1x1024x128x256xf32>) -> (tensor<1x1024x128x256xf32> {jax.result_info = "[None, None, None, ('y',)]"}) {
+    %0 = stablehlo.negate %arg0 : tensor<1x1024x128x256xf32>
+    return %0 : tensor<1x1024x128x256xf32>
+  }
+}
+
+// jax/pjrt shardding target 2x4 for t3k - GSPMD negative, sharding [None, "y", None, "x"]
+module @jit_neg_basic3 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,4,1,2]<=[2,4]T(1,0)}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x256x128x512xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    %2 = call @shmap_body(%1) : (tensor<1x256x128x512xf32>) -> tensor<1x256x128x512xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x256x128x512xf32>) -> tensor<1x256x128x512xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,4,1,2]<=[2,4]T(1,0)}"} : (tensor<1x256x128x512xf32>) -> tensor<1x1024x128x1024xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    return %4 : tensor<1x1024x128x1024xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<1x256x128x512xf32>) -> (tensor<1x256x128x512xf32> {jax.result_info = "[None, ('y',), None, ('x',)]"}) {
+    %0 = stablehlo.negate %arg0 : tensor<1x256x128x512xf32>
+    return %0 : tensor<1x256x128x512xf32>
+  }
+}
+
+// jax/pjrt shardding target 2x4 for t3k - GSPMD negative, sharding [None, "y", None, None]
+module @jit_neg_basic5 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,4,1,1,2]<=[2,4]T(1,0) last_tile_dim_replicate}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1024x128x1024xf32>) -> tensor<1x256x128x1024xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    %2 = call @shmap_body(%1) : (tensor<1x256x128x1024xf32>) -> tensor<1x256x128x1024xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x256x128x1024xf32>) -> tensor<1x256x128x1024xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,4,1,1,2]<=[2,4]T(1,0) last_tile_dim_replicate}"} : (tensor<1x256x128x1024xf32>) -> tensor<1x1024x128x1024xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    return %4 : tensor<1x1024x128x1024xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<1x256x128x1024xf32>) -> (tensor<1x256x128x1024xf32> {jax.result_info = "[None, ('y',), None, None]"}) {
+    %0 = stablehlo.negate %arg0 : tensor<1x256x128x1024xf32>
+    return %0 : tensor<1x256x128x1024xf32>
+  }
+}
+
+// jax/pjrt shardding target 2x4 for t3k - GSPMD negative, sharding [None, None, None, "x"]
+module @jit_neg_basic4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<1x1x1024x1024xf32>) -> (tensor<1x1x1024x1024xf32> {jax.result_info = ""}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {backend_config = "", mhlo.sharding = "{devices=[1,1,1,2,4]<=[8] last_tile_dim_replicate}"} : (tensor<1x1x1024x1024xf32>) -> tensor<1x1x1024x1024xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1x1024x1024xf32>) -> tensor<1x1x1024x512xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    %2 = call @shmap_body(%1) : (tensor<1x1x1024x512xf32>) -> tensor<1x1x1024x512xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {backend_config = "", mhlo.sharding = "{manual}"} : (tensor<1x1x1024x512xf32>) -> tensor<1x1x1024x512xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {backend_config = "", mhlo.sharding = "{devices=[1,1,1,2,4]<=[8] last_tile_dim_replicate}"} : (tensor<1x1x1024x512xf32>) -> tensor<1x1x1024x1024xf32>
+    // CHECK: %[[C:.*]] = "ttir.mesh_shard"[[C:.*]]
+    return %4 : tensor<1x1x1024x1024xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<1x1x1024x512xf32>) -> (tensor<1x1x1024x512xf32> {jax.result_info = "[None, None, None, ('x',)]"}) {
+    %0 = stablehlo.negate %arg0 : tensor<1x1x1024x512xf32>
+    return %0 : tensor<1x1x1024x512xf32>
+  }
+}

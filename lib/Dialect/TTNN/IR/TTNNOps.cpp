@@ -1328,7 +1328,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult MeshShardOp::verify() {
   llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
-  llvm::ArrayRef<int64_t> shardShape = getShardShape().getShape();
+  llvm::ArrayRef<int64_t> shardShape = getShardShape();
   ::mlir::tt::MeshShardType shardType = getShardType();
 
   // Check sharding is one of replicate or devices.
