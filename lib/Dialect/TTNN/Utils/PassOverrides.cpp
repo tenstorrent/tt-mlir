@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include <numeric>
 
 namespace mlir::tt::ttnn {
 
@@ -102,32 +103,43 @@ std::string OutputLayoutOverrideParser::toString(
     res += std::string(entry.getKey()) + "=";
     const OutputLayoutOverrideParams &params = entry.getValue();
 
-    // Print grid values
+    std::vector<std::string> parts;
+
+    // Collect grid values
     if (params.grid.has_value()) {
+      std::string gridStr;
       for (size_t i = 0; i < params.grid.value().size(); ++i) {
-        res += std::to_string(params.grid.value()[i]);
+        gridStr += std::to_string(params.grid.value()[i]);
         if (i < params.grid.value().size() - 1) {
-          res += "x";
+          gridStr += "x";
         }
       }
+      parts.push_back(gridStr);
     }
-    // Print memory space and memory layout
+    // Collect memory space and memory layout
     if (params.bufferType.has_value()) {
-      res += ":" + std::string(mlir::tt::ttnn::stringifyBufferType(
-                       params.bufferType.value()));
+      parts.push_back(std::string(
+          mlir::tt::ttnn::stringifyBufferType(params.bufferType.value())));
     }
     if (params.tensorMemoryLayout.has_value()) {
-      res += ":" + std::string(mlir::tt::ttnn::stringifyTensorMemoryLayout(
-                       params.tensorMemoryLayout.value()));
+      parts.push_back(std::string(mlir::tt::ttnn::stringifyTensorMemoryLayout(
+          params.tensorMemoryLayout.value())));
     }
     if (params.memoryLayout.has_value()) {
-      res += ":" + std::string(mlir::tt::ttnn::stringifyLayout(
-                       params.memoryLayout.value()));
+      parts.push_back(std::string(
+          mlir::tt::ttnn::stringifyLayout(params.memoryLayout.value())));
     }
     if (params.dataType.has_value()) {
-      res += ":" + std::string(
-                       mlir::tt::DataTypeEnumToString(params.dataType.value()));
+      parts.push_back(
+          std::string(mlir::tt::DataTypeEnumToString(params.dataType.value())));
     }
+
+    // Join parts with ":"
+    res += std::accumulate(parts.begin(), parts.end(), std::string(),
+                           [](const std::string &a, const std::string &b) {
+                             return a.empty() ? b : a + ":" + b;
+                           });
+
     if (++count < value.size()) {
       res += ",";
     }

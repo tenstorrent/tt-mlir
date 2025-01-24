@@ -13,6 +13,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -53,9 +54,9 @@ public:
 
   mlir::Value createEmptyTensor() {
     ShapeAttr shapeAttr = ShapeAttr::get(&context, getTensorShape());
-    return builder.create<EmptyOp>(builder.getUnknownLoc(),
-                                   getTensorRankedType(), nullptr, shapeAttr,
-                                   nullptr, nullptr, nullptr);
+    return builder.create<OnesOp>(builder.getUnknownLoc(),
+                                  getTensorRankedType(), shapeAttr, nullptr,
+                                  nullptr, nullptr, nullptr);
   }
 
   mlir::func::FuncOp createFuncOp() {
@@ -88,14 +89,14 @@ public:
         TensorMemoryLayoutAttr::get(&context, tensorMemoryLayout);
     if (legalLayouts.find(op) == legalLayouts.end()) {
       legalLayouts[op] = std::vector<TTNNLayoutAttr>{TTNNLayoutAttr::get(
-          &context, getTensorRankedType().getShape(), builder.getF32Type(),
-          memorySpace, mlir::tt::GridAttr::get(&context, {8, 8}),
-          tensorMemoryLayoutAttr)};
+          &context, getTensorRankedType().getShape(),
+          mlir::tt::TileType::get(&context, builder.getF32Type()), memorySpace,
+          mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr)};
     } else {
       legalLayouts[op].push_back(TTNNLayoutAttr::get(
-          &context, getTensorRankedType().getShape(), builder.getF32Type(),
-          memorySpace, mlir::tt::GridAttr::get(&context, {8, 8}),
-          tensorMemoryLayoutAttr));
+          &context, getTensorRankedType().getShape(),
+          mlir::tt::TileType::get(&context, builder.getF32Type()), memorySpace,
+          mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr));
     }
   }
 

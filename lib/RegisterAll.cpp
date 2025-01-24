@@ -20,7 +20,16 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#ifdef TTMLIR_ENABLE_STABLEHLO
+
+#include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
+
+#if TTMLIR_ENABLE_STABLEHLO
+#include "shardy/dialect/sdy/ir/register.h"
 #include "stablehlo/dialect/Register.h"
 #endif
 
@@ -33,11 +42,20 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
       mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
       mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+      vwells/llvm_helper_transform
       mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
       mlir::LLVM::LLVMDialect>();
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
+  mlir::sdy::registerAllDialects(registry);
 #endif
+  arith::registerBufferizableOpInterfaceExternalModels(registry);
+  linalg::registerBufferizableOpInterfaceExternalModels(registry);
+  scf::registerBufferizableOpInterfaceExternalModels(registry);
+  bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(
+      registry);
+  tensor::registerBufferizableOpInterfaceExternalModels(registry);
+  vector::registerBufferizableOpInterfaceExternalModels(registry);
 }
 
 void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {

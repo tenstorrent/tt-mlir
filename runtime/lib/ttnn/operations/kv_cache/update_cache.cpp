@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "update_cache.h"
+#include "operations/kv_cache/update_cache.h"
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/workarounds.h"

@@ -5,7 +5,7 @@
 
 func.func @reduceW(%arg0: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
   %0 = tensor.empty() : tensor<256x32xf32, #layout2>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %1 = "ttir.sum"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
                                dim_arg = [-1: i32],
                                keep_dim = true}> :
@@ -16,7 +16,7 @@ func.func @reduceW(%arg0: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #
 #layout3 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x4>, memref<32x96xf32, #l1_>>
 func.func @reduceH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x384xf32, #layout3> {
   %0 = tensor.empty() : tensor<32x384xf32, #layout3>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %1 = "ttir.sum"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
                                dim_arg = [-2: i32],
                                keep_dim = true}> :
@@ -27,7 +27,7 @@ func.func @reduceH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x384xf32, #
 #layout4 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<32x32xf32, #l1_>>
 func.func @reduceWH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x32xf32, #layout4> {
   %0 = tensor.empty() : tensor<32x32xf32, #layout4>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %1 = "ttir.sum"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
                                dim_arg = [-1: i32, -2: i32],
                                keep_dim = true}> :
@@ -37,7 +37,7 @@ func.func @reduceWH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x32xf32, #
 
 func.func @maxReduceWH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x32xf32, #layout4> {
   %0 = tensor.empty() : tensor<32x32xf32, #layout4>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %1 = "ttir.max" (%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
                                dim_arg = [-1: i32, -2: i32],
                                keep_dim = true}> :

@@ -19,7 +19,7 @@
 namespace tt::runtime::ttmetal {
 
 struct CQExecutor {
-  ::tt::tt_metal::Device *device;
+  ::tt::tt_metal::IDevice *device;
   std::vector<std::shared_ptr<::tt::tt_metal::Event>> initEvents;
   std::unordered_map<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>
       buffers;
@@ -28,7 +28,7 @@ struct CQExecutor {
   ::tt::tt_metal::CommandQueue *cq;
   char const *currentProgramName;
 
-  CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
+  CQExecutor(::tt::tt_metal::IDevice *device, std::size_t cq_id,
              std::vector<InputBuffer> const &inputs,
              std::vector<OutputBuffer> const &outputs);
 
@@ -49,7 +49,7 @@ struct CQExecutor {
   void execute(::tt::target::metal::FinishCommand const *command);
 };
 
-CQExecutor::CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
+CQExecutor::CQExecutor(::tt::tt_metal::IDevice *device, std::size_t cq_id,
                        std::vector<InputBuffer> const &inputs,
                        std::vector<OutputBuffer> const &outputs)
     : device(device) {
@@ -590,7 +590,7 @@ void CQExecutor::execute(::tt::target::metal::FinishCommand const *) {
 }
 
 std::shared_ptr<::tt::tt_metal::Event>
-executeCommandQueue(::tt::tt_metal::Device *device,
+executeCommandQueue(::tt::tt_metal::IDevice *device,
                     ::tt::target::metal::CommandQueue const *commandQueue,
                     std::size_t cq_id, std::vector<InputBuffer> const &inputs,
                     std::vector<OutputBuffer> const &outputs) {

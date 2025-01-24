@@ -174,7 +174,11 @@ ttrt run out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ttrt run out.ttnn --load-kernels-from-disk
 ttrt run out.ttnn --enable-async-ttnn
 ttrt run out.ttnn --result-file result.json
-ttrt run out.ttnn --golden
+ttrt run out.ttnn --disable-golden
+ttrt run out.ttnn --save-golden-tensors
+ttrt run out.ttnn --debugger
+ttrt run out.ttnn --memory --save-artifacts
+ttrt run out.ttnn --memory --check-memory-leak
 ```
 
 ### query
@@ -219,6 +223,7 @@ ttrt perf /dir/of/flatbuffers --loops 10 --host-only
 ttrt perf /dir/of/flatbuffers --log-file ttrt.log --host-only
 ttrt perf --save-artifacts --artifact-dir /path/to/some/dir
 ttrt perf out.ttnn --result-file result.json
+ttrt run out.ttnn --memory
 ```
 
 To use the Tracy GUI, run the following instructions on your macbook. You can upload your .tracy file into the GUI to view the profiled dumps.

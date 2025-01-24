@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ones.h"
+#include "operations/creation/ones.h"
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
@@ -18,12 +18,12 @@ namespace tt::runtime::ttnn::operations::creation {
 void run(const ::tt::target::ttnn::OnesOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Shape shape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
-      ::tt::runtime::ttnn::utils::toShapeFromFBShape(*op->shape())));
+  const ::ttnn::SimpleShape shape = ::ttnn::SimpleShape(
+      ::tt::runtime::ttnn::utils::toShapeFromFBShape(*op->shape()));
 
   std::optional<::ttnn::DataType> dtype = std::optional<::ttnn::DataType>();
   std::optional<::ttnn::Layout> layout = std::optional<::ttnn::Layout>();
-  std::optional<std::reference_wrapper<::ttnn::Device>> device = std::nullopt;
+  std::optional<std::reference_wrapper<::ttnn::IDevice>> device = std::nullopt;
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       std::optional<::ttnn::MemoryConfig>();
 
@@ -38,10 +38,10 @@ void run(const ::tt::target::ttnn::OnesOp *op, ProgramContext &context) {
   if (op->device()) {
     DeviceVariant targetDevice =
         context.getTargetDevice(op->device()->global_id());
-    assert(std::holds_alternative<std::reference_wrapper<::ttnn::Device>>(
-               targetDevice) &&
-           "ttnn::ones does not support MeshDevice.");
-    device = std::get<std::reference_wrapper<::ttnn::Device>>(targetDevice);
+    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::IDevice>>(
+                   targetDevice),
+               "ttnn::ones does not support MeshDevice.");
+    device = std::get<std::reference_wrapper<::ttnn::IDevice>>(targetDevice);
   }
 
   if (op->memcfg()) {

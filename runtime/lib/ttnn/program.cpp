@@ -2,13 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/ccl/all_gather.h"
+#include "operations/ccl/mesh_shard.h"
+#include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
+#include "operations/conv/conv_transpose2d.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/permute.h"
+#include "operations/data_movement/repeat.h"
+#include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/transpose.h"
@@ -30,6 +36,7 @@
 #include "operations/matmul/matmul.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
+#include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
@@ -45,7 +52,7 @@
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
 
-void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
+static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #ifdef TT_RUNTIME_ENABLE_PERF_TRACE
   TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
 #endif
@@ -183,6 +190,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    return operations::reduction::run(op->type_as_ReductionProdOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return operations::reduction::run(op->type_as_ReductionOp(), context);
   }
@@ -202,14 +212,27 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), context);
   }
+  case ::tt::target::ttnn::OpType::PermuteOp: {
+    return operations::data_movement::run(op->type_as_PermuteOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(), context);
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
     return operations::data_movement::run(op->type_as_SliceOp(), context);
   }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    return operations::data_movement::run(op->type_as_RepeatOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
+                                          context);
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    return operations::conv::run(op->type_as_ConvTranspose2dOp(), context);
   }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     return operations::deletion::run(op->type_as_DeallocateOp(), context);
@@ -219,6 +242,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    return operations::ccl::run(op->type_as_ReduceScatterOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    return operations::ccl::run(op->type_as_MeshShardOp(), context);
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), context);
@@ -234,76 +263,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   }
 }
-
-namespace legacy {
-
-static bool handleNopProgram(::tt::target::ttnn::Program const *program,
-                             std::vector<::ttnn::Tensor *> const &inputs,
-                             std::vector<::ttnn::Tensor *> const &outputs) {
-
-  bool isNop = program->inputs()->size() == 1 &&
-               program->outputs()->size() == 1 &&
-               program->inputs()->Get(0)->global_id() ==
-                   program->outputs()->Get(0)->global_id();
-
-  if (isNop) {
-    void *src = ::tt::tt_metal::get_raw_host_data_ptr(*inputs.at(0));
-    void *dst = ::tt::tt_metal::get_raw_host_data_ptr(*outputs.at(0));
-    std::uint32_t size = outputs[0]->volume() * outputs[0]->element_size();
-    std::memcpy(dst, src, size);
-  }
-  return isNop;
-}
-
-void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
-                std::uint32_t programIndex,
-                std::vector<::ttnn::Tensor *> const &inputs,
-                std::vector<::ttnn::Tensor *> const &outputs) {
-  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
-  ::tt::target::ttnn::Program const *program =
-      fbb.programs()->Get(programIndex);
-  if (handleNopProgram(program, inputs, outputs)) {
-    return;
-  }
-  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
-  std::vector<uint32_t> programInputs;
-  int inputIndex = 0;
-  LOG_ASSERT(program->inputs()->size() == inputs.size(),
-             "Program input size mismatch: ", program->inputs()->size(),
-             " != ", inputs.size());
-  for (::tt::target::TensorRef const *input : *program->inputs()) {
-    auto [iter, inserted] =
-        liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
-    LOG_ASSERT(inserted, "Duplicate input tensor");
-    programInputs.push_back(input->global_id());
-  }
-
-  int outputIndex = 0;
-  std::vector<uint32_t> programOutputs;
-  LOG_ASSERT(program->outputs()->size() == outputs.size());
-  for (::tt::target::TensorRef const *output : *program->outputs()) {
-    auto [iter, inserted] =
-        liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
-    LOG_ASSERT(inserted, "Duplicate output tensor");
-    programOutputs.push_back(output->global_id());
-  }
-  ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                           programOutputs, &meshDevice);
-  executor.execute(program);
-  outputIndex = 0;
-  for (uint32_t outputId : programOutputs) {
-    const ::ttnn::Tensor &src =
-        executor.getContext().getTensorPool().at(outputId);
-    const ::ttnn::Tensor &dst = *(outputs[outputIndex++]);
-    size_t srcSize = src.volume() * src.element_size();
-    size_t dstSize = dst.volume() * dst.element_size();
-    LOG_ASSERT(srcSize == dstSize, "Output tensor size mismatch");
-    const void *srcPtr = ::tt::tt_metal::get_raw_host_data_ptr(src);
-    void *dstPtr = ::tt::tt_metal::get_raw_host_data_ptr(dst);
-    std::memcpy(dstPtr, srcPtr, dstSize);
-  }
-}
-} // namespace legacy
 
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "empty.h"
+#include "operations/creation/empty.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/detail/workarounds.h"
@@ -11,7 +11,7 @@
 
 namespace tt::runtime::ttnn::operations::creation {
 struct EmptyTensorConfig {
-  ::ttnn::Shape shape;
+  ::ttnn::SimpleShape shape;
   ::ttnn::DataType dtype;
   ::ttnn::Layout layout;
   uint32_t numShards;
@@ -79,7 +79,7 @@ createEmptyOnSingleDevice(ProgramContext &context, EmptyTensorConfig &config,
   if (deviceRef) {
     ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
     LOG_ASSERT(subMesh.num_devices() == 1);
-    ::ttnn::Device *device = subMesh.get_device_index(0);
+    ::ttnn::IDevice *device = subMesh.get_device_index(0);
     return ::ttnn::empty(config.shape, config.dtype, config.layout, device,
                          config.memoryConfig.value());
   }

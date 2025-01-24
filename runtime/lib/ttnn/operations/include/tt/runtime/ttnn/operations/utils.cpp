@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "utils.h"
+#include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -67,7 +67,7 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
 
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,
-      ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
+      ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 
   ::ttnn::MemoryConfig memoryConfig = {
       tensorMemoryLayout, bufferType,

@@ -6,53 +6,94 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRBROADCASTFOLD
+#define GEN_PASS_DEF_TTIRIMPLICITBROADCASTFOLD
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-//===----------------------------------------------------------------------===//
-// Broadcast Folding pass
-// Our backend supports implicit broadcast of operands, so explicit broadcast
-// instructions are folded.
-//
-// For Example:
-//
-// %0 = tensor.empty() : tensor<512xf32>
-// %1 = "ttir.broadcast"(%arg0, %0) (tensor<1xf32>, tensor<512xf32>) ->
-// tensor<512xf32> %2 = tensor.empty() : tensor<512xf32> %3 = "ttir.maximum"(%1,
-// %arg1, %2) (tensor<512xf32>, tensor<512xf32>, tensor<512xf32>) ->
-// tensor<512xf32>
-//
-// After folding:
-//
-// %0 = tensor.empty() : tensor<512xf32>
-// %1 = "ttir.maximum"(%arg0, %arg1, %0) (tensor<1xf32>, tensor<512xf32>,
-// tensor<512xf32>) -> tensor<512xf32>
-//===----------------------------------------------------------------------===//
-
-class TTIRBroadcastFoldRewriter : public OpRewritePattern<BroadcastOp> {
+class TTIRImplicitBroadcastFoldRewriter : public RewritePattern {
 public:
-  using OpRewritePattern<BroadcastOp>::OpRewritePattern;
+  TTIRImplicitBroadcastFoldRewriter(MLIRContext *ctx)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
 
-  LogicalResult matchAndRewrite(BroadcastOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
 
-    rewriter.replaceOp(op, op->getOperand(0));
-    return success();
+    if (!op->hasTrait<PartiallyBroadcastable::Trait>() &&
+        !op->hasTrait<FullyBroadcastable::Trait>()) {
+      // The op should support implicit broadcast to fold them.
+      return failure();
+    }
+
+    if (op->getNumOperands() < 2) {
+      // This optimization is only applicable to binary ops.
+      assert(op->getNumOperands() < 2 &&
+             "Implicit broadcast requires at least a binary operation.");
+      return failure();
+    }
+
+    if (op->getNumResults() == 0) {
+      assert(op->getNumResults() == 0 &&
+             "Implicit broadcast requires the operation to produce a result.");
+      return failure();
+    }
+
+    // Only one operand can implicitly broadcasted, so verify if
+    // an exisiting operand is already implicitly broadcasting.
+    RankedTensorType resultType =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    for (Type type : op->getOperands().getTypes()) {
+      if (mlir::cast<RankedTensorType>(type).getShape() !=
+          resultType.getShape()) {
+        // Only a single operand is allowed to perform implicit broadcast.
+        return failure();
+      }
+    }
+
+    bool changed = false;
+    if (op->hasTrait<PartiallyBroadcastable::Trait>()) {
+      // This operation only support implicit broadcast for Operand 0.
+      ttir::BroadcastOp broadcastOp =
+          op->getOperand(0).getDefiningOp<ttir::BroadcastOp>();
+      if (broadcastOp) {
+        Operation *newOp = rewriter.clone(*op);
+        newOp->setOperand(0, broadcastOp.getInput());
+        rewriter.replaceOp(op, newOp);
+        changed = true;
+      }
+    } else if (op->hasTrait<FullyBroadcastable::Trait>()) {
+      // Check all operands of this op.
+      ttir::BroadcastOp broadcastOp0 =
+          op->getOperand(0).getDefiningOp<ttir::BroadcastOp>();
+      ttir::BroadcastOp broadcastOp1 =
+          op->getOperand(1).getDefiningOp<ttir::BroadcastOp>();
+      if (broadcastOp0) {
+        Operation *newOp = rewriter.clone(*op);
+        newOp->setOperand(0, broadcastOp0.getInput());
+        rewriter.replaceOp(op, newOp);
+        changed = true;
+      } else if (broadcastOp1) {
+        Operation *newOp = rewriter.clone(*op);
+        newOp->setOperand(1, broadcastOp1.getInput());
+        rewriter.replaceOp(op, newOp);
+        changed = true;
+      }
+    }
+
+    return changed ? success() : failure();
   }
 };
 
-class TTIRBroadcastFold
-    : public impl::TTIRBroadcastFoldBase<TTIRBroadcastFold> {
+class TTIRImplicitBroadcastFold
+    : public impl::TTIRImplicitBroadcastFoldBase<TTIRImplicitBroadcastFold> {
 public:
-  using impl::TTIRBroadcastFoldBase<TTIRBroadcastFold>::TTIRBroadcastFoldBase;
-
+  using impl::TTIRImplicitBroadcastFoldBase<
+      TTIRImplicitBroadcastFold>::TTIRImplicitBroadcastFoldBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRBroadcastFoldRewriter>(&getContext());
+    patterns.add<TTIRImplicitBroadcastFoldRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
+
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
       return;

@@ -9,6 +9,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
+#include "tt/runtime/test/dylib.h"
 #include "tt/runtime/test/utils.h"
 #endif
 
@@ -21,13 +22,32 @@ namespace py = pybind11;
 PYBIND11_MODULE(_C, m) {
   m.doc() = "ttrt.runtime python extension for interacting with the "
             "Tenstorrent devices";
+  py::class_<tt::runtime::MemoryView>(m, "MemoryView")
+      .def_readonly("num_banks", &tt::runtime::MemoryView::numBanks)
+      .def_readonly("total_bytes_per_bank",
+                    &tt::runtime::MemoryView::totalBytesPerBank)
+      .def_readonly("total_bytes_allocated_per_bank",
+                    &tt::runtime::MemoryView::totalBytesAllocatedPerBank)
+      .def_readonly("total_bytes_free_per_bank",
+                    &tt::runtime::MemoryView::totalBytesFreePerBank)
+      .def_readonly("largest_contiguous_bytes_free_per_bank",
+                    &tt::runtime::MemoryView::largestContiguousBytesFreePerBank)
+      .def_readonly("block_table", &tt::runtime::MemoryView::blockTable);
   py::class_<tt::runtime::Device>(m, "Device")
-      .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
+      .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
+      .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
+      .def("get_memory_view", &tt::runtime::detail::getMemoryView,
+           py::arg("device_id") = 0);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::Tensor>(m, "Tensor");
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
+  py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
+      .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
+      .value("L1", tt::runtime::MemoryBufferType::L1)
+      .value("L1_SMALL", tt::runtime::MemoryBufferType::L1_SMALL)
+      .value("TRACE", tt::runtime::MemoryBufferType::TRACE);
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16)
@@ -45,6 +65,9 @@ PYBIND11_MODULE(_C, m) {
       .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
       .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
+  py::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
+      .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
+      .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
   m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
         "Get the backend device runtime type");
   m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
@@ -98,6 +121,8 @@ PYBIND11_MODULE(_C, m) {
         "Get the number of available devices");
   m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
         py::arg("num_hw_cqs") = size_t{1},
+        py::arg("l1_small_size") = py::none(),
+        py::arg("dispatch_core_type") = py::none(),
         "Open a mesh of devices for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
@@ -221,6 +246,13 @@ PYBIND11_MODULE(_C, m) {
   testing.def("get_host_row_major_layout",
               &tt::runtime::ttnn::test::getHostRowMajorLayout, py::arg("dtype"),
               "Get host row major layout");
+  testing.def("open_so", &tt::runtime::ttnn::test::openSo, py::arg("path"),
+              "Open a shared object file");
+  testing.def("run_so_program", &tt::runtime::ttnn::test::runSoProgram,
+              py::arg("so"), py::arg("func_name"), py::arg("inputs"),
+              py::arg("device"), "Run a program from a shared object file");
+  testing.def("compare_outs", &tt::runtime::ttnn::test::compareOuts,
+              py::arg("lhs"), py::arg("rhs"));
 #endif
 
   /**

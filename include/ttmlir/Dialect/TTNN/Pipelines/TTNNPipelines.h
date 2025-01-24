@@ -128,13 +128,18 @@ struct TTIRToTTNNBackendPipelineOptions
 
   // Option to enable/disable the workaround pass.
   //
-  Option<bool> layouotWorkaroundsEnabled{
+  Option<bool> layoutWorkaroundsEnabled{
       *this, "enable-layout-workaround-pass",
-      llvm::cl::desc("Enable layout workaround pass."), llvm::cl::init(false)};
+      llvm::cl::desc("Enable layout workaround pass."), llvm::cl::init(true)};
 
   Option<bool> decompositionWorkaroundsEnabled{
       *this, "enable-decomposition-workaround-pass",
       llvm::cl::desc("Enable decomposition workaround pass."),
+      llvm::cl::init(true)};
+
+  Option<bool> implicitBroadcastFoldingEnabled{
+      *this, "enable-implicit-broadcast-folding-pass",
+      llvm::cl::desc("Enable implicit broadcast folding pass."),
       llvm::cl::init(true)};
 };
 

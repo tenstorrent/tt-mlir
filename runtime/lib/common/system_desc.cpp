@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+#include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -11,11 +12,11 @@
 #include <vector>
 
 #define FMT_HEADER_ONLY
-#include "distributed/mesh_device.hpp"
 #include "eth_l1_address_map.h"
-#include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
 #include "noc/noc_parameters.h"
+#include "tt-metalium/host_api.hpp"
+#include "tt-metalium/mesh_device.hpp"
 
 namespace tt::runtime::system_desc {
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
@@ -38,7 +39,7 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 }
 
 static std::vector<::tt::target::ChipChannel>
-getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
+getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
       connectionSet;
 
@@ -52,7 +53,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
     connectionSet.emplace(deviceId0, ethCoreCoord0, deviceId1, ethCoreCoord1);
   };
 
-  for (const ::tt::tt_metal::Device *device : devices) {
+  for (const ::tt::tt_metal::IDevice *device : devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
@@ -87,7 +88,7 @@ static void sort(std::vector<::tt::target::Dim2d> &vec) {
 
 // Gather all physical cores by type for the device using metal device APIs
 static flatbuffers::Offset<::tt::target::ChipPhysicalCores>
-createChipPhysicalCores(const ::tt::tt_metal::Device *device,
+createChipPhysicalCores(const ::tt::tt_metal::IDevice *device,
                         flatbuffers::FlatBufferBuilder &fbb) {
 
   std::vector<::tt::target::Dim2d> worker_cores, dram_cores, eth_cores,
@@ -134,7 +135,7 @@ createChipPhysicalCores(const ::tt::tt_metal::Device *device,
 // upper region of memory is where kernel programs get allocated to.  This
 // function intends to estimate some conservative max number.
 static std::uint32_t
-calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
+calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
   CoreCoord deviceGridSize = device->logical_grid_size();
   CoreCoord dramGridSize = device->dram_grid_size();
   std::uint32_t totalCores = deviceGridSize.x * deviceGridSize.y +
@@ -158,10 +159,10 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
 
 static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
-  std::vector<::tt::tt_metal::Device *> devices = meshDevice.get_devices();
+  std::vector<::tt::tt_metal::IDevice *> devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
-            [](const ::tt::tt_metal::Device *a,
-               const ::tt::tt_metal::Device *b) { return a->id() < b->id(); });
+            [](const ::tt::tt_metal::IDevice *a,
+               const ::tt::tt_metal::IDevice *b) { return a->id() < b->id(); });
 
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
   std::vector<uint32_t> chipDescIndices;
@@ -172,7 +173,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       ::tt::target::ChipCoord(0, 0, 0, 0)};
   ::flatbuffers::FlatBufferBuilder fbb;
 
-  for (const ::tt::tt_metal::Device *device : devices) {
+  for (const ::tt::tt_metal::IDevice *device : devices) {
     size_t l1UnreservedBase =
         device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
     size_t dramUnreservedBase =
@@ -257,13 +258,20 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
 std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
+      tt::runtime::common::getDispatchCoreType(std::nullopt);
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
   ::tt::tt_metal::distributed::MeshShape meshShape = {1, numDevices};
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
-          ::tt::tt_metal::DispatchCoreType::WORKER);
+          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape =
+                                                            meshShape},
+          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
+          dispatchCoreType);
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {
@@ -271,7 +279,7 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   } catch (...) {
     eptr = std::current_exception();
   }
-  meshDevice->close_devices();
+  meshDevice->close();
   if (eptr) {
     std::rethrow_exception(eptr);
   }

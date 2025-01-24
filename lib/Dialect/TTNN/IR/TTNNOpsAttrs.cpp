@@ -4,13 +4,10 @@
 
 #include <numeric>
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -66,6 +63,67 @@ bool TTNNLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
 bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
   return hasDRAMBufferType() &&
          (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
+}
+
+// Calculate the logical shape of the shard.
+//
+// Shard is defined as a piece of the tensor that is mapped to a single grid
+// core. This function returns the shard shape for tensors with BLOCK SHARDED
+// tensor memory layout.
+//
+// All examples assume that the tensor is mapped to a 8x8 grid.
+// Example: tensor<32x32xbf16> -> {4, 4}
+// Example: tensor<65x65xbf16> -> {9, 9}
+//
+// return The logical shard shape in case of block sharded tensor memory layout.
+llvm::SmallVector<int64_t>
+TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
+    ArrayRef<int64_t> tensorShape, mlir::AffineMap linear, GridAttr grid) {
+  assert(linear.getNumResults() == grid.getShape().size());
+  mlir::SmallVector<std::int64_t> physicalShape =
+      ttmlir::utils::evalShape(linear, tensorShape);
+  mlir::SmallVector<std::int64_t> shardShape(linear.getNumResults());
+  for (size_t i = 0; i < linear.getNumResults(); ++i) {
+    shardShape[i] =
+        (physicalShape[i] + grid.getShape()[i] - 1) / grid.getShape()[i];
+  }
+  return shardShape;
+}
+
+// Calculate the logical shape of the shard.
+//
+// Shard is defined as a piece of the tensor that is mapped to a single grid
+// core. This function returns the shard shape for tensors with INTERLEAVED
+// tensor memory layout.
+//
+// All examples assume that the tensor is mapped to a 8x8 grid.
+// Example: tensor<1x1024xbf16> ( -> 32 tiles ) -> {1, 1}
+// Example: tensor<512x512xbf16> ( -> 256 tiles ) -> {1, 4}
+// Example: tensor<32x2049xbf16> ( -> 65 tiles ) -> {1, 2}
+//
+// return The logical shard shape in case of interleaved tensor memory layout.
+llvm::SmallVector<int64_t>
+TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
+    ArrayRef<int64_t> tensorShape, mlir::Type elementType,
+    mlir::AffineMap linear, mlir::tt::GridAttr grid) {
+  assert(linear.getNumResults() == grid.getShape().size());
+  assert(mlir::isa<mlir::tt::TileType>(elementType));
+
+  mlir::SmallVector<std::int64_t> physicalShape =
+      ttmlir::utils::evalShape(linear, tensorShape);
+  mlir::SmallVector<std::int64_t> physicalTiledShape =
+      mlir::cast<mlir::tt::TileType>(elementType).getTiledShape(physicalShape);
+  uint64_t numOfTiles =
+      std::accumulate(physicalTiledShape.begin(), physicalTiledShape.end(), 1,
+                      std::multiplies<std::int64_t>());
+  uint64_t numOfGridUnits =
+      std::accumulate(grid.getShape().begin(), grid.getShape().end(), 1,
+                      std::multiplies<std::int64_t>());
+
+  mlir::SmallVector<std::int64_t> shardShape;
+  shardShape.resize(grid.getShape().size() - 1, 1);
+  shardShape.push_back((numOfTiles + numOfGridUnits - 1) / numOfGridUnits);
+  return mlir::cast<mlir::tt::TileType>(elementType).getScalarShape(shardShape);
 }
 
 // Get stride given tensor logical shape
@@ -157,12 +215,12 @@ mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
   return elementTypeToDataType(elementType);
 }
 
-// Gets the size of shard in bytes
+// Get the size of the element in bytes
 //
-// This function returns the size of the shard in bytes.
-// Size is calculated by multiplying shard shape with element size.
+// This function returns the size of a single tensor element in bytes.
+// Distinction is made between scalar types and TileType.
 //
-// return The size of the shard in bytes.
+// return The size of the element in bytes.
 uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
   mlir::Type elementType = getElementType();
   if (isTiled()) {
@@ -177,7 +235,7 @@ uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
 // Return the shape of the shard.
 // Example: memref<2x2x!tt.tile<32x32xf32>> -> { 2, 2 }
 // Example: memref<128x128xf32> -> { 128, 128 }
-// Example: memref<2x3!tt.tile<32x32xf32>> -> { 2, 3 }
+// Example: memref<2x3x!tt.tile<32x32xf32>> -> { 2, 3 }
 //
 // return The shape of the shard.
 llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
@@ -283,13 +341,13 @@ mlir::AffineMap TTNNLayoutAttr::replaceMemoryMapSymbolsWithShardShape(
          "shard rank");
 
   SmallVector<AffineExpr> symReplacements;
-  for (unsigned i = 0; i < physicalMemoryMap.getNumSymbols(); ++i) {
+  for (size_t i = 0; i < physicalMemoryMap.getNumSymbols(); ++i) {
     symReplacements.push_back(
         getAffineConstantExpr(shardShape[i], getContext()));
   }
 
   SmallVector<AffineExpr> dimReplacements;
-  for (unsigned i = 0; i < physicalMemoryMap.getNumDims(); ++i) {
+  for (size_t i = 0; i < physicalMemoryMap.getNumDims(); ++i) {
     dimReplacements.push_back(getAffineDimExpr(i, getContext()));
   }
 
@@ -438,6 +496,24 @@ TTNNLayoutAttr::withShardShape(::mlir::MLIRContext *context,
 
 // Construct a new TTNNLayoutAttr
 //
+// This function creates a deep copy of the current TTNNLayoutAttr and
+// applies changes necessary to fit new tensor shape.
+//
+// param context The MLIR context.
+// param tensorShape The new tensor shape.
+// return The new TTNNLayoutAttr with the given tensor shape.
+TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(::mlir::MLIRContext *context,
+                                               ArrayRef<int64_t> tensorShape) {
+  // TODO(mrakita): This leaves default value of collapseIntervals parameter,
+  // which might be different than the original value used to create the layout
+  // attribute. This will work for now since we always use default value, but in
+  // the future we would need to take this into account.
+  return TTNNLayoutAttr::get(context, tensorShape, getElementType(),
+                             getBufferType(), getGrid(), getMemLayout());
+}
+
+// Construct a new TTNNLayoutAttr
+//
 // This function constructs a new TTNNLayoutAttr with the given parameters.
 //
 // param context The MLIR context.
@@ -453,14 +529,23 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     Type elementType, BufferType bufferType, GridAttr grid,
     TensorMemoryLayoutAttr memLayoutAttr,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+
   // Construct a new affine map which will be used to map from logical
-  // space to physical space
+  // space to physical space.
   AffineMap linear = collapsedLinearAffineMap(
       context, tensorShape, grid.getShape(), collapseIntervals);
-  // Calculate shard shape by evaluating the linear map with last element
-  // of the tensor shape and dividing it by the grid shape
-  mlir::SmallVector<int64_t, 4> shardShape =
-      calculateLogicalShardShape(tensorShape, linear, grid);
+
+  // Calculate shard shape
+  mlir::SmallVector<int64_t> shardShape;
+  if (bufferType == BufferType::L1 &&
+      memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
+    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
+        tensorShape, elementType, linear, grid);
+  } else {
+    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
+        tensorShape, linear, grid);
+  }
+
   // Build memref type with the given parameters
   MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
       context, shardShape, elementType, bufferType);

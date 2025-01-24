@@ -16,6 +16,7 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Pass/Pass.h>
 
+#include <shardy/dialect/sdy/ir/dialect.h>
 #include <stablehlo/dialect/StablehloOps.h>
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
@@ -58,12 +59,19 @@ public:
         changed = true;
       } else if (bitWidth == 64) {
         // Convert 64 bit integer element type to 32 bit integer.
-        if (isa<IntegerType>(type.getElementType())) {
-          elementType = IntegerType::get(context, 32);
+        // If element is unsigned, we explicitly assign it Unsigned semantics to
+        // it (like `ui32`). Otherwise, we don't explicitly use Signed semantics
+        // (like `si32`), but rather Signless (like `i32`) which is the default.
+        if (isa<IntegerType>(elementType)) {
+          elementType = IntegerType::get(
+              context, 32,
+              elementType.isUnsignedInteger()
+                  ? IntegerType::SignednessSemantics::Unsigned
+                  : IntegerType::SignednessSemantics::Signless);
           changed = true;
         }
         // Convert 64 bit float element type to 32 bit float.
-        else if (isa<FloatType>(type.getElementType())) {
+        else if (isa<FloatType>(elementType)) {
           elementType = FloatType::getF32(context);
           changed = true;
         }
@@ -86,6 +94,7 @@ struct ConvertStableHLOToTTIRPass
 
     target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
 
+    target.addLegalDialect<mlir::sdy::SdyDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tensor::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();

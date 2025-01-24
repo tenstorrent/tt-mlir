@@ -19,19 +19,24 @@ namespace mlir::tt {
 // Runs a conversion pass to EmitC dialect on a func op containing given
 // region's body. Also, it adds boilerplate code such as includes and namespace
 // declarations.
-LogicalResult convertTTKernelRegionToEmitC(
-    OpBuilder &builder, Region *region,
-    const ttkernel::KernelConfigInterface &kernelConfig);
+LogicalResult
+convertTTKernelRegionToEmitC(OpBuilder &builder, Region *region,
+                             const ttkernel::ThreadType &threadType);
 
 // Converts given region to EmitC dialect and translates it to C++ code.
-LogicalResult
-emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
-                          const ttkernel::KernelConfigInterface &kernelConfig);
+LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
+                                const ttkernel::ThreadType &threadType);
 
-// Converts dispatch op's regions to C++ code.
+LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
+                                const ttkernel::ThreadType &threadType);
+
+// Converts enqueue program op's regions to C++ code.
 LogicalResult
-emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
-                           llvm::SmallVector<std::string> &cppStrings);
+emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
+                                 llvm::SmallVector<std::string> &cppStrings);
+
+LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,
+                              const ttkernel::ThreadType &threadType);
 
 } // namespace mlir::tt
 

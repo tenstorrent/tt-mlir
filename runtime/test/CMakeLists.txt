@@ -13,6 +13,7 @@ else()
   add_library(TTRuntimeTTNNTestHelpers
     STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/test/utils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/test/dylib.cpp
   )
   set_property(TARGET TTRuntimeTTNNTestHelpers PROPERTY CXX_STANDARD 20)
   target_compile_options(TTRuntimeTTNNTestHelpers PUBLIC -mavx -mavx2 -fsized-deallocation)

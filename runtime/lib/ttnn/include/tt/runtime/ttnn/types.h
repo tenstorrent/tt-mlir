@@ -11,7 +11,7 @@
 #include <unordered_map>
 
 namespace tt::runtime::ttnn {
-using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::Device>,
+using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
                                    std::reference_wrapper<::ttnn::MeshDevice>>;
 
 struct LayoutDesc {
@@ -163,9 +163,9 @@ public:
 
   size_t subMeshSize(uint32_t meshId) const;
 
-  ::ttnn::Device &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
+  ::ttnn::IDevice &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
 
-  ::ttnn::Device &getDeviceIndexFromSubMesh(uint32_t meshId, int deviceIndex);
+  ::ttnn::IDevice &getDeviceIndexFromSubMesh(uint32_t meshId, int deviceIndex);
 
   DeviceVariant getTargetDevice(uint32_t meshId);
 

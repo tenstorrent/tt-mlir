@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "to_device.h"
+#include "operations/layout/to_device.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
@@ -32,5 +32,4 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
       targetDevice);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
-
 } // namespace tt::runtime::ttnn::operations::layout

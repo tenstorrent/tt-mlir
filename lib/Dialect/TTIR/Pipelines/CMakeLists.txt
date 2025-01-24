@@ -3,9 +3,21 @@ add_mlir_dialect_library(MLIRTTIRPipelines
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/ArithToLLVM
 
   LINK_LIBS PUBLIC
   MLIRLLVMTransforms
+  MLIRLinalgTransforms
+  MLIRArithToLLVM
+  MLIRBufferizationPipelines
+  MLIRBufferizationToMemRef
+  MLIRControlFlowToLLVM
+  MLIRFuncToLLVM
+  MLIRMemRefToLLVM
+  MLIRMemRefTransforms
+  MLIRReconcileUnrealizedCasts
+  MLIRSCFToControlFlow
+  MLIRTensorToLinalg
   MLIRTTIRDialect
   MLIRPass
   MLIRTransforms

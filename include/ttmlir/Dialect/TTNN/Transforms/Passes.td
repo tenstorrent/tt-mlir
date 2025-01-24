@@ -36,9 +36,9 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
   }];
 
   let options = [
-      Option<"layouotWorkaroundsEnabled",
+      Option<"layoutWorkaroundsEnabled",
              "ttnn-enable-layout-workaround-pass",
-             "bool", /*default=*/"false",
+             "bool", /*default=*/"true",
              "TTNN Layout Workarounds Pass">,
       Option<"decompositionWorkaroundsEnabled",
              "ttnn-enable-decomposition-workaround-pass",
@@ -95,24 +95,35 @@ def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::ml
     form. Essentially, input tensors are packed into a tuple and then accessed
     in the function body. This allows for easier interfacing with the generated
     dylib as the signatures are then uniform across all forward functions.
+    Device object is hoisted from func body to the signature as well. Return
+    type is also modified to be a tuple.
 
     Given a forward function like this:
 
     ```mlir
     func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
-      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      return %0 : tensor<32x32xbf16>
+      %0 = "ttnn.get_device"() : () -> !tt.device<#device>
+      %1 = "ttnn.to_device"(%arg0, %0) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%arg1, %0) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %3 = "ttnn.add"(%1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %3 : tensor<32x32xbf16>
     }
     ```
 
-    The pass will modify the signature and prepend unpacking ops like so:
+    The pass will modify the signature such that:
+    - input tensors are packed into a tuple
+    - get_device op is removed and device object is hoisted to the signature
+    - return type is modified to be a tuple
 
     ```mlir
-    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16> {
+    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !tt.device<#device>) -> tuple<tensor<32x32xbf16>> {
       %0 = tt.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
       %1 = tt.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
-      %2 = "ttnn.add"(%0, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-      return %2 : tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %4 = "ttnn.add"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %5 = tt.tuple %4 : tuple<tensor<32x32xbf16>>
+      return %5 : tuple<tensor<32x32xbf16>>
     }
     ```
   }];

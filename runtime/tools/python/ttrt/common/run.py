@@ -6,7 +6,7 @@ import os
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.golden import get_golden_fn, GoldenRuntimeConfig
+from ttrt.common.callback import get_callback_fn, CallbackRuntimeConfig
 
 
 class Run:
@@ -141,6 +141,13 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
+            name="--disable-to-dtype-on-host",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable to_dtype on host workaround",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -148,11 +155,18 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
-            name="--golden",
+            name="--emitc",
             type=bool,
-            default=True,
+            default=False,
             choices=[True, False],
-            help="run golden comparison for intermediate and output tensors",
+            help="toggles emitc testing",
+        )
+        Run.register_arg(
+            name="--disable-golden",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable golden comparison for intermediate and output tensors",
         )
         Run.register_arg(
             name="--save-golden-tensors",
@@ -160,6 +174,27 @@ class Run:
             default=False,
             choices=[True, False],
             help="save golden and device tensors that are compared during callback runtime",
+        )
+        Run.register_arg(
+            name="--debugger",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="run step debugger after every op execution",
+        )
+        Run.register_arg(
+            name="--memory",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump memory reports after every op execution (use in conjunction with --save-artifacts)",
+        )
+        Run.register_arg(
+            name="--check-memory-leak",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="check for memory leaks (use in conjunction with --memory)",
         )
         Run.register_arg(
             name="binary",
@@ -358,6 +393,7 @@ class Run:
                 not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
+                not self["--disable-to-dtype-on-host"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
@@ -367,6 +403,23 @@ class Run:
             self.logging.debug(f"opening devices={self.query.device_ids}")
             device = ttrt.runtime.open_device(self.query.device_ids)
 
+            callback_runtime_config = CallbackRuntimeConfig(
+                device,
+                "",
+                self["--pcc"],
+                self["--atol"],
+                self["--rtol"],
+                self["--save-golden-tensors"],
+                self.logging,
+                not self["--disable-golden"],
+                self["--memory"],
+                self["--debugger"],
+            )
+
+            callback_env = ttrt.runtime.DebugHooks.get(
+                get_callback_fn(callback_runtime_config)
+            )
+
             try:
                 for bin in binaries:
                     try:
@@ -374,6 +427,16 @@ class Run:
 
                         if self["--save-artifacts"]:
                             self.artifacts.create_binary_artifacts_folder(bin)
+
+                        if self["--emitc"]:
+                            # .so are compiled such that they have the same name as flatbuffers, so we rename here
+                            emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
+
+                            # Open the dylib
+                            emitc_dylib_handle = ttrt.runtime.testing.open_so(
+                                emitc_dylib_path
+                            )
+                            self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                         program_indices = []
                         if self["--program-index"] == "all":
@@ -386,13 +449,20 @@ class Run:
                                 f"evaluating program={program_index} for binary={bin.file_path}"
                             )
 
+                            callback_runtime_config.start_new_callback(
+                                f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+                            )
+
                             program = bin.get_program(program_index)
                             golden_inputs = []
 
                             for i in range(len(program.program["inputs"])):
-                                golden_tensor = bin.fbb.get_debug_info_golden(
-                                    f"input_{i}"
-                                )
+                                golden_tensor = None
+
+                                if not self["--disable-golden"]:
+                                    golden_tensor = bin.fbb.get_debug_info_golden(
+                                        f"input_{i}"
+                                    )
 
                                 if golden_tensor is not None:
 
@@ -448,20 +518,7 @@ class Run:
                                 total_outputs.append(outputs)
 
                             event = None
-                            golden_results_data = {}
-                            if self["--golden"]:
-                                callback_env = ttrt.runtime.DebugHooks.get(
-                                    get_golden_fn(
-                                        GoldenRuntimeConfig(
-                                            self["--atol"],
-                                            self["--rtol"],
-                                            self["--pcc"],
-                                            f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}",
-                                            self["--save-golden-tensors"],
-                                        ),
-                                        golden_results_data,
-                                    )
-                                )
+
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -504,6 +561,41 @@ class Run:
                             if event is not None:
                                 ttrt.runtime.wait(event)
 
+                            # Compare to EmitC
+                            if self["--emitc"]:
+                                # Create symbol string to read from dylib
+                                fwd_func_name = program.program["name"]
+                                fwd_func_name_len = len(fwd_func_name)
+                                fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v07IDeviceE"
+
+                                for loop in range(self["--loops"]):
+                                    emitc_outs = ttrt.runtime.testing.run_so_program(
+                                        emitc_dylib_handle,
+                                        fwd_func_sym,
+                                        total_inputs[loop],
+                                        device,
+                                    )
+                                    self.logging.debug(
+                                        f"got emitc outputs for program_index={program_index}, loop={loop}"
+                                    )
+
+                                    all_tensors_match = (
+                                        ttrt.runtime.testing.compare_outs(
+                                            total_outputs[0], emitc_outs
+                                        )
+                                    )
+
+                                    if not all_tensors_match:
+                                        self.logging.error(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+                                        self.logging.error(
+                                            total_outputs[loop], emitc_outs
+                                        )
+                                        raise Exception(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+
                             if self["--identity"]:
                                 self.logging.debug(
                                     f"checking identity with rtol={self['--rtol']} and atol={self['--atol']}"
@@ -543,25 +635,22 @@ class Run:
                             device.deallocate_buffers()
 
                             # if golden comparison is enabled, check golden results json file to see if test passed
-                            if self["--golden"]:
+                            if not self["--disable-golden"]:
                                 if self["--save-artifacts"]:
-                                    golden_results_file_path = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
+                                    callback_runtime_config.save_golden_report(
+                                        f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
+                                    )
 
-                                    with open(
-                                        golden_results_file_path, "w"
-                                    ) as json_file:
-                                        json.dump(
-                                            golden_results_data, json_file, indent=4
-                                        )
+                                callback_runtime_config.check_pcc()
 
-                                for loc, golden_data in golden_results_data.items():
-                                    if (
-                                        golden_data["actual_pcc"]
-                                        < golden_data["expected_pcc"]
-                                    ):
-                                        raise Exception(
-                                            f"Failed: golden comparison failed for program={program_index}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
-                                        )
+                            if self["--memory"]:
+                                if self["--save-artifacts"]:
+                                    callback_runtime_config.save_memory_report(
+                                        f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/memory_results.json"
+                                    )
+
+                                if self["--check-memory-leak"]:
+                                    callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
                         test_result = {
