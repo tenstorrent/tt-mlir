@@ -7,12 +7,7 @@ add_subdirectory(Conversion)
 add_subdirectory(Dialect)
 add_subdirectory(Target)
 add_subdirectory(Scheduler)
-
-# Shared library will include runtime code
-# so we only build it if runtime is enabled
-if (TTMLIR_ENABLE_SHARED_LIB)
-    add_subdirectory(SharedLib)
-endif()
+add_subdirectory(SharedLib)
 
 set(link_libs
 MLIRTTDialect
