@@ -42,9 +42,8 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
       mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
       mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
-      vwells/llvm_helper_transform
-      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect>();
+      vwells / llvm_helper_transform mlir::emitc::EmitCDialect,
+      mlir::bufferization::BufferizationDialect, mlir::LLVM::LLVMDialect>();
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
   mlir::sdy::registerAllDialects(registry);
