@@ -25,10 +25,14 @@ struct Program {
 
 inline std::string getOpDebugString(mlir::Operation *op,
                                     OpPrintingFlags printFlags) {
+#ifdef TTMLIR_ENABLE_DEBUG_STRINGS
   std::string str;
   llvm::raw_string_ostream os(str);
   op->print(os, printFlags);
   return str;
+#else
+  return "";
+#endif
 };
 
 inline std::string getOpLocInfo(mlir::Operation *op) {

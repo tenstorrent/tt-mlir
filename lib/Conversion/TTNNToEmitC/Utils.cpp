@@ -167,7 +167,8 @@ emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
   // together into a single SSA value
   //
   emitc::ExpressionOp shapeExpressionOp = rewriter.create<emitc::ExpressionOp>(
-      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Shape"), false);
+      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::SimpleShape"),
+      false);
 
   // Add a block to the ExpressionOp, save current insertion point, and set
   // insertion point to newly added block
@@ -186,11 +187,11 @@ emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
       rewriter.getArrayAttr(convertShape(rewriter, shapeAttr)), nullptr,
       ValueRange());
 
-  // Create a ttnn::Shape object
+  // Create a ttnn::SimpleShape object
   //
   emitc::CallOpaqueOp ttnnShapeOp = rewriter.create<emitc::CallOpaqueOp>(
-      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Shape"),
-      rewriter.getStringAttr("ttnn::Shape"), nullptr, nullptr,
+      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::SimpleShape"),
+      rewriter.getStringAttr("ttnn::SimpleShape"), nullptr, nullptr,
       metalShapeOp->getResults());
   rewriter.create<emitc::YieldOp>(loc, ttnnShapeOp->getResult(0));
 

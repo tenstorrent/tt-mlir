@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     python3-pip \
     git \
-    git-lfs \
     libhwloc-dev \
     pandoc \
     libtbb-dev \

@@ -496,6 +496,24 @@ TTNNLayoutAttr::withShardShape(::mlir::MLIRContext *context,
 
 // Construct a new TTNNLayoutAttr
 //
+// This function creates a deep copy of the current TTNNLayoutAttr and
+// applies changes necessary to fit new tensor shape.
+//
+// param context The MLIR context.
+// param tensorShape The new tensor shape.
+// return The new TTNNLayoutAttr with the given tensor shape.
+TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(::mlir::MLIRContext *context,
+                                               ArrayRef<int64_t> tensorShape) {
+  // TODO(mrakita): This leaves default value of collapseIntervals parameter,
+  // which might be different than the original value used to create the layout
+  // attribute. This will work for now since we always use default value, but in
+  // the future we would need to take this into account.
+  return TTNNLayoutAttr::get(context, tensorShape, getElementType(),
+                             getBufferType(), getGrid(), getMemLayout());
+}
+
+// Construct a new TTNNLayoutAttr
+//
 // This function constructs a new TTNNLayoutAttr with the given parameters.
 //
 // param context The MLIR context.

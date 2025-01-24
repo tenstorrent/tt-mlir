@@ -30,3 +30,10 @@ def add_to_dataclass(dataclass, new_attr_name: str, new_attr_value):
 def to_adapter_format(*objs):
     res = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
     return {"graphs": res}
+
+
+# TODO(odjuricic): Better way would be to change KeyValue class to support editable instead.
+def make_editable_kv(kv, editable):
+    obj = asdict(kv)
+    obj["editable"] = editable
+    return make_dataclass("KeyValue", ((k, type(v)) for k, v in obj.items()))(**obj)

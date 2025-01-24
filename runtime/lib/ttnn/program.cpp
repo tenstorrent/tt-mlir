@@ -2,14 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/ccl/all_gather.h"
+#include "operations/ccl/mesh_shard.h"
+#include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
+#include "operations/conv/conv_transpose2d.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/permute.h"
+#include "operations/data_movement/repeat.h"
+#include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/transpose.h"
@@ -31,6 +36,7 @@
 #include "operations/matmul/matmul.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
+#include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
@@ -184,6 +190,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    return operations::reduction::run(op->type_as_ReductionProdOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return operations::reduction::run(op->type_as_ReductionOp(), context);
   }
@@ -212,8 +221,18 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::SliceOp: {
     return operations::data_movement::run(op->type_as_SliceOp(), context);
   }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    return operations::data_movement::run(op->type_as_RepeatOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
+                                          context);
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    return operations::conv::run(op->type_as_ConvTranspose2dOp(), context);
   }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     return operations::deletion::run(op->type_as_DeallocateOp(), context);
@@ -223,6 +242,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    return operations::ccl::run(op->type_as_ReduceScatterOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    return operations::ccl::run(op->type_as_MeshShardOp(), context);
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), context);

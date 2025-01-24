@@ -19,7 +19,7 @@ include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, !listconcat(traits, [TTIROpInterface, DestinationStyleOpInterface])> {
+    TTIR_Op<mnemonic, !listconcat([TTIROpInterface, DestinationStyleOpInterface], traits)> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     }];
@@ -98,8 +98,9 @@ def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
 
   let results = (outs AnyRankedTensor:$result);
 
-  let hasFolder = 1;
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
@@ -153,6 +154,26 @@ def TTIR_AllocOp : TTIR_Op<"alloc"> {
     let hasVerifier = 1;
 }
 
+def TTIR_DotGeneralOp : TTIR_Op<"dot_general"> {
+    let summary = "Dot general operation.";
+    let description = [{
+      Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
+      dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
+      where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
+      From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         DenseI64ArrayAttr:$batch_dims_lhs,
+                         DenseI64ArrayAttr:$contract_dims_lhs,
+                         DenseI64ArrayAttr:$batch_dims_rhs,
+                         DenseI64ArrayAttr:$contract_dims_rhs);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
+
 def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
     let summary = "Dealloc op.";
     let description = [{
@@ -166,12 +187,8 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 // TTIR top level named ops
 //===----------------------------------------------------------------------===//
 
-def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
-def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
-def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
-
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTIR_Broadcastable])> {
+    TTIR_DPSOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -184,7 +201,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [FourOperands])> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([FourOperands], traits)> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -199,7 +216,7 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
+def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise where op.";
     let description = [{
       Eltwise where operation.
@@ -207,7 +224,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [TwoOperands])> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -222,7 +239,7 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs"> {
+def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
     let summary = "Eltwise absolute op.";
     let description = [{
       Eltwise absolute operation.
@@ -236,7 +253,7 @@ def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil"> {
+def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil", [TTIR_Idempotence]> {
     let summary = "Eltwise ceil op.";
     let description = [{
       Eltwise ceil operation.
@@ -250,7 +267,7 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
-def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor"> {
+def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
     let summary = "Eltwise floor op.";
     let description = [{
       Eltwise floor operation.
@@ -278,7 +295,7 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     }];
 }
 
-def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not"> {
+def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]> {
     let summary = "Eltwise bitwise NOT.";
     let description = [{
         Performs element-wise NOT of tensor `operand` and produces a `result` tensor.
@@ -291,7 +308,7 @@ def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not"> {
     }];
 }
 
-def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
+def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
     let summary = "Eltwise negate op.";
     let description = [{
       Eltwise negate operation.
@@ -312,14 +329,17 @@ def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
     }];
 }
 
-def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal"> {
+// TODO (azecevic): What should we do with 0.0 case?
+// 1/0.0 = inf, 1/inf = 0.0, but TTNN isn't IEEE754 compliant.
+// https://github.com/tenstorrent/tt-metal/blob/main/tech_reports/Handling_Special_Value/special_values.md
+def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal", [TTIR_Involution]> {
     let summary = "Eltwise reciprocal.";
     let description = [{
       Eltwise reciprocal operation.
     }];
 }
 
-def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu"> {
+def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [TTIR_Idempotence]> {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
@@ -340,7 +360,7 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
-def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
+def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
     let summary = "Eltwise sign operation.";
     let description = [{
       Returns the sign of the `operand` element-wise and produces a `result`
@@ -449,7 +469,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [ThreeOperands])> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -464,6 +484,7 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise eq(x, x) == 1.
 def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
     let summary = "Eltwise equal to.";
     let description = [{
@@ -471,6 +492,7 @@ def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise ne(x, x) == 0.
 def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
     let summary = "Eltwise not equal to.";
     let description = [{
@@ -478,6 +500,7 @@ def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise ge(x, x) == 1.
 def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
     let summary = "Eltwise greater than or equal to.";
     let description = [{
@@ -485,6 +508,7 @@ def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise gt(x, x) == 0.
 def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
     let summary = "Eltwise greater than.";
     let description = [{
@@ -492,6 +516,7 @@ def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise le(x, x) == 1.
 def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
     let summary = "Eltwise less than or equal to.";
     let description = [{
@@ -499,6 +524,7 @@ def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise lt(x, x) == 0.
 def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
     let summary = "Eltwise less than.";
     let description = [{
@@ -506,14 +532,14 @@ def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
     }];
 }
 
-def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and"> {
+def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise logical and.";
     let description = [{
       Eltwise logical and operation.
     }];
 }
 
-def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or"> {
+def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise logical or.";
     let description = [{
       Eltwise logical or operation.
@@ -527,7 +553,7 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
-def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and"> {
+def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise bitwise AND.";
     let description = [{
         Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
@@ -541,7 +567,7 @@ def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and"> {
     }];
 }
 
-def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or"> {
+def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise bitwise OR.";
     let description = [{
         Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
@@ -567,9 +593,11 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
           %result = "ttir.bitwise_xor"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
           // %result: [[4, 4], [4, 12]]
     }];
+
+    let hasCanonicalizer = 1;
 }
 
-def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence, TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -582,14 +610,14 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
     }];
 }
 
-def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
+def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise subtract.";
     let description = [{
       Eltwise subtract operation.
     }];
 }
 
-def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
+def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
@@ -605,7 +633,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+    TTIR_DPSOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let summary = "Reduction op.";
     let description = [{
@@ -651,6 +679,8 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
         return {builder.getAffineMapArrayAttr(indexingMaps),
                 builder.getArrayAttr(iteratorTypes)};}
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
@@ -671,6 +701,48 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
   let summary = "Max reduction op.";
   let description = [{
     Max reduction op.
+  }];
+}
+
+def TTIR_MinOp : TTIR_ReductionOp<"min"> {
+  let summary = "Min reduction op.";
+  let description = [{
+    This op computes the minimum of all elements of the tensor or along
+    specified dimension.
+
+    Example:
+      input: [[1, 5, 3],
+              [4, 2, 6]]
+
+      // Computing along dim 0
+      output: [1, 2, 3]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 1
+  }];
+}
+
+def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
+  let summary = "Product reduction op.";
+  let description = [{
+    This op computes the product of all elements of the tensor (full product)
+    or along a specific dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Computing along dim 0
+      output: [4, 10, 18]
+
+      // Computing along dim 1
+      output: [6, 120]
+
+      // Computing full product
+      output: 720
   }];
 }
 
@@ -750,6 +822,8 @@ def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
@@ -760,6 +834,33 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
+                         SI32Attr:$dim);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
+    let summary = "Repeat interleave op.";
+    let description = [{
+      Repeats elements of a tensor along a specified dimension.
+      It allows for flexible repetition patterns, where each element can be repeated a different number of times.
+      This is particularly useful for tasks that require duplicating elements in a non-uniform manner.
+
+      Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of repetitions for each element, each element is repeated that number of times.
+      - `dim`: The dimension along which to repeat values.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         UI32Attr:$repeats,
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
@@ -813,18 +914,27 @@ def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
 def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     let summary = "Broadcast operation.";
     let description = [{
-      Broadcast op.
+      Broadcasts each dimension of the input tensor based on the broadcast dimensions.
+
+      Example:
+      // %arg0: tensor<1x1x32xf32>
+      %0 = tensor.empty() : tensor<1x16x32xf32>
+      %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I64ArrayAttr:$dimension);
+                         DenseI32ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+
+    let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
@@ -846,6 +956,58 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
                          SI32Attr:$padding_bottom);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_ConvTranspose2dOp : TTIR_DPSOp<"conv_transpose2d"> {
+    let summary = "ConvTranspose2d operation.";
+    let description = [{
+      Applies a 2D transposed convolution operator over an input image composed of several input planes.
+
+      Inputs:
+      - `input` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
+      - `weight` AnyRankedTensor: OIHW format (output_channels x input_channels x height x width)
+      - `bias` Optional<AnyRankedTensor>: (1 x 1 x 1 x output_channels)
+      - `output` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
+
+      Attributes:
+      - `stride` (i32 | array<i32>): Controls the stride for the cross-correlation.
+      - `padding` (i32 | array<i32>): Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
+      - `output_padding` (i32 | array<i32>): Controls the additional size added to one side of the output shape.
+      - `dilation` (i32 | array<i32>): Controls the spacing between the kernel points
+      - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+
+      Example:
+        %input = tensor.empty() : () -> tensor<256x256x3x3xbf16>
+        %weight = tensor.empty() : () -> tensor<256x256x3x3xbf16>
+        %bias = tensor.empty() : () -> tensor<1x1x1x256xbf16>
+        %output = tensor.empty() : () -> tensor<1x10x10x256xbf16>
+        %0 = "ttir.conv_transpose2d"(%input, %weight, %bias, %output)
+          <{
+            stride = = array<i32: 1, 1>,
+            padding = 0: i32,
+            output_padding = 0: i32,
+            dilation = 1: i32,
+            groups = 1: i32
+          > : (tensor<1x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<1x10x10x256xbf16>) -> tensor<1x10x10x256xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$output_padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         I32Attr:$groups);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1216,6 +1378,8 @@ def TTIR_ReverseOp : TTIR_DPSOp<"reverse", [AllShapesMatch<["input", "result"]>]
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
@@ -1285,6 +1449,8 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizeMethod = 1;
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
@@ -1333,6 +1499,8 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1340,7 +1508,7 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseUnaryOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+    TTIR_ElementwiseUnaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
@@ -1371,7 +1539,7 @@ def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
 }
 
 class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
@@ -1392,21 +1560,21 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
     }];
 }
 
-def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add"> {
+def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
     let summary = "Eltwise add.";
     let description = [{
       Eltwise add operation.
     }];
 }
 
-def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply"> {
+def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
     }];
 }
 
-def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
+def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.

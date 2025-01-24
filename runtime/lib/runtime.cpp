@@ -60,6 +60,23 @@ void dumpMemoryReport(Device device) {
 
   LOG_FATAL("runtime is not enabled");
 }
+
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device, int deviceID) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getMemoryView(device, deviceID);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getMemoryView(device, deviceID);
+  }
+#endif
+
+  LOG_FATAL("runtime is not enabled");
+}
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {
@@ -216,16 +233,20 @@ size_t getNumAvailableDevices() {
   LOG_FATAL("runtime is not enabled");
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
+                  std::optional<size_t> l1SmallSize,
+                  std::optional<DispatchCoreType> dispatchCoreType) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::openDevice(deviceIds, numHWCQs);
+    return ::tt::runtime::ttnn::openDevice(deviceIds, numHWCQs, l1SmallSize,
+                                           dispatchCoreType);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::openDevice(deviceIds, numHWCQs);
+    return ::tt::runtime::ttmetal::openDevice(deviceIds, numHWCQs, l1SmallSize,
+                                              dispatchCoreType);
   }
 #endif
   LOG_FATAL("runtime is not enabled");

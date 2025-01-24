@@ -37,12 +37,12 @@ LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
   if (shouldTilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::TILE, std::nullopt,
                              std::nullopt,
-                             static_cast<::ttnn::Device *>(nullptr));
+                             static_cast<::ttnn::IDevice *>(nullptr));
   }
   if (shouldUntilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
                              std::nullopt,
-                             static_cast<::ttnn::Device *>(nullptr));
+                             static_cast<::ttnn::IDevice *>(nullptr));
   }
   return input;
 }
@@ -411,15 +411,15 @@ size_t ProgramContext::subMeshSize(uint32_t meshId) const {
   return subMeshes.at(meshId)->num_devices();
 }
 
-::ttnn::Device &ProgramContext::getDeviceFromSubMesh(uint32_t meshId,
-                                                     int physicalDeviceId) {
+::ttnn::IDevice &ProgramContext::getDeviceFromSubMesh(uint32_t meshId,
+                                                      int physicalDeviceId) {
   LOG_ASSERT(subMeshes.contains(meshId));
   auto &subMesh = *subMeshes.at(meshId);
   return *subMesh.get_device(physicalDeviceId);
 }
 
-::ttnn::Device &ProgramContext::getDeviceIndexFromSubMesh(uint32_t meshId,
-                                                          int deviceIndex) {
+::ttnn::IDevice &ProgramContext::getDeviceIndexFromSubMesh(uint32_t meshId,
+                                                           int deviceIndex) {
   LOG_ASSERT(subMeshes.contains(meshId));
   auto &subMesh = *subMeshes.at(meshId);
   return *subMesh.get_device_index(deviceIndex);

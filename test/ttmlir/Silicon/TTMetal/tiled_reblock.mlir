@@ -9,17 +9,17 @@
 #tilized2x2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<1x2x!tt.tile<32 x 32, f32>, #l1_>>
 #untilized2x2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<32x64xf32, #l1_>>
 func.func @tilize_reblock_2D(%arg0: tensor<64x128xf32, #untilized>) -> tensor<64x128xf32, #untilized2x2> {
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %0 = tensor.empty() : tensor<64x128xf32, #tilized>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #untilized>, tensor<64x128xf32, #tilized>) -> tensor<64x128xf32, #tilized>
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %2 = tensor.empty() : tensor<64x128xf32, #tilized2x2>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %3 = "ttir.to_layout"(%1, %2) : (tensor<64x128xf32, #tilized>, tensor<64x128xf32, #tilized2x2>) -> tensor<64x128xf32, #tilized2x2>
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %4 = tensor.empty() : tensor<64x128xf32, #untilized2x2>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %5 = "ttir.to_layout"(%3, %4) : (tensor<64x128xf32, #tilized2x2>, tensor<64x128xf32, #untilized2x2>) -> tensor<64x128xf32, #untilized2x2>
   return %5 : tensor<64x128xf32, #untilized2x2>
 }
@@ -30,19 +30,19 @@ func.func @tilize_reblock_2D(%arg0: tensor<64x128xf32, #untilized>) -> tensor<64
 #tilized4D_2x2 = #tt.metal_layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3), undef, <2x2>, memref<6x2x!tt.tile<32 x 32, f32>, #l1_>>
 #untilized4D_2x2 = #tt.metal_layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3), undef, <2x2>, memref<192x64xf32, #l1_>>
 func.func @tilize_reblock_4D(%arg0: tensor<2x3x64x128xf32, #untilized4D>) -> tensor<2x3x64x128xf32, #untilized4D_2x2> {
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %0 = tensor.empty() : tensor<2x3x64x128xf32, #tilized4D>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %1 = "ttir.to_layout"(%arg0, %0) : (tensor<2x3x64x128xf32, #untilized4D>, tensor<2x3x64x128xf32, #tilized4D>) -> tensor<2x3x64x128xf32, #tilized4D>
 
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %2 = tensor.empty() : tensor<2x3x64x128xf32, #tilized4D_2x2>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %3 = "ttir.to_layout"(%1, %2) : (tensor<2x3x64x128xf32, #tilized4D>, tensor<2x3x64x128xf32, #tilized4D_2x2>) -> tensor<2x3x64x128xf32, #tilized4D_2x2>
 
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %4 = tensor.empty() : tensor<2x3x64x128xf32, #untilized4D_2x2>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %5 = "ttir.to_layout"(%3, %4) : (tensor<2x3x64x128xf32, #tilized4D_2x2>, tensor<2x3x64x128xf32, #untilized4D_2x2>) -> tensor<2x3x64x128xf32, #untilized4D_2x2>
 
   return %5 : tensor<2x3x64x128xf32, #untilized4D_2x2>
@@ -54,33 +54,33 @@ func.func @tilize_reblock_4D(%arg0: tensor<2x3x64x128xf32, #untilized4D>) -> ten
 #tilized_big_3x6 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <3x6>, memref<1x1x!tt.tile<32 x 32, f32>, #l1_>>
 func.func @tilize_reblock_big(%arg0: tensor<96x192xf32, #untilized_big>) -> tensor<96x192xf32, #untilized_big> {
   // move to tilized 1x1
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %0 = tensor.empty() : tensor<96x192xf32, #tilized_big>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %1 = "ttir.to_layout"(%arg0, %0) : (tensor<96x192xf32, #untilized_big>, tensor<96x192xf32, #tilized_big>) -> tensor<96x192xf32, #tilized_big>
 
   // move to tilized 2x3
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %2 = tensor.empty() : tensor<96x192xf32, #tilized_big_3x2>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %3 = "ttir.to_layout"(%1, %2) : (tensor<96x192xf32, #tilized_big>, tensor<96x192xf32, #tilized_big_3x2>) -> tensor<96x192xf32, #tilized_big_3x2>
 
   // move to tilized 3x3
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %4 = tensor.empty() : tensor<96x192xf32, #tilized_big_3x6>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %5 = "ttir.to_layout"(%3, %4) : (tensor<96x192xf32, #tilized_big_3x2>, tensor<96x192xf32, #tilized_big_3x6>) -> tensor<96x192xf32, #tilized_big_3x6>
 
   // move back to tilized 1x1
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %6 = tensor.empty() : tensor<96x192xf32, #tilized_big>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %7 = "ttir.to_layout"(%5, %6) : (tensor<96x192xf32, #tilized_big_3x6>, tensor<96x192xf32, #tilized_big>) -> tensor<96x192xf32, #tilized_big>
 
   // untilize
-  // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.create_buffer"[[C:.*]]
   %8 = tensor.empty() : tensor<96x192xf32, #untilized_big>
-  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_program"[[C:.*]]
   %9 = "ttir.to_layout"(%7, %8) : (tensor<96x192xf32, #tilized_big>, tensor<96x192xf32, #untilized_big>) -> tensor<96x192xf32, #untilized_big>
 
   return %9 : tensor<96x192xf32, #untilized_big>

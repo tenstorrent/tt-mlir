@@ -62,6 +62,49 @@ class CallbackRuntimeConfig:
 
         self.logging.debug(f"Saved memory report to={memory_report_path}")
 
+    def check_pcc(self):
+        for loc, golden_data in self.golden_report.items():
+            if golden_data["actual_pcc"] < golden_data["expected_pcc"]:
+                raise Exception(
+                    f"Failed: golden comparison failed, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
+                )
+
+    def check_memory_leak(self):
+        num_items = 0
+        for key, value in self.memory_report.items():
+            num_items += 1
+
+        if num_items == 0:
+            self.logging.warning(f"No memory data found")
+        else:
+            # query initial memory usage
+            dram_initial_size_per_device = self.memory_report[0]["dram"]
+            l1_initial_size_per_device = self.memory_report[0]["l1"]
+
+            # query final memory usage and ensure no memory leaks
+            dram_final_size_per_device = self.memory_report[num_items - 1]["dram"]
+            l1_final_size_per_device = self.memory_report[num_items - 1]["l1"]
+
+            for key, value in dram_initial_size_per_device.items():
+                dram_initial_size = value["total_bytes_allocated_per_bank"]
+                dram_final_size = dram_final_size_per_device[key][
+                    "total_bytes_allocated_per_bank"
+                ]
+
+                if dram_final_size > dram_initial_size:
+                    raise Exception(f"Memory leak detected in DRAM for device={key}")
+
+            for key, value in l1_initial_size_per_device.items():
+                l1_initial_size = value["total_bytes_allocated_per_bank"]
+                l1_final_size = l1_final_size_per_device[key][
+                    "total_bytes_allocated_per_bank"
+                ]
+
+                if l1_final_size > l1_initial_size:
+                    raise Exception(
+                        f"Memory leak detected in L1 cache for device={key}"
+                    )
+
 
 """
 -----------------------GOLDEN CALLBACK-----------------------
@@ -162,11 +205,12 @@ def golden(callback_runtime_config, binary, program_context, op_context):
     loc = ttrt.runtime.get_op_loc_info(op_context)
 
     op_golden_tensor = binary.get_debug_info_golden(loc)
-    op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context)
 
     if op_golden_tensor is None:
         logging.debug("Golden tensor is None - skipping golden comparison")
         return
+
+    op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context)
 
     if len(op_output_tensor) == 0:
         logging.debug("Output tensor is empty - skipping golden comparison")
@@ -233,151 +277,20 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 """
 
 
-def add_key(dram_memory_usage, l1_memory_usage, current_section, key, value):
-    if current_section == "DRAM":
-        dram_memory_usage[key] = value
-    elif current_section == "L1":
-        l1_memory_usage[key] = value
+def create_memory_dictionary(memory_view):
+    memory_dict = {}
+    memory_dict["num_banks"] = memory_view.num_banks
+    memory_dict["total_bytes_per_bank"] = memory_view.total_bytes_per_bank
+    memory_dict[
+        "total_bytes_allocated_per_bank"
+    ] = memory_view.total_bytes_allocated_per_bank
+    memory_dict["total_bytes_free_per_bank"] = memory_view.total_bytes_free_per_bank
+    memory_dict[
+        "largest_contiguous_bytes_free_per_bank"
+    ] = memory_view.largest_contiguous_bytes_free_per_bank
+    memory_dict["block_table"] = memory_view.block_table
 
-
-def parse_detailed_memory_usage_file(dram_memory_usage, l1_memory_usage, file_path):
-    current_section = None
-
-    with open(file_path, "r") as file:
-        reader = csv.reader(file)
-        blocks = []
-
-        for row in reader:
-            if not any(row):
-                continue
-
-            if row[1].strip() == "DRAM":
-                current_section = "DRAM"
-            elif row[1].strip() == "L1":
-                current_section = "L1"
-            elif "Total" in row[1]:
-                if row[1].strip() == "Total allocatable (B):":
-                    add_key(
-                        dram_memory_usage,
-                        l1_memory_usage,
-                        current_section,
-                        "total_allocatable (bytes) : total_allocatable/bank * num_banks",
-                        row[2].strip(),
-                    )
-                elif row[1].strip() == "Total allocated (B):":
-                    add_key(
-                        dram_memory_usage,
-                        l1_memory_usage,
-                        current_section,
-                        "total_allocated (bytes) : total_allocated/bank * num_banks",
-                        row[2].strip(),
-                    )
-                elif row[1].strip() == "Total free (B):":
-                    add_key(
-                        dram_memory_usage,
-                        l1_memory_usage,
-                        current_section,
-                        "total_free (bytes) : total_allocatable - total_allocated",
-                        row[2].strip(),
-                    )
-            elif "Blocks" in row[2]:
-                blocks = []
-            else:
-                block = {}
-                block["address (bytes)"] = row[3].strip()
-                block["size (bytes)"] = row[4].strip()
-                block["allocated (y/n)"] = row[5].strip()
-
-                blocks.append(block)
-                add_key(
-                    dram_memory_usage,
-                    l1_memory_usage,
-                    current_section,
-                    "blocks",
-                    blocks,
-                )
-
-
-def parse_memory_usage_summary_file(dram_memory_usage, l1_memory_usage, file_path):
-    with open(file_path, "r") as file:
-        reader = csv.reader(file)
-        current_section = "DRAM"
-
-        for row in reader:
-            if not any(row):
-                continue
-
-            if "Total Allocatable Size" in row[1]:
-                continue
-
-            add_key(
-                dram_memory_usage,
-                l1_memory_usage,
-                current_section,
-                "total_allocatable (bytes) : per bank",
-                row[1].strip(),
-            )
-            add_key(
-                dram_memory_usage,
-                l1_memory_usage,
-                current_section,
-                "total_allocated (bytes): per bank",
-                row[2].strip(),
-            )
-            add_key(
-                dram_memory_usage,
-                l1_memory_usage,
-                current_section,
-                "total_free (bytes) : per bank",
-                row[3].strip(),
-            )
-            add_key(
-                dram_memory_usage,
-                l1_memory_usage,
-                current_section,
-                "largest_free_block (bytes) : per bank",
-                row[4].strip(),
-            )
-
-            if current_section == "DRAM":
-                current_section = "L1"
-
-
-def parse_l1_usage_summary_file(dram_memory_usage, l1_memory_usage, file_path):
-    with open(file_path, "r") as file:
-        reader = csv.reader(file)
-        dram_row = True
-
-        for index, row in enumerate(reader):
-            if index == 2:
-                add_key(
-                    dram_memory_usage,
-                    l1_memory_usage,
-                    "L1",
-                    "largest_contiguous_free_block (bytes) : per bank",
-                    row[1].strip(),
-                )
-
-
-def parse_memory_csv_files(
-    detailed_memory_usage_file_path,
-    memory_usage_summary_file_path,
-    l1_usage_summary_file_path,
-):
-    dram_memory_usage = {}
-    l1_memory_usage = {}
-
-    parse_detailed_memory_usage_file(
-        dram_memory_usage, l1_memory_usage, detailed_memory_usage_file_path
-    )
-    parse_memory_usage_summary_file(
-        dram_memory_usage, l1_memory_usage, memory_usage_summary_file_path
-    )
-    parse_l1_usage_summary_file(
-        dram_memory_usage, l1_memory_usage, l1_usage_summary_file_path
-    )
-
-    return dram_memory_usage, l1_memory_usage
+    return memory_dict
 
 
 def memory(callback_runtime_config, binary, program_context, op_context):
@@ -389,22 +302,43 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     logging.debug("executing memory dump")
     loc = ttrt.runtime.get_op_loc_info(op_context)
     debug_str = ttrt.runtime.get_op_debug_str(op_context)
+    device_id = 0
 
-    device.dump_memory_report()
-    memory_dump_dir_path = f"{get_ttrt_metal_home_path()}/generated/reports"
-
-    # read generated memory reports and store in condensed memory_report
-    dram_memory_usage, l1_memory_usage = parse_memory_csv_files(
-        f"{memory_dump_dir_path}/detailed_memory_usage.csv",
-        f"{memory_dump_dir_path}/memory_usage_summary.csv",
-        f"{memory_dump_dir_path}/l1_usage_summary.csv",
-    )
+    memory_views = device.get_memory_view(device_id)
+    dram_memory_view = memory_views[ttrt.runtime.MemoryBufferType.DRAM]
+    l1_memory_view = memory_views[ttrt.runtime.MemoryBufferType.L1]
+    l1_small_memory_view = memory_views[ttrt.runtime.MemoryBufferType.L1_SMALL]
+    trace_memory_view = memory_views[ttrt.runtime.MemoryBufferType.TRACE]
 
     op_memory_report = {}
     op_memory_report["loc"] = loc
     op_memory_report["debug_str"] = debug_str
-    op_memory_report["dram"] = dram_memory_usage
-    op_memory_report["l1"] = l1_memory_usage
+
+    dram_op_device_memory_report = {}
+    dram_op_device_memory_report["device_" + str(device_id)] = create_memory_dictionary(
+        dram_memory_view
+    )
+
+    l1_op_device_memory_report = {}
+    l1_op_device_memory_report["device_" + str(device_id)] = create_memory_dictionary(
+        l1_memory_view
+    )
+
+    l1_small_op_device_memory_report = {}
+    l1_small_op_device_memory_report[
+        "device_" + str(device_id)
+    ] = create_memory_dictionary(l1_small_memory_view)
+
+    trace_op_device_memory_report = {}
+    trace_op_device_memory_report[
+        "device_" + str(device_id)
+    ] = create_memory_dictionary(trace_memory_view)
+
+    op_memory_report["dram"] = dram_op_device_memory_report
+    op_memory_report["l1"] = l1_op_device_memory_report
+    op_memory_report["l1_small"] = l1_small_op_device_memory_report
+    op_memory_report["trace"] = trace_op_device_memory_report
+
     callback_runtime_config.memory_report[
         callback_runtime_config.callback_counter()
     ] = op_memory_report
@@ -417,6 +351,8 @@ def memory(callback_runtime_config, binary, program_context, op_context):
 
 def debugger(callback_runtime_config, binary, program_context, op_context):
     import pdb
+    import ttrt.runtime
+    import ttrt.binary
 
     device = callback_runtime_config.device
     logging = callback_runtime_config.logging

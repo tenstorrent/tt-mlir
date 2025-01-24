@@ -141,11 +141,25 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
+            name="--disable-to-dtype-on-host",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable to_dtype on host workaround",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
             choices=None,
             help="test file to save results to",
+        )
+        Run.register_arg(
+            name="--emitc",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="toggles emitc testing",
         )
         Run.register_arg(
             name="--disable-golden",
@@ -379,6 +393,7 @@ class Run:
                 not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
+                not self["--disable-to-dtype-on-host"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
@@ -412,6 +427,16 @@ class Run:
 
                         if self["--save-artifacts"]:
                             self.artifacts.create_binary_artifacts_folder(bin)
+
+                        if self["--emitc"]:
+                            # .so are compiled such that they have the same name as flatbuffers, so we rename here
+                            emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
+
+                            # Open the dylib
+                            emitc_dylib_handle = ttrt.runtime.testing.open_so(
+                                emitc_dylib_path
+                            )
+                            self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                         program_indices = []
                         if self["--program-index"] == "all":
@@ -536,6 +561,41 @@ class Run:
                             if event is not None:
                                 ttrt.runtime.wait(event)
 
+                            # Compare to EmitC
+                            if self["--emitc"]:
+                                # Create symbol string to read from dylib
+                                fwd_func_name = program.program["name"]
+                                fwd_func_name_len = len(fwd_func_name)
+                                fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v07IDeviceE"
+
+                                for loop in range(self["--loops"]):
+                                    emitc_outs = ttrt.runtime.testing.run_so_program(
+                                        emitc_dylib_handle,
+                                        fwd_func_sym,
+                                        total_inputs[loop],
+                                        device,
+                                    )
+                                    self.logging.debug(
+                                        f"got emitc outputs for program_index={program_index}, loop={loop}"
+                                    )
+
+                                    all_tensors_match = (
+                                        ttrt.runtime.testing.compare_outs(
+                                            total_outputs[0], emitc_outs
+                                        )
+                                    )
+
+                                    if not all_tensors_match:
+                                        self.logging.error(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+                                        self.logging.error(
+                                            total_outputs[loop], emitc_outs
+                                        )
+                                        raise Exception(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+
                             if self["--identity"]:
                                 self.logging.debug(
                                     f"checking identity with rtol={self['--rtol']} and atol={self['--atol']}"
@@ -581,17 +641,7 @@ class Run:
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
                                     )
 
-                                for (
-                                    loc,
-                                    golden_data,
-                                ) in callback_runtime_config.golden_report.items():
-                                    if (
-                                        golden_data["actual_pcc"]
-                                        < golden_data["expected_pcc"]
-                                    ):
-                                        raise Exception(
-                                            f"Failed: golden comparison failed for program={program_index}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
-                                        )
+                                callback_runtime_config.check_pcc()
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:
@@ -600,57 +650,7 @@ class Run:
                                     )
 
                                 if self["--check-memory-leak"]:
-                                    num_items = 0
-                                    for (
-                                        key,
-                                        value,
-                                    ) in callback_runtime_config.memory_report.items():
-                                        num_items += 1
-
-                                    if num_items == 0:
-                                        self.logging.warning(f"No memory data found")
-                                    else:
-                                        # query initial memory usage
-                                        dram_initial_size = callback_runtime_config.memory_report[
-                                            0
-                                        ][
-                                            "dram"
-                                        ][
-                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
-                                        ]
-                                        l1_initlal_size = callback_runtime_config.memory_report[
-                                            0
-                                        ][
-                                            "l1"
-                                        ][
-                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
-                                        ]
-
-                                        # query final memory usage and ensure no memory leaks
-                                        dram_final_size = callback_runtime_config.memory_report[
-                                            num_items - 1
-                                        ][
-                                            "dram"
-                                        ][
-                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
-                                        ]
-                                        l1_final_size = callback_runtime_config.memory_report[
-                                            num_items - 1
-                                        ][
-                                            "l1"
-                                        ][
-                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
-                                        ]
-
-                                        if dram_final_size > dram_initial_size:
-                                            raise Exception(
-                                                "Memory leak detected in DRAM"
-                                            )
-
-                                        if l1_final_size > l1_initlal_size:
-                                            raise Exception(
-                                                "Memory leak detected in L1 cache"
-                                            )
+                                    callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
                         test_result = {

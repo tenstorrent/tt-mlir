@@ -20,7 +20,7 @@ calculateMeshOffset(const ::ttnn::MeshDevice &parentMesh,
                     const ::tt::target::Dim2d *subMeshShape) {
   for (size_t row = 0; row < parentMesh.num_rows(); row++) {
     for (size_t col = 0; col < parentMesh.num_cols(); col++) {
-      const ::ttnn::Device *currDevice = parentMesh.get_device(row, col);
+      const ::ttnn::IDevice *currDevice = parentMesh.get_device(row, col);
       if (desiredDeviceIds.contains(currDevice->id())) {
         return MeshOffset(row, col);
       }
@@ -46,11 +46,17 @@ void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
   const ::flatbuffers::Vector<uint32_t> *deviceIds = op->chip_ids();
   std::unordered_set<uint32_t> desiredDeviceIds(deviceIds->begin(),
                                                 deviceIds->end());
-  LOG_ASSERT(
-      subMeshShape->y() == 1,
-      "Expected mesh row = 1 for get device op, got: ", subMeshShape->y());
   LOG_ASSERT(desiredDeviceIds.size() == deviceIds->size(),
              "Duplicate device ids in get device op");
+
+  // Re-map mesh if subMeshShape cannot be a submesh of current shape
+  MeshShape meshShape = meshDevice.shape();
+  if (subMeshShape->y() > static_cast<int32_t>(meshShape.num_rows) ||
+      subMeshShape->x() > static_cast<int32_t>(meshShape.num_cols)) {
+    meshDevice.reshape(MeshShape(subMeshShape->y(), subMeshShape->x()));
+    LOG_INFO("remapped mesh device shape [", meshDevice.num_rows(), ", ",
+             meshDevice.num_cols(), "]");
+  }
   std::shared_ptr<::ttnn::MeshDevice> subMesh =
       createSubMesh(meshDevice, desiredDeviceIds, subMeshShape);
   context.addSubMesh(op->out()->global_id(), subMesh);

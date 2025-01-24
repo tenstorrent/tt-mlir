@@ -622,6 +622,242 @@ struct GatherToEmbeddingConversionPattern
   }
 };
 
+//===----------------------------------------------------------------------===//
+/*
+Below is the implementation of the DotGeneralOp decomposition into MatmulOp,
+ReshapeOp, and PermuteOp. The DotGeneralOp is a more general form of MatmulOp
+where tensors can have arbitrary contract dimensions. Contract dimensions are
+the ones along which multiplication happens (typically summed over during the
+operation). Previously, DotGeneralOp only supported cases where it directly
+mapped to a MatmulOp, which typically involves batch dimensions (e.g., [5, 6, 7]
+x [5, 7, 6] where 5 is the batch dimension and multiplication happens along
+dimension 7). This decomposition extends the support to more flexible tensor
+shapes, such as [5, 6, 7] x [5, 6, 7], where the contract dimension is 6 (or 7)
+in both tensors. This allows DotGeneralOp to handle cases beyond the typical
+MatmulOp constraints, enabling more complex tensor operations.
+*/
+
+struct DotGeneralToMatmulConversionPattern
+    : public OpConversionPattern<ttir::DotGeneralOp> {
+  using OpConversionPattern<ttir::DotGeneralOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Value lhs = adaptor.getLhs();
+    auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
+    int64_t lhsRank = lhsType.getRank();
+    SmallVector<int64_t> lhsBatchDims(op.getBatchDimsLhs());
+    SmallVector<int64_t> lhsContractDims(op.getContractDimsLhs());
+
+    Value rhs = adaptor.getRhs();
+    auto rhsType = mlir::cast<RankedTensorType>(rhs.getType());
+    int64_t rhsRank = rhsType.getRank();
+    SmallVector<int64_t> rhsBatchDims(op.getBatchDimsRhs());
+    SmallVector<int64_t> rhsContractDims(op.getContractDimsRhs());
+
+    SmallVector<int64_t> lhsResultDims =
+        getResultDims(lhsBatchDims, lhsContractDims, lhsRank);
+    SmallVector<int64_t> rhsResultDims =
+        getResultDims(rhsBatchDims, rhsContractDims, rhsRank);
+
+    // Compute permutation for lhs and rhs to get the desired layout.
+    // For lhs: (batch dims, result dims, contract dims)
+    // For rhs: (batch dims, contract dims, result dims)
+
+    SmallVector<int64_t> lhsPermutation =
+        getPermutation(lhsBatchDims, lhsResultDims, lhsContractDims);
+    SmallVector<int64_t> rhsPermutation =
+        getPermutation(rhsBatchDims, rhsContractDims, rhsResultDims);
+
+    // Apply these permutations to lhs and rhs.
+
+    ttir::PermuteOp lhsPermute =
+        createPermuteOp(rewriter, op.getLoc(), lhs, lhsType, lhsPermutation);
+    ttir::PermuteOp rhsPermute =
+        createPermuteOp(rewriter, op.getLoc(), rhs, rhsType, rhsPermutation);
+
+    // Compute final shape for lhs and rhs.
+    // for lhs (batch dims, prod(result dims), prod(contract dims))
+    // for rhs (batch dims, prod(contract dims), prod(result dims))
+
+    SmallVector<int64_t> lhsMatmulInputShape = computeMatmulInputShape(
+        rewriter, lhsType, lhsBatchDims, lhsResultDims, lhsContractDims);
+    SmallVector<int64_t> rhsMatmulInputShape = computeMatmulInputShape(
+        rewriter, rhsType, rhsBatchDims, rhsContractDims, rhsResultDims);
+
+    // Apply this reshape to lhs and rhs to adapt to matmul op.
+    // For lhs: (batch dims, prod(result dims), prod(contract dims))
+    // For rhs: (batch dims, prod(contract dims), prod(result dims))
+
+    ttir::ReshapeOp lhsMatmulInput = createMatmulFinal(
+        rewriter, op.getLoc(), lhsPermute, lhsType, lhsMatmulInputShape);
+    ttir::ReshapeOp rhsMatmulInput = createMatmulFinal(
+        rewriter, op.getLoc(), rhsPermute, rhsType, rhsMatmulInputShape);
+
+    // Get shape of matmul op result.
+
+    SmallVector<int64_t> matmulDestinationShape;
+    for (auto dim : lhsBatchDims) {
+      matmulDestinationShape.push_back(lhsType.getShape()[dim]);
+    }
+    matmulDestinationShape.push_back(
+        computeProductOfDims(lhsType.getShape(), lhsResultDims));
+    matmulDestinationShape.push_back(
+        computeProductOfDims(rhsType.getShape(), rhsResultDims));
+
+    auto matmulDestination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), matmulDestinationShape, lhsType.getElementType());
+
+    // Perform matmul operation.
+
+    auto matmul = rewriter.create<ttir::MatmulOp>(
+        op.getLoc(), matmulDestination.getType(), lhsMatmulInput,
+        rhsMatmulInput, matmulDestination);
+
+    // Reshape the result by unrolling the prod(lhsResultDims) to original
+    // lhsResultDims and likewise for rhsResultDims.
+
+    SmallVector<int64_t> resultShape;
+    for (auto dim : lhsBatchDims) {
+      resultShape.push_back(lhsType.getShape()[dim]);
+    }
+    for (auto dim : lhsResultDims) {
+      resultShape.push_back(lhsType.getShape()[dim]);
+    }
+    for (auto dim : rhsResultDims) {
+      resultShape.push_back(rhsType.getShape()[dim]);
+    }
+
+    llvm::SmallVector<int32_t> finalShapeI32(resultShape.begin(),
+                                             resultShape.end());
+
+    auto finalDestination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultShape, lhsType.getElementType());
+
+    ttir::ReshapeOp reshapeResult = rewriter.create<ttir::ReshapeOp>(
+        op.getLoc(),
+        mlir::RankedTensorType::get(resultShape, lhsType.getElementType()),
+        matmul, finalDestination, rewriter.getI32ArrayAttr(finalShapeI32));
+
+    rewriter.replaceOp(op, reshapeResult);
+
+    return success();
+  }
+
+private:
+  SmallVector<int64_t> getResultDims(const SmallVector<int64_t> &batchDims,
+                                     const SmallVector<int64_t> &contractDims,
+                                     int64_t rank) const {
+
+    SmallVector<int64_t> allDims;
+    for (int64_t i = 0; i < rank; i++) {
+      allDims.push_back(i);
+    }
+
+    // Remove batch and contract dims.
+
+    for (size_t i = 0; i < batchDims.size(); i++) {
+      for (size_t j = 0; j < allDims.size(); j++) {
+        if (allDims[j] == batchDims[i]) {
+          allDims.erase(allDims.begin() + j);
+          break;
+        }
+      }
+    }
+    for (size_t i = 0; i < contractDims.size(); i++) {
+      for (size_t j = 0; j < allDims.size(); j++) {
+        if (allDims[j] == contractDims[i]) {
+          allDims.erase(allDims.begin() + j);
+          break;
+        }
+      }
+    }
+
+    return allDims;
+  }
+
+  SmallVector<int64_t> getPermutation(const SmallVector<int64_t> &batchDims,
+                                      const SmallVector<int64_t> &dims1,
+                                      const SmallVector<int64_t> &dims2) const {
+
+    SmallVector<int64_t> permutation;
+    permutation.append(batchDims);
+    permutation.append(dims1);
+    permutation.append(dims2);
+
+    return permutation;
+  }
+
+  ttir::PermuteOp
+  createPermuteOp(PatternRewriter &rewriter, Location loc, Value input,
+                  RankedTensorType inputType,
+                  const SmallVector<int64_t> &permutation) const {
+
+    SmallVector<int64_t> destinationShape =
+        ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
+
+    auto destination = rewriter.create<tensor::EmptyOp>(
+        loc, destinationShape, inputType.getElementType());
+
+    auto permute = rewriter.create<ttir::PermuteOp>(
+        loc, destination.getType(), input, destination, permutation);
+
+    return permute;
+  }
+
+  SmallVector<int64_t>
+  computeMatmulInputShape(ConversionPatternRewriter &rewriter,
+                          RankedTensorType tensorType,
+                          const SmallVector<int64_t> &batchDims,
+                          const SmallVector<int64_t> &contractDims,
+                          const SmallVector<int64_t> &resultDims) const {
+
+    SmallVector<int64_t> finalShape;
+
+    // Add the batch dimensions.
+    for (auto dim : batchDims) {
+      finalShape.push_back(tensorType.getShape()[dim]);
+    }
+
+    // Add the result and contract product dimensions.
+    finalShape.push_back(
+        computeProductOfDims(tensorType.getShape(), contractDims));
+    finalShape.push_back(
+        computeProductOfDims(tensorType.getShape(), resultDims));
+
+    return finalShape;
+  }
+
+  ttir::ReshapeOp
+  createMatmulFinal(PatternRewriter &rewriter, Location loc, Value input,
+                    RankedTensorType type,
+                    const SmallVector<int64_t> &finalShape) const {
+
+    llvm::SmallVector<int32_t> finalShapeI32(finalShape.begin(),
+                                             finalShape.end());
+
+    auto finalDestination = rewriter.create<tensor::EmptyOp>(
+        loc, finalShape, type.getElementType());
+
+    auto finalOp = rewriter.create<ttir::ReshapeOp>(
+        loc, mlir::RankedTensorType::get(finalShape, type.getElementType()),
+        input, finalDestination, rewriter.getI32ArrayAttr(finalShapeI32));
+
+    return finalOp;
+  }
+
+  int64_t computeProductOfDims(ArrayRef<int64_t> tensorShape,
+                               ArrayRef<int64_t> dims) const {
+    int64_t product = 1;
+    for (auto dim : dims) {
+      product *= tensorShape[dim];
+    }
+    return product;
+  }
+};
+
 struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
@@ -1072,9 +1308,15 @@ public:
       tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
           op.getLoc(), outputShape, outputType.getElementType());
 
+      auto inputShape =
+          mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
+
+      SmallVector<int32_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+                                                         outputShape);
+
       output = rewriter.create<ttir::BroadcastOp>(
-          op.getLoc(), broadcastType, output, dpsOutput,
-          rewriter.getArrayAttr(broadcastDims));
+          op.getLoc(), broadcastType, output, dpsOutput, broadcastShape);
 
       assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
                  outputType.getShape() &&
@@ -1095,6 +1337,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
+  patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

@@ -17,6 +17,7 @@ namespace mlir::tt::ttnn::wa {
 using TensorLayoutWorkaround = std::optional<Layout>;
 using TensorBufferTypeWorkaround = std::optional<BufferType>;
 using TensorMemoryLayoutWorkaround = std::optional<TensorMemoryLayout>;
+using TensorDataTypeWorkaround = std::optional<DataType>;
 
 // Struct that encapsulates operand workarounds.
 // It contains tensor layout, tensor buffer type and tensor memory layout
@@ -31,35 +32,47 @@ struct TTNNOperandWorkarounds {
   // Tensor memory layout workaround.
   TensorMemoryLayoutWorkaround tensorMemoryLayoutWorkaround;
 
+  // Tensor data format workaround.
+  TensorDataTypeWorkaround tensorDataTypeWorkaround;
+
+  // Default constructor.
   TTNNOperandWorkarounds() = default;
 
   // Constructor that takes tensor layout, tensor buffer type and tensor memory.
   TTNNOperandWorkarounds(
       TensorLayoutWorkaround tensorLayoutWorkaround,
       TensorBufferTypeWorkaround tensorBufferTypeWorkaround,
-      TensorMemoryLayoutWorkaround tensorMemoryLayoutWorkaround)
+      TensorMemoryLayoutWorkaround tensorMemoryLayoutWorkaround,
+      TensorDataTypeWorkaround tensorDataTypeWorkaround)
       : tensorLayoutWorkaround(tensorLayoutWorkaround),
         tensorBufferTypeWorkaround(tensorBufferTypeWorkaround),
-        tensorMemoryLayoutWorkaround(tensorMemoryLayoutWorkaround) {}
+        tensorMemoryLayoutWorkaround(tensorMemoryLayoutWorkaround),
+        tensorDataTypeWorkaround(tensorDataTypeWorkaround) {}
 
   // Constructor that takes tensor layout workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(TensorLayoutWorkaround tensorLayoutWorkaround)
       : TTNNOperandWorkarounds(tensorLayoutWorkaround, std::nullopt,
-                               std::nullopt) {}
+                               std::nullopt, std::nullopt) {}
 
   // Constructor that takes tensor buffer type workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(TensorBufferTypeWorkaround tensorBufferTypeWorkaround)
       : TTNNOperandWorkarounds(std::nullopt, tensorBufferTypeWorkaround,
-                               std::nullopt) {}
+                               std::nullopt, std::nullopt) {}
 
   // Constructor that takes tensor memory layout workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(
       TensorMemoryLayoutWorkaround tensorMemoryLayoutWorkaround)
       : TTNNOperandWorkarounds(std::nullopt, std::nullopt,
-                               tensorMemoryLayoutWorkaround) {}
+                               tensorMemoryLayoutWorkaround, std::nullopt) {}
+
+  // Constructor that takes tensor data type workaround and sets the other
+  // workarounds to nullopt.
+  TTNNOperandWorkarounds(TensorDataTypeWorkaround tensorDataTypeWorkaround)
+      : TTNNOperandWorkarounds(std::nullopt, std::nullopt, std::nullopt,
+                               tensorDataTypeWorkaround) {}
 
   // Operand workarounds factory methods.
   static TTNNOperandWorkarounds createEmptyTTNNOperandWorkarounds();
@@ -68,7 +81,8 @@ struct TTNNOperandWorkarounds {
   bool operator==(const TTNNOperandWorkarounds &rhs) const {
     return tensorLayoutWorkaround == rhs.tensorLayoutWorkaround &&
            tensorBufferTypeWorkaround == rhs.tensorBufferTypeWorkaround &&
-           tensorMemoryLayoutWorkaround == rhs.tensorMemoryLayoutWorkaround;
+           tensorMemoryLayoutWorkaround == rhs.tensorMemoryLayoutWorkaround &&
+           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround;
   }
 
   // Inequality operator.
@@ -79,7 +93,7 @@ struct TTNNOperandWorkarounds {
   // Returns true if any of the workarounds is set.
   bool hasAnyWorkaround() const {
     return tensorLayoutWorkaround || tensorBufferTypeWorkaround ||
-           tensorMemoryLayoutWorkaround;
+           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround;
   }
 };
 
@@ -103,6 +117,9 @@ struct BufferTypeWorkaroundResult : public WorkaroundResult<BufferType> {};
 struct MemoryLayoutWorkaroundResult
     : public WorkaroundResult<std::optional<TensorMemoryLayout>> {};
 
+// Data type workaround result struct.
+struct DataTypeWorkaroundResult : public WorkaroundResult<DataType> {};
+
 // Struct that encapsulates the result of applying the workarounds.
 // It contains the target tensor layout, buffer type and tensor memory layout
 // results and a flag indicating whether the workarounds were applied.
@@ -116,11 +133,15 @@ struct WorkaroundResults {
   // Tensor memory layout workaround result.
   MemoryLayoutWorkaroundResult tensorMemoryLayoutResult;
 
+  // Tensor data type workaround result.
+  DataTypeWorkaroundResult tensorDataTypeResult;
+
   // Returns true if any of the workarounds were applied.
   bool isModified() const {
     return tensorLayoutResult.isModified() ||
            tensorBufferTypeResult.isModified() ||
-           tensorMemoryLayoutResult.isModified();
+           tensorMemoryLayoutResult.isModified() ||
+           tensorDataTypeResult.isModified();
   }
 };
 
@@ -194,6 +215,12 @@ class TTNNOperandsWorkaroundsFactory {
 public:
   // Create workarounds for max_pool2d op operands.
   static TTNNOperandsWorkarounds createMaxPool2DOpOperandsWorkarounds();
+
+  // Create workarounds for embedding op operands.
+  static TTNNOperandsWorkarounds createEmbeddingOpOperandsWorkarounds();
+
+  // Create workarounds for embedding backward op operands.
+  static TTNNOperandsWorkarounds createEmbeddingBackwardOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

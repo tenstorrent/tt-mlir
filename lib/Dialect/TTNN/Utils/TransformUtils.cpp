@@ -39,12 +39,13 @@ ToLayoutOp
 createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                  PatternRewriter &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
-                 std::optional<TensorMemoryLayout> targetTensorMemoryLayout) {
+                 std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
+                 DataType targetTensorDataType) {
   TTNNLayoutAttr inputLayoutAttr = getLayoutAttrFromTensor(inputValue);
 
   // Create element type based on tensor layout.
   Type elementType = getElementType(rewriter.getContext(), targetTensorLayout,
-                                    inputLayoutAttr.getDataType());
+                                    targetTensorDataType);
 
   // Create tensor memory layout attribute.
   ttnn::TensorMemoryLayoutAttr outputMemLayoutAttr =
@@ -63,10 +64,14 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
           .withBufferType(rewriter.getContext(), targetTensorBufferType)
           .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr);
 
-  // Create the output result type with the new encoding.
+  // Create the output result type with the new data type and encoding.
   RankedTensorType toLayoutOpResultType =
-      ttnn::utils::createRankedTensorTypeWithEncoding(inputToLayoutOpType,
-                                                      toLayoutOpResultEncoding);
+      ttnn::utils::createRankedTensorTypeWithEncoding(
+          ttnn::utils::createRankedTensorTypeWithElementType(
+              inputToLayoutOpType,
+              utils::createRowMajorTypeFromDtype(rewriter.getContext(),
+                                                 targetTensorDataType)),
+          toLayoutOpResultEncoding);
 
   // Create the output memory config attribute.
   ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
@@ -88,7 +93,7 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
   return rewriter.create<ttnn::ToLayoutOp>(
       op->getLoc(), toLayoutOpResultType, inputValue,
       LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
-      DataTypeAttr::get(rewriter.getContext(), inputLayoutAttr.getDataType()),
+      DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
       outputMemConfigAttr, deviceValue);
 }
 } // namespace mlir::tt::ttnn::utils

@@ -5,16 +5,21 @@
 #ifndef TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
-#include "common/bfloat16.hpp"
 #include "core.hpp"
 #include "device.hpp"
+#include "operations/copy.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"
 #include "operations/eltwise/binary/binary.hpp"
+#include "operations/eltwise/binary/binary_composite.hpp"
+#include "operations/eltwise/unary/unary_composite.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/matmul/matmul.hpp"
+#include "operations/normalization/softmax/softmax.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
+#include "tt-metalium/bfloat16.hpp"
 #include "types.hpp"
 
 #include <cstddef>
@@ -29,8 +34,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static ttnn::Device *getInstance() {
-    static ttnn::Device *instance = &ttnn::open_device(0);
+  static ttnn::IDevice *getInstance() {
+    static ttnn::IDevice *instance = &ttnn::open_device(0);
 
     return instance;
   }
@@ -42,7 +47,7 @@ public:
   DeviceGetter(DeviceGetter const &) = delete;
   void operator=(DeviceGetter const &) = delete;
 
-  ttnn::Device *device;
+  ttnn::IDevice *device;
 };
 
 } // namespace ttnn

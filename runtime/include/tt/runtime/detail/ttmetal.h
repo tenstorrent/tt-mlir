@@ -6,12 +6,12 @@
 #define TT_RUNTIME_DETAIL_TTMETAL_H
 
 #define FMT_HEADER_ONLY
-#include "distributed/mesh_device.hpp"
-#include "impl/buffers/circular_buffer.hpp"
-#include "impl/event/event.hpp"
-#include "tt_metal/detail/reports/memory_reporter.hpp"
-#include "tt_metal/detail/tt_metal.hpp"
-#include "tt_metal/host_api.hpp"
+#include "tt-metalium/circular_buffer.hpp"
+#include "tt-metalium/event.hpp"
+#include "tt-metalium/host_api.hpp"
+#include "tt-metalium/memory_reporter.hpp"
+#include "tt-metalium/mesh_device.hpp"
+#include "tt-metalium/tt_metal.hpp"
 
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -35,13 +35,19 @@ tt::target::DataType getTensorDataType(Tensor tensor);
 
 size_t getNumAvailableDevices();
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1);
+Device
+openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
+           std::optional<size_t> l1SmallSize = std::nullopt,
+           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
 
 void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
+
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device, int deviceID = 0);
 
 void wait(Event event);
 
@@ -70,7 +76,7 @@ using OutputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>;
 
 std::shared_ptr<::tt::tt_metal::Event>
-executeCommandQueue(::tt::tt_metal::Device *device,
+executeCommandQueue(::tt::tt_metal::IDevice *device,
                     ::tt::target::metal::CommandQueue const *cq,
                     std::size_t cq_id, std::vector<InputBuffer> const &inputs,
                     std::vector<OutputBuffer> const &outputs);
@@ -95,7 +101,7 @@ inline CoreRangeSet toCoreRangeSet(
 #pragma clang diagnostic ignored "-Wc++20-designator"
 
 inline std::shared_ptr<::tt::tt_metal::Buffer>
-createBufferFromTensorRef(::tt::tt_metal::Device *device,
+createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
                           ::tt::target::TensorRef const *tensorRef) {
   ::tt::target::TensorDesc const *tensorDesc = tensorRef->desc();
   ::tt::target::LayoutDesc const *layout = tensorDesc->layout();

@@ -55,7 +55,7 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
         targetDevice);
   } else {
     out = ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig,
-                            static_cast<::ttnn::Device *>(nullptr));
+                            static_cast<::ttnn::IDevice *>(nullptr));
   }
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

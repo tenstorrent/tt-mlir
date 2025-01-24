@@ -274,8 +274,9 @@ public:
 
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
-    // To layout op is a special case, we don't want to rewrite it
-    if (mlir::isa<ttir::ToLayoutOp>(op.getOperation())) {
+    // To layout and mesh_shard op are special cases not to rewrite them
+    if (mlir::isa<ttir::ToLayoutOp>(op.getOperation()) ||
+        mlir::isa<ttir::MeshShardOp>(op.getOperation())) {
       return failure();
     }
 
@@ -283,11 +284,13 @@ public:
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
       // Check if the operand is a dps result
-      bool isResult = op.isDpsInit(&operand);
+      bool isDPSResult = op.isDpsInit(&operand);
 
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
-      if (mlir::isa<ttir::Conv2dOp>(op.getOperation()) && !isResult) {
+      if (!isDPSResult &&
+          (mlir::isa<ttir::Conv2dOp>(op.getOperation()) ||
+           mlir::isa<ttir::ConvTranspose2dOp>(op.getOperation()))) {
         // For the weight input of the conv2d op, it specifically needs to be on
         // host, so we create a host to layout op (issue
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
@@ -319,7 +322,7 @@ public:
           modified = true;
           op->setOperand(operand.getOperandNumber(), *desiredLayout);
           // If operand is dps result, update the result type on current op
-          if (isResult) {
+          if (isDPSResult) {
             op->getResult(0).setType(desiredLayout->getType());
           }
         });
@@ -330,15 +333,15 @@ public:
   }
 };
 
-// Updates the layout of the operands of a func::ReturnOp.
-// The intent is to move the result to host.
-class TTNNLayoutFuncReturnRewriter
-    : public OpRewritePattern<mlir::func::ReturnOp> {
+// Updates the layout of the operands of the SrcOp such that
+// the operands reside in host memory.
+template <typename SrcOp>
+class TTNNLayoutForceSystemMemoryRewriter : public OpRewritePattern<SrcOp> {
 public:
-  TTNNLayoutFuncReturnRewriter(MLIRContext *ctx)
-      : OpRewritePattern<mlir::func::ReturnOp>(ctx) {}
+  TTNNLayoutForceSystemMemoryRewriter(MLIRContext *ctx)
+      : OpRewritePattern<SrcOp>(ctx) {}
 
-  LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
+  LogicalResult matchAndRewrite(SrcOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
@@ -355,8 +358,6 @@ public:
     }
     return modified ? success() : failure();
   }
-
-private:
 };
 
 class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
@@ -387,9 +388,12 @@ public:
       // and rewrites its operands and result to have the correct layout
       // with respect to operand constraints.
       patterns.add<TTNNLayoutDPSOperandsRewriter>(&getContext());
-      // Takes func::Return op and sets layout which will
+      // Takes func::Return and ttir::MeshShard ops and set layout which will
       // move it's operands to host
-      patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
+      patterns.add<TTNNLayoutForceSystemMemoryRewriter<ttir::MeshShardOp>>(
+          &getContext());
+      patterns.add<TTNNLayoutForceSystemMemoryRewriter<mlir::func::ReturnOp>>(
+          &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
