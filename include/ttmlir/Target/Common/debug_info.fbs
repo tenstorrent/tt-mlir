@@ -24,10 +24,10 @@ table MLIR {
   source: string;
 }
 
+
 table DebugInfo {
   mlir: MLIR;
   cpp: string;
   golden_info: GoldenInfo;
-  mlir_stages: [MLIR];
   test: string;
 }
