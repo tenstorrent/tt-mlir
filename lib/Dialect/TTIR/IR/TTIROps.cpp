@@ -1843,7 +1843,7 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 ::mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto shardType = getShardType();
 
-  // currently we are only supporting replicate or devices from StableHLO
+  // Currently, we are only supporting replicate or devices from StableHLO.
   if (shardType != mlir::tt::MeshShardType::Replicate &&
       shardType != mlir::tt::MeshShardType::Devices) {
     return emitOpError("Invalid shard_type for mesh_shard op.");

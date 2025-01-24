@@ -571,7 +571,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   const mlir::tt::MeshShardDirection shardDirection = op.getShardDirection();
   const mlir::tt::MeshShardType shardType = op.getShardType();
-  llvm::ArrayRef<int64_t> shardShape = op.getShardShape().getShape();
+  llvm::ArrayRef<int64_t> shardShape = op.getShardShape();
+  llvm::ArrayRef<int64_t> shardDims = op.getShardDims();
 
   ::tt::target::MeshShardDirection meshShardDirection;
   if (shardDirection == mlir::tt::MeshShardDirection::FullToShard) {
@@ -594,7 +595,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   return ::tt::target::ttnn::CreateMeshShardOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
       meshShardDirection, meshShardType,
-      cache.fbb->CreateVector<int64_t>(shardShape));
+      cache.fbb->CreateVector<int64_t>(shardShape),
+      cache.fbb->CreateVector<int64_t>(shardDims));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
