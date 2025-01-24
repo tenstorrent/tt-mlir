@@ -1709,13 +1709,22 @@ public:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
+    SmallVector<int32_t> padDim;
+    for (int32_t val : adaptor.getEdgePaddingLow()) {
+      padDim.push_back(val);
+    }
+    for (int32_t val : adaptor.getEdgePaddingHigh()) {
+      padDim.push_back(val);
+    }
+
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
         srcOp,
-        outputType,           // result type
-        adaptor.getOperand(), // input
-        adaptor.getPaddingValue(),
-        outputTensor, // output
-        adaptor.getEdgePaddingLowAttr(), adaptor.getEdgePaddingHighAttr());
+        outputType,                // result type
+        adaptor.getOperand(),      // input
+        padDim,                    // padding dimensions
+        adaptor.getPaddingValue(), // padding value
+        outputTensor               // output
+    );
 
     return success();
   }
@@ -1725,12 +1734,29 @@ private:
                                    mlir::stablehlo::PadOp::Adaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
 
+    // Due to lack of support by device, we do not support interior padding, 
+    // so verify if interior padding is requested and exit early with error.
     for (int64_t eachVal : srcOp.getInteriorPadding()) {
       if (eachVal != 0) {
         return rewriter.notifyMatchFailure(srcOp,
                                            "Unsupported Interior Padding, only "
                                            "0 interior padding is supported.");
       }
+    }
+
+    if (srcOp.getEdgePaddingLow().size() != srcOp.getEdgePaddingHigh().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Low and High padding dimensions should match.");
+    }
+
+    if (srcOp.getEdgePaddingLow().size() % 2 != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Low padding value should be a tuple.");
+    }
+
+    if (srcOp.getEdgePaddingHigh().size() % 2 != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "High padding value should be a tuple.");
     }
 
     return success();
