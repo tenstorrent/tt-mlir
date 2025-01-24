@@ -51,6 +51,8 @@ void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
 
   // Re-map mesh if subMeshShape cannot be a submesh of current shape
   MeshShape meshShape = meshDevice.shape();
+  std::cerr << "THIS IS MESH DEVICE=" << subMeshShape->x() << " " << subMeshShape->y() << std::endl;
+  std::cerr << "THIS IS MESH DEVICE=" << meshShape.num_rows << " " << meshShape.num_cols << std::endl;
   if (subMeshShape->y() > static_cast<int32_t>(meshShape.num_rows) ||
       subMeshShape->x() > static_cast<int32_t>(meshShape.num_cols)) {
     meshDevice.reshape(MeshShape(subMeshShape->y(), subMeshShape->x()));
