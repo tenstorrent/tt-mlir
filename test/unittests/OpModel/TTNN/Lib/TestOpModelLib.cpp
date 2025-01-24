@@ -30,6 +30,7 @@ TEST_F(OpModelTest, ReluInterleaved) {
   size_t cb_size = 0;
   size_t peak_size = 0;
   size_t output_size = 0;
+  std::optional<size_t> runtime = 0;
 
   std::tie(legal, errorMsg) = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(legal);
@@ -43,6 +44,14 @@ TEST_F(OpModelTest, ReluInterleaved) {
   EXPECT_EQ(cb_size, 8192);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
+
+  std::tie(legal, runtime, errorMsg) = ReluOpInterface::getOpRuntime(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram);
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(runtime.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  EXPECT_TRUE(runtime.value() > 0);
+  std::cout<<"Armin\n";
 
   std::tie(legal, l1Usage, errorMsg) = ReluOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_l1);
