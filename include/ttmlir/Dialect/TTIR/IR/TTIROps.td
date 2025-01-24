@@ -1128,14 +1128,29 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
 def TTIR_PadOp: TTIR_DPSOp<"pad"> {
     let summary = "Pad op.";
     let description = [{
-      Pad tensor with low and high values.
+      Pad input tensor with tuple of padding values.
+
+      Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // padding dimensions:
+      padding: (1, 0, 1, 1)
+
+      // padding value:
+      // value: 0
+
+      // padded output:
+      output: [[0, 0, 0, 0],
+               [0, 1, 2, 3],
+               [0, 4, 5, 6],
+               [0, 0, 0, 0]]
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$padding_value,
-                         AnyRankedTensor:$output,
-                         DenseI64ArrayAttr:$low,
-                         DenseI64ArrayAttr:$high);
+                         DenseI32ArrayAttr:$padding,
+                         F32Attr:$value,
+                         AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);
 

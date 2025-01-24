@@ -884,6 +884,19 @@ createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
   return ::tt::target::ttnn::CreateRepeatOp(*cache.fbb, in, out, shape);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PadOp>
+createPadOp(FlatbufferObjectCache &cache, PadOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  auto padding = arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(
+      cache, op.getPadding());
+  auto value = op.getValue().convertToFloat();
+
+  return ::tt::target::ttnn::CreatePadOp(*cache.fbb, in, out, padding, value);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
   auto in =
@@ -1232,6 +1245,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto repeatOp = dyn_cast<RepeatOp>(op); repeatOp) {
     return createOperation(cache, createRepeatOp(cache, repeatOp), debugString,
+                           locInfo);
+  }
+  if (auto padOp = dyn_cast<PadOp>(op); padOp) {
+    return createOperation(cache, createPadOp(cache, padOp), debugString,
                            locInfo);
   }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
