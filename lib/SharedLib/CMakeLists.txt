@@ -28,6 +28,7 @@ set(TTMLIR_LIBS
     TTMLIRConversions
     TTMLIRTTNNToEmitC
     TTMLIRStatic
+    TTMLIRTTNNUtils
 )
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
