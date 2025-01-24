@@ -400,6 +400,7 @@ class Run:
         self.logging.debug(f"------finished checking constraints for run API")
 
     def execute(self):
+        self.logging.debug(f"lalalalalalal")
         self.logging.debug(f"------executing run API")
 
         def _execute(binaries):
@@ -542,6 +543,7 @@ class Run:
                                 inputs = []
                                 outputs = []
                                 for i in program.input_tensors:
+                                    print("shape=", i.shape, " stride=", i.stride())
                                     inputs.append(
                                         ttrt.runtime.create_tensor(
                                             i.data_ptr(),
@@ -585,6 +587,9 @@ class Run:
                                     )
 
                                 elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
+                                    self.logging.debug("this is submit="+str(len(total_inputs)))
+                                    print("aaaaaa=", total_inputs)
+                                    print("device=", device)
                                     runtime_outputs = ttrt.runtime.submit(
                                         device,
                                         bin.fbb,
