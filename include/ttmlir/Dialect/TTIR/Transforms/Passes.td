@@ -20,13 +20,6 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   ];
 }
 
-def TTIRGenericKernel: Pass<"ttir-generic-kernel", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Wrap top level kernel ops in a generic op.
-  }];
-}
-
 def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{

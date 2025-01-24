@@ -488,23 +488,6 @@ public:
   }
 };
 
-class TTIRToTTMetalKernelRewriter : public OpRewritePattern<ttir::KernelOp> {
-public:
-  using OpRewritePattern<ttir::KernelOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::KernelOp op,
-                                PatternRewriter &rewriter) const final {
-    if (not op->use_empty()) {
-      return failure();
-    }
-    rewriter.create<ttkernel::BuiltinOp>(op.getLoc(), op.getOpAttr(),
-                                         op.getKindAttr(), op.getOperands());
-    op->dropAllUses();
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
 class TTIRToTTMetalEnqueueProgramRewriter
     : public OpRewritePattern<ttir::GenericOp> {
 public:
