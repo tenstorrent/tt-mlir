@@ -13,6 +13,8 @@
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/shape/small_vector.hpp"
 #include "ttnn/tensor/types.hpp"
+#include "types_generated.h"
+#include <ttnn/tensor/tensor.hpp>
 
 namespace tt::runtime::ttnn {
 
@@ -117,7 +119,14 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
+                    std::uint32_t itemsize, ::tt::target::DataType dataType, bool owned) {
+
+  std::cerr << "I AM ONE DEVICE" << std::endl;
+  if (owned) {
+    // TODO: createOwnedTensor has identical logic as createTensor at the beginning
+    // that is on top of this whole thing being a temporary hack
+    return utils::createRuntimeTensorFromTTNN(createOwnedTensor(data, shape, stride, itemsize, dataType));
+  }
   std::uint32_t numElements = shape[0] * stride[0];
 
   auto tensor = std::make_shared<::ttnn::Tensor>(
@@ -142,6 +151,7 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
                    return createOwnedTensor(dataShard, shape, stride, itemsize,
                                             dataType);
                  });
+  std::cerr << "I AM MULTIDEVICE" << std::endl;
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
   std::shared_ptr<::ttnn::Tensor> tensor = std::make_shared<::ttnn::Tensor>(
@@ -540,7 +550,7 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::vector<Tensor> const &inputHandles) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
+  std::cerr << "I AM SUBMIT=" << programIndex << std::endl;
   // Convert input tensors to the layout expected by the program
   std::vector<Tensor> inputsWithLayout;
   inputsWithLayout.reserve(inputHandles.size());
@@ -549,6 +559,7 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
       std::back_inserter(inputsWithLayout), [&](const Tensor &input) -> Tensor {
         Layout inputLayout = ::tt::runtime::ttnn::getLayout(
             executableHandle, programIndex, inputsWithLayout.size());
+        std::cerr << "layoutii=" << (int)inputLayout.as<LayoutDesc>(DeviceRuntime::TTNN).bufferType << std::endl;
         return ::tt::runtime::ttnn::toLayout(input, deviceHandle, inputLayout);
       });
 
