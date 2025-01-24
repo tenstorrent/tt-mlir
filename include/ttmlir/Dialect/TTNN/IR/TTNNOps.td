@@ -809,7 +809,7 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
-def TTNN_RepeatOp : TTNN_Op<"repeat"> {
+def TTNN_RepeatOp : TTNN_NamedDPSOp<"repeat"> {
     let summary = "Repeat op.";
     let description = [{
       Repeat the input tensor according to number of times specified in repeat_dimensions.
