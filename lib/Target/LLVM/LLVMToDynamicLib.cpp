@@ -3,14 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
-
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -29,6 +30,7 @@
 #include "llvm/TargetParser/Host.h"
 
 #include <fstream>
+#include <mlir/IR/BuiltinOps.h>
 
 namespace mlir::tt::llvm_to_cpu {
 
@@ -63,16 +65,9 @@ llvm::SmallString<128> createTempFile(llvm::StringRef tempDir,
 
 // Function to convert MLIR ModuleOp to LLVM Module
 std::unique_ptr<llvm::Module>
-convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
-  // Ensure the MLIR module is in the LLVM dialect
-  if (!mlirModule.getOperation()
-           ->hasTrait<mlir::OpTrait::IsIsolatedFromAbove>()) {
-    llvm::errs() << "ModuleOp is not properly isolated\n";
-    return nullptr;
-  }
-
-  // Use MLIR's translation utility
-  auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext,
+convertToLLVMModule(mlir::ModuleOp cpuModule, llvm::LLVMContext &llvmContext) {
+  mlir::registerLLVMDialectTranslation(*cpuModule.getContext());
+  auto llvmModule = mlir::translateModuleToLLVMIR(cpuModule, llvmContext,
                                                   "llvm-dylib-module");
   if (!llvmModule) {
     llvm::errs() << "Failed to convert MLIR ModuleOp to LLVM IR\n";
@@ -206,12 +201,8 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   bool isAllLLVM = true;
 
   module.walk([&](Operation *op) {
-    // Allow the module operation itself to pass (builtin.module)
-    if (llvm::isa<mlir::ModuleOp>(op)) {
-      return; // Skip the check for the module operation
-    }
     // check other operations to make sure they're llvm
-    if (op->getDialect() != llvmDialect) {
+    if (op->getDialect() != llvmDialect && !llvm::isa<mlir::ModuleOp>(op)) {
       isAllLLVM = false;
       llvm::errs() << "Non-LLVM operation found: " << op->getName()
                    << " at location " << op->getLoc() << "\n";
@@ -274,19 +265,20 @@ compileAndLinkToSharedLibrary(llvm::Module &module,
 }
 
 llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
-
-  if (!llvm::isa<mlir::ModuleOp>(op)) {
+  auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
+  if (!moduleOp) {
     llvm::errs() << "The operation is not a ModuleOp, cannot perform this "
                     "translation on anything but entire modules\n";
     return llvm::failure();
   }
-  mlir::ModuleOp moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
-
   if (llvm::failed(verifyAllLLVM(moduleOp))) {
     return llvm::failure();
   }
   llvm::LLVMContext llvmContext;
   auto llvmModule = convertToLLVMModule(moduleOp, llvmContext);
+  if (!llvmModule) {
+    return llvm::failure();
+  }
   const auto maybeDylibBinary =
       compileAndLinkToSharedLibrary(*llvmModule.get(), llvmContext);
   if (!maybeDylibBinary.has_value()) {
