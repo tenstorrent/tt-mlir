@@ -9,30 +9,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 namespace mlir::tt::ttnn::utils {
-// Gets or inserts a GetDeviceOp at the top of the current block of the given
-// operation.
-GetDeviceOp getOrInsertDevice(PatternRewriter &rewriter, Operation *op) {
-  Block *block = op->getBlock();
-  for (auto &op : block->getOperations()) {
-    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
-      return deviceOp;
-    }
-  }
-
-  DeviceAttr deviceAttr = getCurrentScopeDevice(op);
-  auto currentInsertionPoint = rewriter.saveInsertionPoint();
-  rewriter.setInsertionPoint(block, block->begin());
-  llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
-  if (meshShape.empty()) {
-    meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
-  }
-  auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
-      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr),
-      ttnn::MeshShapeAttr::get(op->getContext(), meshShape[0], meshShape[1]));
-  rewriter.restoreInsertionPoint(currentInsertionPoint);
-  return deviceOp;
-}
-
 // Helper method to insert a ToLayoutOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
 ToLayoutOp

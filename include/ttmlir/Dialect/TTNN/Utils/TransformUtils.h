@@ -10,11 +10,34 @@
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn::utils {
 // Get or insert device for the given operation.
-GetDeviceOp getOrInsertDevice(mlir::PatternRewriter &rewriter,
-                              mlir::Operation *op);
+inline GetDeviceOp
+getOrInsertDevice(mlir::PatternRewriter &rewriter, mlir::Operation *op,
+                  llvm::function_ref<mlir::Location(mlir::Location)> locFn =
+                      ::ttmlir::utils::identity<mlir::Location>) {
+  Block *block = op->getBlock();
+  for (auto &op : block->getOperations()) {
+    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
+      return deviceOp;
+    }
+  }
+
+  DeviceAttr deviceAttr = getCurrentScopeDevice(op);
+  auto currentInsertionPoint = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPoint(block, block->begin());
+  llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
+  if (meshShape.empty()) {
+    meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
+  }
+  auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
+      locFn(op->getLoc()), rewriter.getType<DeviceType>(deviceAttr),
+      ttnn::MeshShapeAttr::get(op->getContext(), meshShape[0], meshShape[1]));
+  rewriter.restoreInsertionPoint(currentInsertionPoint);
+  return deviceOp;
+}
 
 // Helper method to insert a ToLayoutOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
