@@ -17,6 +17,10 @@ namespace mlir::tt::ttmetal {
 void registerTTMetalToFlatbuffer();
 } // namespace mlir::tt::ttmetal
 
+namespace mlir::tt::llvm_to_cpu {
+void registerLLVMToDynamicLibrary();
+} // namespace mlir::tt::llvm_to_cpu
+
 namespace mlir::tt::ttkernel {
 void registerTensixKernelToCpp();
 void registerNocKernelToCpp();
@@ -27,6 +31,7 @@ static void registerCustomTranslations() {
   static bool initOnce = []() {
     mlir::tt::ttnn::registerTTNNToFlatbuffer();
     mlir::tt::ttmetal::registerTTMetalToFlatbuffer();
+    mlir::tt::llvm_to_cpu::registerLLVMToDynamicLibrary();
     mlir::tt::ttkernel::registerNocKernelToCpp();
     mlir::tt::ttkernel::registerTensixKernelToCpp();
 
