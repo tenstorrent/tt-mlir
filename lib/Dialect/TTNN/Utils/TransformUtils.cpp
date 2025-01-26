@@ -9,6 +9,32 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 namespace mlir::tt::ttnn::utils {
+// Gets or inserts a GetDeviceOp at the top of the current block of the given
+// operation.
+GetDeviceOp
+getOrInsertDevice(mlir::PatternRewriter &rewriter, mlir::Operation *op,
+                  llvm::function_ref<mlir::Location(mlir::Location)> locFn) {
+  Block *block = op->getBlock();
+  for (auto &op : block->getOperations()) {
+    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
+      return deviceOp;
+    }
+  }
+
+  DeviceAttr deviceAttr = getCurrentScopeDevice(op);
+  auto currentInsertionPoint = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPoint(block, block->begin());
+  llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
+  if (meshShape.empty()) {
+    meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
+  }
+  auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
+      locFn(op->getLoc()), rewriter.getType<DeviceType>(deviceAttr),
+      ttnn::MeshShapeAttr::get(op->getContext(), meshShape[0], meshShape[1]));
+  rewriter.restoreInsertionPoint(currentInsertionPoint);
+  return deviceOp;
+}
+
 // Helper method to insert a ToLayoutOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
 ToLayoutOp
@@ -16,7 +42,8 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                  PatternRewriter &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
                  std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
-                 DataType targetTensorDataType) {
+                 DataType targetTensorDataType,
+                 llvm::function_ref<mlir::Location(mlir::Location)> locFn) {
   TTNNLayoutAttr inputLayoutAttr = getLayoutAttrFromTensor(inputValue);
 
   // Create element type based on tensor layout.
@@ -67,7 +94,7 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
   // Create a ToLayoutOp to convert the input operand to the desired
   // tensor layout, buffer type and memory layout.
   return rewriter.create<ttnn::ToLayoutOp>(
-      op->getLoc(), toLayoutOpResultType, inputValue,
+      locFn(op->getLoc()), toLayoutOpResultType, inputValue,
       LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
       DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
       outputMemConfigAttr, deviceValue);
