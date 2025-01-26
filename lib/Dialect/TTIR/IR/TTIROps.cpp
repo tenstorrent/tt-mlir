@@ -22,11 +22,131 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include <mlir/IR/PatternMatch.h>
+#include <mlir/Support/LLVM.h>
 #include <numeric>
 #include <string>
+#include <vector>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
+
+namespace mlir {
+namespace tt {
+namespace ttir {
+
+template <typename ElementwiseOp>
+LogicalResult commuteReshapeThroughEltwiseUnary(ElementwiseOp op,
+                                                PatternRewriter &rewriter) {
+
+  ReshapeOp reshape =
+      dyn_cast_or_null<ReshapeOp>(op->getOperand(0).getDefiningOp());
+  if (!reshape) {
+    return failure();
+  }
+  auto reshapeInput = reshape->getOperand(0);
+  auto reshapeInputType =
+      cast<RankedTensorType>(reshape->getOperand(0).getType());
+
+  auto newEltwiseShape = reshapeInputType.getShape();
+  auto newEltwiseType =
+      RankedTensorType::get(newEltwiseShape, reshapeInputType.getElementType());
+  auto newEltwiseDps = rewriter.create<tensor::EmptyOp>(
+      op.getLoc(), newEltwiseShape, newEltwiseType.getElementType());
+  auto newEltwise = rewriter.create<ElementwiseOp>(
+      op.getLoc(), newEltwiseType, reshapeInput, newEltwiseDps.getResult());
+
+  rewriter.replaceOpWithNewOp<ReshapeOp>(
+      op, reshape.getType(), newEltwise.getResult(0), reshape.getOperand(1),
+      reshape.getShapeAttr());
+  rewriter.eraseOp(reshape);
+
+  return success();
+}
+
+template <typename ElementwiseOp>
+LogicalResult commutePermuteThroughEltwiseUnary(ElementwiseOp op,
+                                                PatternRewriter &rewriter) {
+
+  PermuteOp permute =
+      dyn_cast_or_null<PermuteOp>(op->getOperand(0).getDefiningOp());
+  if (!permute) {
+    return failure();
+  }
+  auto permuteInput = permute->getOperand(0);
+  auto permuteInputType =
+      cast<RankedTensorType>(permute->getOperand(0).getType());
+
+  auto newEltwiseShape = permuteInputType.getShape();
+  auto newEltwiseType =
+      RankedTensorType::get(newEltwiseShape, permuteInputType.getElementType());
+  auto newEltwiseDps = rewriter.create<tensor::EmptyOp>(
+      op.getLoc(), newEltwiseShape, newEltwiseType.getElementType());
+  auto newEltwise = rewriter.create<ElementwiseOp>(
+      op.getLoc(), newEltwiseType, permuteInput, newEltwiseDps.getResult());
+
+  rewriter.replaceOpWithNewOp<PermuteOp>(
+      op, permute.getType(), newEltwise.getResult(0), permute.getOperand(1),
+      permute.getPermutation());
+  rewriter.eraseOp(permute);
+
+  return success();
+}
+
+LogicalResult fuseDualReshapeToSingleReshape(ReshapeOp lastReshape,
+                                             PatternRewriter &rewriter) {
+  ReshapeOp firstReshape =
+      dyn_cast_or_null<ReshapeOp>(lastReshape->getOperand(0).getDefiningOp());
+  if (!firstReshape) {
+    return failure();
+  }
+
+  std::vector<Operation *> users(firstReshape->getUsers().begin(),
+                                 firstReshape->getUsers().end());
+  if (users.size() != 1) {
+    return failure();
+  }
+
+  rewriter.replaceOpWithNewOp<ReshapeOp>(
+      lastReshape, lastReshape.getType(), firstReshape->getOperand(0),
+      lastReshape.getOperand(1), lastReshape.getShapeAttr());
+  rewriter.eraseOp(firstReshape);
+
+  return success();
+}
+
+void ReshapeOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
+                                            MLIRContext *context) {
+  patterns.add(fuseDualReshapeToSingleReshape);
+}
+
+// These useful macros are based off this code example:
+// https://www.reddit.com/r/cpp/comments/x9awf9/a_foreach_loop_for_the_preprocessor_without/?rdt=59562
+#define REGISTER_CANNONICALIZATION_PATTERNS_FOR_OPS(seq) END(A seq)
+#define BODY(optype)                                                           \
+  void optype::getCanonicalizationPatterns(RewritePatternSet &patterns,        \
+                                           MLIRContext *context) {             \
+    patterns.add(commuteReshapeThroughEltwiseUnary<optype>);                   \
+    patterns.add(commutePermuteThroughEltwiseUnary<optype>);                   \
+  }
+#define A(x) BODY(x) B
+#define B(x) BODY(x) A
+#define A_END
+#define B_END
+#define END(...) END_(__VA_ARGS__)
+#define END_(...) __VA_ARGS__##_END
+
+// LOOP((a)(b)(c)) // int a; int b; int c;
+
+REGISTER_CANNONICALIZATION_PATTERNS_FOR_OPS((
+    AbsOp)(CbrtOp)(CeilOp)(CosOp)(FloorOp)(GeluOp)(IsFiniteOp)(LogicalNotOp)(BitwiseNotOp)(NegOp)(TanOp)(TanhOp)(ReciprocalOp)(ReluOp)(RsqrtOp)(SigmoidOp)(SignOp)(SinOp)(SqrtOp)(TypecastOp)(LogOp)(Log1pOp)(Expm1Op)
+                                            // (LeakyReluOp)
+                                            (ExpOp))
+
+} // namespace ttir
+} // namespace tt
+} // namespace mlir
 
 //===----------------------------------------------------------------------===//
 // BitwiseXorOp

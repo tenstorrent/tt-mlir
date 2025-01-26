@@ -237,6 +237,8 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {out.getType()}, in, out);
       }]>
     ];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
@@ -443,6 +445,8 @@ class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
         build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
       }]>
     ];
+
+    let hasCanonicalizer = 0;
 }
 
 def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
@@ -1144,6 +1148,8 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
