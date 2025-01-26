@@ -23,12 +23,76 @@ namespace mlir::tt::ttir {
 // Generic - Region pass
 //===----------------------------------------------------------------------===//
 
+std::pair<ttir::GenericOp, Block *> buildGenericOp(GenericRegionOp op,
+                                                   PatternRewriter &rewriter) {
+  auto dps = cast<DestinationStyleOpInterface>(op.getOperation());
+
+  // Create a generic op.
+  auto [indexingMaps, iteratorTypes] = op.getIndexingMaps(rewriter);
+
+  // For testing purposes try getting grid of the resulting tensor and put the
+  // op in the grid.
+  // TODO(radenko) add a proper debug/test flag.
+  auto gridAttr = rewriter.getAttr<GridAttr>();
+  auto resEncoding =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding();
+  if (resEncoding) {
+    auto resLayout = mlir::cast<MetalLayoutAttr>(resEncoding);
+    gridAttr = resLayout.getGrid();
+  }
+
+  auto genericOp = rewriter.create<ttir::GenericOp>(
+      op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
+      ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
+      iteratorTypes);
+
+  // Create a new basic block for the generic op and create block arguments.
+  Block *block = rewriter.createBlock(&genericOp.getRegion());
+  SmallVector<Location> blockArgumentLocs(genericOp.getOperands().size(),
+                                          genericOp.getLoc());
+
+  SmallVector<Type> blockArgTypes(
+      llvm::map_range(genericOp.getOperands().getTypes(), [&](Type type) {
+        RankedTensorType tensorType = mlir::cast<RankedTensorType>(type);
+        tt::MetalLayoutAttr layout =
+            mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
+        return layout.getMemref();
+      }));
+
+  block->addArguments(blockArgTypes, blockArgumentLocs);
+
+  return std::make_pair(genericOp, block);
+}
+
+template <typename TileOpTy>
+void buildLinalgGeneric(::mlir::Location loc, ::mlir::Block *block,
+                        mlir::OpBuilder &opBuilder) {
+  auto lhs = block->getArgument(0);
+  auto rhs = block->getArgument(1);
+  auto out = block->getArgument(2);
+
+  using IteratorType = mlir::utils::IteratorType;
+  auto parallel = IteratorType::parallel;
+  auto parMap =
+      mlir::AffineMap::getMultiDimIdentityMap(2, opBuilder.getContext());
+  mlir::SmallVector<IteratorType> genericIterators = {parallel, parallel};
+  mlir::SmallVector<mlir::AffineMap> parMaps = {parMap, parMap, parMap};
+  opBuilder.create<mlir::linalg::GenericOp>(
+      loc, mlir::ValueRange({lhs, rhs}), mlir::ValueRange({out}), parMaps,
+      genericIterators,
+      [&](mlir::OpBuilder &nestedBuilder, mlir::Location nestedLoc,
+          mlir::ValueRange args) {
+        mlir::Value result = nestedBuilder.create<TileOpTy>(
+            loc, args[0].getType(), args[0], args[1]);
+        nestedBuilder.create<mlir::linalg::YieldOp>(nestedLoc, result);
+      });
+  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange());
+}
+
 class TTIRGenericRegionRewriter
     : public OpInterfaceRewritePattern<GenericRegionOp> {
 public:
-  TTIRGenericRegionRewriter(MLIRContext *context, bool newLowering)
-      : OpInterfaceRewritePattern<GenericRegionOp>(context),
-        newLowering(newLowering) {}
+  using OpInterfaceRewritePattern<GenericRegionOp>::OpInterfaceRewritePattern;
 
   LogicalResult matchAndRewrite(GenericRegionOp op,
                                 PatternRewriter &rewriter) const final {
@@ -36,45 +100,12 @@ public:
       return failure();
     }
 
-    auto dps = cast<DestinationStyleOpInterface>(op.getOperation());
-
-    // Create a generic op.
-    auto [indexingMaps, iteratorTypes] = op.getIndexingMaps(rewriter);
-
-    // For testing purposes try getting grid of the resulting tensor and put the
-    // op in the grid.
-    // TODO(radenko) add a proper debug/test flag.
-    auto gridAttr = rewriter.getAttr<GridAttr>();
-    auto resEncoding =
-        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding();
-    if (resEncoding) {
-      auto resLayout = mlir::cast<MetalLayoutAttr>(resEncoding);
-      gridAttr = resLayout.getGrid();
-    }
-
-    auto genericOp = rewriter.create<ttir::GenericOp>(
-        op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
-        ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
-        iteratorTypes);
-
-    // Create a new basic block for the generic op and create block arguments.
-    Block *block = rewriter.createBlock(&genericOp.getRegion());
+    auto [genericOp, block] = buildGenericOp(op, rewriter);
+    block->eraseArguments(0, block->getNumArguments());
     SmallVector<Location> blockArgumentLocs(genericOp.getOperands().size(),
                                             genericOp.getLoc());
-    if (newLowering) {
-      SmallVector<Type> blockArgTypes(
-          llvm::map_range(genericOp.getOperands().getTypes(), [&](Type type) {
-            RankedTensorType tensorType = mlir::cast<RankedTensorType>(type);
-            tt::MetalLayoutAttr layout =
-                mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-            return layout.getMemref();
-          }));
-      block->addArguments(blockArgTypes,
-                          blockArgumentLocs);
-    } else {
-      block->addArguments(TypeRange(genericOp.getOperandTypes()),
-                          blockArgumentLocs);
-    }
+    block->addArguments(TypeRange(genericOp.getOperandTypes()),
+                        blockArgumentLocs);
 
     // Convert the original op into arith/math and into the generic block.
     OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
@@ -82,8 +113,25 @@ public:
     rewriter.replaceOp(op, genericOp);
     return success();
   }
+};
 
-  bool newLowering;
+class TTIRGenericMaximumRewriter
+    : public OpRewritePattern<MaximumOp> {
+public:
+  using OpRewritePattern<MaximumOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(MaximumOp op,
+                                PatternRewriter &rewriter) const final {
+    if (mlir::isa<GenericOp>(op.getOperation()->getParentOp())) {
+      return failure();
+    }
+
+    auto [genericOp, block] = buildGenericOp(op, rewriter);
+    OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
+    buildLinalgGeneric<TileMaximumOp>(op->getLoc(), block, blockBuilder);
+    rewriter.replaceOp(op, genericOp);
+    return success();
+  }
 };
 
 class TTIRGenericRegion
@@ -92,7 +140,11 @@ public:
   using impl::TTIRGenericRegionBase<TTIRGenericRegion>::TTIRGenericRegionBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericRegionRewriter>(&getContext(), newLowering);
+    if (newLowering) {
+      patterns.add<TTIRGenericMaximumRewriter>(&getContext());
+    } else {
+      patterns.add<TTIRGenericRegionRewriter>(&getContext());
+    }
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();

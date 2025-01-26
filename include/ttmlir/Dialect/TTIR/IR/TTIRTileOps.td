@@ -48,6 +48,16 @@ def TTIR_TileMulOp : TTIR_TileOp<"tile_mul">{
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileMaximumOp : TTIR_TileOp<"tile_maximum">{
+    let summary = "TTIR Tile Maximum Op";
+    let description = [{
+        The `tile_maximum` operation calculates the maximum of two tensors element-wise.
+    }];
+
+    let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileRecipOp : TTIR_TileOp<"tile_recip">{
     let summary = "TTIR Tile Recip Op";
     let description = [{
