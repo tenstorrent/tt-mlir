@@ -39,6 +39,13 @@ def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   let description = [{
     Wrap top level elementwise ops in a generic op.
   }];
+
+  let options = [
+    Option<"newLowering", "new-lowering",
+          "bool",
+          /*default=*/"false",
+           "Use the new lowering flow">
+  ];
 }
 
 def TTIRGenericOpCBs: Pass<"ttir-generic-op-cbs", "::mlir::ModuleOp"> {

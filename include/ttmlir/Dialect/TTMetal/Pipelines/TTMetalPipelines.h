@@ -23,6 +23,11 @@ struct TTIRToTTMetalBackendPipelineOptions
       llvm::cl::desc(
           "Pass in a system descriptor flatbuffer to compile against."),
       llvm::cl::init("")};
+
+  Option<bool> newLowering{
+      *this, "new-lowering",
+      llvm::cl::desc("New lowering for TTIR to TTMetal backend pipeline."),
+      llvm::cl::init("")};
 };
 
 void createTTIRToTTMetalBackendPipeline(
