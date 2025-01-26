@@ -702,12 +702,22 @@ public:
   matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto paddingAttr = adaptor.getPaddingAttr();
+    ::mlir::RankedTensorType inputType =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
+    ::mlir::RankedTensorType outputType =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getOutput().getType());
+
+    SmallVector<int32_t> outputShape(outputType.getShape().begin(),
+                                     outputType.getShape().end());
+
+    SmallVector<int32_t> inputShape(inputType.getShape().begin(),
+                                    inputType.getShape().end());
 
     rewriter.replaceOpWithNewOp<ttnn::PadOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), rewriter.getI32ArrayAttr(paddingAttr),
-        adaptor.getValue(), adaptor.getOutput());
+        adaptor.getInput(), rewriter.getI32ArrayAttr(outputShape),
+        rewriter.getI32ArrayAttr(inputShape), adaptor.getValue(),
+        adaptor.getOutput());
 
     return success();
   }

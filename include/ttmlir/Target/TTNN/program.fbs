@@ -245,7 +245,8 @@ table RepeatOp {
 table PadOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
-  padding: [uint32];
+  output_shape: [uint32];
+  input_shape: [uint32];
   value: float;
 }
 

@@ -907,11 +907,14 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto out = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
-  auto padding = arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(
-      cache, op.getPadding());
+  auto output_shape = arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(
+      cache, op.getOutputShape());
+  auto input_shape = arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(
+      cache, op.getInputShape());
   auto value = op.getValue().convertToFloat();
 
-  return ::tt::target::ttnn::CreatePadOp(*cache.fbb, in, out, padding, value);
+  return ::tt::target::ttnn::CreatePadOp(*cache.fbb, in, out, output_shape,
+                                         input_shape, value);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>

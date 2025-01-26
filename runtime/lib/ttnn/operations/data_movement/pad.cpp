@@ -15,11 +15,17 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
 
-  ::ttnn::SmallVector<int64_t> padding(op->padding()->begin(),
-                                       op->padding()->end());
   float padValue = op->value();
 
-  ::ttnn::Tensor out = ::ttnn::permute(in, padding, padValue);
+  std::array<uint32_t, 2> output_shape = {1};
+  std::array<uint32_t, 2> input_shape = {1};
+
+  std::copy_n(op->output_shape()->begin(), op->output_shape()->size(),
+              output_shape.begin());
+  std::copy_n(op->input_shape()->begin(), op->input_shape()->size(),
+              input_shape.begin());
+
+  ::ttnn::Tensor out = ::ttnn::pad(in, output_shape, input_shape, padValue);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

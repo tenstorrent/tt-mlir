@@ -1721,17 +1721,13 @@ public:
       padDim.push_back(val);
     }
 
-    Value paddingValue = adaptor.getPaddingValue();
-
-    Operation *paddingValueDefiningOp = paddingValue.getDefiningOp();
-    while (!mlir::isa<ttir::ConstantOp>(paddingValueDefiningOp)) {
-      paddingValueDefiningOp =
-          paddingValueDefiningOp->getOperand(0).getDefiningOp();
+    Operation *valueDef = adaptor.getPaddingValue().getDefiningOp();
+    while (valueDef && !mlir::isa<ttir::ConstantOp>(valueDef)) {
+      valueDef = valueDef->getOperand(0).getDefiningOp();
     }
 
     mlir::ElementsAttr paddingValueAttr =
-        mlir::cast<mlir::tt::ttir::ConstantOp>(paddingValueDefiningOp)
-            .getValueAttr();
+        mlir::cast<mlir::tt::ttir::ConstantOp>(valueDef).getValueAttr();
 
     float value = 0;
     if (paddingValueAttr.isSplat()) {
@@ -1782,6 +1778,15 @@ private:
     if (srcOp.getEdgePaddingHigh().size() % 2 != 0) {
       return rewriter.notifyMatchFailure(
           srcOp, "High padding value should be a tuple.");
+    }
+
+    Operation *valueDef = adaptor.getPaddingValue().getDefiningOp();
+    while (valueDef && !mlir::isa<ttir::ConstantOp>(valueDef)) {
+      valueDef = valueDef->getOperand(0).getDefiningOp();
+    }
+    if (!valueDef) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Padding value is not constant defined.");
     }
 
     return success();

@@ -840,27 +840,12 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
 def TTNN_PadOp: TTNN_NamedDPSOp<"pad"> {
     let summary = "Pad op.";
     let description = [{
-      Pad input tensor with tuple of padding values.
-
-      Example:
-      input: [[1, 2, 3],
-              [4, 5, 6]]
-
-      // padding dimensions:
-      padding: (1, 0, 1, 1)
-
-      // padding value:
-      // value: 0
-
-      // padded output:
-      output: [[0, 0, 0, 0],
-               [0, 1, 2, 3],
-               [0, 4, 5, 6],
-               [0, 0, 0, 0]]
+      Pad input tensor by padding the input_shape to output_shape using the provided value.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$padding,
+                         I32ArrayAttr:$output_shape,
+                         I32ArrayAttr:$input_shape,
                          F32Attr:$value,
                          AnyRankedTensor:$output);
 
