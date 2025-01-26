@@ -1,4 +1,4 @@
-# add_subdirectory(Canonicalization)
+set(CMAKE_BUILD_TYPE Debug)
 add_mlir_dialect_library(MLIRTTIRDialect
         TTIRDialect.cpp
         TTIROps.cpp

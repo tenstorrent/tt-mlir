@@ -410,7 +410,8 @@ public:
 
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto outputType =
-        inputType.cloneWith(newOutputShape, inputType.getElementType());
+        mlir::cast<RankedTensorType>(adaptor.getOutput().getType())
+            .cloneWith(newOutputShape, inputType.getElementType());
 
     auto convDPSOutput = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), newOutputShape, outputType.getElementType());

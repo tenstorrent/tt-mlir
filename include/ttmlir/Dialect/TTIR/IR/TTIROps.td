@@ -486,6 +486,8 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
       }]>
     ];
+
+    let hasCanonicalizer = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise eq(x, x) == 1.

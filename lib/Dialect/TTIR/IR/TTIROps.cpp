@@ -94,6 +94,102 @@ LogicalResult commutePermuteThroughEltwiseUnary(ElementwiseOp op,
   return success();
 }
 
+SmallVector<int64_t> getInversePermutation(ArrayRef<int64_t> permutation) {
+  SmallVector<int64_t> inversePermutation(permutation.size());
+  for (uint32_t i = 0; i < permutation.size(); ++i) {
+    inversePermutation[permutation[i]] = i;
+  }
+  return inversePermutation;
+}
+
+bool allRootsNonInput(ValueRange values) {
+  std::vector<Value> valsToCheck(values.begin(), values.end());
+  while (!valsToCheck.empty()) {
+    Value val = valsToCheck.back();
+    valsToCheck.pop_back();
+
+    if (!val.getDefiningOp()) {
+      if (auto argType = dyn_cast_or_null<ArgumentTypeAttr>(
+              cast<RankedTensorType>(val.getType()).getEncoding())) {
+        if (argType.getValue() == ArgumentType::Input) {
+          return false;
+        }
+      } else {
+        continue;
+      }
+    }
+
+    if (isa<ConstantOp>(val.getDefiningOp())) {
+      continue;
+    } else {
+      for (Value operand : val.getDefiningOp()->getOperands()) {
+        valsToCheck.push_back(operand);
+      }
+    }
+  }
+  return true;
+}
+
+template <typename ElementwiseOp>
+LogicalResult commutePermuteThroughEltwiseBinary(ElementwiseOp op,
+                                                 PatternRewriter &rewriter) {
+  PermuteOp permute;
+  uint32_t permuteIdx;
+  Value otherOperand;
+  if (isa<PermuteOp>(op->getOperand(0).getDefiningOp())) {
+    permute = cast<PermuteOp>(op->getOperand(0).getDefiningOp());
+    permuteIdx = 0;
+    otherOperand = op->getOperand(1);
+  } else if (isa<PermuteOp>(op->getOperand(1).getDefiningOp())) {
+    permute = cast<PermuteOp>(op->getOperand(1).getDefiningOp());
+    permuteIdx = 1;
+    otherOperand = op->getOperand(0);
+  } else {
+    return failure();
+  }
+
+  if (!allRootsNonInput(otherOperand)) {
+    return failure();
+  }
+
+  auto permuteInput = permute->getOperand(0);
+  auto permuteInputType =
+      cast<RankedTensorType>(permute->getOperand(0).getType());
+
+  auto otherOperandType = cast<RankedTensorType>(otherOperand.getType());
+  auto operandClonePermutation =
+      getInversePermutation(permute.getPermutation());
+  auto operandCloneType = RankedTensorType::get(
+      ttmlir::utils::applyPermutation(otherOperandType.getShape(),
+                                      operandClonePermutation),
+      otherOperandType.getElementType());
+  auto operandCloneDPS =
+      rewriter.create<tensor::EmptyOp>(op.getLoc(), operandCloneType.getShape(),
+                                       operandCloneType.getElementType());
+  auto operandClone =
+      rewriter.create<PermuteOp>(op.getLoc(), operandCloneType, otherOperand,
+                                 operandCloneDPS, operandClonePermutation);
+
+  auto newEltwiseShape = permuteInputType.getShape();
+  auto newEltwiseType =
+      RankedTensorType::get(newEltwiseShape, permuteInputType.getElementType());
+  auto newEltwiseDps = rewriter.create<tensor::EmptyOp>(
+      op.getLoc(), newEltwiseShape, newEltwiseType.getElementType());
+
+  ValueRange eltwiseInput = permuteIdx == 0
+                                ? ValueRange{permuteInput, operandClone}
+                                : ValueRange{operandClone, permuteInput};
+  auto newEltwise =
+      rewriter.create<ElementwiseOp>(op.getLoc(), newEltwiseType, eltwiseInput,
+                                     ValueRange{newEltwiseDps.getResult()});
+
+  rewriter.replaceOpWithNewOp<PermuteOp>(
+      op, permute.getType(), newEltwise.getResult(0), permute.getOperand(1),
+      permute.getPermutation());
+
+  return success();
+}
+
 LogicalResult fuseDualReshapeToSingleReshape(ReshapeOp lastReshape,
                                              PatternRewriter &rewriter) {
   ReshapeOp firstReshape =
@@ -121,28 +217,65 @@ void ReshapeOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
   patterns.add(fuseDualReshapeToSingleReshape);
 }
 
-// These useful macros are based off this code example:
-// https://www.reddit.com/r/cpp/comments/x9awf9/a_foreach_loop_for_the_preprocessor_without/?rdt=59562
-#define REGISTER_CANNONICALIZATION_PATTERNS_FOR_OPS(seq) END(A seq)
-#define BODY(optype)                                                           \
+#define DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(optype)                 \
   void optype::getCanonicalizationPatterns(RewritePatternSet &patterns,        \
                                            MLIRContext *context) {             \
     patterns.add(commuteReshapeThroughEltwiseUnary<optype>);                   \
     patterns.add(commutePermuteThroughEltwiseUnary<optype>);                   \
   }
-#define A(x) BODY(x) B
-#define B(x) BODY(x) A
-#define A_END
-#define B_END
-#define END(...) END_(__VA_ARGS__)
-#define END_(...) __VA_ARGS__##_END
 
-// LOOP((a)(b)(c)) // int a; int b; int c;
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(AbsOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(CbrtOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(CeilOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(CosOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(FloorOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(GeluOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(IsFiniteOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(LogicalNotOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(BitwiseNotOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(NegOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(TanOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(TanhOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(ReciprocalOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(ReluOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(RsqrtOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(SigmoidOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(SignOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(SinOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(SqrtOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(TypecastOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(LogOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(Log1pOp)
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(Expm1Op)
+// (LeakyReluOp): This has a floatattr so we'd need to handle a bit differently
+DEFINE_ELTWISE_UNARY_CANONICALIZATION_PATTERNS(ExpOp)
 
-REGISTER_CANNONICALIZATION_PATTERNS_FOR_OPS((
-    AbsOp)(CbrtOp)(CeilOp)(CosOp)(FloorOp)(GeluOp)(IsFiniteOp)(LogicalNotOp)(BitwiseNotOp)(NegOp)(TanOp)(TanhOp)(ReciprocalOp)(ReluOp)(RsqrtOp)(SigmoidOp)(SignOp)(SinOp)(SqrtOp)(TypecastOp)(LogOp)(Log1pOp)(Expm1Op)
-                                            // (LeakyReluOp)
-                                            (ExpOp))
+#define DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(optype)                \
+  void optype::getCanonicalizationPatterns(RewritePatternSet &patterns,        \
+                                           MLIRContext *context) {             \
+    patterns.add(commutePermuteThroughEltwiseBinary<optype>);                  \
+  }
+
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(AddOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(SubtractOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(MultiplyOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(DivOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(MaximumOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(EqualOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(NotEqualOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(GreaterEqualOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(GreaterThanOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(LessEqualOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(LessThanOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(LogicalAndOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(LogicalOrOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(LogicalXorOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(BitwiseAndOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(BitwiseOrOp)
+// BitwiseXorOp has an extra cannonicalization beyond the defaults for eltwise
+// binary, do it separately
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(MinimumOp)
+DEFINE_ELTWISE_BINARY_CANONICALIZATION_PATTERNS(RemainderOp)
 
 } // namespace ttir
 } // namespace tt
@@ -155,6 +288,7 @@ REGISTER_CANNONICALIZATION_PATTERNS_FOR_OPS((
 // BitwiseXorOp canonicalization
 void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(commutePermuteThroughEltwiseBinary<BitwiseXorOp>);
   // x ^ x == 0
   patterns.add(
       +[](mlir::tt::ttir::BitwiseXorOp op, mlir::PatternRewriter &rewriter) {

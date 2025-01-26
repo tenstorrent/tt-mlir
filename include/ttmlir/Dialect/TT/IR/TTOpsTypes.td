@@ -418,6 +418,10 @@ def TT_TensorMemoryLayoutAttr : EnumAttr<TT_Dialect, TT_TensorMemoryLayout, "ten
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TT_ArgumentTypeAttr : EnumAttr<TT_Dialect, TT_ArgumentType, "argument_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TT_OOBValAttr : EnumAttr<TT_Dialect, TT_OOBVal, "oob_val"> {
   let assemblyFormat = "`<` $value `>`";
 }
