@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "mlir/InitAllDialects.h"
+#include "mlir/Interfaces/FoldInterfaces.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "llvm/ADT/StringSet.h"
@@ -54,6 +55,19 @@ struct TTIRInlinerInterface : public DialectInlinerInterface {
   }
 };
 
+struct TTIRDialectFoldInterface : public DialectFoldInterface {
+  using DialectFoldInterface::DialectFoldInterface;
+
+  /// Registered hook to check if the given region, which is attached to an
+  /// operation that is *not* isolated from above, should be used when
+  /// materializing constants.
+  bool shouldMaterializeInto(Region *region) const final {
+    // If this is a DispatchOp, protect it from hoisting constants outside of
+    // its region body
+    return isa<GenericOp>(region->getParentOp());
+  }
+};
+
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsDialect.cpp.inc"
 
 //===----------------------------------------------------------------------===//
@@ -65,7 +79,7 @@ void TTIRDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
       >();
-  addInterfaces<TTIRInlinerInterface>();
+  addInterfaces<TTIRInlinerInterface, TTIRDialectFoldInterface>();
   // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
