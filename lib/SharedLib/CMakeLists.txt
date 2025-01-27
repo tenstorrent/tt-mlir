@@ -35,11 +35,6 @@ set(TTMLIR_LIBS
 
 add_library(TTMLIR SHARED empty.cpp)
 
-if(CMAKE_BUILD_TYPE STREQUAL "Asan")
-  target_compile_options(TTMLIR PRIVATE -shared-libasan)
-  target_link_options(TTMLIR PRIVATE -shared-libasan)
-endif()
-
 add_dependencies(TTMLIR
     ${TTMLIR_LIBS}
     ${TTNN_RUNTIME_LIBS}
