@@ -244,7 +244,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
         layout.withBufferType(op->getContext(), BufferType::L1)
             .withMemoryLayout(op->getContext(),
                               TensorMemoryLayout::BlockSharded)
-            .withElementType(op->getContext(), elementType);
+            .withElementType(op->getContext(), elementType, tensorShape);
 
     assert(analysisInput.maxGrid.getShape().size() == 2 &&
            "Max device grid is expected to be 2D.");
