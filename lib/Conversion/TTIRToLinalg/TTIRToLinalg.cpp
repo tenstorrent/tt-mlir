@@ -38,20 +38,34 @@ static void getDimsToBroadcastAndCollapse(
   broadcastDims.clear();
   reassocIndices.clear();
 
-  // Create padded input shape by prepending 1s
+  // Create padded input shape by prepending 1s.
   SmallVector<int64_t> paddedInput;
-  const int sizeDiff = targetShape.size() - inputShape.size();
+  const int64_t sizeDiff = targetShape.size() - inputShape.size();
+  assert(sizeDiff >= 0 && "targetShape cannot be smaller than inputShape!");
   paddedInput.append(sizeDiff, 1); // Prepend with 1s
   paddedInput.append(inputShape.begin(), inputShape.end());
 
-  // Find broadcast dimensions (where padded input is 1 but target is not 1)
+  bool broadcastEveryDim = true;
+  // Find broadcast dimensions we want to broadcast along (including padding
+  // dimensions).
   for (size_t i = 0; i < targetShape.size(); i++) {
     assert((paddedInput[i] == targetShape[i] || paddedInput[i] == 1) &&
            "Shape not broadcast compatible!");
 
-    if (paddedInput[i] == 1 && targetShape[i] != 1) {
+    // All padded dims need broadcast, and any dim with 1 which doesn't match
+    // targetShape needs broadcast.
+    if (i < static_cast<size_t>(sizeDiff) ||
+        (paddedInput[i] == 1 && targetShape[i] != 1)) {
       broadcastDims.push_back(i);
+    } else {
+      broadcastEveryDim = false;
     }
+  }
+
+  // If we're broadcasting along every single dim, we want reassocIndices to
+  // remain empty for the broadcast + collapse to work properly.
+  if (broadcastEveryDim) {
+    return;
   }
 
   // Group sets of contiguous non-broadcast dims together
@@ -63,11 +77,11 @@ static void getDimsToBroadcastAndCollapse(
   // Fold all leading broadcast dims into the first dim group
   while (inputIdx < inputShape.size()) {
     const size_t idx = inputIdx;
-    ++inputIdx;
     currentGroup.push_back(idx);
+    ++inputIdx;
     if (nextBroadcastDimIdx < broadcastDims.size() &&
         broadcastDims[nextBroadcastDimIdx] ==
-            static_cast<int64_t>(inputIdx + sizeDiff)) {
+            static_cast<int64_t>(idx + sizeDiff)) {
       nextBroadcastDimIdx++;
     } else {
       break;
@@ -78,7 +92,8 @@ static void getDimsToBroadcastAndCollapse(
   for (size_t i = inputIdx; i < inputShape.size(); ++i) {
     // Broadcast dims expand the current group.
     if (nextBroadcastDimIdx < broadcastDims.size() &&
-        static_cast<int64_t>(i) == broadcastDims[nextBroadcastDimIdx]) {
+        static_cast<int64_t>(i + sizeDiff) ==
+            broadcastDims[nextBroadcastDimIdx]) {
       nextBroadcastDimIdx++;
       // Non-broadcast dimensions end the current group.
     } else {
@@ -141,6 +156,7 @@ public:
       getDimsToBroadcastAndCollapse(inputRankedTensorType.getShape(),
                                     broadcastedShape, broadCastDims,
                                     reassocIndexes);
+
       if (!broadCastDims.empty()) {
         Value broadcastInput = input;
         // The broadcast op requires we actually collapse any dimensions with
