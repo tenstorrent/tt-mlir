@@ -796,4 +796,14 @@ def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
     let results = (outs I32:$writePtr);
 }
 
+def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
+    let summary = "GetReadPtr";
+    let description = [{
+      GetReadPtr operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs I32:$readPtr);
+}
+
 #endif
