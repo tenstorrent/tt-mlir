@@ -29,5 +29,5 @@ table DebugInfo {
   mlir: MLIR;
   cpp: string;
   golden_info: GoldenInfo;
-  test: string;
+  module_cache: [MLIR];
 }
