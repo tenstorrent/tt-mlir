@@ -225,6 +225,18 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ToDTypeOp>
+createOp(FlatbufferObjectCache &cache, ToDTypeOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateToDTypeOp(*cache.fbb, input, dtype, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
 createOp(FlatbufferObjectCache &cache, TypecastOp op) {
   auto input =
@@ -1058,6 +1070,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,
+                           locInfo);
+  }
+  if (auto toDTypeOp = dyn_cast<ToDTypeOp>(op); toDTypeOp) {
+    return createOperation(cache, createOp(cache, toDTypeOp), debugString,
                            locInfo);
   }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {

@@ -24,6 +24,12 @@ table ToLayoutOp {
   out: tt.target.TensorRef;
 }
 
+table ToDTypeOp {
+  in: tt.target.TensorRef;
+  dtype: tt.target.DataType;
+  out: tt.target.TensorRef;
+}
+
 table TypecastOp {
   in: tt.target.TensorRef;
   dtype: tt.target.DataType;
@@ -406,6 +412,7 @@ union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
   ToLayoutOp,
+  ToDTypeOp,
   TypecastOp,
   ToDeviceOp,
   FromDeviceOp,

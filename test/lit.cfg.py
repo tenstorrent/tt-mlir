@@ -106,6 +106,12 @@ config.ttmlir_libs_dir = os.path.join(config.ttmlir_obj_root, "lib")
 
 config.substitutions.append(("%ttmlir_libs", config.ttmlir_libs_dir))
 
+config.test_root = os.path.join(config.ttmlir_source_dir, "test")
+config.scripts_root = os.path.join(config.ttmlir_source_dir, "tools/scripts")
+
+config.substitutions.append(("%ttmlir_test_root", config.test_root))
+config.substitutions.append(("%ttmlir_scripts_root", config.scripts_root))
+
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
 

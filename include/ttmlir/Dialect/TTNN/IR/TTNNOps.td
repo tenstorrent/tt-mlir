@@ -78,6 +78,23 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
+    let summary = "ToDType op.";
+    let description = [{
+      This op converts the data type of the input tensor based on the given data type on the host.
+
+      Args:
+        - :attr:`input`: the ttnn.Tensor
+        - :attr:`dtype`: `ttnn` data type.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_DataTypeAttr:$dtype);
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
+}
+
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let summary = "ToDevice op.";
     let description = [{
