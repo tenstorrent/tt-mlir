@@ -227,14 +227,7 @@ jobs:
     - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: |
-        tar xvf artifact.tar
-        echo "=== Contents of install dir ==="
-        ls -R .
-        echo "=== Current working dir ==="
-        pwd
-        echo "=== Parent of working dir ==="
-        ls -la ..
+      run: tar xvf artifact.tar
 
     - name: Remove existing whls files
       shell: bash
@@ -263,11 +256,9 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.build-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        ls ${{ steps.strings.outputs.build-output-dir }}/lib
-        ldd ${{ steps.strings.outputs.build-output-dir }}/bin/ttmlir-opt
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Generate EmitC tests
@@ -275,11 +266,9 @@ jobs:
       if: matrix.build.enable_emitc == 'ON'
       run: |
         source env/activate
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.build-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        ls ${{ steps.strings.outputs.build-output-dir }}/lib
-        ldd ${{ steps.strings.outputs.build-output-dir }}/bin/ttmlir-opt
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
 
     - name: Run functional tests
@@ -391,14 +380,7 @@ jobs:
     - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: |
-        tar xvf artifact.tar
-        echo "=== Contents of install dir ==="
-        ls -R .
-        echo "=== Current working dir ==="
-        pwd
-        echo "=== Parent of working dir ==="
-        ls -la ..
+      run: tar xvf artifact.tar
 
     - name: Remove existing whls files
       shell: bash
@@ -428,11 +410,9 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.build-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        ls ${{ steps.strings.outputs.build-output-dir }}/lib
-        ldd ${{ steps.strings.outputs.build-output-dir }}/bin/ttmlir-opt
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: ttrt read tests
@@ -510,14 +490,7 @@ jobs:
     - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: |
-        tar xvf artifact.tar
-        echo "=== Contents of install dir ==="
-        ls -R .
-        echo "=== Current working dir ==="
-        pwd
-        echo "=== Parent of working dir ==="
-        ls -la ..
+      run: tar xvf artifact.tar
 
     - name: Remove existing whls files
       shell: bash
@@ -548,11 +521,9 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.build-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        ls ${{ steps.strings.outputs.build-output-dir }}/lib
-        ldd ${{ steps.strings.outputs.build-output-dir }}/bin/ttmlir-opt
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: ttnn api tests
