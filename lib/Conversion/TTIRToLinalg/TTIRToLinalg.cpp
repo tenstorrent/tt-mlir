@@ -38,49 +38,57 @@ static void getDimsToBroadcastAndCollapse(
   broadcastDims.clear();
   reassocIndices.clear();
 
-  // Identify what needs broadcasting, aligning from right
-  int targetIdx = targetShape.size() - 1;
-  int inputIdx = inputShape.size() - 1;
+  // Create padded input shape by prepending 1s
+  SmallVector<int64_t> paddedInput;
+  const int sizeDiff = targetShape.size() - inputShape.size();
+  paddedInput.append(sizeDiff, 1); // Prepend with 1s
+  paddedInput.append(inputShape.begin(), inputShape.end());
 
-  while (targetIdx >= 0) {
-    if (inputIdx >= 0) {
-      // This should be impossible since we verify input while computing
-      // targetShape.
-      assert(
-          (inputShape[inputIdx] == targetShape[targetIdx] ||
-           inputShape[inputIdx] == 1) &&
-          "attempting to broadcast shape which does not broadcast to target!");
-      if (inputShape[inputIdx] == 1 && targetShape[targetIdx] != 1) {
-        broadcastDims.push_back(inputIdx);
-      }
-      inputIdx--;
-    } else {
-      // Input exhausted, we need to broadcast remaining dimensions.
-      broadcastDims.push_back(targetIdx);
+  // Find broadcast dimensions (where padded input is 1 but target is not 1)
+  for (size_t i = 0; i < targetShape.size(); i++) {
+    assert((paddedInput[i] == targetShape[i] || paddedInput[i] == 1) &&
+           "Shape not broadcast compatible!");
+
+    if (paddedInput[i] == 1 && targetShape[i] != 1) {
+      broadcastDims.push_back(i);
     }
-    targetIdx--;
   }
 
-  // Group non-broadcast dimensions together for collapse.
+  // Group sets of contiguous non-broadcast dims together
   TensorRanks currentGroup;
-  size_t nextBroadcastDimIdx = 0;
-  bool fullDimInGroup = false;
-  for (size_t i = 0; i < inputShape.size(); ++i) {
+  // For reassocIndices, we don't wish to consider any leading broadcast dims
+  // we've added.
+  size_t nextBroadcastDimIdx = sizeDiff;
+  size_t inputIdx = 0;
+  // Fold all leading broadcast dims into the first dim group
+  while (inputIdx < inputShape.size()) {
+    const size_t idx = inputIdx;
+    ++inputIdx;
+    currentGroup.push_back(idx);
+    if (nextBroadcastDimIdx < broadcastDims.size() &&
+        broadcastDims[nextBroadcastDimIdx] ==
+            static_cast<int64_t>(inputIdx + sizeDiff)) {
+      nextBroadcastDimIdx++;
+    } else {
+      break;
+    }
+  }
+
+  // Now group all broadcast dims with following non-broadcast dims.
+  for (size_t i = inputIdx; i < inputShape.size(); ++i) {
+    // Broadcast dims expand the current group.
     if (nextBroadcastDimIdx < broadcastDims.size() &&
         static_cast<int64_t>(i) == broadcastDims[nextBroadcastDimIdx]) {
       nextBroadcastDimIdx++;
+      // Non-broadcast dimensions end the current group.
     } else {
-      if (fullDimInGroup) {
-        // Non-broadcast dimensions end the current group.
-        reassocIndices.push_back(currentGroup);
-        currentGroup.clear();
-      }
-      fullDimInGroup = true;
+      reassocIndices.push_back(currentGroup);
+      currentGroup.clear();
     }
     currentGroup.push_back(i);
   }
 
-  // Add any remaining dimensions in the current group.
+  // Add the final group.
   if (!currentGroup.empty()) {
     reassocIndices.push_back(currentGroup);
   }
