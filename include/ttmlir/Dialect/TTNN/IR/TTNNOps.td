@@ -834,7 +834,7 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$repeat_dims);
+                         TTNN_ShapeAttr:$repeat_dims);
 
     let results = (outs AnyRankedTensor:$result);
 

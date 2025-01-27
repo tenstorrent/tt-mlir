@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include <cstdint>
 #include <numeric>
 #include <optional>
 
@@ -412,28 +413,34 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::RepeatOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
-  auto repeatDims = getRepeatDims();
+  llvm::ArrayRef<int64_t> repeatDims = getRepeatDims().getShape();
 
-  // Verify that the input tensor and repeate_dims argument have same rank
+  // Verify that the input tensor and repeat_dims argument have same rank.
   if (inputType.getRank() != static_cast<int64_t>(repeatDims.size())) {
     return emitOpError() << "Input tensor rank " << inputType.getRank()
                          << " doesn't match the number of repeat dimensions "
                          << repeatDims.size() << ".";
   }
 
-  // Verify that the input and output tensor have same rank
+  // Verify that the input and output tensor have same rank.
   if (inputType.getRank() != outputType.getRank()) {
     return emitOpError() << "Input tensor rank " << inputType.getRank()
                          << " doesn't match the output tensor rank "
                          << outputType.getRank() << ".";
   }
 
-  // Verify expected output shape
+  // Verify expected output shape.
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
 
-  for (size_t i = 0; i < getRepeatDims().size(); i++) {
-    uint32_t dimValue = mlir::cast<IntegerAttr>(repeatDims[i]).getInt();
+  for (size_t i = 0; i < repeatDims.size(); i++) {
+    // Verify that the repeat dimension is greater than 0.
+    if (repeatDims[i] <= 0) {
+      return emitOpError() << "Repeat dimension at index " << i
+                           << " must be greater than 0.";
+    }
+
+    int64_t dimValue = repeatDims[i];
     if (inputShape[i] * dimValue != outputShape[i]) {
       return emitOpError() << "Input tensor shape ("
                            << ttmlir::utils::join(inputShape, ",")

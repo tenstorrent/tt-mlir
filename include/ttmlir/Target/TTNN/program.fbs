@@ -239,7 +239,7 @@ table ReshapeOp {
 table RepeatOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
-  repeat_dims: [uint32];
+  repeat_dims: [int64];
 }
 
 table SliceOp {

@@ -2,11 +2,13 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module {
-  func.func @repeat(%arg0: tensor<1x32x32xf32>) -> tensor<32x32x32xf32> {
-    // CHECK: "ttnn.repeat"
-    // CHECK-SAME: repeat_dims = [32 : i32, 1 : i32, 1 : i32]
-    %0 = tensor.empty() : tensor<32x32x32xf32>
-    %1 = "ttir.repeat"(%arg0, %0) {repeat_dimensions = array<i32: 32, 1, 1>} : (tensor<1x32x32xf32>, tensor<32x32x32xf32>) -> tensor<32x32x32xf32>
-    return %1 : tensor<32x32x32xf32>
+  func.func @main(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
+    // CHECK-NOT: ttnn.repeat
+    // CHECK: %{{[0-9]+}} = "ttnn.add"
+    %0 = tensor.empty() : tensor<1x16x32xf32>
+    %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %2 = tensor.empty() : tensor<1x16x32xf32>
+    %3 = "ttir.add"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    return %3 : tensor<1x16x32xf32>
   }
 }

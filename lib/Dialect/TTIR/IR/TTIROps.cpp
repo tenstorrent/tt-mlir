@@ -1618,31 +1618,37 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 // RepeatOp
 //===----------------------------------------------------------------------===//
 
-// BroadcastOp verification
+// RepeatOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::RepeatOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
-  llvm::ArrayRef<int32_t> repeatDimensions = getRepeatDimensions();
+  llvm::ArrayRef<int64_t> repeatDimensions = getRepeatDimensions();
 
-  // Input tensor and repeate dimension argument must have same rank
+  // Input tensor and repeat dimension argument must have same rank.
   if (inputType.getRank() != static_cast<int64_t>(repeatDimensions.size())) {
     return emitOpError() << "Input tensor rank " << inputType.getRank()
                          << " doesn't match the number of repeat dimensions "
                          << repeatDimensions.size() << ".";
   }
 
-  // Input and output tensors must have the same rank
+  // Input and output tensors must have the same rank.
   if (inputType.getRank() != outputType.getRank()) {
     return emitOpError() << "Input tensor rank " << inputType.getRank()
                          << " doesn't match the output tensor rank "
                          << outputType.getRank() << ".";
   }
 
-  // Verify output shape based on input shape and repeat dimension argument
+  // Verify output shape based on input shape and repeat dimension argument.
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
   for (size_t i = 0; i < inputShape.size(); i++) {
+    // Verify that the repeat dimension is greater than 0.
+    if (repeatDimensions[i] <= 0) {
+      return emitOpError() << "Repeat dimension at index " << i
+                           << " must be greater than 0.";
+    }
+
     int64_t expectedDimValue = inputShape[i] * repeatDimensions[i];
     if (expectedDimValue != outputShape[i]) {
       return emitOpError() << "Input tensor shape ("

@@ -884,13 +884,14 @@ def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
     %input = ... : tensor<2x3xf32>
 
     // Repeat each dimension twice
-    %repeated = "repeat"(%input) {repeat_dimensions = dense<[2, 2]> : tensor<2xi64>} : tensor<2x3xf32> -> tensor<4x6xf32>
+    %empty = tensor.empty() : tensor<4x6xf32>
+    %repeated = "repeat"(%input, %empty) {repeat_dimensions = array<i64: 2, 2>} : (tensor<2x3xf32>, tensor<4x6xf32>) -> tensor<4x6xf32>
     ```
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$output,
-                       DenseI32ArrayAttr:$repeat_dimensions);
+                       DenseI64ArrayAttr:$repeat_dimensions);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -976,11 +977,14 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
       // %arg0: tensor<1x1x32xf32>
       %0 = tensor.empty() : tensor<1x16x32xf32>
       %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+
+      Note: Currently, when generating a TTNN executable, the broadcast and repeat operations share the same semantics due to the lack of tensor view support in TTNN.
+      As a result, the broadcast operation is lowered to a repeat operation in the TTNN compilation pipeline.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         DenseI32ArrayAttr:$broadcast_dimensions);
+                         DenseI64ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 

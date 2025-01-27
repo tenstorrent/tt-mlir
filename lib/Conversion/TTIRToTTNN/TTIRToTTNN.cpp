@@ -686,11 +686,12 @@ public:
   matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto shapeAttr = adaptor.getBroadcastDimensionsAttr();
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), op.getBroadcastDimensions());
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), rewriter.getI32ArrayAttr(shapeAttr));
+        adaptor.getInput(), shapeAttr);
 
     return success();
   }
@@ -703,11 +704,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::RepeatOp op, ttir::RepeatOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto repeatDimensionsAttr = adaptor.getRepeatDimensionsAttr();
+    ttnn::ShapeAttr repeatDimensionsAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), op.getRepeatDimensions());
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), rewriter.getI32ArrayAttr(repeatDimensionsAttr));
+        adaptor.getInput(), repeatDimensionsAttr);
 
     return success();
   }
