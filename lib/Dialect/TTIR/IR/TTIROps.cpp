@@ -148,7 +148,12 @@ LogicalResult commutePermuteThroughEltwiseBinary(ElementwiseOp op,
     return failure();
   }
 
-  if (!allRootsNonInput(otherOperand)) {
+  PermuteOp otherOperandPermute =
+      dyn_cast_or_null<PermuteOp>(otherOperand.getDefiningOp());
+
+  if (!allRootsNonInput(otherOperand) &&
+      !(otherOperandPermute &&
+        otherOperandPermute.getPermutation() == permute.getPermutation())) {
     return failure();
   }
 
