@@ -184,6 +184,7 @@ using namespace std;
   - Avoid placing code in the global namespace to reduce the potential for name conflicts and ambiguity. Always use specific namespaces. If necessary to use something from the global namespace (such as std), use an explicit ```std::``` prefix rather than importing everything using ```using namespace std;```.
   - Do not use namespace aliases at namespace scope in header files except in explicitly marked internal-only namespaces, because anything imported into a namespace in a header file becomes part of the public API exported by that file.
   - Try to avoid mixing concepts from different namespaces in a single function or class. If a function belongs to one namespace but calls classes from others, ensure the relationships are clear.
+  - Wrap classes/structs declared in `.cpp` files inside of an [anonymous namespace](https://en.cppreference.com/w/cpp/language/namespace#Unnamed_namespaces) to avoid violating [ODS](https://en.cppreference.com/w/cpp/language/definition). See [LLVM docs](https://llvm.org/docs/CodingStandards.html#anonymous-namespaces) for more detailed information.
 
 # Using Alternative Tokens (and, or, xor, etc.)
 
