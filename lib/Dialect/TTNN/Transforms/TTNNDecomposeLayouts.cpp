@@ -217,7 +217,7 @@ private:
 
     rewriter.setInsertionPoint(op);
     return rewriter.create<OpType>(op.getLoc(), op.getType(), currentInput,
-                                   args...);
+                                   std::forward<Args>(args)...);
   }
 
   template <typename OpType, typename... Args>
@@ -226,7 +226,7 @@ private:
                        Args &&...args) const {
     rewriter.setInsertionPoint(op);
     return rewriter.create<OpType>(op.getLoc(), newResultType, currentInput,
-                                   args...);
+                                   std::forward<Args>(args)...);
   }
 
   mlir::Value createToDeviceOpIfNeeded(ttnn::ToLayoutOp op,
