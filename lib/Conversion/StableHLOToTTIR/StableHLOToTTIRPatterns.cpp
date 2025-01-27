@@ -59,6 +59,7 @@ public:
   }
 };
 
+namespace {
 class StableHLOToTTIRReduceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceOp> {
 
@@ -136,7 +137,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRDotGeneralOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
   using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
@@ -161,7 +164,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRTransposeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::TransposeOp> {
   using OpConversionPattern<mlir::stablehlo::TransposeOp>::OpConversionPattern;
@@ -182,7 +187,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReshapeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReshapeOp> {
   using OpConversionPattern<mlir::stablehlo::ReshapeOp>::OpConversionPattern;
@@ -208,7 +215,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRGetDimensionSizeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::GetDimensionSizeOp> {
 
@@ -232,7 +241,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRConstantOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConstantOp> {
 
@@ -374,7 +385,9 @@ private:
     return mlir::DenseElementsAttr::get(valueType, IntegerValue);
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRConvolutionOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConvolutionOp> {
   using OpConversionPattern<
@@ -443,7 +456,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReduceWindowOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceWindowOp> {
   using OpConversionPattern<
@@ -657,7 +672,9 @@ private:
     return true;
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRBroadcastInDimOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
   using OpConversionPattern<
@@ -766,7 +783,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRCompareOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompareOp> {
   using OpConversionPattern<mlir::stablehlo::CompareOp>::OpConversionPattern;
@@ -837,7 +856,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRConcatOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConcatenateOp> {
 
@@ -902,6 +923,7 @@ private:
     return success();
   }
 };
+} // namespace
 
 // Class implementing conversion from StableHLO to TTIR logical and bitwise ops.
 // StableHLO has AND, OR, XOR and NOT ops defined in such a way that they do two
@@ -1010,6 +1032,7 @@ enum StableHLOChannelType {
   kChannelTypeHostToDevice = 3,
 };
 
+namespace {
 class StableHLOToTTIRAllReduceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::AllReduceOp> {
 
@@ -1125,8 +1148,10 @@ private:
 
     return success();
   }
-}; // namespace
+};
+} // namespace
 
+namespace {
 class StableHLOToTTIRCustomCallOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
@@ -1382,8 +1407,10 @@ private:
 
     return success();
   }
-}; // namespace
+};
+} // namespace
 
+namespace {
 class StableHLOToTTIRSliceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SliceOp> {
 
@@ -1421,7 +1448,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIROpClampOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ClampOp> {
 
@@ -1477,7 +1506,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRGatherOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::GatherOp> {
   using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
@@ -1507,7 +1538,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename SrcIotaOp, typename Adaptor = typename SrcIotaOp::Adaptor>
 class StableHLOToTTIROpIotaOpConversionPattern
     : public OpConversionPattern<SrcIotaOp> {
@@ -1526,8 +1559,8 @@ public:
         1, adaptor.getIotaDimension());
 
     // Dynamic Iota has an output_shape attribute but the output shape is
-    // already known by the result type This is to remove the operand that will
-    // become dead code
+    // already known by the result type This is to remove the operand that
+    // will become dead code
     for (auto operand : adaptor.getOperands()) {
       if (operand.getDefiningOp()) {
         rewriter.eraseOp(operand.getDefiningOp());
@@ -1537,7 +1570,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRScatterOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ScatterOp> {
 
@@ -1646,7 +1681,9 @@ private:
     }
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReturnOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReturnOp> {
 
@@ -1664,7 +1701,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIROpReverseOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReverseOp> {
 
@@ -1691,6 +1730,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,

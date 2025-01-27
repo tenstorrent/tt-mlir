@@ -23,6 +23,7 @@ namespace {
 // TODO(sdjukic): extract this pattern into separate file and use it for both
 // TOSA and StableHLO
 
+namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
 class TosaToTTIRDefaultDPSOpConversionPattern
@@ -57,7 +58,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TosaToTTIRMultiplyOpConversionPattern
     : public TosaToTTIRDefaultDPSOpConversionPattern<
           tosa::MulOp, mlir::tt::ttir::MultiplyOp> {
@@ -76,7 +79,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TosaToTTIRClampOpConversionPattern
     : public OpConversionPattern<tosa::ClampOp> {
   using OpConversionPattern<tosa::ClampOp>::OpConversionPattern;
@@ -97,7 +102,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TosaToTTIRConcatOpConversionPattern
     : public OpConversionPattern<tosa::ConcatOp> {
   using OpConversionPattern<tosa::ConcatOp>::OpConversionPattern;
@@ -118,7 +125,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TosaToTTIRMatmulOpConversionPattern
     : public OpConversionPattern<tosa::MatMulOp> {
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -156,7 +165,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
 class TosaToTTIRReduceOpConversionPattern : public OpConversionPattern<SrcOp> {
@@ -179,7 +190,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TosaToTTIRMaxPool2DOpConversionPattern
     : public OpConversionPattern<tosa::MaxPool2dOp> {
   using OpConversionPattern<tosa::MaxPool2dOp>::OpConversionPattern;
@@ -204,6 +217,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
@@ -307,6 +321,7 @@ void addPoolingOpsConversionPatterns(MLIRContext *ctx,
                                      TypeConverter &typeConverter) {
   patterns.add<TosaToTTIRMaxPool2DOpConversionPattern>(typeConverter, ctx);
 }
+
 } // namespace
 
 namespace mlir::tt {

@@ -110,6 +110,8 @@ emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
   return nullptr;
 }
 
+namespace {
+
 class TTKernelToEmitCTypeConverter : public TypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
@@ -131,6 +133,10 @@ public:
         });
   }
 };
+
+} // namespace
+
+namespace {
 
 class TTKernelStoreToL1OpToEmitCOpRewriter
     : public OpConversionPattern<ttkernel::StoreToL1Op> {
@@ -163,6 +169,10 @@ public:
     return success();
   }
 };
+
+} // namespace
+
+namespace {
 
 class TTMetalToEmitCFuncArgsRewriter
     : public OpConversionPattern<func::FuncOp> {
@@ -207,6 +217,10 @@ public:
   }
 };
 
+} // namespace
+
+namespace {
+
 class TTMetalToEmitCReturnRewriter
     : public OpConversionPattern<ttkernel::ReturnOp> {
 public:
@@ -224,6 +238,10 @@ public:
     return success();
   }
 };
+
+} // namespace
+
+namespace {
 
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTMetalToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
@@ -310,6 +328,10 @@ private:
   std::string opName;
 };
 
+} // namespace
+
+namespace {
+
 template <typename Op, typename Adaptor = typename Op::Adaptor>
 class TTKernelMacroOpToEmitCOpRewriter : public OpConversionPattern<Op> {
 public:
@@ -334,6 +356,8 @@ public:
     return success();
   }
 };
+
+} // namespace
 
 class ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
