@@ -8,26 +8,60 @@ import time
 import multiprocessing
 import pytest
 import glob
+import os
 
 HOST = "localhost"
 PORT = 8002
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
-    "tools/explorer/test/models/*.mlir",
+    "test/ttmlir/Explorer/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
 
+if "TT_EXPLORER_GENERATED_TEST_DIR" in os.environ:
+    TEST_LOAD_MODEL_PATHS.append(
+        os.environ["TT_EXPLORER_GENERATED_TEST_DIR"] + "/**/*.mlir"
+    )
+
+
+def get_test_files(paths):
+    files = []
+    for path in paths:
+        files.extend(glob.glob(path, recursive=True))
+    return files
+
+
+def execute_command(model_path, settings):
+    cmd = {
+        "extensionId": "tt_adapter",
+        "cmdId": "execute",
+        "modelPath": model_path,
+        "deleteAfterConversion": False,
+        "settings": settings,
+    }
+
+    result = requests.post(COMMAND_URL, json=cmd)
+    assert result.ok
+    if "error" in result.json():
+        print(result.json())
+        assert False
+
 
 @pytest.fixture(scope="function", autouse=True)
 def start_server(request):
     """Start the model explorer server before running tests and stop it after."""
     server_thread = multiprocessing.Process(
-        target=model_explorer.visualize,
-        kwargs={"extensions": ["tt_adapter"], "host": HOST, "port": PORT},
+        target=model_explorer.visualize_from_config,
+        kwargs={
+            "extensions": ["tt_adapter"],
+            "host": HOST,
+            "port": PORT,
+            "no_open_in_browser": True,
+        },
     )
     server_thread.start()
 

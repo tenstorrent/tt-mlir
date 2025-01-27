@@ -1,3 +1,6 @@
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s
+// Need to ensure that model is valid MLIR module
+
 module @SimpleModel attributes {} {
   func.func @forward(%arg0: tensor<1x784xf32> {ttir.name = "input_1"}, %arg1: tensor<10x784xf32> {ttir.name = "linear.weight"}, %arg2: tensor<10xf32> {ttir.name = "linear.bias"}) -> (tensor<1x10xf32> {ttir.name = "SimpleModel_472.output_softmax_1495"}) {
     %0 = tensor.empty() : tensor<784x10xf32>
