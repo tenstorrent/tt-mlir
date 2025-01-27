@@ -52,6 +52,9 @@ emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr);
 //
 emitc::OpaqueAttr createStdNullopt(Builder &builder);
 
+// Helper enum to differentiate between ttnn::Shape and ttnn::SimpleShape
+enum class ShapeType { SimpleShape = 0, Shape = 1 };
+
 // Create ttnn::Shape and return emitc::ExpressionOp
 //
 // ttnn:Shape has a couple constructors, but they are explicit and require
@@ -65,7 +68,8 @@ emitc::OpaqueAttr createStdNullopt(Builder &builder);
 //
 emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
                                   ttnn::ShapeAttr shapeAttr,
-                                  Block *containingBlock, Location loc);
+                                  Block *containingBlock, Location loc,
+                                  ShapeType shapeType = ShapeType::SimpleShape);
 
 // Create ttnn::MemoryConfig and return emitc::CallOpaqueOp
 //

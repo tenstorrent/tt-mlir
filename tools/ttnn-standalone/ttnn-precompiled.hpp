@@ -10,6 +10,7 @@
 #include "operations/copy.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"
+#include "operations/data_movement/repeat/repeat.hpp"
 #include "operations/eltwise/binary/binary.hpp"
 #include "operations/eltwise/binary/binary_composite.hpp"
 #include "operations/eltwise/unary/unary_composite.hpp"
