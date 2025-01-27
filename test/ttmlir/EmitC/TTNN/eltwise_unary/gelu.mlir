@@ -3,8 +3,8 @@
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
-func.func @matmul(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x96xbf16>) -> tensor<64x96xbf16> {
-  %0 = tensor.empty() : tensor<64x96xbf16>
-  %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<64x128xbf16>, tensor<128x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
-  return %1 : tensor<64x96xbf16>
+func.func @gelu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  %0 = tensor.empty() : tensor<64x128xf32>
+  %1 = "ttir.gelu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
 }

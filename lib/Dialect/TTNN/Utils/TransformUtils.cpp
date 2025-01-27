@@ -41,7 +41,8 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                  BufferType targetTensorBufferType,
                  std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
                  DataType targetTensorDataType) {
-  TTNNLayoutAttr inputLayoutAttr = getLayoutAttrFromTensor(inputValue);
+  TTNNLayoutAttr inputLayoutAttr =
+      getLayoutAttrFromTensor(inputValue.getType());
 
   // Create element type based on tensor layout.
   Type elementType = getElementType(rewriter.getContext(), targetTensorLayout,
@@ -55,12 +56,13 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
           : nullptr;
 
   // Get the input operand type.
-  RankedTensorType inputToLayoutOpType =
-      mlir::cast<RankedTensorType>(inputValue.getType());
+  RankedTensorType inputToLayoutOpType = inputValue.getType();
 
   // Create the new encoding for the output tensor type.
   TTNNLayoutAttr toLayoutOpResultEncoding =
-      inputLayoutAttr.withElementType(rewriter.getContext(), elementType)
+      inputLayoutAttr
+          .withElementType(rewriter.getContext(), elementType,
+                           inputToLayoutOpType.getShape())
           .withBufferType(rewriter.getContext(), targetTensorBufferType)
           .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr);
 
