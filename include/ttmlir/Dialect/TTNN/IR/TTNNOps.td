@@ -779,6 +779,11 @@ def TTNN_MorehCumSumOp : TTNN_NamedDPSOp<"moreh_cumsum"> {
 
   let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        RankedTensorType inputType = getInput().getType();
+        return wa::TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(inputType);
+      }
     }];
 }
 
