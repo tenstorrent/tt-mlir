@@ -817,4 +817,14 @@ def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
     let results = (outs I32:$readPtr);
 }
 
+def TTKernel_GetTileSizeOp : TTKernel_Op<"get_tile_size"> {
+    let summary = "Get the tile size in bytes of a given CB";
+    let description = [{
+      get_tile_size operation
+    }];
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs I32:$tileSizeBytes);
+}
+
+
 #endif
