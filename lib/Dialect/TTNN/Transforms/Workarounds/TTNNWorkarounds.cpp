@@ -14,7 +14,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
@@ -411,7 +410,15 @@ public:
   }
 };
 
-class TTNNBroadcastWorkaround : public OpRewritePattern<ttnn::RepeatOp> {
+// The RepeatOp currently does not support repeating the last dimension.
+// Furthermore due to exisiting issues
+// https://github.com/tenstorrent/tt-metal/issues/16701 and
+// https://github.com/tenstorrent/tt-metal/issues/16698, using RepeatOp might
+// cause PCC and ATOL mismatch errors. The purpose of this workaround is to
+// replace every RepeatOp with an AddOp with zero in order to fold the RepeatOp
+// with an implicit operation. This workaround should be removed once the above
+// mentioned issues have been fixed.
+class TTNNRepeatFoldingWorkaround : public OpRewritePattern<ttnn::RepeatOp> {
 public:
   using OpRewritePattern<ttnn::RepeatOp>::OpRewritePattern;
 
@@ -422,6 +429,7 @@ public:
     float fillValue = 0;
     ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
 
+    // Create a zero Full Op to be used with AddOp
     ttnn::FullOp zeroOp = rewriter.create<ttnn::FullOp>(
         op->getLoc(), op.getResult().getType(), device, fillValueAttr);
 
@@ -464,11 +472,11 @@ public:
 
     // Create EmptyOp
     //
-
     ttnn::EmptyOp emptyOp = rewriter.create<ttnn::EmptyOp>(
         op->getLoc(), op.getType(), shapeAttr, dTypeAttr, tensorLayoutAttr,
         device, memoryConfigAttr);
 
+    // Replace the RepeatOp with an AddOp to perform implicit repeat.
     rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, op.getResult().getType(),
                                              addInputs, emptyOp.getResult());
 
@@ -507,7 +515,7 @@ public:
     }
     if (repeatFoldingWorkaroundEnabled) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNBroadcastWorkaround>(&getContext());
+      patterns.add<TTNNRepeatFoldingWorkaround>(&getContext());
       runRewritePatterns(std::move(patterns), GreedyRewriteConfig::kNoLimit);
     }
     if (layoutWorkaroundsEnabled) {
