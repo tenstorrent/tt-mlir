@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -166,12 +167,8 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
         .getResult();
   }
 
-  tensor::EmptyOp output = rewriter.create<tensor::EmptyOp>(
-      loc, ty.getShape(), ty.getElementType(), desiredLayout);
-
-  return rewriter
-      .create<ttir::ToLayoutOp>(loc, output.getType(), input, output)
-      ->getResult(0);
+  return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
+      rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout, input);
 }
 
 class TTIRLayoutDPSOperandsRewriter
@@ -322,14 +319,14 @@ class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 public:
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
-  Value createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                         MetalLayoutAttr desiredLayout) const {
-    auto ty = mlir::cast<RankedTensorType>(input.getType());
-    auto output = rewriter.create<tensor::EmptyOp>(
-        loc, ty.getShape(), ty.getElementType(), desiredLayout);
-    return rewriter
-        .create<ttir::ToLayoutOp>(loc, output.getType(), input, output)
-        ->getResult(0);
+  ttir::ToLayoutOp
+  createToLayoutOp(PatternRewriter &rewriter, Location loc,
+                   mlir::TypedValue<mlir::RankedTensorType> input,
+                   MetalLayoutAttr desiredLayout) const {
+    auto ty = input.getType();
+    return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
+        rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
+        input);
   }
 
   Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
