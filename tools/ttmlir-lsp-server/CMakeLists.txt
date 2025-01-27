@@ -1,6 +1,6 @@
 add_llvm_executable(ttmlir-lsp-server ttmlir-lsp-server.cpp)
 llvm_update_compile_flags(ttmlir-lsp-server)
-target_link_libraries(ttmlir-lsp-server PRIVATE MLIR TTMLIR)
+target_link_libraries(ttmlir-lsp-server PRIVATE MLIR TTMLIRCompiler)
 
 mlir_check_all_link_libraries(ttmlir-lsp-server)
 

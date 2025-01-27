@@ -1,7 +1,7 @@
 add_llvm_executable(ttmlir-opt ttmlir-opt.cpp)
 
 llvm_update_compile_flags(ttmlir-opt)
-target_link_libraries(ttmlir-opt PRIVATE MLIR LLVM TTMLIR)
+target_link_libraries(ttmlir-opt PRIVATE MLIR LLVM TTMLIRCompiler)
 
 mlir_check_all_link_libraries(ttmlir-opt)
 

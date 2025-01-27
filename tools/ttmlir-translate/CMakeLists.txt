@@ -9,7 +9,7 @@ llvm_update_compile_flags(ttmlir-translate)
 target_link_libraries(ttmlir-translate PRIVATE
   MLIR
   LLVM
-  TTMLIR
+  TTMLIRCompiler
 )
 
 mlir_check_link_libraries(ttmlir-translate)
