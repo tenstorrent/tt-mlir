@@ -258,7 +258,9 @@ jobs:
         source env/activate
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.build-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        ls ${{ steps.strings.outputs.build-output-dir }}/lib
+        ldd ${{ steps.strings.outputs.build-output-dir }}/bin/ttmlir-opt
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Generate EmitC tests
@@ -268,7 +270,9 @@ jobs:
         source env/activate
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.build-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        ls ${{ steps.strings.outputs.build-output-dir }}/lib
+        ldd ${{ steps.strings.outputs.build-output-dir }}/bin/ttmlir-opt
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
 
     - name: Run functional tests
@@ -412,7 +416,9 @@ jobs:
         source env/activate
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.build-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        ls ${{ steps.strings.outputs.build-output-dir }}/lib
+        ldd ${{ steps.strings.outputs.build-output-dir }}/bin/ttmlir-opt
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: ttrt read tests
@@ -523,7 +529,9 @@ jobs:
         source env/activate
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.build-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        ls ${{ steps.strings.outputs.build-output-dir }}/lib
+        ldd ${{ steps.strings.outputs.build-output-dir }}/bin/ttmlir-opt
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: ttnn api tests
