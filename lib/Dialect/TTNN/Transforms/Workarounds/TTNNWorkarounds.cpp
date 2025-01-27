@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -423,6 +424,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNAllReduceWorkarounds,
+                   workarounds::decomposition::CumSumOpRewritePattern,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
                        ttnn::SumOp>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
