@@ -90,6 +90,7 @@ static uint64_t lookupAddress(Value value) {
   return allocOp.getAddress();
 }
 
+namespace {
 class TTIRToTTMetalLayoutRewriter : public OpRewritePattern<ttir::ToLayoutOp> {
 public:
   using OpRewritePattern<ttir::ToLayoutOp>::OpRewritePattern;
@@ -487,7 +488,9 @@ public:
     return failure();
   }
 };
+} // namespace
 
+namespace {
 class TTIRToTTMetalEnqueueProgramRewriter
     : public OpRewritePattern<ttir::GenericOp> {
 public:
@@ -1794,7 +1797,9 @@ public:
     return success();
   }
 }; // namespace mlir::tt::ttmetal
+} // namespace
 
+namespace {
 class TTIRToTTMetalAllocRewriter : public OpRewritePattern<ttir::AllocOp> {
 public:
   using OpRewritePattern<ttir::AllocOp>::OpRewritePattern;
@@ -1806,7 +1811,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTIRToTTMetalDeallocRewriter : public OpRewritePattern<ttir::DeallocOp> {
 public:
   using OpRewritePattern<ttir::DeallocOp>::OpRewritePattern;
@@ -1818,7 +1825,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTIRToTTMetalFillRewriter : public OpRewritePattern<ttir::FillOp> {
 public:
   using OpRewritePattern<ttir::FillOp>::OpRewritePattern;
@@ -1830,6 +1839,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttmetal
 
