@@ -227,7 +227,14 @@ jobs:
     - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xvf artifact.tar
+      run: |
+        tar xvf artifact.tar
+        echo "=== Contents of install dir ==="
+        ls -R .
+        echo "=== Current working dir ==="
+        pwd
+        echo "=== Parent of working dir ==="
+        ls -la ..
 
     - name: Remove existing whls files
       shell: bash
@@ -384,7 +391,14 @@ jobs:
     - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xvf artifact.tar
+      run: |
+        tar xvf artifact.tar
+        echo "=== Contents of install dir ==="
+        ls -R .
+        echo "=== Current working dir ==="
+        pwd
+        echo "=== Parent of working dir ==="
+        ls -la ..
 
     - name: Remove existing whls files
       shell: bash
@@ -496,7 +510,14 @@ jobs:
     - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xvf artifact.tar
+      run: |
+        tar xvf artifact.tar
+        echo "=== Contents of install dir ==="
+        ls -R .
+        echo "=== Current working dir ==="
+        pwd
+        echo "=== Parent of working dir ==="
+        ls -la ..
 
     - name: Remove existing whls files
       shell: bash
