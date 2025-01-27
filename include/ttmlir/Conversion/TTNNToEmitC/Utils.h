@@ -5,6 +5,7 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_UTILS_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_UTILS_H
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -47,6 +48,15 @@ emitc::OpaqueAttr convertBoolAttr(Builder &builder, BoolAttr attr);
 // Create emitc::OpaqueAttr for ttnn::DataType
 //
 emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr);
+
+// Create emitc::OpaqueAttr for ttnn::SmallVector used in Reduction ops
+//
+emitc::OpaqueAttr convertArrayAttrToTTNNSmallVector(Builder &builder,
+                                                    ArrayAttr attr);
+
+// Create emitc::OpaqueAttr for tt::stl::Span from ArrayAttr of ints
+//
+emitc::OpaqueAttr convertArrayAttrToSpan(Builder &builder, ArrayAttr attr);
 
 // Create emitc::OpaqueAttr for std::nullopt
 //
