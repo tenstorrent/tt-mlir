@@ -40,9 +40,9 @@ config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 if config.enable_stablehlo:
     config.available_features.add("stablehlo")
 
-# Shardon tests are optionally enabled.
-if config.enable_shardon:
-    config.available_features.add("shardon")
+# Pykernel tests are optionally enabled.
+if config.enable_pykernel:
+    config.available_features.add("pykernel")
 
 # suffixes: A list of file extensions to treat as test files.
 config.suffixes = [".mlir"]

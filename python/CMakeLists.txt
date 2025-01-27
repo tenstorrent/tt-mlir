@@ -146,17 +146,17 @@ add_mlir_python_modules(TTMLIRPythonModules
     TTMLIRPythonCAPI
 )
 
-if(TTMLIR_ENABLE_SHARDON)
-  set(TTSHARDON_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shardon")
-  declare_mlir_python_sources(TTSHARDONPythonSources
-    ROOT_DIR "${TTSHARDON_PYTHON_ROOT_DIR}"
+if(TTMLIR_ENABLE_PYKERNEL)
+  set(TTPYKERNEL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pykernel")
+  declare_mlir_python_sources(TTPykernelSources
+    ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
     SOURCES
-      shardon_ast.py
+      pykernel_ast.py
   )
-  add_mlir_python_modules(TTSHARDONPythonModules
-    ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/shardon"
-    INSTALL_PREFIX "python_packages/shardon"
-    DECLARED_SOURCES TTSHARDONPythonSources
+  add_mlir_python_modules(TTPykernelModules
+    ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/pykernel"
+    INSTALL_PREFIX "python_packages/pykernel"
+    DECLARED_SOURCES TTPykernelSources
   )
 endif()
 

@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # RUN: %python %s | FileCheck %s
-# REQUIRES: shardon
+# REQUIRES: pykernel
 
-from shardon.shardon_ast import *
+from pykernel.pykernel_ast import *
 
 
 @ttkernel_compile
