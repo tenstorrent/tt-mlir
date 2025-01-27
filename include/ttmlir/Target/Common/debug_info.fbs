@@ -28,6 +28,6 @@ table MLIR {
 table DebugInfo {
   mlir: MLIR;
   cpp: string;
-  golden_info: GoldenInfo;
   mlir_stages: [MLIR];
+  golden_info: GoldenInfo;
 }
