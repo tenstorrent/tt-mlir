@@ -490,31 +490,50 @@ public:
     llvm::SmallVector<Value, 3> operands{shapeExpressionOp->getResult(0),
                                          adaptor.getDevice()};
 
-    // Create MemoryConfig object first, then pass it to the op
-    //
-    emitc::CallOpaqueOp memCfgOp = ttnn_to_emitc::utils::createMemoryConfigOp(
-        rewriter, srcOp.getMemoryConfig(), srcOp.getLoc());
+    // If we are creating a tensor on host, we need to use ::ttnn::zeros instead
+    // because it doesn't require device + memoryConfig.
+    if (!srcOp.getMemoryConfig() ||
+        srcOp.getMemoryConfig().getBufferType().getValue() ==
+            ttnn::BufferType::SystemMemory) {
+      // Create arg-types attrs for ::ttnn::zeros instead
+      //
+      ArrayAttr arrayAttr = rewriter.getArrayAttr({
+          rewriter.getIndexAttr(0), // ttnn::Shape
+          ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
+          ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
+      });
 
-    // Concat operands and MemoryConfig object
-    //
-    operands.append(1, memCfgOp.getResult(0));
+      // Finally, convert ttir::EmptyOp to ttnn::zeros
+      //
+      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+          "ttnn::zeros", arrayAttr, nullptr, operands);
+    } else {
+      // Create MemoryConfig object first, then pass it to the op
+      //
+      emitc::CallOpaqueOp memCfgOp = ttnn_to_emitc::utils::createMemoryConfigOp(
+          rewriter, srcOp.getMemoryConfig(), srcOp.getLoc());
 
-    // Create ArrayAttr object holding attributes and pointers to operands
-    //
-    ArrayAttr arrayAttr = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(0), // ttnn::SimpleShape
-        ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
-        ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
-        rewriter.getIndexAttr(1), // ttnn::Device
-        rewriter.getIndexAttr(2), // ttnn::MemoryConfig
-    });
+      // Concat operands and MemoryConfig object
+      //
+      operands.append(1, memCfgOp.getResult(0));
 
-    // Finally, convert ttir::EmptyOp to ttnn::EmptyOp
-    //
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttr, nullptr, operands);
+      // Create ArrayAttr object holding attributes and pointers to operands
+      //
+      ArrayAttr arrayAttr = rewriter.getArrayAttr({
+          rewriter.getIndexAttr(0), // ttnn::Shape
+          ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
+          ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
+          rewriter.getIndexAttr(1), // ttnn::Device
+          rewriter.getIndexAttr(2), // ttnn::MemoryConfig
+      });
 
+      // Finally, convert ttir::EmptyOp to ttnn::EmptyOp
+      //
+      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+          this->convertOpName(srcOp), arrayAttr, nullptr, operands);
+    }
     return success();
   }
 };

@@ -3,14 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLAYOUT
@@ -23,7 +24,7 @@ static const std::array<std::pair<int64_t, int64_t>, 1> g_defaultCollapseDims =
 // Default memory space for tensors on host
 static const BufferType g_defaultMemorySpaceHost = BufferType::SystemMemory;
 
-// Default memory space for tesnors on device
+// Default memory space for tensors on device
 static const BufferType g_defaultMemorySpaceDevice = BufferType::DRAM;
 
 // Default memory layout for tensors on device
@@ -126,6 +127,10 @@ public:
       return false;
     }
     funcOp.setFunctionType(newType);
+
+    if (funcOp.isDeclaration()) {
+      return true;
+    }
 
     Block &entryBlock = funcOp.getBody().front();
     for (unsigned i = 0; i < entryBlock.getNumArguments(); ++i) {
@@ -252,9 +257,9 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 static bool changeLayoutToHost(DestinationStyleOpInterface &op,
                                OpOperand &operand, PatternRewriter &rewriter) {
   Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-  std::optional<Value> layout =
-      createToLayoutOp(rewriter, newLoc, operand.get(),
-                       BufferType::SystemMemory, nullptr, false /* tiled */);
+  std::optional<Value> layout = createToLayoutOp(
+      rewriter, newLoc, operand.get(), BufferType::SystemMemory,
+      nullptr /* desiredMemLayoutAttr */, false /* tiled */);
   if (layout.has_value()) {
     rewriter.modifyOpInPlace(
         op, [&]() { op->setOperand(operand.getOperandNumber(), *layout); });
@@ -333,6 +338,58 @@ public:
   }
 };
 
+class TTNNLayoutHoistedFuncCallRewriter
+    : public OpRewritePattern<func::CallOp> {
+public:
+  TTNNLayoutHoistedFuncCallRewriter(MLIRContext *ctx)
+      : OpRewritePattern<func::CallOp>(ctx) {}
+
+  // Match and rewrite the CallOp.
+  LogicalResult matchAndRewrite(func::CallOp callOp,
+                                PatternRewriter &rewriter) const override {
+    if (!callOp->hasAttr("hoisted_call")) {
+      return failure();
+    }
+    auto device = utils::getOrInsertDevice(rewriter, callOp);
+
+    // Create a FromDevice operation for each operand.
+    SmallVector<Value, 4> fromDeviceOperands;
+    size_t locIdx = 0;
+    for (auto operand : callOp.getOperands()) {
+      // Insert FromDevice op before the operand and collect the new operands.
+      auto fromDeviceOp = rewriter.create<ttnn::FromDeviceOp>(
+          callOp.getLoc(), operand.getType(), operand);
+      Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
+      std::optional<Value> maybeLayoutOp = createToLayoutOp(
+          rewriter, newLoc, fromDeviceOp.getResult(), BufferType::SystemMemory,
+          nullptr /* desiredMemLayoutAttr */, false /* tiled */);
+      Value hostOpValue = maybeLayoutOp.has_value() ? maybeLayoutOp.value()
+                                                    : fromDeviceOp.getResult();
+      fromDeviceOperands.push_back(hostOpValue);
+    }
+
+    // Create the original CallOp with the new operands (FromDevice'd).
+    auto newCallOp = rewriter.create<func::CallOp>(
+        callOp.getLoc(), callOp.getCallee(), callOp.getResultTypes(),
+        fromDeviceOperands);
+
+    // Now, insert ToDevice ops for the results of the CallOp.
+    SmallVector<Value, 4> toDeviceResults;
+    for (auto result : newCallOp.getResults()) {
+      // Insert ToDevice op after the result.
+      auto toDeviceOp = rewriter.create<ttnn::ToDeviceOp>(
+          callOp.getLoc(), result.getType(), result, device,
+          ttnn::MemoryConfigAttr{});
+      toDeviceResults.push_back(toDeviceOp.getResult());
+    }
+
+    // Replace the original call with the new ToDevice results.
+    rewriter.replaceOp(callOp, toDeviceResults);
+
+    return success();
+  }
+};
+
 // Updates the layout of the operands of the SrcOp such that
 // the operands reside in host memory.
 template <typename SrcOp>
@@ -349,13 +406,14 @@ public:
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       std::optional<Value> layout = createToLayoutOp(
           rewriter, newLoc, operand.get(), BufferType::SystemMemory,
-          nullptr /* tensorMemoryLayoutAttr */, false /* tiled */);
+          nullptr /* desiredMemLayoutAttr */, false /* tiled */);
       if (layout.has_value()) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
         modified = true;
       }
     }
+
     return modified ? success() : failure();
   }
 };
@@ -376,6 +434,21 @@ public:
                                                   device.getWorkerGrid());
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNLayoutTensorTypeRewriter>(typeConverter, &getContext());
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    // This pass will rewrite s.t. hoisted func calls have their operands +
+    // results moved to/from device as needed, but we rely on DPSOperandRewriter
+    // below to inserted needed toLayout ops for results if they are used by
+    // other ops later.
+    {
+      RewritePatternSet patterns(&getContext());
+      // Move operands + results of hoisted funcs to and from device
+      // appropriately
+      patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();
