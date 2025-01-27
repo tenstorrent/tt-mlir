@@ -62,8 +62,23 @@ struct TTIRDialectFoldInterface : public DialectFoldInterface {
   /// operation that is *not* isolated from above, should be used when
   /// materializing constants.
   bool shouldMaterializeInto(Region *region) const final {
-    // If this is a DispatchOp, protect it from hoisting constants outside of
-    // its region body
+    //
+    // If this is a GenericOp, protect it from hoisting constants outside of
+    // its region body. e.g. do not hoist %const0 outside of the following op:
+    //
+    // %1 = "ttir.generic"(...) <{...}> ({
+    // ^bb0(...):
+    //   %const0 = arith.constant 0 : index
+    // }) : (...) -> ...
+    //
+    // As opposed to the default canonicalization behavior, which would hoist it
+    // it like this:
+    //
+    // %const0 = arith.constant 0 : index
+    // %1 = "ttir.generic"(...) <{...}> ({
+    // ^bb0(...):
+    // }) : (...) -> ...
+    //
     return isa<GenericOp>(region->getParentOp());
   }
 };
