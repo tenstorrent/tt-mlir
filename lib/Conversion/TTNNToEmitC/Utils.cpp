@@ -7,6 +7,10 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
+#include <llvm/ADT/STLExtras.h>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/Attributes.h>
+#include <mlir/IR/BuiltinAttributes.h>
 
 namespace mlir::tt::ttnn_to_emitc::utils {
 
@@ -60,9 +64,12 @@ std::vector<ttnn::Tensor> utilCreateVec(T &&...t) {
 
 emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
   llvm::ArrayRef shape = attr.getShape();
-  std::ostringstream oss;
-  std::copy(shape.begin(), shape.end(), std::ostream_iterator<int>(oss, ", "));
-  return builder.getType<emitc::OpaqueAttr>("{" + oss.str() + "}");
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  llvm::interleaveComma(shape, rso);
+
+  return builder.getType<emitc::OpaqueAttr>("{" + rso.str() + "}");
 }
 
 emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
@@ -156,6 +163,31 @@ emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr) {
   llvm_unreachable("Unkonwn tt::DataType");
 }
 
+emitc::OpaqueAttr convertArrayAttrToTTNNSmallVector(Builder &builder,
+                                                    ArrayAttr attr) {
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  llvm::interleaveComma(attr, rso, [&](const Attribute &attr) {
+    rso << mlir::cast<IntegerAttr>(attr).getInt();
+  });
+
+  return builder.getType<emitc::OpaqueAttr>("ttnn::SmallVector<int>{" +
+                                            rso.str() + "}");
+}
+
+emitc::OpaqueAttr convertArrayAttrToSpan(Builder &builder, ArrayAttr attr) {
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  llvm::interleaveComma(attr, rso, [&](const Attribute &attr) {
+    rso << mlir::cast<IntegerAttr>(attr).getInt();
+  });
+
+  return builder.getType<emitc::OpaqueAttr>("std::vector<int>{" + rso.str() +
+                                            "}");
+}
+
 emitc::OpaqueAttr createStdNullopt(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>("std::nullopt");
 }
@@ -167,7 +199,8 @@ emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
   // together into a single SSA value
   //
   emitc::ExpressionOp shapeExpressionOp = rewriter.create<emitc::ExpressionOp>(
-      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Shape"), false);
+      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::SimpleShape"),
+      false);
 
   // Add a block to the ExpressionOp, save current insertion point, and set
   // insertion point to newly added block
@@ -186,11 +219,11 @@ emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
       rewriter.getArrayAttr(convertShape(rewriter, shapeAttr)), nullptr,
       ValueRange());
 
-  // Create a ttnn::Shape object
+  // Create a ttnn::SimpleShape object
   //
   emitc::CallOpaqueOp ttnnShapeOp = rewriter.create<emitc::CallOpaqueOp>(
-      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Shape"),
-      rewriter.getStringAttr("ttnn::Shape"), nullptr, nullptr,
+      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::SimpleShape"),
+      rewriter.getStringAttr("ttnn::SimpleShape"), nullptr, nullptr,
       metalShapeOp->getResults());
   rewriter.create<emitc::YieldOp>(loc, ttnnShapeOp->getResult(0));
 

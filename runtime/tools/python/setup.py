@@ -158,7 +158,6 @@ if enable_runtime:
         "third_party/sfpi/compiler/share",
         "third_party/sfpi/compiler/compiler",
         "third_party/fmt",
-        "third_party/lfs",
         "third_party/pybind11",
         "third_party/taskflow",
         "third_party/json",

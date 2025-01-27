@@ -121,8 +121,8 @@ public:
     return mlir::tt::GridAttr::get(&context, physicalGridSize);
   }
 
-  static constexpr std::array<int64_t, 2> gridShapeHwN300 = {7, 8};
-  static constexpr size_t workerCoresN300 = 56;
+  static constexpr std::array<int64_t, 2> gridShapeHwN300 = {8, 8};
+  static constexpr size_t workerCoresN300 = 64;
 };
 
 #endif // UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H

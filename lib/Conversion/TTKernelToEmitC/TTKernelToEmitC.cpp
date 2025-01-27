@@ -181,6 +181,10 @@ public:
     rewriter.startOpModification(op);
     rewriter.setInsertionPointToStart(&op.getCallableRegion()->front());
     for (auto arg : blockArgs) {
+      // Skip initialization if the argument is not a CBType (SemaphoreType)
+      if (!mlir::isa<ttkernel::CBType>(arg.getType())) {
+        continue;
+      }
       auto cb = cast<ttkernel::CBType>(arg.getType());
       // Get opaque type i.e emitc::LValueType<emitc::OpaqueType>
       auto cbType = getTypeConverter()->convertType(cb);
@@ -229,9 +233,6 @@ public:
       : OpConversionPattern<SourceOp>(typeConverter, ctx), opName(opName) {}
 
   StringRef getOpName(SourceOp op) const {
-    if constexpr (std::is_same_v<SourceOp, ttkernel::BuiltinOp>) {
-      return op.getOp();
-    }
     auto name =
         opName.empty() ? op.getOperation()->getName().getStringRef() : opName;
     if (name.starts_with("ttkernel.")) {
@@ -275,6 +276,12 @@ public:
           emitc::OpaqueAttr::get(op.getContext(), reduceType));
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp>) {
+      SmallVector<Attribute, 1> template_args;
+
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -381,59 +388,67 @@ public:
       target.addLegalOp<func::ReturnOp>();
       target.addIllegalDialect<ttkernel::TTKernelDialect>();
 
-      patterns
-          .add<TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
-               TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
-               TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
-               TTMetalToEmitCOpaqueRewriter<
-                   ttkernel::NocAsyncReadOnePacketSetStateOp>,
-               TTMetalToEmitCOpaqueRewriter<
-                   ttkernel::NocAsyncReadOnePacketWithStateOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
-               TTMetalToEmitCOpaqueRewriter<
-                   ttkernel::NocAsyncWriteMulticastOnePacketOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
-               TTMetalToEmitCOpaqueRewriter<
-                   ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>>(
-              typeConverter, funcOp.getContext());
+      patterns.add<
+          TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
+          TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
+          TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitMinOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
+          TTMetalToEmitCOpaqueRewriter<
+              ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
+          TTMetalToEmitCOpaqueRewriter<
+              ttkernel::NocAsyncReadOnePacketSetStateOp>,
+          TTMetalToEmitCOpaqueRewriter<
+              ttkernel::NocAsyncReadOnePacketWithStateOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
+          TTMetalToEmitCOpaqueRewriter<
+              ttkernel::NocAsyncWriteMulticastOnePacketOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
+          TTMetalToEmitCOpaqueRewriter<
+              ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>>(
+          typeConverter, funcOp.getContext());
 
       patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(
           typeConverter, funcOp.getContext(), "get_noc_addr");
@@ -460,16 +475,16 @@ std::unique_ptr<::mlir::Pass> createConvertTTKernelToEmitC() {
 class ThreadConfigHelper {
 public:
   ThreadConfigHelper(OpBuilder *builder, Location loc,
-                     ttkernel::KernelConfigInterface kernelConfig)
-      : builder(builder), loc(loc), kernelConfig(kernelConfig) {
+                     ttkernel::ThreadType threadType)
+      : builder(builder), loc(loc), threadType(threadType) {
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
-    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Noc) {
+    if (threadType == ttkernel::ThreadType::Noc) {
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
     }
-    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
+    if (threadType == ttkernel::ThreadType::Tensix) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
@@ -514,7 +529,7 @@ public:
   }
 
   ~ThreadConfigHelper() {
-    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
+    if (threadType == ttkernel::ThreadType::Tensix) {
       builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
       builder->create<emitc::VerbatimOp>(loc,
                                          "}"); // close namespace NAMESPACE
@@ -524,14 +539,13 @@ public:
 private:
   OpBuilder *builder;
   Location loc;
-  ttkernel::KernelConfigInterface kernelConfig;
+  ttkernel::ThreadType threadType;
 };
 
-LogicalResult convertTTKernelRegionToEmitC(
-    OpBuilder &builder, Region *region,
-    const ttkernel::KernelConfigInterface &kernelConfig) {
-  ThreadConfigHelper threadConfigHelper(&builder, region->getLoc(),
-                                        kernelConfig);
+LogicalResult
+convertTTKernelRegionToEmitC(OpBuilder &builder, Region *region,
+                             const ttkernel::ThreadType &threadType) {
+  ThreadConfigHelper threadConfigHelper(&builder, region->getLoc(), threadType);
 
   auto funcOp = builder.create<func::FuncOp>(
       region->getLoc(), "kernel_main",
@@ -550,22 +564,33 @@ LogicalResult convertTTKernelRegionToEmitC(
   return success();
 }
 
-LogicalResult
-emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
-                          const ttkernel::KernelConfigInterface &kernelConfig) {
-  OpBuilder builder(region->getContext());
+LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
+                                const ttkernel::ThreadType &threadType) {
 
+  llvm::raw_string_ostream os(regionCpp);
+  return emitOpRegionAsCpp(region, os, threadType);
+}
+
+LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
+                                const ttkernel::ThreadType &threadType) {
+
+  // We must load the EmitC dialect before we can emit any EmitC code. This
+  // dialect won't be loaded by MLIR until pass manager starts a pass that
+  // depends on it. Because we want to emit EmitC code before that, we need to
+  // load it here.
+  region->getContext()->getOrLoadDialect<emitc::EmitCDialect>();
+
+  OpBuilder builder(region->getContext());
   // We will wrap everything in a module op so that we can run the
   // translation.
   auto moduleWrapper =
       builder.create<mlir::ModuleOp>(region->getLoc(), "module_wrapper");
   builder.setInsertionPointToStart(moduleWrapper.getBody());
 
-  if (convertTTKernelRegionToEmitC(builder, region, kernelConfig).failed()) {
+  if (convertTTKernelRegionToEmitC(builder, region, threadType).failed()) {
     return failure();
   }
 
-  llvm::raw_string_ostream os(regionCpp);
   if (emitc::translateToCpp(moduleWrapper, os).failed()) {
     return failure();
   }
@@ -574,28 +599,37 @@ emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
 }
 
 LogicalResult
-emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
-                           llvm::SmallVector<std::string> &cppStrings) {
-  assert(cppStrings.size() == dispatchOp.getNumRegions() &&
+emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
+                                 llvm::SmallVector<std::string> &cppStrings) {
+  assert(cppStrings.size() == enqueueProgramOp.getNumRegions() &&
          "cppStrings size must match number of regions");
 
-  // We must load the EmitC dialect before we can emit any EmitC code. This
-  // dialect won't be loaded by MLIR until pass manager starts a pass that
-  // depends on it. Because we want to emit EmitC code before that, we need to
-  // load it here.
-  dispatchOp.getContext()->getOrLoadDialect<emitc::EmitCDialect>();
-
-  for (auto &reg : dispatchOp->getRegions()) {
+  for (auto &reg : enqueueProgramOp->getRegions()) {
     auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
-        dispatchOp.getKernelConfigs()[reg.getRegionNumber()]);
-    if (emitDispatchOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-                                  kernelConfig)
+        enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
+    if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
+                          kernelConfig.getThreadType())
             .failed()) {
       return llvm::failure();
     }
   }
 
   return success();
+}
+
+LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,
+                              const ttkernel::ThreadType &threadType) {
+  llvm::SmallVector<func::FuncOp, 1> ops;
+  op->walk([&](func::FuncOp entry) { ops.push_back(entry); });
+
+  for (const auto &op : ops) {
+    for (auto &reg : op->getRegions()) {
+      if (emitOpRegionAsCpp(&reg, os, threadType).failed()) {
+        return llvm::failure();
+      }
+    }
+  }
+  return llvm::success();
 }
 
 } // namespace mlir::tt

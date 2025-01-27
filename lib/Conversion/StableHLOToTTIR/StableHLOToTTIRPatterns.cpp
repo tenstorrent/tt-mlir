@@ -84,6 +84,14 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::MaxOp>(srcOp, adaptor,
                                                             rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::MinOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::MinOp>(srcOp, adaptor,
+                                                            rewriter);
+    }
+    if (mlir::isa<mlir::stablehlo::MulOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ProdOp>(srcOp, adaptor,
+                                                             rewriter);
+    }
 
     return failure();
   }
@@ -291,16 +299,24 @@ private:
         return rebuildValueAttr<bool>(valueAttr, 1);
       }
       case 8: {
-        return rebuildValueAttr<int8_t>(valueAttr, 8);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint8_t>(valueAttr, 8)
+                   : rebuildValueAttr<int8_t>(valueAttr, 8);
       }
       case 16: {
-        return rebuildValueAttr<int16_t>(valueAttr, 16);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint16_t>(valueAttr, 16)
+                   : rebuildValueAttr<int16_t>(valueAttr, 16);
       }
       case 32: {
-        return rebuildValueAttr<int32_t>(valueAttr, 32);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint32_t>(valueAttr, 32)
+                   : rebuildValueAttr<int32_t>(valueAttr, 32);
       }
       case 64: {
-        return rebuildValueAttr<int64_t>(valueAttr, 32);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint64_t>(valueAttr, 32)
+                   : rebuildValueAttr<int64_t>(valueAttr, 32);
       }
       default: {
         assert(false && "Unsupported integer type.");
@@ -331,7 +347,8 @@ private:
 
   // Extract the values (using the given ElementType) and create new data
   // structure. This is used to convert scalars (of type boolean, int8, int16,
-  // int32, and int64) and tensors (of type boolean and int64).
+  // int32, int64, uint8, uint16, uint32, uint64) and tensors (of type boolean
+  // and int64).
   template <typename ElementType>
   mlir::ElementsAttr rebuildValueAttr(mlir::ElementsAttr valueAttr,
                                       size_t bitWidth) const {
@@ -1058,16 +1075,16 @@ public:
       }
     }
 
-    // Algorithm here is to search for the first non-one working dimension
+    // Algorithm: search for first non-one working dimension from back
     auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    size_t dim = 0;
-    for (auto s : replicaGroupsShape) {
-      if (s != 1) {
+    size_t dim = replicaGroupsShape.size() - 1;
+    for (auto s = replicaGroupsShape.rbegin(); s != replicaGroupsShape.rend();
+         ++s, --dim) {
+      if (*s != 1) {
         break;
       }
-      ++dim;
     }
-    if (dim > replicaGroupsShape.size()) {
+    if (dim < 0) {
       // all one shape, then select the fastest dim
       dim = replicaGroupsShape.size();
     }

@@ -22,7 +22,9 @@ void createTTNNPipelineTTIRPasses(
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
 
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
 
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
@@ -67,7 +69,7 @@ void createTTNNPipelineLoweringPasses(
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   TTNNWorkaroundsOptions workaroundOptions{
-      options.layouotWorkaroundsEnabled,
+      options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
@@ -118,9 +120,24 @@ void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
   createTTNNPipelineDeallocPass(pm, *optionsStruct);
 }
 
+void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
+}
+
+void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
+    OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineTTIRImplicitBroadcastFoldPass(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTNNPipelineTTIRPasses(pm, options);
+  createTTNNPipelineTTIRImplicitBroadcastFoldPass(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
   createTTNNPipelineWorkaroundPass(pm, options);
   createTTNNPipelineAnalysisPasses(pm, options);
@@ -131,6 +148,7 @@ void createTTIRToTTNNBackendPipeline(
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
   createTTIRToTTNNBackendPipeline(pm, options);
+  pm.addPass(createTTNNCreateInputGenerators());
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 

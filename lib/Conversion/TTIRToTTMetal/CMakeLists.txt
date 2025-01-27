@@ -1,6 +1,7 @@
 add_mlir_library(TTMLIRTTIRToTTMetal
   TTIRToTTMetal.cpp
   TTIRToTTMetalPass.cpp
+  AttachMetalLayout.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToTTMetal

@@ -27,7 +27,7 @@ module attributes {} {
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<64x64xbf16, #[[LAYOUT_3]]>
     %1 = "ttir.relu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
     %2 = tensor.empty() : tensor<64x64xbf16>
-    %3 = "ttir.relu"(%1, %2) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+    %3 = "ttir.gelu"(%1, %2) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
     %4 = tensor.empty() : tensor<64x32xbf16>
     %5 = "ttir.matmul"(%1, %arg1, %4) : (tensor<64x64xbf16>, tensor<64x32xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16>
     %6 = tensor.empty() : tensor<64x32xbf16>
@@ -35,7 +35,7 @@ module attributes {} {
     %8 = tensor.empty() : tensor<64x32xbf16>
     // CHECK: %{{.*}} = "ttnn.matmul"{{.*}} -> tensor<64x32xbf16, #[[LAYOUT_5]]>
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<64x32xbf16, #[[LAYOUT_5]]>
-    // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<64x64xbf16, #[[LAYOUT_5]]>
+    // CHECK: %{{.*}} = "ttnn.gelu"{{.*}} -> tensor<64x64xbf16, #[[LAYOUT_5]]>
     // CHECK: %{{.*}} = "ttnn.matmul"{{.*}} -> tensor<64x32xbf16, #[[LAYOUT_5]]>
     %9 = "ttir.matmul"(%3, %7, %8) : (tensor<64x64xbf16>, tensor<64x32xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16>
     return %9 : tensor<64x32xbf16>

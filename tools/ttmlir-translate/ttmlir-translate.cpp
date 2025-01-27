@@ -17,11 +17,19 @@ namespace mlir::tt::ttmetal {
 void registerTTMetalToFlatbuffer();
 } // namespace mlir::tt::ttmetal
 
+namespace mlir::tt::ttkernel {
+void registerTensixKernelToCpp();
+void registerNocKernelToCpp();
+} // namespace mlir::tt::ttkernel
+
 // Place to register all the custom translations
 static void registerCustomTranslations() {
   static bool initOnce = []() {
     mlir::tt::ttnn::registerTTNNToFlatbuffer();
     mlir::tt::ttmetal::registerTTMetalToFlatbuffer();
+    mlir::tt::ttkernel::registerNocKernelToCpp();
+    mlir::tt::ttkernel::registerTensixKernelToCpp();
+
     return true;
   }();
   (void)initOnce;

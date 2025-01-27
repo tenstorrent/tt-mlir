@@ -78,7 +78,8 @@ static bool workaroundInputOperand(
   // input operand.
   auto inputValue =
       mlir::cast<mlir::TypedValue<RankedTensorType>>(inputOperand.get());
-  TTNNLayoutAttr inputLayoutAttr = utils::getLayoutAttrFromTensor(inputValue);
+  TTNNLayoutAttr inputLayoutAttr =
+      utils::getLayoutAttrFromTensor(inputValue.getType());
 
   // Apply the workarounds on the input operand workaround arguments
   wa::WorkaroundResults inputWorkaroundResults =
@@ -124,7 +125,8 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
                         wa::TTNNWorkaroundInterface op) {
   // Get the current output tensor layout, buffer type and memory layout from
   // the input operand.
-  TTNNLayoutAttr opResultLayoutAttr = utils::getLayoutAttrFromTensor(opResult);
+  TTNNLayoutAttr opResultLayoutAttr =
+      utils::getLayoutAttrFromTensor(opResult.getType());
 
   // Apply the workarounds on the output result workaround arguments
   wa::WorkaroundResults outputWorkaroundResults =
@@ -156,7 +158,9 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   // Create the new output layout attribute with the updated tensor layout,
   // buffer type, memory layout and data type.
   TTNNLayoutAttr newOutputLayoutAttr =
-      opResultLayoutAttr.withElementType(rewriter.getContext(), elementType)
+      opResultLayoutAttr
+          .withElementType(rewriter.getContext(), elementType,
+                           opResultType.getShape())
           .withBufferType(
               rewriter.getContext(),
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
@@ -425,17 +429,21 @@ public:
                        ttnn::MaxOp>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
                        ttnn::MeanOp>,
+                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+                       ttnn::MinOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
                        ttnn::SumOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
                        ttnn::MaxOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
-                       ttnn::MeanOp>>(&getContext());
+                       ttnn::MeanOp>,
+                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
+                       ttnn::MinOp>>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
     }
-    if (layouotWorkaroundsEnabled) {
+    if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
 

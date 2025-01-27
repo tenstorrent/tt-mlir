@@ -51,8 +51,8 @@ TEST_F(OpModelTest, ReluInterleaved) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 8192);
-  EXPECT_EQ(output_size, 4096);
-  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(output_size, 2048);
+  EXPECT_EQ(peak_size, 2048);
 
   std::tie(legal, l1Usage, errorMsg) = ReluOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_dram);
@@ -71,8 +71,8 @@ TEST_F(OpModelTest, ReluInterleaved) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 8192);
-  EXPECT_EQ(output_size, 4096);
-  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(output_size, 2048);
+  EXPECT_EQ(peak_size, 2048);
 }
 
 TEST_F(OpModelTest, ReluSharded) {
@@ -153,8 +153,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 137216);
-  EXPECT_EQ(output_size, 4096);
-  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(output_size, 2048);
+  EXPECT_EQ(peak_size, 2048);
 
   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram);
@@ -173,8 +173,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 137216);
-  EXPECT_EQ(output_size, 4096);
-  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(output_size, 2048);
+  EXPECT_EQ(peak_size, 2048);
 
   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
@@ -278,8 +278,8 @@ TEST_F(OpModelTest, AddInterleaved) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 12288);
-  EXPECT_EQ(peak_size, 4096);
-  EXPECT_EQ(output_size, 4096);
+  EXPECT_EQ(peak_size, 2048);
+  EXPECT_EQ(output_size, 2048);
 
   std::tie(legal, l1Usage, errorMsg) = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
@@ -300,8 +300,8 @@ TEST_F(OpModelTest, AddInterleaved) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 12288);
-  EXPECT_EQ(peak_size, 4096);
-  EXPECT_EQ(output_size, 4096);
+  EXPECT_EQ(peak_size, 2048);
+  EXPECT_EQ(output_size, 2048);
 
   std::tie(legal, l1Usage, errorMsg) = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
@@ -322,8 +322,8 @@ TEST_F(OpModelTest, AddInterleaved) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 12288);
-  EXPECT_EQ(peak_size, 4096);
-  EXPECT_EQ(output_size, 4096);
+  EXPECT_EQ(peak_size, 2048);
+  EXPECT_EQ(output_size, 2048);
 
   std::tie(legal, l1Usage, errorMsg) = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
@@ -344,8 +344,8 @@ TEST_F(OpModelTest, AddInterleaved) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 12288);
-  EXPECT_EQ(peak_size, 4096);
-  EXPECT_EQ(output_size, 4096);
+  EXPECT_EQ(peak_size, 2048);
+  EXPECT_EQ(output_size, 2048);
 
   std::tie(legal, l1Usage, errorMsg) = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
@@ -389,8 +389,8 @@ TEST_F(OpModelTest, AddSharded) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 32768);
-  EXPECT_EQ(peak_size, 229376);
-  EXPECT_EQ(output_size, 229376);
+  EXPECT_EQ(peak_size, 262144);
+  EXPECT_EQ(output_size, 262144);
 
   std::tie(legal, l1Usage, errorMsg) = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_dram,
@@ -411,8 +411,8 @@ TEST_F(OpModelTest, AddSharded) {
   EXPECT_FALSE(errorMsg.has_value());
   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
   EXPECT_EQ(cb_size, 65536);
-  EXPECT_EQ(peak_size, 229376);
-  EXPECT_EQ(output_size, 229376);
+  EXPECT_EQ(peak_size, 262144);
+  EXPECT_EQ(output_size, 262144);
 }
 
 class OpModelMatmulParam
@@ -502,7 +502,7 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
             mlir::tt::ttnn::BufferType::DRAM, llvm::SmallVector<int64_t>{8, 8},
-            llvm::SmallVector<int64_t>{8, 8}, true, 753664, 0, 0),
+            llvm::SmallVector<int64_t>{8, 8}, true, 655360, 0, 0),
         std::make_tuple(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
@@ -513,7 +513,7 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
             mlir::tt::ttnn::BufferType::L1, llvm::SmallVector<int64_t>{8, 8},
-            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 151552, 151552),
+            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 131072, 131072),
         std::make_tuple(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
@@ -535,7 +535,7 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
             mlir::tt::ttnn::BufferType::L1, llvm::SmallVector<int64_t>{8, 8},
-            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 151552, 151552),
+            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 131072, 131072),
         std::make_tuple(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
@@ -557,7 +557,7 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
             mlir::tt::ttnn::BufferType::L1, llvm::SmallVector<int64_t>{8, 8},
-            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 151552, 151552),
+            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 131072, 131072),
         std::make_tuple(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
@@ -579,7 +579,7 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
             mlir::tt::ttnn::BufferType::L1, llvm::SmallVector<int64_t>{8, 8},
-            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 151552, 151552)));
+            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 131072, 131072)));
 
 INSTANTIATE_TEST_SUITE_P(
     MatmulShardedTests, OpModelMatmulParam,

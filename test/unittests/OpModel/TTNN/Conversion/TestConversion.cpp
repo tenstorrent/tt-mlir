@@ -294,7 +294,6 @@ TEST_P(ShardSpecFixture, ShardSpec) {
   // Purpose of testing them is to update the test
   // if the compiler side changes.
   EXPECT_EQ(shardSpec->orientation, ShardOrientation::ROW_MAJOR);
-  EXPECT_EQ(shardSpec->halo, false);
   EXPECT_EQ(shardSpec->mode, ShardMode::PHYSICAL);
   EXPECT_EQ(shardSpec->physical_shard_shape.has_value(), false);
 }

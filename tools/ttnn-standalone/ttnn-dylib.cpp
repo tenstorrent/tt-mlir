@@ -1,45 +1,60 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttnn-dylib.hpp"
 
-// Forward function example
-//
-std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs) {
-  ttnn::Tensor v1 = inputs[0];
-  ttnn::Tensor v2 = inputs[1];
-  ttnn::IDevice *v3 = ttnn::DeviceGetter::getInstance();
-  ttnn::MemoryConfig v4 = ttnn::MemoryConfig(
-      ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
-  ttnn::Tensor v5 = ttnn::to_device(v1, v3, v4);
-  ttnn::Tensor v6 =
-      ttnn::to_layout(v5, ttnn::Layout::TILE, std::nullopt, std::nullopt,
-                      static_cast<::ttnn::IDevice *>(nullptr));
-  ttnn::deallocate(v5, false);
-  ttnn::MemoryConfig v7 = ttnn::MemoryConfig(
-      ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
-  ttnn::Tensor v8 = ttnn::to_device(v2, v3, v7);
-  ttnn::Tensor v9 =
-      ttnn::to_layout(v8, ttnn::Layout::TILE, std::nullopt, std::nullopt,
-                      static_cast<::ttnn::IDevice *>(nullptr));
-  ttnn::deallocate(v8, false);
-  ttnn::Shape v10 = ttnn::Shape(tt::tt_metal::LegacyShape({
-      32,
-      32,
-  }));
-  ttnn::MemoryConfig v11 = ttnn::MemoryConfig(
-      ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
-  ttnn::Tensor v12 =
-      ttnn::empty(v10, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, v3, v11);
-  ttnn::Tensor v13 = ttnn::add(v6, v9, std::nullopt, std::nullopt, v12);
-  ttnn::deallocate(v9, false);
+template <typename... T>
+std::vector<ttnn::Tensor> utilCreateVec(T &&...t) {
+  return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
+#include "ttnn-precompiled.hpp"
+std::vector<ttnn::Tensor> add(std::vector<ttnn::Tensor> v1, ttnn::IDevice* v2) {
+  ttnn::Tensor v3 = v1[0];
+  ttnn::Tensor v4 = v1[1];
+  ttnn::MemoryConfig v5 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v6 = ttnn::to_device(v3, v2, v5);
+  ttnn::Tensor v7 = ttnn::to_layout(v6, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
   ttnn::deallocate(v6, false);
-  ttnn::Tensor v14 = ttnn::from_device(v13);
-  ttnn::deallocate(v12, false);
-  ttnn::Tensor v15 =
-      ttnn::to_layout(v14, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
-                      static_cast<::ttnn::IDevice *>(nullptr));
-  ttnn::deallocate(v14, false);
-  return std::vector<ttnn::Tensor>{v15};
+  ttnn::MemoryConfig v8 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v9 = ttnn::to_device(v4, v2, v8);
+  ttnn::Tensor v10 = ttnn::to_layout(v9, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  ttnn::deallocate(v9, false);
+  ttnn::SimpleShape v11 = ttnn::SimpleShape(tt::tt_metal::LegacyShape({32, 32, }));
+  ttnn::MemoryConfig v12 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v13 = ttnn::empty(v11, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, v2, v12);
+  ttnn::Tensor v14 = ttnn::add(v7, v10, std::nullopt, std::nullopt, v13);
+  ttnn::deallocate(v10, false);
+  ttnn::deallocate(v7, false);
+  ttnn::Tensor v15 = ttnn::from_device(v14);
+  ttnn::deallocate(v13, false);
+  ttnn::Tensor v16 = ttnn::to_layout(v15, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  ttnn::deallocate(v15, false);
+  std::vector<ttnn::Tensor> v17 = utilCreateVec(v16);
+  return v17;
+}
+
+std::vector<ttnn::Tensor> subtract(std::vector<ttnn::Tensor> v1, ttnn::IDevice* v2) {
+  ttnn::Tensor v3 = v1[0];
+  ttnn::Tensor v4 = v1[1];
+  ttnn::MemoryConfig v5 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v6 = ttnn::to_device(v3, v2, v5);
+  ttnn::Tensor v7 = ttnn::to_layout(v6, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  ttnn::deallocate(v6, false);
+  ttnn::MemoryConfig v8 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v9 = ttnn::to_device(v4, v2, v8);
+  ttnn::Tensor v10 = ttnn::to_layout(v9, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  ttnn::deallocate(v9, false);
+  ttnn::SimpleShape v11 = ttnn::SimpleShape(tt::tt_metal::LegacyShape({32, 32, }));
+  ttnn::MemoryConfig v12 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v13 = ttnn::empty(v11, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, v2, v12);
+  ttnn::Tensor v14 = ttnn::subtract(v7, v10, std::nullopt, std::nullopt, v13);
+  ttnn::deallocate(v10, false);
+  ttnn::deallocate(v7, false);
+  ttnn::Tensor v15 = ttnn::from_device(v14);
+  ttnn::deallocate(v13, false);
+  ttnn::Tensor v16 = ttnn::to_layout(v15, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  ttnn::deallocate(v15, false);
+  std::vector<ttnn::Tensor> v17 = utilCreateVec(v16);
+  return v17;
 }

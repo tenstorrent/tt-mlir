@@ -67,7 +67,7 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
 
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,
-      ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
+      ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 
   ::ttnn::MemoryConfig memoryConfig = {
       tensorMemoryLayout, bufferType,

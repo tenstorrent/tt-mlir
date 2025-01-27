@@ -23,7 +23,9 @@ This guide will cover the following steps:
     - [`runtime/lib/ttnn/operations/CMakeLists.txt`](#runtimelibttnnoperationscmakeliststxt)
     - [`runtime/lib/ttnn/program.cpp`](#runtimelibttnnprogramcpp)
   - [8. Add a silicon unit test for the Op](#8-add-a-silicon-unit-test-for-the-op)
-    - [`test/ttmlir/Silicon/TTNN/simple_matmul.mlir`](#testttmlirsiliconttnnsimple_matmulmlir)
+    - [`test/ttmlir/Silicon/TTNN/matmul/simple_matmul.mlir`](#testttmlirsiliconttnnmatmulsimple_matmulmlir)
+  - [9. Add an EmitC test for the Op](#9-add-an-emitc-test-for-the-op)
+    - [`test/ttmlir/EmitC/TTNN/matmul/matmul.mlir`](#testttmliremitcttnnmatmulmatmulmlir)
 
 ## 1. Define the Op in the TTIR frontend dialect
 
@@ -98,6 +100,8 @@ section for details, the process is the same.
 ```cpp
 {{#include ../../../lib/Dialect/TTNN/IR/TTNNOps.cpp:adding_an_op_matmul_ttnn_verify}}
 ```
+
+For more details on adding ops to the TTNN dialect, refer to [TTNN Dialect Contribution Guidelines](./ttnn-dialect-guidelines.md).
 
 ## 3. Convert / Implement the Op in the TTNN passes
 
@@ -300,11 +304,11 @@ ttrt run out.ttnn
 After adding runtime support, we're ready to test our Op on silicon. All silicon tests are located
 under `test/ttmlir/Silicon`. The process is similar to [adding a compiler unit test](#4-add-a-compiler-unit-test-for-the-op).
 
-In our specific case, we create a unit test here: `test/ttmlir/Silicon/TTNN/simple_matmul.mlir`:
+In our specific case, we create a unit test here:
 
-#### `test/ttmlir/Silicon/TTNN/simple_matmul.mlir`
+#### `test/ttmlir/Silicon/TTNN/matmul/simple_matmul.mlir`
 ```mlir
-{{#include ../../../test/ttmlir/Silicon/TTNN/simple_matmul.mlir}}
+{{#include ../../../test/ttmlir/Silicon/TTNN/matmul/simple_matmul.mlir}}
 ```
 
 Couple things to point out about this process:
@@ -316,3 +320,15 @@ If you want the module to run on silicon in CI, the test must be placed under `t
   Ensuring the system descriptor accurately reflects the target hardware is essential for running the module correctly.
   - `// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn`: This runs `ttmlir-translate` that serializes the output mlir module to a flatbuffer binary.
   We added the logic for this serialization in the [Serialize the Op in the flatbuffer format](#6-serialize-the-op-in-the-flatbuffer-format) section.
+
+## 9. Add an EmitC test for the Op
+Op should be tested in the EmitC (C++ codegen) path as well.
+
+TTNN EmitC tests live in the `test/ttmlir/EmitC/TTNN` path. In our case, the test is in `test/ttmlir/EmitC/TTNN/matmul/matmul.mlir`.
+
+#### `test/ttmlir/EmitC/TTNN/matmul/matmul.mlir`
+```cpp
+{{#include ../../../test/ttmlir/EmitC/TTNN/matmul/matmul.mlir}}
+```
+
+The first two `RUN` lines create a flatbuffer. The third and forth convert to EmitC dialect, translate to C++, then output the result to `matmul.mlir.cpp` file.

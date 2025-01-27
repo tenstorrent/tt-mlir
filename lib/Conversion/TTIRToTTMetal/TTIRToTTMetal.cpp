@@ -51,8 +51,8 @@ namespace mlir::tt::ttmetal {
 
 // This routine walks the SSA value chain to find the address of the value.
 // It runs into and gets the address from one of the following:
-//   - ttir::AllocOp: The address is the address of the allocation is embedded
-//   in the op attributes.
+//   - ttir::CreateBufferOp: The address is the address of the allocation is
+//   embedded in the op attributes.
 //   - func::FuncOp Argument: The address is taken from ArgumentAllocationAttr.
 //
 // This routine is used to lookup the address of tensors for address generation
@@ -271,7 +271,7 @@ public:
     std::int64_t inputBaseAddress = lookupAddress(op.getInput());
     std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
 
-    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+    auto metalEnqueueProgram = rewriter.create<ttmetal::EnqueueProgramOp>(
         op.getLoc(), SmallVector<Type>({outputTy}),
         SmallVector<Value>({op.getInput()}),
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
@@ -286,14 +286,15 @@ public:
 
     int regIdx = 0;
     for (auto [dstCoord, transactions] : dm) {
-      Block *block = rewriter.createBlock(&metalDispatch.getRegion(regIdx++));
+      Block *block =
+          rewriter.createBlock(&metalEnqueueProgram.getRegion(regIdx++));
       createDataMovementThread(op->getLoc(), block, inputBaseAddress,
                                outputBaseAddress, transactions,
                                physicalCoordMapping, addressAlignment);
       OpBuilder endBuilder = OpBuilder::atBlockEnd(block);
       endBuilder.create<ttkernel::ReturnOp>(op->getLoc());
     }
-    rewriter.replaceOp(op, metalDispatch);
+    rewriter.replaceOp(op, metalEnqueueProgram);
 
     return llvm::success();
   }
@@ -365,7 +366,7 @@ public:
         rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
     };
 
-    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+    auto metalEnqueueProgram = rewriter.create<ttmetal::EnqueueProgramOp>(
         op.getLoc(), SmallVector<Type>({outputTy}),
         SmallVector<Value>({op.getInput()}),
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
@@ -373,7 +374,8 @@ public:
 
     std::int64_t inputBaseAddress = lookupAddress(op.getInput());
     std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
-    Block *tensixBlock = rewriter.createBlock(&metalDispatch.getRegion(0));
+    Block *tensixBlock =
+        rewriter.createBlock(&metalEnqueueProgram.getRegion(0));
     OpBuilder tensixBuilder(tensixBlock, tensixBlock->begin());
     uint64_t pageSize = inputLayout.isTiled()
                             ? inputLayout.getElementSizeBytes()
@@ -435,7 +437,7 @@ public:
 
     tensixBuilder.create<ttkernel::ReturnOp>(op.getLoc());
 
-    rewriter.replaceOp(op, metalDispatch);
+    rewriter.replaceOp(op, metalEnqueueProgram);
 
     return success();
   }
@@ -471,7 +473,7 @@ public:
         assert(false && "System memory to device memory is not supported yet");
       } else if (outputLayout.isSystemMemorySpace()) {
         assert(inputLayout.isDeviceMemorySpace());
-        rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
+        rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(
             op, outputTy, op.getInput(), op.getOutput());
       } else {
         return relayout(op, rewriter);
@@ -486,24 +488,8 @@ public:
   }
 };
 
-class TTIRToTTMetalKernelRewriter : public OpRewritePattern<ttir::KernelOp> {
-public:
-  using OpRewritePattern<ttir::KernelOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::KernelOp op,
-                                PatternRewriter &rewriter) const final {
-    if (not op->use_empty()) {
-      return failure();
-    }
-    rewriter.create<ttkernel::BuiltinOp>(op.getLoc(), op.getOpAttr(),
-                                         op.getKindAttr(), op.getOperands());
-    op->dropAllUses();
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-class TTIRToTTMetalDispatchRewriter : public OpRewritePattern<ttir::GenericOp> {
+class TTIRToTTMetalEnqueueProgramRewriter
+    : public OpRewritePattern<ttir::GenericOp> {
 public:
   using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
 
@@ -872,6 +858,7 @@ public:
 
     // For all unary ops first copy tile from input CB at inCBTileIndex to DST
     // register at dstTileIndex.
+    builder.create<ttkernel::CopyTileInitOp>(location, inCB);
     builder.create<ttkernel::CopyTileOp>(location, inCB, inCBTileIndex,
                                          dstTileIndex);
 
@@ -1007,9 +994,10 @@ public:
     builder.create<ttkernel::TileRegsAcquireOp>(location);
     {
       // copy inCB0[inCB0TileIndex] and inCB1[inCB1TileIndex] to DST:
-      builder.create<ttkernel::CopyTileInitOp>(location);
+      builder.create<ttkernel::CopyTileInitOp>(location, inCB0);
       builder.create<ttkernel::CopyTileOp>(location, inCB0, inCB0TileIndex,
                                            dstLhsTileIndex);
+      builder.create<ttkernel::CopyTileInitOp>(location, inCB1);
       builder.create<ttkernel::CopyTileOp>(location, inCB1, inCB1TileIndex,
                                            dstRhsTileIndex);
       // SFPU operates on DST tiles:
@@ -1074,7 +1062,7 @@ public:
     auto inputCB = cbOperands[operandIndices[0]];
     auto outputCB = inputCB;
 
-    builder.create<ttkernel::CopyTileInitOp>(op.getLoc());
+    builder.create<ttkernel::CopyTileInitOp>(op.getLoc(), inputCB);
     builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inputCB, one);
     builder.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
     builder.create<ttkernel::RecipTileInitOp>(op.getLoc());
@@ -1225,10 +1213,10 @@ public:
   }
 
   // Builds instructions to execute after loops are finished.
-  void buildEndSection(OpBuilder &dispatchBlockBuilder,
+  void buildEndSection(OpBuilder &enqueueProgramBlockBuilder,
                        Block *origGenericOpBlock) const {
     // Place return op at the end of block, after loops.
-    dispatchBlockBuilder.create<ttkernel::ReturnOp>(
+    enqueueProgramBlockBuilder.create<ttkernel::ReturnOp>(
         origGenericOpBlock->getTerminator()->getLoc());
   }
 
@@ -1618,7 +1606,7 @@ public:
   void generateDataMovementThreads(
       ttir::GenericOp op, Block *tensixBlock,
       ArrayRef<StreamedOperand> streamedOperands, PatternRewriter &rewriter,
-      ttmetal::DispatchOp &metalDispatch,
+      ttmetal::EnqueueProgramOp &metalEnqueueProgram,
       ArrayRef<Type> rewrittenBlockArgumentTypes) const {
 
     // TODO(1159) move TTIRToTTMetalLayoutRewriter::createDataMovementThreads
@@ -1632,10 +1620,10 @@ public:
         continue;
       }
       for (auto [dstCoord, srcs] : operand.dataMovement) {
-        Block *block =
-            coordToBlock.find(dstCoord) == coordToBlock.end()
-                ? rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++))
-                : coordToBlock[dstCoord];
+        Block *block = coordToBlock.find(dstCoord) == coordToBlock.end()
+                           ? rewriter.createBlock(
+                                 &metalEnqueueProgram.getRegion(dmThreadIdx++))
+                           : coordToBlock[dstCoord];
         coordToBlock[dstCoord] = block;
 
         block->addArgument(rewrittenBlockArgumentTypes[operand.blockArgIndex],
@@ -1654,7 +1642,7 @@ public:
       if (coordToBlock.empty()) {
         // No data movement, so we need to add a block for the scaler.
         coordToBlock[PhysicalCoreCoord()] =
-            rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++));
+            rewriter.createBlock(&metalEnqueueProgram.getRegion(dmThreadIdx++));
       }
 
       Type scalerCBType;
@@ -1760,39 +1748,40 @@ public:
           getContext(), {dstCoord.y, dstCoord.x}, gridShape));
     }
 
-    // Wire generic's operands to dispatch op's operands with respect to the CB
-    // mapping.
-    SmallVector<Value> inputsToDispatchOp;
+    // Wire generic's operands to enqueue program op's operands with respect to
+    // the CB mapping.
+    SmallVector<Value> inputsToEnqueueProgramOp;
     for (size_t i = 0; i < op.getInputs().size(); ++i) {
       auto operand = op.getOperandCbMapping()[i] == -1
                          ? op.getMatchingOperand(i)
                          : op.getCbs()[op.getOperandCbMapping()[i]];
-      inputsToDispatchOp.push_back(operand);
+      inputsToEnqueueProgramOp.push_back(operand);
     }
 
-    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
-        op.getLoc(), op.getResults().getTypes(), inputsToDispatchOp,
+    auto metalEnqueueProgram = rewriter.create<ttmetal::EnqueueProgramOp>(
+        op.getLoc(), op.getResults().getTypes(), inputsToEnqueueProgramOp,
         op.getOutputs(), rewriter.getArrayAttr(coreRanges),
         rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
-    Block *tensixBlock = &metalDispatch.getRegion(0).emplaceBlock();
+    Block *tensixBlock = &metalEnqueueProgram.getRegion(0).emplaceBlock();
 
     for (auto ty : rewrittenBlockArgumentTypes) {
       tensixBlock->addArgument(ty, op.getLoc());
     }
 
     generateDataMovementThreads(op, tensixBlock, streamedOperands, rewriter,
-                                metalDispatch, rewrittenBlockArgumentTypes);
+                                metalEnqueueProgram,
+                                rewrittenBlockArgumentTypes);
 
     lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
                op.getIndexingMaps(), op.getInputs().size());
 
     addSyncronizationForDataMovement(op, tensixBlock, streamedOperands);
 
-    // Regions for dispatch op are allocated up-front, but some of them may be
-    // empty at the end of lowering due to no data movement requirements. Insert
-    // return op in those regions.
-    for (Region &reg : metalDispatch->getRegions()) {
+    // Regions for enqueue program op are allocated up-front, but some of them
+    // may be empty at the end of lowering due to no data movement requirements.
+    // Insert return op in those regions.
+    for (Region &reg : metalEnqueueProgram->getRegions()) {
       if (reg.empty()) {
         auto &block = reg.emplaceBlock();
         OpBuilder builder = OpBuilder::atBlockEnd(&block);
@@ -1800,7 +1789,7 @@ public:
       }
     }
 
-    rewriter.replaceOp(op, metalDispatch);
+    rewriter.replaceOp(op, metalEnqueueProgram);
 
     return success();
   }
@@ -1812,7 +1801,7 @@ public:
 
   LogicalResult matchAndRewrite(ttir::AllocOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::AllocOp>(
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
         op, op.getType(), op.getAddress(), op.getSize(), op.getMemorySpace());
     return success();
   }
@@ -1824,7 +1813,8 @@ public:
 
   LogicalResult matchAndRewrite(ttir::DeallocOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::DeallocOp>(op, op.getResult());
+    rewriter.replaceOpWithNewOp<ttmetal::DeallocateBufferOp>(op,
+                                                             op.getResult());
     return success();
   }
 };
@@ -1835,7 +1825,7 @@ public:
 
   LogicalResult matchAndRewrite(ttir::FillOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
+    rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(
         op, op.getResult().getType(), op.getOutput(), op.getValue());
     return success();
   }
@@ -1849,7 +1839,7 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter & /*typeConverter*/) {
   patterns.add<ttmetal::TTIRToTTMetalLayoutRewriter,
-               ttmetal::TTIRToTTMetalDispatchRewriter,
+               ttmetal::TTIRToTTMetalEnqueueProgramRewriter,
                ttmetal::TTIRToTTMetalAllocRewriter,
                ttmetal::TTIRToTTMetalDeallocRewriter,
                ttmetal::TTIRToTTMetalFillRewriter>(ctx);
