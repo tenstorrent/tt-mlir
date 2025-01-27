@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/Transforms/Layout.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -12,9 +13,6 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRLAYOUT
-#define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
   if (isa<NameLoc>(loc)) {
@@ -207,8 +205,8 @@ public:
         continue;
       }
 
-      Location newLoc =
-          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+      Location newLoc = TTIRLayout::loc(
+          appendInputSuffix(op.getLoc(), operand.getOperandNumber()));
       auto desiredLayout =
           createToLayoutOp(rewriter, newLoc, operand.get(), defaultMemorySpace,
                            defaultDeviceMemoryLayout, true /* isTiled */);
@@ -253,8 +251,8 @@ public:
       if (isDeviceMemorySpace(initMemorySpace)) {
         initMemoryLayout = defaultDeviceMemoryLayout;
       }
-      Location newLoc =
-          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+      Location newLoc = TTIRLayout::loc(
+          appendInputSuffix(op.getLoc(), operand.getOperandNumber()));
       if (auto layout =
               createToLayoutOp(rewriter, newLoc, operand.get(), initMemorySpace,
                                initMemoryLayout, tiled);
@@ -272,47 +270,42 @@ private:
   TensorMemoryLayout defaultDeviceMemoryLayout;
 };
 
-class TTIRLayout : public impl::TTIRLayoutBase<TTIRLayout> {
-public:
-  using impl::TTIRLayoutBase<TTIRLayout>::TTIRLayoutBase;
-
-  void runOnOperation() final {
-    {
-      auto device = getCurrentScopeDevice(getOperation());
-      assert(device && "Device not found");
-      TTIRLayoutTensorTypeConverter typeConverter(
-          &getContext(), initMemorySpace, device.getWorkerGrid());
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
-        signalPassFailure();
-        return;
-      }
-    }
-    {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRLayoutDPSOperandsRewriter>(
-          &getContext(), defaultMemorySpace, defaultDeviceMemoryLayout);
-      patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(), initMemorySpace,
-                                                 defaultDeviceMemoryLayout);
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      config.useTopDownTraversal = true;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
-        signalPassFailure();
-        return;
-      }
+void TTIRLayout::runOnOperation() {
+  {
+    auto device = getCurrentScopeDevice(getOperation());
+    assert(device && "Device not found");
+    TTIRLayoutTensorTypeConverter typeConverter(&getContext(), initMemorySpace,
+                                                device.getWorkerGrid());
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+      return;
     }
   }
-
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::TTDialect>();
-    registry.insert<mlir::func::FuncDialect>();
+  {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRLayoutDPSOperandsRewriter>(
+        &getContext(), defaultMemorySpace, defaultDeviceMemoryLayout);
+    patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(), initMemorySpace,
+                                               defaultDeviceMemoryLayout);
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    GreedyRewriteConfig config = GreedyRewriteConfig();
+    config.useTopDownTraversal = true;
+    if (failed(
+            applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
+      signalPassFailure();
+      return;
+    }
   }
-};
+}
+
+void TTIRLayout::getDependentDialects(mlir::DialectRegistry &registry) const {
+  registry.insert<mlir::tt::ttir::TTIRDialect>();
+  registry.insert<mlir::tt::TTDialect>();
+  registry.insert<mlir::func::FuncDialect>();
+}
 
 //===----------------------------------------------------------------------===//
 // Split compound layout pass
@@ -335,7 +328,8 @@ public:
   Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
                MetalLayoutAttr bounceLayout) const {
     auto bounced =
-        createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceLayout);
+        createToLayoutOp(rewriter, TTIRSplitCompoundLayout::loc(op.getLoc()),
+                         op.getInput(), bounceLayout);
     return rewriter.replaceOpWithNewOp<ttir::ToLayoutOp>(
         op, op.getOutput().getType(), bounced, op.getOutput());
   }
@@ -414,26 +408,20 @@ public:
   }
 };
 
-class TTIRSplitCompoundLayout
-    : public impl::TTIRSplitCompoundLayoutBase<TTIRSplitCompoundLayout> {
-public:
-  using impl::TTIRSplitCompoundLayoutBase<
-      TTIRSplitCompoundLayout>::TTIRSplitCompoundLayoutBase;
-
-  void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRSplitCompoundLayoutRewriter>(&getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
-      signalPassFailure();
-      return;
-    }
+void TTIRSplitCompoundLayout::runOnOperation() {
+  RewritePatternSet patterns(&getContext());
+  patterns.add<TTIRSplitCompoundLayoutRewriter>(&getContext());
+  FrozenRewritePatternSet patternSet(std::move(patterns));
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+    signalPassFailure();
+    return;
   }
+}
 
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::TTDialect>();
-  }
-};
+void TTIRSplitCompoundLayout::getDependentDialects(
+    mlir::DialectRegistry &registry) const {
+  registry.insert<mlir::tt::ttir::TTIRDialect>();
+  registry.insert<mlir::tt::TTDialect>();
+}
 
 } // namespace mlir::tt::ttir

@@ -10,11 +10,14 @@
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn::utils {
 // Get or insert device for the given operation.
-GetDeviceOp getOrInsertDevice(mlir::PatternRewriter &rewriter,
-                              mlir::Operation *op);
+GetDeviceOp
+getOrInsertDevice(mlir::PatternRewriter &rewriter, mlir::Operation *op,
+                  llvm::function_ref<mlir::Location(mlir::Location)> locFn =
+                      ::ttmlir::utils::identity<mlir::Location>);
 
 // Helper method to insert a ToLayoutOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
@@ -24,7 +27,9 @@ createToLayoutOp(mlir::Operation *op,
                  PatternRewriter &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
                  std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
-                 DataType targetTensorDataType);
+                 DataType targetTensorDataType,
+                 llvm::function_ref<mlir::Location(mlir::Location)> locFn =
+                     ::ttmlir::utils::identity<mlir::Location>);
 } // namespace mlir::tt::ttnn::utils
 
 #endif

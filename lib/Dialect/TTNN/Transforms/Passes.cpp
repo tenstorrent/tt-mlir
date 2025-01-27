@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Location/PassOpLoc.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -106,11 +107,14 @@ public:
           }
 
           rewriter.setInsertionPointAfter(lastOp);
-          rewriter.create<DeallocateOp>(lastOp->getLoc(), result);
+          rewriter.create<DeallocateOp>(loc(lastOp->getLoc()), result);
         }
       });
     });
   }
+
+  inline static mlir::ttmlir::PassOpLocFrom loc =
+      mlir::ttmlir::PassOpLocFrom(TTNNDeallocate::getArgumentName());
 };
 
 class TTNNCreateInputGenerators

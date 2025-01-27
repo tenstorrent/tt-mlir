@@ -68,7 +68,8 @@ public:
 
     // Device
     //
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto device = ttnn::utils::getOrInsertDevice(
+        rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
 
     // Create MemoryConfigAttr
     //
@@ -130,9 +131,10 @@ public:
 
     // Device only exists if memLayout is *not* null
     //
-    auto device =
-        memLayout ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
-                  : nullptr;
+    auto device = memLayout
+                      ? mlir::Value(ttnn::utils::getOrInsertDevice(
+                            rewriter, op, ttir::ConvertTTIRToTTNNPass::loc))
+                      : nullptr;
 
     // MemoryConfigAttr only exists if memLayout is *not* null
     //
@@ -231,9 +233,9 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
         outputLayout, outputDataType, outputMemConfigAttr,
-        isOutputOnHost
-            ? nullptr
-            : mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op)));
+        isOutputOnHost ? nullptr
+                       : mlir::Value(ttnn::utils::getOrInsertDevice(
+                             rewriter, op, ttir::ConvertTTIRToTTNNPass::loc)));
 
     return success();
   }
@@ -756,9 +758,9 @@ public:
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
-
     if (valueAttr.isSplat()) {
-      Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+      Value device = ttnn::utils::getOrInsertDevice(
+          rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
       float fillValue =
           valueAttr.getElementType().isInteger()
               ? getFloatFromIntegerValue(valueAttr)
@@ -857,7 +859,8 @@ public:
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto device = ttnn::utils::getOrInsertDevice(
+        rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
     auto kernel_ty =
         mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     llvm::ArrayRef<std::int64_t> kernel_shape = kernel_ty.getShape();
@@ -950,7 +953,8 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConvTranspose2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto device = ttnn::utils::getOrInsertDevice(
+        rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
 
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
@@ -1032,7 +1036,7 @@ private:
   llvm::Expected<DenseI32ArrayAttr>
   attrToDenseI32ArrayAttr(mlir::Attribute attr,
                           ConversionPatternRewriter &rewriter) const {
-    auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
+    auto pair = ::ttmlir::utils::getPairOfInteger<int32_t>(attr);
     if (auto error = pair.takeError()) {
       return error;
     }
@@ -1057,7 +1061,8 @@ public:
            "TTNN max_pool2d does not support padding top/bottom/left/right "
            "separately");
 
-    auto device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto device = mlir::tt::ttnn::utils::getOrInsertDevice(
+        rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
     auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
 
@@ -1160,7 +1165,8 @@ public:
       // addOp(lhs, negOp(rhs))
 
     } else {
-      Value device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
+      Value device = ttnn::utils::getOrInsertDevice(
+          rewriter, srcOp, ttir::ConvertTTIRToTTNNPass::loc);
       tensor::EmptyOp negEmptyOp = rewriter.create<tensor::EmptyOp>(
           srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType),
           device);
@@ -1191,7 +1197,9 @@ public:
     // pass of reduce_scatter output and all_gather input
     int32_t scatter_num =
         replicaGroupsShape[scatter_dim % replicaGroupsShape.size()];
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto device = ttnn::utils::getOrInsertDevice(
+        rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
         op, this->getTypeConverter()->convertType(op.getType(0)),
         adaptor.getInputs().front(), device, scatter_dim, scatter_num,
@@ -1210,7 +1218,8 @@ public:
   matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto device = ttnn::utils::getOrInsertDevice(
+        rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
     rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), device, adaptor.getShardDirection(),
@@ -1229,7 +1238,8 @@ public:
   matchAndRewrite(ttir::AllGatherOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto device = ttnn::utils::getOrInsertDevice(
+        rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), device, adaptor.getDim());
@@ -1259,7 +1269,8 @@ public:
 
     DataTypeAttr dtypeAttr = rewriter.getAttr<DataTypeAttr>(
         elementTypeToDataType(outputType.getElementType()));
-    Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
+    Value device = mlir::tt::ttnn::utils::getOrInsertDevice(
+        rewriter, op, ttir::ConvertTTIRToTTNNPass::loc);
 
     ttnn::MemoryConfigAttr memConfigAttr =
         rewriter.getAttr<ttnn::MemoryConfigAttr>(
