@@ -92,6 +92,10 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::ProdOp>(srcOp, adaptor,
                                                              rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
+          srcOp, adaptor, rewriter);
+    }
 
     return failure();
   }
@@ -110,6 +114,20 @@ private:
       return rewriter.notifyMatchFailure(
           srcOp,
           "Expecting StableHLO Reduce OP to have a body operation defined.");
+    }
+
+    mlir::Operation &innerOp = srcOp.getBody().front().front();
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+      bool allOperandsAreBoolean = std::all_of(
+          srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
+            return mlir::cast<RankedTensorType>(operand.getType())
+                       .getElementTypeBitWidth() == 1;
+          });
+      if (!allOperandsAreBoolean) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "stablehlo.reduce for stablehlo.and operator is only "
+                   "supported for logical and.");
+      }
     }
 
     return success();
@@ -615,7 +633,7 @@ private:
     }
 
     // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we acually have I must compare the raw
+    // since bfloat16 is not a type we actually have I must compare the raw
     // bits
     if (initValueOp.getResult().getType().getElementType().isBF16()) {
       // Collect the values into a vector
