@@ -371,8 +371,8 @@ public:
         continue;
       }
 
-      Location newLoc =
-          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+      Location newLoc = TTNNLayout::loc(
+          appendInputSuffix(op.getLoc(), operand.getOperandNumber()));
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
           rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
@@ -409,8 +409,8 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
-      Location newLoc =
-          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+      Location newLoc = TTNNLayout::loc(
+          appendInputSuffix(op.getLoc(), operand.getOperandNumber()));
       std::optional<Value> layout = createToLayoutOp(
           rewriter, newLoc, operand.get(), BufferType::SystemMemory,
           nullptr /* tensorMemoryLayoutAttr */, false /* tiled */);
