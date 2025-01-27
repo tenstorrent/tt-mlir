@@ -662,6 +662,17 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
 }
 
+def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
+    let summary = "Get compile-time arg value.";
+    let description = [{
+      Get compile-time argument value at specified index.
+    }];
+
+    let arguments = (ins I32:$arg_index);
+
+    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Helper functions
 //===----------------------------------------------------------------------===//
