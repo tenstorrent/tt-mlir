@@ -36,6 +36,7 @@ using namespace mlir::tt;
 
 namespace {
 
+namespace {
 class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
 public:
@@ -90,7 +91,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class OnesOpConversionPattern : public OpConversionPattern<ttir::OnesOp> {
 public:
   using OpConversionPattern<ttir::OnesOp>::OpConversionPattern;
@@ -154,7 +157,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
 public:
@@ -295,7 +300,9 @@ private:
     llvm_unreachable("Unreachable code path. Unexpected output layout enum");
   }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -316,7 +323,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ReductionOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -333,7 +342,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ReductionProdOpConversionPattern
     : public OpConversionPattern<ttir::ProdOp> {
 public:
@@ -367,7 +378,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class EmbeddingOpConversionPattern
     : public OpConversionPattern<ttir::EmbeddingOp> {
 public:
@@ -383,7 +396,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class EmbeddingBackwardOpConversionPattern
     : public OpConversionPattern<ttir::EmbeddingBackwardOp> {
 public:
@@ -436,7 +451,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class RepeatInterleaveOpConversionPattern
     : public OpConversionPattern<ttir::RepeatInterleaveOp> {
 public:
@@ -452,7 +469,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SoftmaxOpConversionPattern : public OpConversionPattern<ttir::SoftmaxOp> {
 public:
   using OpConversionPattern<ttir::SoftmaxOp>::OpConversionPattern;
@@ -466,7 +485,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TransposeOpConversionPattern
     : public OpConversionPattern<ttir::TransposeOp> {
 public:
@@ -481,7 +502,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ClampOpConversionPattern : public OpConversionPattern<ttir::ClampOp> {
 public:
   using OpConversionPattern<ttir::ClampOp>::OpConversionPattern;
@@ -495,7 +518,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class UpdateCacheOpConversionPattern
     : public OpConversionPattern<ttir::UpdateCacheOp> {
 public:
@@ -531,7 +556,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class FillCacheOpConversionPattern
     : public OpConversionPattern<ttir::FillCacheOp> {
 public:
@@ -567,7 +594,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseUnaryWithFloatParameterOpConversionPattern
@@ -584,7 +613,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConcatOpConversionPattern : public OpConversionPattern<ttir::ConcatOp> {
 public:
   using OpConversionPattern<ttir::ConcatOp>::OpConversionPattern;
@@ -603,7 +634,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ReshapeOpConversionPattern : public OpConversionPattern<ttir::ReshapeOp> {
 public:
   using OpConversionPattern<ttir::ReshapeOp>::OpConversionPattern;
@@ -617,7 +650,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
 public:
   using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
@@ -632,7 +667,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SqueezeOpConversionPattern : public OpConversionPattern<ttir::SqueezeOp> {
 public:
   using OpConversionPattern<ttir::SqueezeOp>::OpConversionPattern;
@@ -674,7 +711,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class BroadcastOpConversionPattern
     : public OpConversionPattern<ttir::BroadcastOp> {
   using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
@@ -693,7 +732,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class UnsqueezeOpConversionPattern
     : public OpConversionPattern<ttir::UnsqueezeOp> {
 public:
@@ -741,7 +782,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConstantOpConversionPattern
     : public OpConversionPattern<ttir::ConstantOp> {
 public:
@@ -818,7 +861,9 @@ private:
     assert(false && "Unsupported integer type.");
   }
 };
+} // namespace
 
+namespace {
 class LinearOpConversionPattern : public OpConversionPattern<ttir::LinearOp> {
 public:
   using OpConversionPattern<ttir::LinearOp>::OpConversionPattern;
@@ -832,8 +877,10 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
+namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
 public:
   using OpConversionPattern<ttir::MatmulOp>::OpConversionPattern;
@@ -847,8 +894,10 @@ public:
     return success();
   }
 };
+} // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
+namespace {
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -941,7 +990,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConvTranspose2dOpConversionPattern
     : public OpConversionPattern<ttir::ConvTranspose2dOp> {
 public:
@@ -1040,7 +1091,9 @@ private:
     return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
   }
 };
+} // namespace
 
+namespace {
 class MaxPool2dOpConversionPattern
     : public OpConversionPattern<ttir::MaxPool2dOp> {
 public:
@@ -1109,7 +1162,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TypecastOpConversionPattern
     : public OpConversionPattern<ttir::TypecastOp> {
   using OpConversionPattern<ttir::TypecastOp>::OpConversionPattern;
@@ -1135,7 +1190,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SubtractOpConversionPattern
     : public OpConversionPattern<ttir::SubtractOp> {
   using OpConversionPattern<ttir::SubtractOp>::OpConversionPattern;
@@ -1175,7 +1232,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class AllReduceOpConversionPattern
     : public OpConversionPattern<ttir::AllReduceOp> {
 public:
@@ -1200,7 +1259,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class MeshShardOpConversionPattern
     : public OpConversionPattern<ttir::MeshShardOp> {
 public:
@@ -1219,7 +1280,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class AllGatherOpConversionPattern
     : public OpConversionPattern<ttir::AllGatherOp> {
 public:
@@ -1236,7 +1299,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ArangeOpConversionPattern : public OpConversionPattern<ttir::ArangeOp> {
 public:
   using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
@@ -1275,7 +1340,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
 public:
   using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
@@ -1291,7 +1358,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
 public:
   using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
@@ -1307,6 +1376,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 } // namespace
 
