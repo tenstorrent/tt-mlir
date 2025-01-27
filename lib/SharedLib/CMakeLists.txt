@@ -36,14 +36,14 @@ set(TTMLIR_LIBS
 add_library(TTMLIR SHARED empty.cpp)
 add_library(TTMLIRCompiler SHARED empty.cpp)
 
-add_dependencies(TTMLIR
-    ${TTMLIR_LIBS}
-    ${TTNN_RUNTIME_LIBS}
-    ${TTNN_LIBS}
-)
-
 add_dependencies(TTMLIRCompiler
     ${TTMLIR_LIBS}
+)
+
+add_dependencies(TTMLIR
+    TTMLIRCompiler
+    ${TTNN_RUNTIME_LIBS}
+    ${TTNN_LIBS}
 )
 
 target_link_libraries(TTMLIRCompiler PRIVATE
@@ -60,13 +60,11 @@ target_link_libraries(TTMLIRCompiler PRIVATE
 )
 
 target_link_libraries(TTMLIR PRIVATE
-    LLVM
-    MLIR
+    TTMLIRCompiler
 
     # Forces the inclusion of all symbols in the shared object
     # This is necessary because the JIT will not be able to find the symbols otherwise
     -Wl,--whole-archive
-    ${TTMLIR_LIBS}
     ${TTNN_RUNTIME_LIBS}
     -Wl,--no-whole-archive
 
