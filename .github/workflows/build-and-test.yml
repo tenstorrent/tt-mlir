@@ -212,6 +212,7 @@ jobs:
 
         echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "perf_report_path=perf_$JOB_ID" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -284,7 +285,34 @@ jobs:
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
+        # collect ops_perf_results.csv
         cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
+
+    - name: Collect perf reports
+      shell: bash
+      if: matrix.build.enable_perf == 'ON'
+      run: |
+        # Define the base directory containing test artifacts and the output zip file name
+        BASE_DIR="ttrt-artifacts"
+        TEMP_DIR="${{ steps.strings.outputs.perf_report_path }}"
+        mkdir -p "$TEMP_DIR"
+        # Find all ops_perf_results.csv files and copy them into the temp directory with subfolder structure
+        find "$BASE_DIR" -type f -name "ops_perf_results.csv" | while read -r file; do
+            # Extract relative path and parent directory of the csv file
+            RELATIVE_PATH=$(dirname "${file#$BASE_DIR/}")
+            # Create corresponding directory structure in the temp directory
+            mkdir -p "$TEMP_DIR/$RELATIVE_PATH"
+            # Copy the CSV file to the temp directory
+            cp "$file" "$TEMP_DIR/$RELATIVE_PATH/"
+        done
+        echo "Collected ops_perf_results.csv files into $TEMP_DIR."
+
+    - name: Upload ttrt test report json
+      if: matrix.build.enable_perf == 'ON'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.build_name }}
+        path: ${{ steps.strings.outputs.perf_report_path }}
 
     - name: Run emitc tests
       shell: bash
