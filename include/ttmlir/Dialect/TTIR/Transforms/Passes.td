@@ -29,7 +29,7 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
   let options = [
     Option<"initMemorySpace", "init-memory-space",
           "::mlir::tt::MemorySpace",
-          /*default=*/"::mlir::tt::MemorySpace::System",
+          /*default=*/"::mlir::tt::MemorySpace::DeviceL1",
            "Set the initial memory space for tensors to start in">
   ];
 }
