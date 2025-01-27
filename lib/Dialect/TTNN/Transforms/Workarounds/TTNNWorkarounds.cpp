@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -410,80 +411,6 @@ public:
   }
 };
 
-// The RepeatOp currently does not support repeating the last dimension.
-// Furthermore due to exisiting issues
-// https://github.com/tenstorrent/tt-metal/issues/16701 and
-// https://github.com/tenstorrent/tt-metal/issues/16698, using RepeatOp might
-// cause PCC and ATOL mismatch errors. The purpose of this workaround is to
-// replace every RepeatOp with an AddOp with zero in order to fold the RepeatOp
-// with an implicit operation. This workaround should be removed once the above
-// mentioned issues have been fixed.
-class TTNNRepeatFoldingWorkaround : public OpRewritePattern<ttnn::RepeatOp> {
-public:
-  using OpRewritePattern<ttnn::RepeatOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttnn::RepeatOp op,
-                                PatternRewriter &rewriter) const override {
-    Value device = ttnn::utils::getOrInsertDevice(
-        rewriter, op.getOperand().getDefiningOp());
-    float fillValue = 0;
-    ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
-
-    // Create a zero Full Op to be used with AddOp
-    ttnn::FullOp zeroOp = rewriter.create<ttnn::FullOp>(
-        op->getLoc(), op.getResult().getType(), device, fillValueAttr);
-
-    SmallVector<Value> addInputs;
-    addInputs.push_back(op.getOperand());
-    addInputs.push_back(zeroOp.getResult());
-
-    // Create an EmptyOp as AddOp is a DPS Op.
-    // Get ttnn::TTNNLayoutAttr of the result type
-    //
-    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
-
-    // Get the shape of the tensor, tensor layout, and data type
-    //
-    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
-        rewriter.getContext(),
-        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
-    DataType dtype = layoutAttr.getDataType();
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    if (layoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    }
-    DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
-    // Create MemoryConfigAttr
-    //
-    ttnn::BufferTypeAttr bufferTypeAttr =
-        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
-    ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
-        op.getContext(),
-        ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
-                                    shardSpecAttr, layoutAttr.getMemLayout());
-
-    // Create EmptyOp
-    //
-    ttnn::EmptyOp emptyOp = rewriter.create<ttnn::EmptyOp>(
-        op->getLoc(), op.getType(), shapeAttr, dTypeAttr, tensorLayoutAttr,
-        device, memoryConfigAttr);
-
-    // Replace the RepeatOp with an AddOp to perform implicit repeat.
-    rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, op.getResult().getType(),
-                                             addInputs, emptyOp.getResult());
-
-    return success();
-  }
-};
-
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -515,7 +442,8 @@ public:
     }
     if (repeatFoldingWorkaroundEnabled) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNRepeatFoldingWorkaround>(&getContext());
+      patterns.add<workarounds::decomposition::TTNNRepeatFoldingWorkaround>(
+          &getContext());
       runRewritePatterns(std::move(patterns), GreedyRewriteConfig::kNoLimit);
     }
     if (layoutWorkaroundsEnabled) {
