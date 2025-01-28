@@ -1,0 +1,33 @@
+name: "Collect and Upload Perf Reports"
+description: "Collect performance reports and upload them as artifacts"
+inputs:
+  reports_dir:
+    description: "Path from which to collect performance reports"
+    required: true
+  perf_report_path:
+    description: "Path where to store performance reports"
+    required: true
+  artifact_name:
+    description: "Name of uploaded artifact"
+    required: true
+runs:
+  using: "composite"
+  steps:
+  - name: Collect perf reports
+    shell: bash
+    run: |
+      BASE_DIR="${{ inputs.reports_dir }}"
+      TEMP_DIR="${{ inputs.perf_report_path }}"
+      mkdir -p "$TEMP_DIR"
+      find "$BASE_DIR" -type f -name "ops_perf_results.csv" | while read -r file; do
+          RELATIVE_PATH=$(dirname "${file#$BASE_DIR/}")
+          mkdir -p "$TEMP_DIR/$RELATIVE_PATH"
+          cp "$file" "$TEMP_DIR/$RELATIVE_PATH/"
+      done
+      echo "Collected ops_perf_results.csv files into $TEMP_DIR."
+
+  - name: Upload perf reports
+    uses: actions/upload-artifact@v4
+    with:
+      name: ${{ inputs.artifact_name }}
+      path: ${{ inputs.perf_report_path }}
