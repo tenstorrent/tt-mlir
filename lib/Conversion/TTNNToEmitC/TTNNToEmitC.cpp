@@ -948,6 +948,57 @@ public:
 };
 } // namespace
 
+// HostEmptyOp conversion pattern
+//
+class HostEmptyOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::HostEmptyOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::HostEmptyOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::HostEmptyOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn::ShapeAttr shapeAttr = srcOp.getShapeAttr();
+    tt::DataTypeAttr dataTypeAttr = srcOp.getDtypeAttr();
+
+    // Create ttnn::SimpleShape() call for shape
+    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, shapeAttr, srcOp->getBlock(), srcOp.getLoc());
+
+    // Get volume from shape
+    llvm::SmallVector<Value, 1> volumeOperands{shapeExpressionOp->getResult(0)};
+    emitc::CallOpaqueOp volumeOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), rewriter.getI64Type(), "volume", ArrayAttr(), nullptr,
+        volumeOperands);
+
+    // Create owned buffer using create<T>
+    llvm::SmallVector<Value, 2> bufferOperands{volumeOp.getResult(0)};
+    emitc::CallOpaqueOp createBufferOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::owned_buffer"),
+        "ttnn::owned_buffer::create", ArrayAttr(), nullptr, bufferOperands);
+
+    // Create tensor with OwnedStorage
+    llvm::SmallVector<Value, 3> tensorOperands{createBufferOp.getResult(0),
+                                               shapeExpressionOp->getResult(0)};
+
+    ArrayAttr tensorArrayAttr = rewriter.getArrayAttr({
+        ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
+        rewriter.getStringAttr(
+            "ROW_MAJOR") // Layout is always row major for host
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        "ttnn::Tensor", tensorArrayAttr, nullptr, tensorOperands);
+
+    return success();
+  }
+};
+
 // ZerosOp conversion pattern
 //
 class ZerosOpConversionPattern

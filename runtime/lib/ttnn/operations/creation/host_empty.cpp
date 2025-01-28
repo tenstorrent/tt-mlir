@@ -14,16 +14,16 @@ namespace tt::runtime::ttnn::operations::creation {
 void run(const ::tt::target::ttnn::HostEmptyOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  std::vector<uint32_t> shape = ::tt::runtime::ttnn::utils::toShapeFromFBShape(
-      *op->out()->desc()->shape());
+  std::vector<uint32_t> shapeVec =
+      ::tt::runtime::ttnn::utils::toShapeFromFBShape(
+          *op->out()->desc()->shape());
+  ::ttnn::SimpleShape shape(shapeVec);
+
   ::ttnn::DataType dtype =
       ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
 
   // Calculate total size needed
-  uint32_t size = 1;
-  for (uint32_t dim : shape) {
-    size *= dim;
-  }
+  const uint32_t size = shape.volume();
 
   // Create buffer based on dtype
   ::tt::tt_metal::OwnedBuffer owned_buffer;
@@ -50,8 +50,7 @@ void run(const ::tt::target::ttnn::HostEmptyOp *op, ProgramContext &context) {
     LOG_FATAL("Unsupported data type");
   }
 
-  ::ttnn::Tensor out(::tt::tt_metal::OwnedStorage{owned_buffer},
-                     ::ttnn::SimpleShape(shape), dtype,
+  ::ttnn::Tensor out(::tt::tt_metal::OwnedStorage{owned_buffer}, shape, dtype,
                      ::ttnn::Layout::ROW_MAJOR);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
