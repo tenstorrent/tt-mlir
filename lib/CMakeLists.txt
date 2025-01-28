@@ -16,6 +16,7 @@ endif()
 
 set(link_libs
 MLIRTTDialect
+MLIRTTTransforms
 MLIRTTIRDialect
 MLIRTTIRTransforms
 TTMLIRConversions
