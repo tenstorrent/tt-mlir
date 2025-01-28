@@ -242,6 +242,14 @@ table RepeatOp {
   shape: [uint32];
 }
 
+table PadOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  output_shape: [uint32];
+  input_shape: [uint32];
+  value: float;
+}
+
 table SliceOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -399,6 +407,7 @@ union OpType {
   FillCacheOp,
   PermuteOp,
   RepeatOp,
+  PadOp,
 }
 
 table Operation {

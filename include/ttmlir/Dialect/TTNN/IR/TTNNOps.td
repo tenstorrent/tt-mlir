@@ -837,6 +837,27 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PadOp: TTNN_NamedDPSOp<"pad"> {
+    let summary = "Pad op.";
+    let description = [{
+      Pad input tensor by padding the input_shape to output_shape using the provided value.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         I32ArrayAttr:$output_shape,
+                         I32ArrayAttr:$input_shape,
+                         F32Attr:$value,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
