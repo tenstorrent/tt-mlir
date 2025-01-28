@@ -108,7 +108,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   PRIVATE_LINK_LIBS
     LLVM
     MLIR
-    TTMLIR
+    TTMLIRCompiler
 )
 
 set(TTMLIR_PYTHON_SOURCES
