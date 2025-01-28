@@ -100,4 +100,8 @@ foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_dependencies(${lib_name} tt-metal)
 endforeach()
 
-install(PROGRAMS ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
+install(FILES
+    ${TTMETAL_LIBRARY_DIR}/libtracy.so.0.10.0
+    ${library_paths}
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    COMPONENT SharedLib)
