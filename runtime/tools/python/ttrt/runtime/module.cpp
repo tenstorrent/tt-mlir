@@ -123,6 +123,7 @@ PYBIND11_MODULE(_C, m) {
         py::arg("num_hw_cqs") = size_t{1},
         py::arg("l1_small_size") = py::none(),
         py::arg("dispatch_core_type") = py::none(),
+        py::arg("enable_async_ttnn") = py::none(),
         "Open a mesh of devices for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),

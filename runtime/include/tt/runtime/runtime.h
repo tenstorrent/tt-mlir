@@ -87,7 +87,8 @@ size_t getNumAvailableDevices();
 Device
 openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
            std::optional<size_t> l1SmallSize = std::nullopt,
-           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
+           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
+           std::optional<bool> enableAsyncTTNN = std::nullopt);
 
 void closeDevice(Device device);
 
