@@ -8,7 +8,7 @@ import tempfile
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttrt import API as ttrt
-import ttmlir.passes
+from ttmlir import passes
 from . import utils, mlir
 import pandas as pd
 import threading
@@ -172,6 +172,18 @@ class ModelRunner:
             self.progress = 100
 
     def compile_and_run(self, model_path, overrides_string):
+        FLATBUFFER = False
+        if model_path.endswith(".ttnn"):
+            # This is being run from a Flatbuffer. Need To Render TTIR from Flatbuffer
+            FLATBUFFER = True
+            # Write the TTIR from this file into a temporary file to run through the compiler
+            ttir_module_str = utils.parse_flatbuffer_file(
+                model_path, at_pass="Canonicalizer"
+            )
+            ttir_module_path = f"{model_path}_ttir.mlir"
+            with open(ttir_module_path, "w+") as temp_module:
+                temp_module.write(ttir_module_str)
+
         model_name = os.path.basename(model_path)
         flatbuffer_file = model_name + ".ttnn"
         state = self.model_state[model_path]
@@ -193,10 +205,14 @@ class ModelRunner:
         ttnn_ir_file = (
             f"{state.model_output_dir}/{model_name.replace('.mlir', '_ttnn.mlir')}"
         )
+
+        if FLATBUFFER:
+            ttnn_ir_file = f"{state.model_output_dir}/{model_name}.mlir"
+
         compile_command = [
             f"{self._build_dir}/bin/ttmlir-opt",
             f"--ttir-to-ttnn-backend-pipeline={overrides_string}",
-            model_path,
+            model_path if not FLATBUFFER else ttir_module_path,
             "-o",
             ttnn_ir_file,
             "--mlir-print-debuginfo",
@@ -214,20 +230,38 @@ class ModelRunner:
 
         ############################## Translate #################################
 
-        to_flatbuffer_command = [
-            f"{self._build_dir}/bin/ttmlir-translate",
-            "--ttnn-to-flatbuffer",
-            ttnn_ir_file,
-            "-o",
-            flatbuffer_file,
-        ]
+        # Need this flatbuffer file to inherit the golden data
+        golden_map = utils.golden_map_from_flatbuffer(model_path)
+        # Get module from file
+        with open(ttnn_ir_file, "r") as f:
+            ttnn_module = utils.parse_mlir_str(f.read())
+
+        # Don't run the subprocess command anymore
+        # to_flatbuffer_command = [
+        #    f"{self._build_dir}/bin/ttmlir-translate",
+        #    "--ttnn-to-flatbuffer",
+        #    ttnn_ir_file,
+        #    "-o",
+        #    flatbuffer_file,
+        # ]
 
         self.log("Running TTNN to Flatbuffer File")
-        translate_process = self.run_in_subprocess(to_flatbuffer_command)
-        if translate_process.returncode != 0:
-            error = "Error while running TTNN to Flatbuffer File"
-            self.log(error)
-            raise ExplorerRunException(error)
+
+        # Run through pybound translation so we can pass golden_map
+        try:
+            if golden_map:
+                passes.ttnn_to_flatbuffer_file(ttnn_module, flatbuffer_file, golden_map)
+            else:
+                passes.ttnn_to_flatbuffer_file(ttnn_module, flatbuffer_file)
+        except:
+            self.log("Error while running TTNN to Flatbuffer File")
+            raise ExplorerRunException()
+
+        # translate_process = self.run_in_subprocess(to_flatbuffer_command)
+        # if translate_process.returncode != 0:
+        #    error = "Error while running TTNN to Flatbuffer File"
+        #    self.log(error)
+        #    raise ExplorerRunException(error)
         self.progress = 30
 
         ############################## TTRT Perf #################################
@@ -260,6 +294,7 @@ class ModelRunner:
 
         print("Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns")
 
+        # TTNN_IR_FILE from flatbuffer is still relevant since model_path is the FB with golden data and it will rented optimized_model_path instead
         state.optimized_model_path = ttnn_ir_file
         self.progress = 100
 
