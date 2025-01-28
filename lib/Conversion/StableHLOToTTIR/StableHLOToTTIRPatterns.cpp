@@ -565,10 +565,6 @@ public:
       return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
     }
 
-    for (Value initValue : adaptor.getInitValues()) {
-      eraseInitValueSubgraph(rewriter, initValue.getDefiningOp());
-    }
-
     rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
         srcOp, outputType, adaptor.getInputs(), outputs, poolingMethod,
         windowDimensions, windowStrides, baseDilations, window_dilations,
@@ -778,32 +774,6 @@ private:
     return true;
   }
 
-  void eraseInitValueSubgraph(ConversionPatternRewriter &rewriter,
-                              Operation *op) const {
-
-    std::vector<Operation *> opsToErase;
-    opsToErase.push_back(op);
-
-    bool addedOps = true;
-    while (addedOps) {
-      addedOps = false;
-      Operation *currentOp = opsToErase.back();
-
-      for (auto &operand : currentOp->getOpOperands()) {
-        Operation *definingOp = operand.get().getDefiningOp();
-        if (definingOp->hasOneUse() || definingOp->use_empty()) {
-          addedOps = true;
-          opsToErase.push_back(definingOp);
-        }
-      }
-    }
-
-    for (auto &op : opsToErase) {
-      rewriter.eraseOp(op);
-    }
-  }
-
-  // Just to make the code more readable
   enum TypicalInitReductionValue {
     NEG_INF, // used for max pooling
     ZERO,    // used for sum pooling
