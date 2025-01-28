@@ -1082,6 +1082,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   // clang-format off
   patterns.add<EmptyOpConversionPattern,
+  HostEmptyOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<ttnn::FullOp>,
                DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
