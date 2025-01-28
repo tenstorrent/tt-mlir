@@ -18,8 +18,6 @@
 using namespace mlir;
 using namespace mlir::tt;
 
-namespace {
-
 // TODO(sdjukic): extract this pattern into separate file and use it for both
 // TOSA and StableHLO
 
@@ -321,8 +319,6 @@ void addPoolingOpsConversionPatterns(MLIRContext *ctx,
                                      TypeConverter &typeConverter) {
   patterns.add<TosaToTTIRMaxPool2DOpConversionPattern>(typeConverter, ctx);
 }
-
-} // namespace
 
 namespace mlir::tt {
 

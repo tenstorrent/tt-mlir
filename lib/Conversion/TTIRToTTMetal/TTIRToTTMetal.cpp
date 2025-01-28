@@ -91,7 +91,6 @@ static uint64_t lookupAddress(Value value) {
 }
 
 namespace {
-namespace {
 class TTIRToTTMetalLayoutRewriter : public OpRewritePattern<ttir::ToLayoutOp> {
 public:
   using OpRewritePattern<ttir::ToLayoutOp>::OpRewritePattern;
@@ -490,9 +489,7 @@ public:
   }
 };
 } // namespace
-} // namespace
 
-namespace {
 namespace {
 class TTIRToTTMetalEnqueueProgramRewriter
     : public OpRewritePattern<ttir::GenericOp> {
@@ -1799,11 +1796,9 @@ public:
 
     return success();
   }
-}; // namespace mlir::tt::ttmetal
-} // namespace
+};
 } // namespace
 
-namespace {
 namespace {
 class TTIRToTTMetalAllocRewriter : public OpRewritePattern<ttir::AllocOp> {
 public:
@@ -1817,9 +1812,7 @@ public:
   }
 };
 } // namespace
-} // namespace
 
-namespace {
 namespace {
 class TTIRToTTMetalDeallocRewriter : public OpRewritePattern<ttir::DeallocOp> {
 public:
@@ -1833,9 +1826,7 @@ public:
   }
 };
 } // namespace
-} // namespace
 
-namespace {
 namespace {
 class TTIRToTTMetalFillRewriter : public OpRewritePattern<ttir::FillOp> {
 public:
@@ -1848,7 +1839,6 @@ public:
     return success();
   }
 };
-} // namespace
 } // namespace
 
 } // namespace mlir::tt::ttmetal

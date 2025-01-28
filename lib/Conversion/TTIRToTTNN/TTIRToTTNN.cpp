@@ -35,8 +35,6 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-
-namespace {
 class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
 public:
@@ -1376,8 +1374,6 @@ public:
     return success();
   }
 };
-} // namespace
-
 } // namespace
 
 namespace mlir::tt {

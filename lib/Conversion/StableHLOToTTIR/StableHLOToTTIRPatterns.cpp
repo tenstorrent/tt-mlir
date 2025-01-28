@@ -34,7 +34,6 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
 class StableHLOToTTIROpDefaultConversionPattern
@@ -58,6 +57,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 namespace {
 class StableHLOToTTIRReduceOpConversionPattern
@@ -932,6 +932,7 @@ private:
 // version of the op. We made a decision to make those two cases completely
 // distinct ops in TTIR. Thus, a StableHLO `SrcOp` is rewritten to one of
 // `DestOp`s based on operand types.
+namespace {
 template <typename SrcOp, typename LogicalDestOp, typename BitwiseDestOp,
           typename Adaptor = typename SrcOp::Adaptor>
 class StableHLOToTTIRLogicalAndBitwiseOpConversionPattern
@@ -988,6 +989,7 @@ private:
         adaptor.getOperands(), ValueRange(outputTensor));
   }
 };
+} // namespace
 
 template <typename SrcOpTy>
 LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
@@ -1938,8 +1940,6 @@ void addReverseOpConversionPattern(MLIRContext *ctx,
                                    TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIROpReverseOpConversionPattern>(typeConverter, ctx);
 }
-
-} // namespace
 
 namespace mlir::tt {
 

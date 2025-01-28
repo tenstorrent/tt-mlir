@@ -37,8 +37,6 @@
 using namespace mlir;
 using namespace mlir::tt;
 
-namespace {
-
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
       "static_cast<::ttnn::IDevice *>(nullptr)");
@@ -230,6 +228,7 @@ public:
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
         mlir::IntegerAttr::get(rewriter.getIndexType(), 2),
     });
 
@@ -244,6 +243,7 @@ public:
 } // namespace
 
 // GetDeviceOp conversion pattern
+//
 namespace {
 class GetDeviceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::GetDeviceOp> {
@@ -360,6 +360,7 @@ public:
 } // namespace
 
 // TypecastOp conversion pattern
+//
 namespace {
 class TypecastOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::TypecastOp> {
@@ -776,8 +777,6 @@ public:
     return success();
   }
 };
-} // namespace
-
 } // namespace
 
 namespace mlir::tt {

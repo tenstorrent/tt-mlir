@@ -348,6 +348,7 @@ private:
 };
 } // namespace
 
+namespace {
 struct ConvolutionToConv2dPattern : public ConvolutionDecompositionPattern {
 public:
   using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
@@ -457,6 +458,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 //===----------------------------------------------------------------------===//
 // Gather Pattern Matching
@@ -868,6 +870,7 @@ private:
 };
 } // namespace
 
+namespace {
 struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
@@ -1087,6 +1090,7 @@ public:
                 std::to_string(numSpatialDims) + " spatial dimensions");
   }
 };
+} // namespace
 
 // SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
 // the sliced dimension is sliced multiple times. For example, if the input
