@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
 
 #include "ttmlir/Conversion/Passes.h"
@@ -29,7 +31,8 @@ void createTTIRToTTMetalBackendPipeline(
   genericRegionOptions.newLowering = options.newLowering;
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegion(genericRegionOptions));
   if (options.newLowering) {
-
+    pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+    pm.addPass(mlir::createLowerAffinePass());
   } else {
     mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
     layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
