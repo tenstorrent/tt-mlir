@@ -52,15 +52,9 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
 
 mlir::LogicalResult
 mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
-  mlir::Operation *parent = op->getParentOp();
-
-  while (parent) {
-    if (llvm::dyn_cast<ttir::GenericOp>(parent) ||
-        llvm::dyn_cast<linalg::GenericOp>(parent)) {
-      return success();
-    }
-    parent = op->getParentOp();
+  if (op->getParentOfType<ttir::GenericOp>()) {
+    return success();
+  } else {
+    return op->emitOpError("TTIR Tile Ops must be inside a generic region");
   }
-
-  return op->emitOpError("TTIR Tile Ops must be inside a generic region");
 }
