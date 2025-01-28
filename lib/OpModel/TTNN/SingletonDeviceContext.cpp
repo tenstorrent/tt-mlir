@@ -9,7 +9,7 @@
 
 namespace mlir::tt::op_model::ttnn {
 
-SingletonDeviceContext::SingletonDeviceContext() {
+SingletonDeviceContext::SingletonDeviceContext(const size_t trace_region_size) {
 
   // todo: this replicates logic in runtime/include/tt/runtime/detail/common.h,
   // move to shared location
@@ -20,7 +20,7 @@ SingletonDeviceContext::SingletonDeviceContext() {
                                    : ::tt::tt_metal::DispatchCoreType::ETH;
   m_device = ::tt::tt_metal::CreateDevice(
       0, /* num_hw_cqs = */ 1, /* l1_small_size = */ DEFAULT_L1_SMALL_SIZE,
-      /* trace_region_size = */ DEFAULT_TRACE_REGION_SIZE, dispatchCoreType);
+      /* trace_region_size = */ trace_region_size, dispatchCoreType);
 }
 
 SingletonDeviceContext::~SingletonDeviceContext() {
@@ -28,7 +28,7 @@ SingletonDeviceContext::~SingletonDeviceContext() {
 }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
-  static SingletonDeviceContext instance;
+  static SingletonDeviceContext instance = SingletonDeviceContext(200000);
   return instance;
 }
 
