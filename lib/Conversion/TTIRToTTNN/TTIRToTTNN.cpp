@@ -62,12 +62,15 @@ public:
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
 
+    // Due to API constraints, we need to use a host_empty op if tensor is in
+    // system_memory.
     if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
       // Replace op
       //
       rewriter.replaceOpWithNewOp<ttnn::HostEmptyOp>(
           op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
           dTypeAttr, tensorLayoutAttr);
+      // Otherwise, we use regular empty op, with device-specific fields.
     } else {
       if (layoutAttr.isTiled()) {
         ttnnLayoutEnum = ttnn::Layout::Tile;
