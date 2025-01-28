@@ -32,6 +32,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegion(genericRegionOptions));
   if (options.newLowering) {
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+    pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
     pm.addPass(mlir::createLowerAffinePass());
   } else {
     mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
@@ -41,9 +42,9 @@ void createTTIRToTTMetalBackendPipeline(
     pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
     pm.addPass(mlir::tt::ttir::createTTIRGenericOpCBs());
     pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
+    pm.addPass(mlir::tt::ttir::createTTIRAllocate());
+    pm.addPass(createConvertTTIRToTTMetalPass());
   }
-  pm.addPass(mlir::tt::ttir::createTTIRAllocate());
-  pm.addPass(createConvertTTIRToTTMetalPass());
 }
 
 //===----------------------------------------------------------------------===//

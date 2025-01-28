@@ -48,6 +48,13 @@ def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Linearize memref operands for generic ops.
+  }];
+}
+
 def TTIRGenericOpCBs: Pass<"ttir-generic-op-cbs", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
