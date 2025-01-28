@@ -500,17 +500,24 @@ Tensor mergeTensors(Tensor& a, Tensor& b)
     }
 
     // Copy data from tensor1 and tensor2 into the new tensor
-    void* outputPtr = static_cast<void*>(outputData.get());
+    uint8_t* outputPtr = static_cast<uint8_t*>(outputData.get());
 
     // Compute the size of the segments to copy
-    std::uint32_t size1 = tensor1.volume() * 4;
-
-    memcpy(outputPtr, a);
-    memcpy(static_cast<uint8_t*>(outputPtr) + size1, b);
+    uint8_t *a_pointer = static_cast<uint8_t*>(::tt::tt_metal::get_raw_host_data_ptr(tensor1));
+    uint8_t *b_pointer = static_cast<uint8_t*>(::tt::tt_metal::get_raw_host_data_ptr(tensor2));
+    for (int i=0;i<static_cast<int>(outputShape[0]);i++)
+    {
+      std::memcpy(outputPtr, a_pointer, tensor1.shape()[1]*4);
+      outputPtr+=tensor1.shape()[1]*4;
+      a_pointer+=tensor1.shape()[1]*4;
+      std::memcpy(outputPtr, b_pointer, tensor2.shape()[1]*4);
+      outputPtr+=tensor2.shape()[1]*4;
+      b_pointer+=tensor2.shape()[1]*4;
+    }
 
     // Create the new tensor
-    std::vector<std::uint32_t> stride = {1,1};
-    return createTensor(outputData, outputShape, stride, 4, ::tt::target::DataType::Float32, false);
+    std::vector<std::uint32_t> stride = {outputShape[1],1};
+    return createTensor(outputData, outputShape, stride, 4, ::tt::target::DataType::Float32, true);
 }
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
