@@ -13,6 +13,8 @@
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRATTACHMETALLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+
+namespace {
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
@@ -27,15 +29,19 @@ public:
           std::int64_t deviceGridRank = deviceGrid.getShape().size();
           // Default to single core grid
           auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
+          auto tileType = TileType::get(ctx, type.getElementType());
           // Default to initMemorySpace, the optimizer might decide otherwise
           auto newLayout =
-              MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
+              MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid)
+                  .withElementType(ctx, tileType);
           return RankedTensorType::get(type.getShape(), type.getElementType(),
                                        newLayout);
         });
   }
 };
+} // namespace
 
+namespace {
 class TTIRLayoutTensorTypeRewriter : public RewritePattern {
 public:
   TTIRLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
@@ -103,7 +109,9 @@ public:
 
   const TypeConverter *converter;
 };
+} // namespace
 
+namespace {
 class TTIRAttachMetalLayout
     : public impl::TTIRAttachMetalLayoutBase<TTIRAttachMetalLayout> {
 
@@ -129,5 +137,6 @@ class TTIRAttachMetalLayout
     registry.insert<mlir::tt::TTDialect>();
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttir
