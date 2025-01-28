@@ -749,12 +749,12 @@ public:
 
     // Create ttnn::SimpleShape() call.
     //
-    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
+    emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, shapeAttr, srcOp->getBlock(), srcOp.getLoc());
 
     // Create operands vector.
     //
-    llvm::SmallVector<Value, 3> operands{shapeExpressionOp->getResult(0),
+    llvm::SmallVector<Value, 3> operands{shapeOp->getResult(0),
                                          adaptor.getDevice()};
 
     // Create MemoryConfig object first, then pass it to the op.
@@ -823,11 +823,11 @@ public:
 
     // Create ttnn::SimpleShape() call
     //
-    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
+    emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, srcOp.getShapeAttr(), srcOp->getBlock(), srcOp.getLoc());
 
     llvm::SmallVector<Value, 3> operands{
-        shapeExpressionOp->getResult(0),
+        shapeOp->getResult(0),
     };
 
     // Create ArrayAttr object holding attributes and pointers to operands
