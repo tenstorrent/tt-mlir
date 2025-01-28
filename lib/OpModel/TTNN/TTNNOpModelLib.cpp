@@ -312,6 +312,53 @@ AddOpInterface::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+AddOpInterface::getOpRuntime(
+    const ::llvm::ArrayRef<int64_t> &inputShape_a,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+    const ::llvm::ArrayRef<int64_t> &inputShape_b,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+    const ::llvm::ArrayRef<int64_t> &outputShape,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto addOpQuery = [](const ::llvm::ArrayRef<int64_t> &inputShape_a,
+                       const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+                       const ::llvm::ArrayRef<int64_t> &inputShape_b,
+                       const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+                       const ::llvm::ArrayRef<int64_t> &outputShape,
+                       const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const ::ttnn::TensorSpec input_spec_a =
+        conversion::getTensorSpec(inputShape_a, inputLayout_a);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      input_spec_a.memory_config());
+    const ::ttnn::TensorSpec input_spec_b =
+        conversion::getTensorSpec(inputShape_b, inputLayout_b);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      input_spec_b.memory_config());
+    const ::ttnn::TensorSpec output_spec =
+        conversion::getTensorSpec(outputShape, outputLayout);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      output_spec.memory_config());
+
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::add, device, input_spec_a, input_spec_b,
+        output_spec.data_type(),
+        output_spec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpRuntime("AddOpInterface", addOpQuery, inputShape_a,
+                                     inputLayout_a, inputShape_b, inputLayout_b,
+                                     outputShape, outputLayout);
+#else
+  return std::make_tuple(true, 0, std::nullopt);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
@@ -353,6 +400,46 @@ SoftmaxOpInterface::getOpConstraints(
                                      outputShape, outputLayout);
 #else
   return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+SoftmaxOpInterface::getOpRuntime(
+    const llvm::ArrayRef<int64_t> &inputShape,
+    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dim_arg,
+    const llvm::ArrayRef<int64_t> &outputShape,
+    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto softmaxOpQuery = [](const llvm::ArrayRef<int64_t> &inputShape,
+                           const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+                           const int dim_arg,
+                           const llvm::ArrayRef<int64_t> &outputShape,
+                           const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const ::ttnn::TensorSpec input_spec =
+        conversion::getTensorSpec(inputShape, inputLayout);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      input_spec.memory_config());
+    const ::ttnn::TensorSpec output_spec =
+        conversion::getTensorSpec(outputShape, outputLayout);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      output_spec.memory_config());
+
+    // run op constraint query
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::softmax, device, input_spec, dim_arg,
+        output_spec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpRuntime("SoftmaxOpInterface", softmaxOpQuery,
+                                     inputShape, inputLayout, dim_arg,
+                                     outputShape, outputLayout);
+#else
+  return std::make_tuple(true, 0, std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -408,6 +495,57 @@ MatmulOpInterface::getOpConstraints(
                                      transpose_a, transpose_b);
 #else
   return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+MatmulOpInterface::getOpRuntime(
+    const llvm::ArrayRef<int64_t> &inputShape_a,
+    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+    const llvm::ArrayRef<int64_t> &inputShape_b,
+    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+    const llvm::ArrayRef<int64_t> &outputShape,
+    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout, bool transpose_a,
+    bool transpose_b) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto matmulOpQuery = [](const llvm::ArrayRef<int64_t> &inputShape_a,
+                          const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+                          const llvm::ArrayRef<int64_t> &inputShape_b,
+                          const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+                          const llvm::ArrayRef<int64_t> &outputShape,
+                          const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
+                          bool transpose_a, bool transpose_b) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const ::ttnn::TensorSpec input_spec_a =
+        conversion::getTensorSpec(inputShape_a, inputLayout_a);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      input_spec_a.memory_config());
+    const ::ttnn::TensorSpec input_spec_b =
+        conversion::getTensorSpec(inputShape_b, inputLayout_b);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      input_spec_b.memory_config());
+    const ::ttnn::TensorSpec output_spec =
+        conversion::getTensorSpec(outputShape, outputLayout);
+    detail::checkGrid(device->compute_with_storage_grid_size(),
+                      output_spec.memory_config());
+
+    // run op constraint query
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::matmul, device, input_spec_a, input_spec_b, transpose_a,
+        transpose_b, output_spec.tensor_layout().get_memory_config(),
+        output_spec.data_type());
+  };
+
+  return operation::getOpRuntime("MatmulOpInterface", matmulOpQuery,
+                                     inputShape_a, inputLayout_a, inputShape_b,
+                                     inputLayout_b, outputShape, outputLayout,
+                                     transpose_a, transpose_b);
+#else
+  return std::make_tuple(true, 0, std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 

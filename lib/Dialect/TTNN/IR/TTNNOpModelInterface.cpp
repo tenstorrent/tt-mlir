@@ -106,6 +106,24 @@ AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output);
 }
 
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+AddOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 2);
+
+  const auto input_shape_a =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+  const auto input_shape_b =
+      mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
+
+  const auto output_shape =
+      mlir::cast<RankedTensorType>(getResult(0).getType()).getShape();
+
+  return op_model::ttnn::AddOpInterface::getOpRuntime(
+      input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output);
+}
+
+
 //===----------------------------------------------------------------------===//
 // SoftmaxOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
@@ -128,6 +146,21 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return op_model::ttnn::SoftmaxOpInterface::getOpConstraints(
+      input_shape, inputs[0], getDimension(), output_shape, output);
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                            const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto input_shape =
+      mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
+
+  const auto output_shape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::SoftmaxOpInterface::getOpRuntime(
       input_shape, inputs[0], getDimension(), output_shape, output);
 }
 
@@ -155,6 +188,24 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return op_model::ttnn::MatmulOpInterface::getOpConstraints(
+      input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output,
+      false, false);
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 2);
+
+  const auto input_shape_a =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+  const auto input_shape_b =
+      mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
+
+  const auto output_shape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::MatmulOpInterface::getOpRuntime(
       input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output,
       false, false);
 }
