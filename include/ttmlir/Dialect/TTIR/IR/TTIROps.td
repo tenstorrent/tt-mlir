@@ -725,6 +725,28 @@ def TTIR_MinOp : TTIR_ReductionOp<"min"> {
   }];
 }
 
+def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
+    let summary = "And reduction op.";
+    let description = [{
+      Reduces a given tensor using logical and operator along the given dimension(s).
+
+      Example:
+        input: [[True,  False, True, False],
+                [True,  True,  True, True],
+                [False, False, True, True],
+                [False, True,  True, False]]
+
+        // Reduction along dim 0
+        output: [False, False, True, False]
+
+        // Reduction along dim 1
+        output: [False, True, False, False]
+
+        // Reduction for both dimensions (entire tensor)
+        output: [False]
+    }];
+}
+
 def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
   let summary = "Product reduction op.";
   let description = [{

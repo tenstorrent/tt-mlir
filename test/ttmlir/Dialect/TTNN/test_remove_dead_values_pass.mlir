@@ -70,8 +70,6 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
     "ttnn.deallocate"(%26) <{force = false}> : (tensor<64x128xf32, #ttnn_layout1>) -> ()
     %31 = "ttnn.from_device"(%6) : (tensor<64x128xf32, #ttnn_layout2>) -> tensor<64x128xf32, #ttnn_layout>
     "ttnn.deallocate"(%5) <{force = false}> : (tensor<64x128xf32, #ttnn_layout2>) -> ()
-    %32 = "ttnn.to_layout"(%31) <{layout = #ttnn.layout<row_major>}> : (tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout>
-    "ttnn.deallocate"(%31) <{force = false}> : (tensor<64x128xf32, #ttnn_layout>) -> ()
-    return %32 : tensor<64x128xf32, #ttnn_layout>
+    return %31 : tensor<64x128xf32, #ttnn_layout>
   }
 }

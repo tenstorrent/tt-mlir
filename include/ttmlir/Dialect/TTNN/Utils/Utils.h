@@ -49,14 +49,23 @@ RankedTensorType
 createRankedTensorTypeWithElementType(RankedTensorType tensorType,
                                       Type elementType);
 
+// Helper method to create a RankedTensorType with the given buffer type.
+RankedTensorType
+createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
+                                     ttnn::BufferType bufferType);
+
+// Helper method to create a RankedTensorType with the given memory layout.
+RankedTensorType
+createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
+                                       ttnn::TensorMemoryLayout memoryLayout);
+
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.
 //
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
 
 // Helper method to get the tensor layout attribute from the tensor value.
-TTNNLayoutAttr
-getLayoutAttrFromTensor(mlir::TypedValue<RankedTensorType> tensorValue);
+TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType);
 
 // Helper method to get the element type for the given tensor layout and data.
 Type getElementType(MLIRContext *context, Layout tensorLayout,

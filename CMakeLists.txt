@@ -7,10 +7,12 @@ endif()
 
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
+option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
 option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
 option(TTMLIR_ENABLE_DEBUG_STRINGS "Enable debug strings in flatbuffer" ON)
+option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
 
 if (TTMLIR_ENABLE_DEBUG_STRINGS)
   add_compile_definitions(TTMLIR_ENABLE_DEBUG_STRINGS)

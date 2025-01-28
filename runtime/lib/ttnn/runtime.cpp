@@ -76,12 +76,9 @@ createOwnedTensor(std::shared_ptr<void> data,
                   std::uint32_t itemsize, ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
 
-  ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape(shape.begin(),
-                                                           shape.end());
-
   return ::ttnn::Tensor(
       createStorage<OwnedStorage>(data.get(), numElements, dataType),
-      ::ttnn::Shape(small_vector_shape), utils::toTTNNDataType(dataType),
+      ::ttnn::SimpleShape(shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
 }
 
@@ -123,12 +120,9 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::uint32_t itemsize, ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
 
-  ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape(shape.begin(),
-                                                           shape.end());
-
   auto tensor = std::make_shared<::ttnn::Tensor>(
       createStorage<BorrowedStorage>(data.get(), numElements, dataType),
-      ::ttnn::Shape(small_vector_shape), utils::toTTNNDataType(dataType),
+      ::ttnn::SimpleShape(shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
                 DeviceRuntime::TTNN);

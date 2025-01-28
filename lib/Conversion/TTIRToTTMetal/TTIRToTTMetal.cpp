@@ -488,23 +488,6 @@ public:
   }
 };
 
-class TTIRToTTMetalKernelRewriter : public OpRewritePattern<ttir::KernelOp> {
-public:
-  using OpRewritePattern<ttir::KernelOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::KernelOp op,
-                                PatternRewriter &rewriter) const final {
-    if (not op->use_empty()) {
-      return failure();
-    }
-    rewriter.create<ttkernel::BuiltinOp>(op.getLoc(), op.getOpAttr(),
-                                         op.getKindAttr(), op.getOperands());
-    op->dropAllUses();
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
 class TTIRToTTMetalEnqueueProgramRewriter
     : public OpRewritePattern<ttir::GenericOp> {
 public:
@@ -875,6 +858,7 @@ public:
 
     // For all unary ops first copy tile from input CB at inCBTileIndex to DST
     // register at dstTileIndex.
+    builder.create<ttkernel::CopyTileInitOp>(location, inCB);
     builder.create<ttkernel::CopyTileOp>(location, inCB, inCBTileIndex,
                                          dstTileIndex);
 
@@ -1010,9 +994,10 @@ public:
     builder.create<ttkernel::TileRegsAcquireOp>(location);
     {
       // copy inCB0[inCB0TileIndex] and inCB1[inCB1TileIndex] to DST:
-      builder.create<ttkernel::CopyTileInitOp>(location);
+      builder.create<ttkernel::CopyTileInitOp>(location, inCB0);
       builder.create<ttkernel::CopyTileOp>(location, inCB0, inCB0TileIndex,
                                            dstLhsTileIndex);
+      builder.create<ttkernel::CopyTileInitOp>(location, inCB1);
       builder.create<ttkernel::CopyTileOp>(location, inCB1, inCB1TileIndex,
                                            dstRhsTileIndex);
       // SFPU operates on DST tiles:
@@ -1077,7 +1062,7 @@ public:
     auto inputCB = cbOperands[operandIndices[0]];
     auto outputCB = inputCB;
 
-    builder.create<ttkernel::CopyTileInitOp>(op.getLoc());
+    builder.create<ttkernel::CopyTileInitOp>(op.getLoc(), inputCB);
     builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inputCB, one);
     builder.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
     builder.create<ttkernel::RecipTileInitOp>(op.getLoc());

@@ -233,9 +233,6 @@ public:
       : OpConversionPattern<SourceOp>(typeConverter, ctx), opName(opName) {}
 
   StringRef getOpName(SourceOp op) const {
-    if constexpr (std::is_same_v<SourceOp, ttkernel::BuiltinOp>) {
-      return op.getOp();
-    }
     auto name =
         opName.empty() ? op.getOperation()->getName().getStringRef() : opName;
     if (name.starts_with("ttkernel.")) {
@@ -395,7 +392,6 @@ public:
           TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
           TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
           TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
