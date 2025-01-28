@@ -257,7 +257,7 @@ ReluOpInterface::getOpRuntime(
   return operation::getOpRuntime("ReluOpInterface", reluOpQuery, inputShape,
                                      inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, 0, std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
