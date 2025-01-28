@@ -7,7 +7,7 @@ module @jit_loss {
     %3 = tensor.empty() : tensor<1x1xf32>
     %4 = "ttir.reshape"(%2, %3) <{shape = [1 : i32, 1 : i32]}> : (tensor<1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
     %5 = tensor.empty() : tensor<127x1xf32>
-    %6 = "ttir.broadcast"(%4, %5) <{broadcast_dimensions = array<i32: 127, 1>}> : (tensor<1x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
+    %6 = "ttir.broadcast"(%4, %5) <{broadcast_dimensions = array<i64: 127, 1>}> : (tensor<1x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
     %7 = tensor.empty() : tensor<127x1xf32>
     %8 = "ttir.add"(%0, %6, %7) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<127x1xf32>, tensor<127x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
     %9 = tensor.empty() : tensor<127x1xf32>
@@ -17,7 +17,7 @@ module @jit_loss {
     %13 = tensor.empty() : tensor<1x1xf32>
     %14 = "ttir.reshape"(%12, %13) <{shape = [1 : i32, 1 : i32]}> : (tensor<1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
     %15 = tensor.empty() : tensor<127x1xf32>
-    %16 = "ttir.broadcast"(%14, %15) <{broadcast_dimensions = array<i32: 127, 1>}> : (tensor<1x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
+    %16 = "ttir.broadcast"(%14, %15) <{broadcast_dimensions = array<i64: 127, 1>}> : (tensor<1x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
     %17 = tensor.empty() : tensor<127x1xf32>
     %18 = "ttir.multiply"(%16, %11, %17) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<127x1xf32>, tensor<127x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
     %19 = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -27,7 +27,7 @@ module @jit_loss {
     %23 = tensor.empty() : tensor<1x1xf32>
     %24 = "ttir.reshape"(%22, %23) <{shape = [1 : i32, 1 : i32]}> : (tensor<1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
     %25 = tensor.empty() : tensor<127x1xf32>
-    %26 = "ttir.broadcast"(%24, %25) <{broadcast_dimensions = array<i32: 127, 1>}> : (tensor<1x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
+    %26 = "ttir.broadcast"(%24, %25) <{broadcast_dimensions = array<i64: 127, 1>}> : (tensor<1x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
     %27 = tensor.empty() : tensor<127x1xf32>
     %28 = "ttir.multiply"(%26, %18, %27) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<127x1xf32>, tensor<127x1xf32>, tensor<127x1xf32>) -> tensor<127x1xf32>
     %29 = tensor.empty() : tensor<1xf32>

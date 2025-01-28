@@ -514,6 +514,48 @@ public:
   }
 };
 
+// Repeat op conversion pattern
+//
+class RepeatOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::RepeatOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::RepeatOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::RepeatOp repeatOp, ttnn::RepeatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn::ShapeAttr repeatDims = repeatOp.getRepeatDimsAttr();
+
+    // Create ttnn::Shape() call
+    //
+    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, repeatDims, repeatOp->getBlock(), repeatOp.getLoc(),
+        ttnn_to_emitc::utils::ShapeType::Shape);
+
+    // Create operands vector
+    //
+    llvm::SmallVector<Value, 2> operands{
+        adaptor.getOperands()[0], // input tensor
+        shapeExpressionOp->getResult(0)};
+
+    // Create ArrayAttr object holding attributes and pointers to operands
+    //
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(0), // input tensor
+        rewriter.getIndexAttr(1), // ttnn::Shape
+        ttnn_to_emitc::utils::createStdNullopt(
+            rewriter) // std::nullopt for memory config
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        repeatOp, this->getTypeConverter()->convertType(repeatOp.getType()),
+        this->convertOpName(repeatOp), arrayAttrs, nullptr, operands);
+
+    return success();
+  }
+};
+
 // GetDeviceOp conversion pattern
 //
 class GetDeviceOpConversionPattern
@@ -1092,8 +1134,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Tensor manipulation ops
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
-               ReshapeOpConversionPattern,
-               DefaultOpConversionPattern<ttnn::RepeatOp>,
+               ReshapeOpConversionPattern, RepeatOpConversionPattern,
                DefaultOpConversionPattern<ttnn::RepeatInterleaveOp>,
                DefaultOpConversionPattern<ttnn::SliceOp>,
                DefaultOpConversionPattern<ttnn::PermuteOp>>(typeConverter, ctx);

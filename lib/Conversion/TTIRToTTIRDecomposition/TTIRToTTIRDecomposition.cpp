@@ -18,6 +18,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -1311,8 +1312,8 @@ public:
       auto inputShape =
           mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       output = rewriter.create<ttir::BroadcastOp>(
