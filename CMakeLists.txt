@@ -18,10 +18,6 @@ if (TTMLIR_ENABLE_DEBUG_STRINGS)
   add_compile_definitions(TTMLIR_ENABLE_DEBUG_STRINGS)
 endif()
 
-# if (NOT TTMLIR_ENABLE_RUNTIME)
-#   set (TTMLIR_ENABLE_SHARED_LIB OFF)
-# endif()
-
 if (TTMLIR_ENABLE_STABLEHLO)
   add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
 endif()
@@ -67,10 +63,6 @@ if (CMAKE_BUILD_TYPE STREQUAL "Asan")
   if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
     message(FATAL_ERROR "TTMLIR_ENABLE_BINDINGS_PYTHON must be set to OFF when building TTMLIR with address sanitization")
   endif()
-  # Clang only links in the sanitizer runtime for the main executable, not for the shared libraries.
-  # if (TTMLIR_ENABLE_SHARED_LIB)
-  #   message(FATAL_ERROR "TTMLIR_ENABLE_SHARED_LIB must be set to OFF when building TTMLIR with address sanitization")
-  # endif()
 endif()
 
 set(TTMLIR_TOOLCHAIN_DIR $ENV{TTMLIR_TOOLCHAIN_DIR})
