@@ -74,7 +74,7 @@ class TTAdapter(model_explorer.Adapter):
         name="Tenstorrent MLIR Adapter",
         description="Adapter for Tenstorrent MLIR dialects used in the Forge compiler.",
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
-        fileExts=["mlir", "ttir"],
+        fileExts=["mlir", "ttir", "ttnn"],
         settings={
             "optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()),
         },
