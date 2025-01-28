@@ -13,6 +13,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 
+#include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -1181,14 +1182,10 @@ public:
     if (!shardingAttr) {
       return failure();
     }
-    StringRef shardingStr = shardingAttr.getValue();
-    if (!shardingStr.consume_front("{") || !shardingStr.consume_back("}")) {
-      return failure();
-    }
-    SmallVector<StringRef> shardingStrAttrs;
-    shardingStr.split(shardingStrAttrs, " ");
-    struct ShardAttrValue shardAttrValue;
-    if (failed(parseShardingAttr(rewriter, shardingStrAttrs, shardAttrValue))) {
+
+    mlir::tt::sharding_utils::MeshShardAttr meshShardAttr;
+    if (failed(mlir::tt::sharding_utils::parseGSPMDShardingAttr(
+            shardingAttr.getValue(), meshShardAttr))) {
       return failure();
     }
 
@@ -1224,13 +1221,13 @@ public:
         return failure();
       }
 
-      shardAttrValue.shardDirection = mlir::tt::MeshShardDirection::ShardToFull;
+      meshShardAttr.shardDirection = mlir::tt::MeshShardDirection::ShardToFull;
       if (failed(createMeshShardOp(srcOp, adaptor, outputTensor, outputTypes,
-                                   shardAttrValue, rewriter))) {
+                                   meshShardAttr, rewriter))) {
         return failure();
       }
     } else if (callTargetName == kShardingTarget) {
-      if (shardAttrValue.shardType == mlir::tt::MeshShardType::Manual) {
+      if (meshShardAttr.shardType == mlir::tt::MeshShardType::Manual) {
         // "manual" sharding indicates match between input/output tensor shape
         // and no sharding is required.
         srcOp.getResult(0).replaceAllUsesWith(srcOp->getOperand(0));
@@ -1256,10 +1253,10 @@ public:
           return failure();
         }
 
-        shardAttrValue.shardDirection =
+        meshShardAttr.shardDirection =
             mlir::tt::MeshShardDirection::FullToShard;
         if (failed(createMeshShardOp(srcOp, adaptor, outputTensor, outputTypes,
-                                     shardAttrValue, rewriter))) {
+                                     meshShardAttr, rewriter))) {
           return failure();
         }
       }
@@ -1268,93 +1265,12 @@ public:
   }
 
 private:
-  struct ShardAttrValue {
-    mlir::tt::MeshShardDirection shardDirection;
-    mlir::tt::MeshShardType shardType;
-    bool lastTileDimReplicate;
-    std::vector<int64_t> shardShape;
-  };
-
-  // OpenXLA has its own lexer, but we will use simple string-based parser here
-  // This parsing is mainly based on "Sharding Attribute" section in
-  // https://github.com/sdasgup3/stablehlo/blob/80082431d1af0933e6202ecc8a6f8801e039235b/docs/spec.md
-  LogicalResult parseShardingAttr(ConversionPatternRewriter &rewriter,
-                                  SmallVector<StringRef> shardingStrAttrs,
-                                  struct ShardAttrValue &shardAttrValue) const {
-    MeshShardType shardType = mlir::tt::MeshShardType::Manual;
-    bool lastTileDimReplicate = false;
-    for (auto str : shardingStrAttrs) {
-      if (str.contains("replicated")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // replicated: all devices have whole data
-        shardType = mlir::tt::MeshShardType::Replicate;
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("maximal")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // maximal: one device has whole data
-        shardType = mlir::tt::MeshShardType::Maximal;
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("device=")) {
-        // maximal should followed by "device" to put data on
-        assert(shardType == mlir::tt::MeshShardType::Maximal &&
-               "Fail to parse sharding info.");
-        int64_t d;
-        if (!str.consume_front("device=")) {
-          return failure();
-        }
-        if (str.getAsInteger<int64_t>(10, d)) {
-          return failure();
-        }
-        shardAttrValue.shardShape.push_back(d);
-      } else if (str.contains("manual")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // manual: already sharded, so no action is needed
-        assert(!lastTileDimReplicate &&
-               "last time dim duplicate option shouldn't be set here.");
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("devices=")) {
-        // other: "devices" detail sharding plan
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        shardType = mlir::tt::MeshShardType::Devices;
-        if (!str.consume_front("devices=")) {
-          return failure();
-        }
-        auto [devicesStr, restStr] = str.split("<=");
-        // parse devices ex. [4,2,1]
-        if (!devicesStr.consume_front("[") || !devicesStr.consume_back("]")) {
-          return failure();
-        }
-        SmallVector<StringRef> dimsStr;
-        devicesStr.split(dimsStr, ",");
-        for (auto dim : dimsStr) {
-          int64_t d;
-          if (dim.getAsInteger<int64_t>(10, d)) {
-            return failure();
-          }
-          shardAttrValue.shardShape.push_back(d);
-        }
-      } else if (str.contains("last_tile_dim_replicate")) {
-        assert(shardType == mlir::tt::MeshShardType::Devices &&
-               "Fail to parse sharding info.");
-        // other: replicate last tile dim
-        lastTileDimReplicate = true;
-      }
-    }
-    shardAttrValue.shardType = shardType;
-    shardAttrValue.lastTileDimReplicate = lastTileDimReplicate;
-    return success();
-  }
-
   LogicalResult
   createMeshShardOp(mlir::stablehlo::CustomCallOp &srcOp,
                     mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                     tensor::EmptyOp &outputTensor,
                     SmallVector<Type> &outputTypes,
-                    ShardAttrValue &shardAttrValue,
+                    mlir::tt::sharding_utils::MeshShardAttr &meshShardAttr,
                     ConversionPatternRewriter &rewriter) const {
 
     auto meshShardOperands = srcOp.getInputsMutable();
@@ -1363,22 +1279,24 @@ private:
 
     StringAttr shardTypeAttrName = rewriter.getStringAttr("shard_type");
     Attribute shardTypeAttr =
-        rewriter.getAttr<MeshShardTypeAttr>(shardAttrValue.shardType);
+        rewriter.getAttr<MeshShardTypeAttr>(meshShardAttr.shardType);
     meshShardAttrs.push_back({shardTypeAttrName, shardTypeAttr});
 
     StringAttr shardDirectionAttrName =
         rewriter.getStringAttr("shard_direction");
     Attribute shardDirectionAttr =
-        rewriter.getAttr<MeshShardDirectionAttr>(shardAttrValue.shardDirection);
+        rewriter.getAttr<MeshShardDirectionAttr>(meshShardAttr.shardDirection);
     meshShardAttrs.push_back({shardDirectionAttrName, shardDirectionAttr});
 
     StringAttr shardShapeAttrName = rewriter.getStringAttr("shard_shape");
-    if (shardAttrValue.lastTileDimReplicate) {
-      shardAttrValue.shardShape.pop_back();
-    }
-    GridAttr shardShape =
-        GridAttr::get(this->getContext(), shardAttrValue.shardShape);
-    meshShardAttrs.push_back({shardShapeAttrName, shardShape});
+    DenseArrayAttr shardShapeAttr =
+        DenseI64ArrayAttr::get(this->getContext(), meshShardAttr.shardShape);
+    meshShardAttrs.push_back({shardShapeAttrName, shardShapeAttr});
+
+    StringAttr shardDimsAttrName = rewriter.getStringAttr("shard_dims");
+    DenseArrayAttr shardDimsAttr =
+        DenseI64ArrayAttr::get(this->getContext(), meshShardAttr.shardDims);
+    meshShardAttrs.push_back({shardDimsAttrName, shardDimsAttr});
 
     auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
         srcOp.getLoc(), outputTypes,
