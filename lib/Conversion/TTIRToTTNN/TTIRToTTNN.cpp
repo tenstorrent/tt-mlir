@@ -686,11 +686,30 @@ public:
   matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto shapeAttr = adaptor.getBroadcastDimensionsAttr();
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), op.getBroadcastDimensions());
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), rewriter.getI32ArrayAttr(shapeAttr));
+        adaptor.getInput(), shapeAttr);
+
+    return success();
+  }
+};
+
+class RepeatOpConversionPattern : public OpConversionPattern<ttir::RepeatOp> {
+  using OpConversionPattern<ttir::RepeatOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::RepeatOp op, ttir::RepeatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn::ShapeAttr repeatDimensionsAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), op.getRepeatDimensions());
+
+    rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), repeatDimensionsAttr);
 
     return success();
   }
@@ -1373,6 +1392,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
+           RepeatOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,

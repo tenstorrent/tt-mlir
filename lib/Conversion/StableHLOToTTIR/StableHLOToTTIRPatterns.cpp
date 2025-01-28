@@ -706,8 +706,8 @@ public:
       ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
@@ -751,8 +751,8 @@ public:
       ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(

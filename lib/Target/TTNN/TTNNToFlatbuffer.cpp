@@ -893,12 +893,12 @@ template <typename RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto shape =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(cache, op.getShape());
+  ::llvm::ArrayRef<int64_t> repeatDims = op.getRepeatDims().getShape();
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedAddress, kHostAllocatedSize);
 
-  return ::tt::target::ttnn::CreateRepeatOp(*cache.fbb, in, out, shape);
+  return ::tt::target::ttnn::CreateRepeatOp(
+      *cache.fbb, in, out, cache.fbb->CreateVector<int64_t>(repeatDims));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>

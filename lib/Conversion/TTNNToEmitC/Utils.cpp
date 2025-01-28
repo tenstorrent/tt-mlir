@@ -8,6 +8,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -194,13 +195,15 @@ emitc::OpaqueAttr createStdNullopt(Builder &builder) {
 
 emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
                                   ttnn::ShapeAttr shapeAttr,
-                                  Block *containingBlock, Location loc) {
+                                  Block *containingBlock, Location loc,
+                                  ShapeType shapeType) {
+  llvm::StringRef shapeTypeStr =
+      shapeType == ShapeType::SimpleShape ? "ttnn::SimpleShape" : "ttnn::Shape";
   // Create ExpressionOp to hold multiple nested op calls, but will bundle them
   // together into a single SSA value
   //
   emitc::ExpressionOp shapeExpressionOp = rewriter.create<emitc::ExpressionOp>(
-      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::SimpleShape"),
-      false);
+      loc, emitc::OpaqueType::get(rewriter.getContext(), shapeTypeStr), false);
 
   // Add a block to the ExpressionOp, save current insertion point, and set
   // insertion point to newly added block
@@ -222,8 +225,8 @@ emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
   // Create a ttnn::SimpleShape object
   //
   emitc::CallOpaqueOp ttnnShapeOp = rewriter.create<emitc::CallOpaqueOp>(
-      loc, emitc::OpaqueType::get(rewriter.getContext(), "ttnn::SimpleShape"),
-      rewriter.getStringAttr("ttnn::SimpleShape"), nullptr, nullptr,
+      loc, emitc::OpaqueType::get(rewriter.getContext(), shapeTypeStr),
+      rewriter.getStringAttr(shapeTypeStr), nullptr, nullptr,
       metalShapeOp->getResults());
   rewriter.create<emitc::YieldOp>(loc, ttnnShapeOp->getResult(0));
 
