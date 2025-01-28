@@ -9,7 +9,5 @@ add_mlir_library(TTMLIRTosaToTTIR
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIRIR
-  MLIRPass
-  MLIRTosaDialect
+  MLIR
 )
