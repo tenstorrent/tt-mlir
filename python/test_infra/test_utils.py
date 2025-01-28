@@ -13,6 +13,7 @@ from ttmlir.passes import (
     ttir_to_ttnn_backend_pipeline,
     ttnn_to_flatbuffer_file,
     ttir_to_ttmetal_backend_pipeline,
+    ttkernel_to_emitc_backend_pipeline,
     ttmetal_to_flatbuffer_file,
 )
 
@@ -219,6 +220,46 @@ def ttir_to_ttmetal(
     ttir_to_ttmetal_backend_pipeline(module, f"system-desc-path={system_desc_path}")
 
     print("`ttir_to_ttmetal_backend_pipeline` passed successfully.")
+
+    # Optionally dump to file.
+    if dump_to_file:
+        with open(output_file_name, "w") as f:
+            f.write(str(module))
+
+    return module
+
+
+def ttkernel_to_emitc(
+    module,
+    dump_to_file: bool = True,
+    output_file_name: str = "test.mlir",
+):
+    """
+    Converts TTKernel module `module` to EmitC module and optionally dumps to file.
+
+    Wrapper around `ttkernel_to_emitc_backend_pipeline` pybound pass.
+
+    Arguments
+    ---------
+    module: ???
+        TTKernel module to convert to EmitC module
+
+    dump_to_file: bool
+        Flag which indicates that generated EmitC module will be dumped to file.
+
+    output_file_name: str
+        Name of the output file.
+
+    Returns
+    -------
+    MLIR module containing MLIR op graph defined by `module` and instance of TTKernelBuilder.
+    """
+
+    # Now, pass it through the TTIR to TTMetal pipeline. Module gets
+    # modified in place.
+    ttkernel_to_emitc_backend_pipeline(module)
+
+    print("`ttkernel_to_emitc_backend_pipeline` passed successfully.")
 
     # Optionally dump to file.
     if dump_to_file:
