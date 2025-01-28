@@ -282,7 +282,8 @@ private:
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
     Type memrefElementType = utils::getElementType(
-        op.getContext(), info.output.layoutEnum, info.output.dataType);
+        op.getContext(), info.output.layoutEnum,
+        elementTypeToDataType(inputType.getElementType()));
     RankedTensorType newResultType =
         utils::createRankedTensorTypeWithElementType(inputType,
                                                      memrefElementType);

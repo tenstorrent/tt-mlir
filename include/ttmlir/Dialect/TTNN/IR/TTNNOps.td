@@ -63,9 +63,11 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasCanonicalizeMethod = 1;
+
+    let hasVerifier = 1;
 }
 
-def TTNN_TypecastOp : TTNN_Op<"typecast"> {
+def TTNN_TypecastOp : TTNN_Op<"typecast", [ChangesDataType]> {
     let summary = "Typecast op.";
     let description = [{
       This op converts the data type of the input tensor based on the given data type.
@@ -78,7 +80,7 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
+def TTNN_ToDeviceOp : TTNN_Op<"to_device", [ChangesBufferType, ChangesMemoryLayout]> {
     let summary = "ToDevice op.";
     let description = [{
       This op sends the input tensor to the given device with the given memory config.
@@ -90,7 +92,7 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
+def TTNN_FromDeviceOp : TTNN_Op<"from_device", [ChangesBufferType, ChangesMemoryLayout]> {
     let summary = "FromDevice op.";
     let description = [{
       This op retrieves the input tensor from the given device.

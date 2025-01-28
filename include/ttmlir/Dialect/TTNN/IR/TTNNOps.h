@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNVerificationInterface.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"

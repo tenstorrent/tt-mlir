@@ -9,6 +9,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNVerificationInterface.td"
 
 //===----------------------------------------------------------------------===//
 // TTNN dialect definition.
