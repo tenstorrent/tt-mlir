@@ -150,6 +150,10 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(bf16Workaround);
 }
 
+// Factory method to create a set of workarounds for UpsampleO. The UpsampleOp
+// expects the input to be in row-major layout and to use the bf16 data type.
+// Since the output of the UpsampleOp follows the same format as the input
+// operand, the same workaround is applied to the output operand.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
   TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
