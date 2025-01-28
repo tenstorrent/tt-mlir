@@ -55,37 +55,46 @@ public:
         rewriter.getContext(),
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
     DataType dtype = layoutAttr.getDataType();
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    if (layoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    }
     DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
 
-    // Device
-    //
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
+      // Replace op
+      //
+      rewriter.replaceOpWithNewOp<ttnn::HostEmptyOp>(
+          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+          dTypeAttr, tensorLayoutAttr);
+    } else {
+      if (layoutAttr.isTiled()) {
+        ttnnLayoutEnum = ttnn::Layout::Tile;
+      } else {
+        ttnnLayoutEnum = ttnn::Layout::RowMajor;
+      }
+      // Device
+      //
+      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-    // Create MemoryConfigAttr
-    //
-    ttnn::BufferTypeAttr bufferTypeAttr =
-        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
-    ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
-        op.getContext(),
-        ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
-                                    shardSpecAttr, layoutAttr.getMemLayout());
+      // Create MemoryConfigAttr
+      //
+      ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
+          op.getContext(), layoutAttr.getBufferType());
+      ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
+          op.getContext(),
+          ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
+      ttnn::MemoryConfigAttr memoryConfigAttr =
+          ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
+                                      shardSpecAttr, layoutAttr.getMemLayout());
 
-    // Replace op
-    //
-    rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
-
+      // Replace op
+      //
+      rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+          dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+    }
     return success();
   }
 };

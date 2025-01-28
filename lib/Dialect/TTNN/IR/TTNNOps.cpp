@@ -380,6 +380,33 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// HostEmptyOp
+//===----------------------------------------------------------------------===//
+
+// HostEmptyOp verification
+::mlir::LogicalResult mlir::tt::ttnn::HostEmptyOp::verify() {
+  // Check that the attributes of the op match the attributes of the output
+  // tensor type.
+  //
+  assert(::llvm::isa<RankedTensorType>(getResult().getType()));
+  RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
+
+  assert(::llvm::isa<TTNNLayoutAttr>(output.getEncoding()));
+  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
+
+  // Shape
+  //
+  assert(output.getShape() == getShape().getShape());
+
+  // DataType and Layout
+  //
+  assert(getLayout() == layoutAttr.getLayout());
+  assert(getDtype() == layoutAttr.getDataType());
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
 

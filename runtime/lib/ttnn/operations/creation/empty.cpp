@@ -72,15 +72,12 @@ createEmptyOnMultiDevice(ProgramContext &context, EmptyTensorConfig &config,
 static ::ttnn::Tensor
 createEmptyOnSingleDevice(ProgramContext &context, EmptyTensorConfig &config,
                           const ::tt::target::DeviceRef *deviceRef) {
-  if (deviceRef) {
-    ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
-    LOG_ASSERT(subMesh.num_devices() == 1);
-    ::ttnn::IDevice *device =
-        subMesh.get_device(::tt::tt_metal::distributed::MeshCoordinate(0, 0));
-    return ::ttnn::empty(config.shape, config.dtype, config.layout, device,
-                         config.memoryConfig.value());
-  }
-  return ::ttnn::zeros(config.shape, config.dtype, config.layout);
+  assert(deviceRef && "::ttnn::empty requires deviceRef!");
+  ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
+  LOG_ASSERT(subMesh.num_devices() == 1);
+  ::ttnn::IDevice *device = subMesh.get_device_index(0);
+  return ::ttnn::empty(config.shape, config.dtype, config.layout, device,
+                       config.memoryConfig.value());
 }
 
 void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {

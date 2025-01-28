@@ -548,6 +548,22 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::HostEmptyOp>
+createOp(FlatbufferObjectCache &cache, HostEmptyOp op) {
+  ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+  ::tt::target::TensorLayout layout =
+      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
+
+  auto output = getOperandThroughDPSOps(op.getResult());
+
+  return ::tt::target::ttnn::CreateHostEmptyOp(
+      *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
+      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
+                        kHostAllocatedSize));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -1416,6 +1432,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
     return createOperation(cache, createOp(cache, emptyOp), debugString,
+                           locInfo);
+  }
+  if (auto hostEmptyOp = dyn_cast<EmptyOp>(op); hostEmptyOp) {
+    return createOperation(cache, createOp(cache, hostEmptyOp), debugString,
                            locInfo);
   }
   if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {

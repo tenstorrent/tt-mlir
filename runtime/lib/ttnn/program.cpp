@@ -11,6 +11,7 @@
 #include "operations/creation/constant.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
+#include "operations/creation/host_empty.h"
 #include "operations/creation/ones.h"
 #include "operations/creation/zeros.h"
 #include "operations/data_movement/concat.h"
@@ -185,6 +186,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ZerosOp: {
     return operations::creation::run(op->type_as_ZerosOp(), context);
+  case ::tt::target::ttnn::OpType::HostEmptyOp: {
+    return operations::creation::run(op->type_as_HostEmptyOp(), context);
   }
   case ::tt::target::ttnn::OpType::OnesOp: {
     return operations::creation::run(op->type_as_OnesOp(), context);
