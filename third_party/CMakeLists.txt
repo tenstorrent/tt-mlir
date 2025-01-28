@@ -86,6 +86,27 @@ set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
+# When installing, copy all needed files (for runtime) from tt-metal to the install directory.
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+  PATTERN "third_party" EXCLUDE
+)
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+)
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/runtime
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+)
+
 list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH})
 
