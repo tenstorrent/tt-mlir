@@ -2,50 +2,43 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
+#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 
-#include "mlir/Analysis/Liveness.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Math/IR/Math.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/Block.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Location.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Types.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstdint>
-#include <utility>
-
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Utils.h"
+
+#include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/MapVector.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/ErrorHandling.h>
+#include <llvm/Support/LogicalResult.h>
+#include <mlir/Analysis/Liveness.h>
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/Math/IR/Math.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/IR/Block.h>
+#include <mlir/IR/Builders.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Location.h>
+#include <mlir/IR/PatternMatch.h>
+#include <mlir/IR/Types.h>
+#include <mlir/IR/Value.h>
+#include <mlir/IR/ValueRange.h>
+#include <mlir/Pass/PassManager.h>
+#include <mlir/Support/LogicalResult.h>
+#include <mlir/Transforms/DialectConversion.h>
+
+#include <cstdint>
+#include <utility>
 
 namespace mlir::tt::ttmetal {
 
@@ -161,41 +154,6 @@ public:
     return txMap;
   }
 
-  static void
-  buildNocAsyncTx(mlir::Location loc, std::int64_t inputBaseAddress,
-                  std::int64_t outputBaseAddress, std::int64_t addressAlignment,
-                  NocTx nocTx,
-                  PhysicalCoreCoordMapping const &physicalCoordMapping,
-                  mlir::OpBuilder &nocBuilder) {
-    assert(nocTx.srcOffset % addressAlignment == 0);
-    assert(nocTx.dstOffset % addressAlignment == 0);
-    assert(nocTx.size % addressAlignment == 0);
-    auto [yPhys, xPhys] = physicalCoordMapping[nocTx.coreCoord];
-    auto y = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(yPhys));
-    auto x = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(xPhys));
-    auto srcLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(),
-        nocBuilder.getI32IntegerAttr(inputBaseAddress + nocTx.srcOffset));
-    auto dstLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(),
-        nocBuilder.getI32IntegerAttr(outputBaseAddress + nocTx.dstOffset));
-    auto size = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(nocTx.size));
-    if (nocTx.type == NocTx::Type::Read) {
-      auto srcRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrXYOp>(
-          loc, x, y, srcLocalL1Addr);
-      nocBuilder.create<ttkernel::NocAsyncReadOp>(loc, srcRemoteNocAddr,
-                                                  dstLocalL1Addr, size);
-    } else {
-      auto dstRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrXYOp>(
-          loc, x, y, dstLocalL1Addr);
-      nocBuilder.create<ttkernel::NocAsyncWriteOp>(loc, srcLocalL1Addr,
-                                                   dstRemoteNocAddr, size);
-    }
-  }
-
   LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputTy = mlir::cast<RankedTensorType>(op.getType());
@@ -305,37 +263,125 @@ public:
       const PhysicalCoreCoordMapping &physicalCoordMapping,
       std::int64_t addressAlignment, Value *inputCB = nullptr) {
 
+    using std::int32_t;
+    using std::int64_t;
+
     assert(inputBaseAddress);
     assert(outputBaseAddress);
     assert(inputBaseAddress % addressAlignment == 0);
     assert(outputBaseAddress % addressAlignment == 0);
     OpBuilder nocBuilder = OpBuilder::atBlockEnd(block);
     NocTx::Type type = transactions.front().type;
-    for (auto tx : transactions) {
-      assert(tx.type == type);
-      if (inputCB) {
-        auto numElementsConst = nocBuilder.create<arith::ConstantOp>(
-            loc, nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(tx.numElements));
+
+    // each 'entry' is {I32:$dst, I32:$src, I32:$size, I32:$x, I32:$y,
+    // I32:$numElements}:
+    constexpr int32_t entrySize = 6;
+
+    // convert 'transactions' into compile time 'NocOpsTableOp' parameters:
+
+    llvm::SmallVector<int32_t, (8 * entrySize)> entries;
+    for (auto const &tx : transactions) {
+      assert(tx.type ==
+             type); // all transactions are of the same read/write type
+
+      entries.emplace_back(outputBaseAddress + tx.dstOffset);
+      entries.emplace_back(inputBaseAddress + tx.srcOffset);
+      entries.emplace_back(tx.size);
+
+      auto const [yPhys, xPhys] = physicalCoordMapping[tx.coreCoord];
+      entries.emplace_back(xPhys);
+      entries.emplace_back(yPhys);
+
+      entries.emplace_back(tx.numElements);
+    }
+
+    mlir::IntegerType i32Type = nocBuilder.getI32Type();   // for 'scf' ops
+    mlir::IndexType indexType = nocBuilder.getIndexType(); // for 'memref' ops
+
+    auto entriesAttr = nocBuilder.getDenseI32ArrayAttr(entries);
+    auto tableType = MemRefType::get(
+        {static_cast<int32_t>(entries.size() / entrySize), entrySize}, i32Type,
+        AffineMap::getMultiDimIdentityMap(2, nocBuilder.getContext()));
+    auto tableOp =
+        nocBuilder.create<ttkernel::NocOpsTableOp>(loc, tableType, entriesAttr);
+
+    auto i32 = [&](int32_t value) {
+      return nocBuilder.create<arith::ConstantOp>(
+          loc, nocBuilder.getI32IntegerAttr(value));
+    };
+
+    auto index = [&](int64_t value) {
+      return nocBuilder.create<arith::ConstantOp>(
+          loc, nocBuilder.getIndexAttr(value));
+    };
+
+    auto loop = nocBuilder.create<scf::ForOp>(loc, i32(0),
+                                              i32(transactions.size()), i32(1));
+    nocBuilder.setInsertionPointToStart(loop.getBody());
+    {
+      // memref.load/store requires 'index'-typed indexing, but 'scf.for' can't
+      // use that, so make use of arith indexing casting:
+
+      auto entry = nocBuilder.create<arith::IndexCastOp>(
+          loc, indexType, loop.getInductionVar());
+
+      std::array<Value, 2> vs{entry, index(0)};
+      auto dst = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+      vs[1] = index(1);
+      auto src = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+
+      vs[1] = index(2);
+      auto size = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+
+      vs[1] = index(3);
+      auto x = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+      vs[1] = index(4);
+      auto y = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+
+      // emit read/write op, surrounded with CB ops if needed:
+
+      auto rw = [&] {
+        switch (type) {
+        case NocTx::Type::Read: {
+          auto srcRemote =
+              nocBuilder.create<ttkernel::GetNocAddrXYOp>(loc, x, y, src);
+          nocBuilder.create<ttkernel::NocAsyncReadOp>(
+              loc, srcRemote.getResult(), dst, size);
+        } break;
+        case NocTx::Type::Write: {
+          auto dstRemote =
+              nocBuilder.create<ttkernel::GetNocAddrXYOp>(loc, x, y, dst);
+          nocBuilder.create<ttkernel::NocAsyncWriteOp>(
+              loc, src, dstRemote.getResult(), size);
+        } break;
+        }
+      };
+
+      if (!inputCB) {
+        rw();
+      } else {
+        vs[1] = index(5);
+        auto numElements = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+
         nocBuilder.create<ttkernel::CBReserveBackOp>(loc, *inputCB,
-                                                     numElementsConst);
-      }
-      buildNocAsyncTx(loc, inputBaseAddress, outputBaseAddress,
-                      addressAlignment, tx, physicalCoordMapping, nocBuilder);
-      if (inputCB) {
-        auto numElementsConst = nocBuilder.create<arith::ConstantOp>(
-            loc, nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(tx.numElements));
+                                                     numElements);
+
+        rw();
+
         nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
-        nocBuilder.create<ttkernel::CBPushBackOp>(loc, *inputCB,
-                                                  numElementsConst);
+        nocBuilder.create<ttkernel::CBPushBackOp>(loc, *inputCB, numElements);
       }
     }
+    nocBuilder.setInsertionPointAfter(loop);
+
     if (!inputCB) {
-      if (type == NocTx::Type::Read) {
+      switch (type) {
+      case NocTx::Type::Read: {
         nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
-      } else {
+      } break;
+      case NocTx::Type::Write: {
         nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+      } break;
       }
     }
   }
