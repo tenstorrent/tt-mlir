@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
-#include <cctype>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringRef.h>
@@ -33,6 +32,7 @@
 #include <mlir/Target/Cpp/CppEmitter.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+#include <cctype>
 #include <string>
 #include <unordered_map>
 
