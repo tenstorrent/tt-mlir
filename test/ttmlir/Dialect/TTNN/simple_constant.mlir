@@ -18,6 +18,12 @@ module attributes {} {
     return %0 : tensor<64x128xi32>
   }
 
+  func.func @test_empty_uint() -> tensor<64x128xui32> {
+    %0 = "ttir.constant"() <{value = dense<0> : tensor<64x128xui32>}> : () -> tensor<64x128xui32>
+    // CHECK: %{{[0-9]+}} = "ttnn.full"
+    return %0 : tensor<64x128xui32>
+  }
+
   func.func @test_empty_bfloat16() -> tensor<64x128xbf16> {
     %0 = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<64x128xbf16>}> : () -> tensor<64x128xbf16>
     // CHECK: %{{[0-9]+}} = "ttnn.full"
@@ -52,6 +58,14 @@ module attributes {} {
     // CHECK-SAME: tensor<64x128xi32
     %0 = "ttir.constant"() <{value = dense<1> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
     return %0 : tensor<64x128xi32>
+  }
+
+  func.func @test_full_uint() -> tensor<64x128xui32> {
+    // CHECK: %{{[0-9]+}} = "ttnn.full"
+    // CHECK-SAME: fillValue = 1.000000e+00 : f32
+    // CHECK-SAME: tensor<64x128xui32
+    %0 = "ttir.constant"() <{value = dense<1> : tensor<64x128xui32>}> : () -> tensor<64x128xui32>
+    return %0 : tensor<64x128xui32>
   }
 
   func.func @test_full_bfloat16() -> tensor<64x128xbf16> {

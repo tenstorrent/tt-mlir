@@ -17,19 +17,16 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
                       const std::vector<int64_t> &shardShape) {
   if (shardType == ::tt::target::MeshShardType::Replicate) {
     out = ::ttnn::distributed::distribute_tensor(
-        input, meshDevice,
+        input,
         *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
   } else {
-    LOG_ASSERT(
+    DEBUG_ASSERT(
         input.get_shape().rank() > 1,
         "Sharding requires higher than 2 dimensional tensor. Tensor rank=",
         input.get_shape().rank());
     auto rowMesh = static_cast<size_t>(shardShape[0]);
     auto colMesh = static_cast<size_t>(shardShape[1]);
     int lastDim = input.get_shape().rank() - 1;
-    LOG_ASSERT((rowMesh * colMesh) > 1,
-               "Sharding requires higher than 1 mesh. shardShape ", rowMesh,
-               colMesh);
 
     ::ttnn::distributed::Shard2dConfig shard2dConfig;
     // last tile replicate
@@ -48,9 +45,8 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
     }
 
     out = ::ttnn::distributed::distribute_tensor(
-        input, meshDevice,
-        *::ttnn::distributed::shard_tensor_to_2d_mesh_mapper(
-            meshDevice, meshDevice.shape(), shard2dConfig));
+        input, *::ttnn::distributed::shard_tensor_to_2d_mesh_mapper(
+                   meshDevice, meshDevice.shape(), shard2dConfig));
   }
 }
 
@@ -104,6 +100,8 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   const ::tt::target::MeshShardType shardType = op->shard_type();
   const auto *fbShardShape = op->shard_shape();
   std::vector<int64_t> shardShape(fbShardShape->begin(), fbShardShape->end());
+  DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(input.storage_type()),
+               "Input of ttnn::mesh_shard should be host tensor");
 
   if (shardDirection != ::tt::target::MeshShardDirection::FullToShardShape &&
       shardDirection != ::tt::target::MeshShardDirection::ShardToFullShape) {
@@ -125,5 +123,8 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
     ShardToFullShape(input, out, meshDevice, shardType, shardShape);
   }
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(out.storage_type()),
+               "Output of ttnn::mesh_shard should be host tensor");
 }
 } // namespace tt::runtime::ttnn::operations::ccl

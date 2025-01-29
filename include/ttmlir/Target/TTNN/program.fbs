@@ -164,10 +164,18 @@ table EltwiseOp {
   params: EltwiseOpParams;
 }
 
+table MorehCumSumOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim: int64;
+  memcfg: tt.target.MemoryConfigDesc;
+}
+
 enum ReductionOpType: uint32 {
   Sum,
   Mean,
   Max,
+  Min,
 }
 
 table ReductionOp {
@@ -176,6 +184,15 @@ table ReductionOp {
   out: tt.target.TensorRef;
   dim_arg: [int32];
   keep_dim: bool;
+}
+
+table ReductionProdOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  all_dimensions: bool;
+  dim_arg: int64;
+  keep_dim: bool;
+  memcfg: tt.target.MemoryConfigDesc;
 }
 
 table EmbeddingOp {
@@ -191,6 +208,14 @@ table EmbeddingBackwardOp {
   dtype: tt.target.DataType = null;
   memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
+}
+
+table RepeatInterleaveOp {
+  input: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  repeats: uint32;
+  dim: int32;
+  memory_config: MemoryConfigDesc;
 }
 
 table SoftmaxOp {
@@ -221,7 +246,7 @@ table ReshapeOp {
 table RepeatOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
-  shape: [uint32];
+  repeat_dims: [int64];
 }
 
 table SliceOp {
@@ -266,6 +291,25 @@ table Conv2dOp {
   padding_width: uint32;
   dilation_height: uint32;
   dilation_width: uint32;
+  groups: uint32;
+}
+
+table ConvTranspose2dOp {
+  input: tt.target.TensorRef;
+  weight: tt.target.TensorRef;
+  bias: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  output_padding: [int32];
+  dilation: [int32];
   groups: uint32;
 }
 
@@ -340,12 +384,16 @@ union OpType {
   EltwiseOp,
   LinearOp,
   MatmulOp,
+  MorehCumSumOp,
   ReductionOp,
+  ReductionProdOp,
   EmbeddingOp,
   EmbeddingBackwardOp,
+  RepeatInterleaveOp,
   SoftmaxOp,
   TransposeOp,
   Conv2dOp,
+  ConvTranspose2dOp,
   ConcatOp,
   ReshapeOp,
   SliceOp,

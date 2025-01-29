@@ -18,6 +18,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -497,13 +498,6 @@ struct GatherToEmbeddingConversionPattern
     auto offsetDims = op.getOffsetDims();
     // collapsed slice dims of the gather op
     auto collapsedSliceDims = op.getCollapsedSliceDims();
-
-    RankedTensorType operandType =
-        mlir::cast<RankedTensorType>(op->getOperand(0).getType());
-    if (!operandType.getElementType().isBF16()) {
-      return rewriter.notifyMatchFailure(
-          op, "only supports bfloat16 input tensor.");
-    }
 
     if (shape.size() > 1) {
       auto hiddenDim = shape[shape.size() - 1];
@@ -1311,8 +1305,8 @@ public:
       auto inputShape =
           mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       output = rewriter.create<ttir::BroadcastOp>(
@@ -1323,6 +1317,31 @@ public:
              "Output shape must match the shape of the input tensor");
     }
     rewriter.replaceOp(op, output);
+    return success();
+  }
+};
+
+// TTNN does not support reduction operation for logical and. So this reduction
+// is performed by decomposing/converting into reduction product (ttnn.prod op).
+// If ttnn.prod output is zero then reduce_and output is false; otherwise the
+// output is true.
+struct ReductionAndPattern : public OpConversionPattern<ttir::ReduceAndOp> {
+public:
+  using OpConversionPattern<ttir::ReduceAndOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceAndOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    tensor::EmptyOp reduceOutputTensor = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), reduceOutputType.getShape(),
+        reduceOutputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ProdOp>(
+        op, reduceOutputType, op.getInput(), reduceOutputTensor,
+        op.getKeepDim(), op.getDimArgAttr());
+
     return success();
   }
 };
@@ -1338,6 +1357,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
+  patterns.add<ReductionAndPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

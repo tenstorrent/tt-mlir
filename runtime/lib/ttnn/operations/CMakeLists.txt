@@ -8,6 +8,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/ones.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
@@ -15,6 +16,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat_interleave.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deletion/deallocate.cpp
@@ -35,8 +37,10 @@ set(TTNN_OPS_SRCS
   # ANCHOR: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
+  ${CMAKE_CURRENT_SOURCE_DIR}/moreh/moreh_cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/maxpool2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
 )

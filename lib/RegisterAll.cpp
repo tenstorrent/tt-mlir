@@ -4,12 +4,6 @@
 
 #include "ttmlir/RegisterAll.h"
 
-#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
-#include "mlir/IR/Action.h"
-#include "mlir/IR/DialectRegistry.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -24,28 +18,38 @@
 
 #include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/IR/DialectRegistry.h"
+#include "mlir/InitAllDialects.h"
+#include "mlir/InitAllPasses.h"
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
+#if TTMLIR_ENABLE_STABLEHLO
+#include "shardy/dialect/sdy/ir/register.h"
 #include "stablehlo/dialect/Register.h"
 #endif
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
-  registry.insert<
-      mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
-      mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
-      mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
-      mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
-      mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-      mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-      mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
-      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect>();
+  registry
+      .insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
+              mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
+              mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
+              mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
+              mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
+              mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
+              mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+              mlir::emitc::EmitCDialect, mlir::memref::MemRefDialect,
+              mlir::bufferization::BufferizationDialect>();
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
+  mlir::sdy::registerAllDialects(registry);
 #endif
+  // Registering BufferizableOpInterface for each dialect (including
+  // intermediate dialects) is required to convert types to memrefs during
+  // lowering.
   arith::registerBufferizableOpInterfaceExternalModels(registry);
   linalg::registerBufferizableOpInterfaceExternalModels(registry);
   scf::registerBufferizableOpInterfaceExternalModels(registry);
@@ -57,7 +61,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 
 void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   // Both the inliner for TTIRDialect and FuncDialect must be registered
-  // since we use a combination of TTIRDialect and FuncDialect in the IR
+  // since we use a combination of TTIRDialect and FuncDialect in the IR.
   mlir::func::registerInlinerExtension(registry);
 }
 
@@ -74,7 +78,7 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
 
-  // Pipeline registration
+  // Register pipelines.
   mlir::tt::ttir::registerTTIRPipelines();
   mlir::tt::ttnn::registerTTNNPipelines();
   mlir::tt::ttmetal::registerTTMetalPipelines();

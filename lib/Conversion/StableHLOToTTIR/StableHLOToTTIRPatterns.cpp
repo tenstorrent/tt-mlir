@@ -84,6 +84,18 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::MaxOp>(srcOp, adaptor,
                                                             rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::MinOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::MinOp>(srcOp, adaptor,
+                                                            rewriter);
+    }
+    if (mlir::isa<mlir::stablehlo::MulOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ProdOp>(srcOp, adaptor,
+                                                             rewriter);
+    }
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
+          srcOp, adaptor, rewriter);
+    }
 
     return failure();
   }
@@ -102,6 +114,20 @@ private:
       return rewriter.notifyMatchFailure(
           srcOp,
           "Expecting StableHLO Reduce OP to have a body operation defined.");
+    }
+
+    mlir::Operation &innerOp = srcOp.getBody().front().front();
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+      bool allOperandsAreBoolean = std::all_of(
+          srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
+            return mlir::cast<RankedTensorType>(operand.getType())
+                       .getElementTypeBitWidth() == 1;
+          });
+      if (!allOperandsAreBoolean) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "stablehlo.reduce for stablehlo.and operator is only "
+                   "supported for logical and.");
+      }
     }
 
     return success();
@@ -291,16 +317,24 @@ private:
         return rebuildValueAttr<bool>(valueAttr, 1);
       }
       case 8: {
-        return rebuildValueAttr<int8_t>(valueAttr, 8);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint8_t>(valueAttr, 8)
+                   : rebuildValueAttr<int8_t>(valueAttr, 8);
       }
       case 16: {
-        return rebuildValueAttr<int16_t>(valueAttr, 16);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint16_t>(valueAttr, 16)
+                   : rebuildValueAttr<int16_t>(valueAttr, 16);
       }
       case 32: {
-        return rebuildValueAttr<int32_t>(valueAttr, 32);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint32_t>(valueAttr, 32)
+                   : rebuildValueAttr<int32_t>(valueAttr, 32);
       }
       case 64: {
-        return rebuildValueAttr<int64_t>(valueAttr, 32);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint64_t>(valueAttr, 32)
+                   : rebuildValueAttr<int64_t>(valueAttr, 32);
       }
       default: {
         assert(false && "Unsupported integer type.");
@@ -331,7 +365,8 @@ private:
 
   // Extract the values (using the given ElementType) and create new data
   // structure. This is used to convert scalars (of type boolean, int8, int16,
-  // int32, and int64) and tensors (of type boolean and int64).
+  // int32, int64, uint8, uint16, uint32, uint64) and tensors (of type boolean
+  // and int64).
   template <typename ElementType>
   mlir::ElementsAttr rebuildValueAttr(mlir::ElementsAttr valueAttr,
                                       size_t bitWidth) const {
@@ -518,14 +553,16 @@ public:
                        SmallVector<int64_t>(windowDimensions.size() * 2, 0));
 
     mlir::tt::ttir::PoolingMethod poolingMethod;
+    int64_t dimension = -1;
     if (isMaxPool(srcOp)) {
       poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
+    } else if (isCumSum(srcOp, adaptor, dimension)) {
+      rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
+          srcOp, outputType, adaptor.getInputs()[0],
+          rewriter.getI64IntegerAttr(dimension), outputs[0]);
+      return success();
     } else {
       return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
-    }
-
-    for (Value initValue : adaptor.getInitValues()) {
-      eraseInitValueSubgraph(rewriter, initValue.getDefiningOp());
     }
 
     rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
@@ -537,32 +574,206 @@ public:
   }
 
 private:
-  void eraseInitValueSubgraph(ConversionPatternRewriter &rewriter,
-                              Operation *op) const {
+  // This function verify all the required conditions to convert stablehlo
+  // reduce_window op to TTIR cumsum op and also determine the dimension
+  // attribute along which the cumulative sum will be computed.
+  // The reduce_window op must satisfy the following conditions.
+  // 1. One input / one output, one block in body and two ops with in block.
+  // 2. Ops in the block must be 'add' and 'return'.
+  // 3. InitValue must be zero.
+  // 4. There are no strides or dilations for window-related attributes.
+  // 5. The size of padding attribute is equal to two times input tensor rank.
+  // 6. Padding value must be zero in case of splat vector. Window dimension
+  //    attribute must have all elements equal to one in this case.
+  // 7. Padding attribute have one non-zero element in case of non-splat vector
+  //    and this non-zero element must be equal to size of specified dimension
+  //    minus one.
+  // The dimension attribute is determined in following two ways.
+  // 1. (If padding is splat vector): First dimension in the input tensor shape,
+  //    whose size is 1, is the required dimension.
+  // 2. (If padding is non-splat vector): Window dimension attribute must have
+  //    all elements equal to 1 except one; whose location is the required
+  //    dimension and value must be qual to size of the required dimension.
+  bool isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
+                mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+                int64_t &dimension) const {
 
-    std::vector<Operation *> opsToErase;
-    opsToErase.push_back(op);
+    // Check basic structure of the ReduceWindowOp
+    if (!hasValidOpStructure(srcOp)) {
+      return false;
+    }
 
-    bool addedOps = true;
-    while (addedOps) {
-      addedOps = false;
-      Operation *currentOp = opsToErase.back();
+    // Verify operations in the block
+    if (!hasValidOperationsInBlock(srcOp)) {
+      return false;
+    }
 
-      for (auto &operand : currentOp->getOpOperands()) {
-        Operation *definingOp = operand.get().getDefiningOp();
-        if (definingOp->hasOneUse() || definingOp->use_empty()) {
-          addedOps = true;
-          opsToErase.push_back(definingOp);
+    // Check init values
+    if (!hasValidInitValues(srcOp)) {
+      return false;
+    }
+
+    // Verify window-related attributes (strides, dilations)
+    if (!hasValidWindowAttributes(adaptor)) {
+      return false;
+    }
+
+    // Check input tensor type and padding
+    if (!hasValidInputAndPadding(srcOp, adaptor, dimension)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // validate basic structure of the ReduceWindowOp.
+  bool hasValidOpStructure(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    if (srcOp.getBody().getBlocks().size() != 1 ||
+        srcOp.getBody().getBlocks().begin()->getOperations().size() != 2) {
+      return false;
+    }
+    if (srcOp.getInputs().size() != 1 || srcOp->getResults().size() != 1) {
+      return false;
+    }
+    return true;
+  }
+
+  // Check init values (must be constant and zero).
+  bool hasValidInitValues(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    for (auto initValue : srcOp.getInitValues()) {
+      auto *defOp = initValue.getDefiningOp();
+      while (defOp->getOpOperands().size() == 1) {
+        defOp = defOp->getOpOperand(0).get().getDefiningOp();
+      }
+      if (!isa<stablehlo::ConstantOp>(defOp)) {
+        return false;
+      }
+      stablehlo::ConstantOp initValueOp =
+          mlir::cast<stablehlo::ConstantOp>(defOp);
+      if (!checkInitValue(initValueOp, TypicalInitReductionValue::ZERO)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Verify operations inside the block (AddOp followed by ReturnOp).
+  bool hasValidOperationsInBlock(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    Block &block = *srcOp.getBody().getBlocks().begin();
+    auto &operations = block.getOperations();
+    if (!isa<mlir::stablehlo::AddOp>(operations.front())) {
+      return false;
+    }
+    if (!isa<mlir::stablehlo::ReturnOp>(operations.back())) {
+      return false;
+    }
+    return true;
+  }
+
+  // Verify that window attributes (strides, dilations) are all set to 1.
+  bool hasValidWindowAttributes(
+      mlir::stablehlo::ReduceWindowOp::Adaptor adaptor) const {
+    auto verifyAttributes = [](mlir::DenseI64ArrayAttr arrAttr) -> bool {
+      if (!arrAttr) {
+        return true;
+      }
+      return std::all_of(arrAttr.asArrayRef().begin(),
+                         arrAttr.asArrayRef().end(),
+                         [](int value) { return value == 1; });
+    };
+    return verifyAttributes(adaptor.getWindowStridesAttr()) &&
+           verifyAttributes(adaptor.getBaseDilationsAttr()) &&
+           verifyAttributes(adaptor.getWindowDilationsAttr());
+  }
+
+  // Check input tensor type and validate padding.
+  bool hasValidInputAndPadding(mlir::stablehlo::ReduceWindowOp &srcOp,
+                               mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+                               int64_t &dimension) const {
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getInputs()[0].getType()));
+    int64_t inputRank = inputType.getRank();
+    llvm::ArrayRef<int64_t> windowDimensions =
+        adaptor.getWindowDimensionsAttr().asArrayRef();
+    mlir::DenseIntElementsAttr padding = adaptor.getPaddingAttr();
+
+    // Validate padding size
+    if (padding.size() != (inputRank * 2)) {
+      return false;
+    }
+
+    // Check for splat padding (all zeroes expected).
+    if (padding.isSplat()) {
+      if (padding.getSplatValue<int64_t>() != 0) {
+        return false;
+      }
+      if (!std::all_of(windowDimensions.begin(), windowDimensions.end(),
+                       [](int value) { return value == 1; })) {
+        return false;
+      }
+      // Determine the dimension using input tensor shape.
+      return findDimensionWithShape(inputType, dimension);
+    }
+
+    // Check non-splat padding and ensure the window dimensions and padding are
+    // consistent and determine the dimension attribute.
+    return validateNonSplatPadding(windowDimensions, padding, inputType,
+                                   dimension);
+  }
+
+  // Find the dimension using input tensor shape.
+  bool findDimensionWithShape(RankedTensorType inputType,
+                              int64_t &dimension) const {
+    dimension = -1;
+    for (int64_t size : inputType.getShape()) {
+      ++dimension;
+      if (size == 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Determine and validate dimension attribute for non-splat padding attribute.
+  bool validateNonSplatPadding(llvm::ArrayRef<int64_t> windowDimensions,
+                               mlir::DenseIntElementsAttr padding,
+                               RankedTensorType inputType,
+                               int64_t &dimension) const {
+    int64_t dimArgValue = -1;
+    int64_t idx = -1;
+    auto padding_values = padding.getValues<int64_t>();
+
+    // Determine dimension attribute.
+    for (int64_t windowDim : windowDimensions) {
+      ++idx;
+      if (windowDim == 1) {
+        continue;
+      }
+      if (dimArgValue != -1) {
+        return false; // Ensure only one non-1 element.
+      }
+      dimArgValue = windowDim;
+      dimension = idx;
+    }
+
+    // Validate dimension attribute.
+    if (dimArgValue != inputType.getShape()[dimension] || dimArgValue <= 1) {
+      return false;
+    }
+
+    for (int64_t i = 0; i < padding.size(); ++i) {
+      if (i == (dimension * 2)) {
+        if (padding_values[i] != (dimArgValue - 1)) {
+          return false;
         }
+      } else if (padding_values[i] != 0) {
+        return false;
       }
     }
 
-    for (auto &op : opsToErase) {
-      rewriter.eraseOp(op);
-    }
+    return true;
   }
 
-  // Just to make the code more readable
   enum TypicalInitReductionValue {
     NEG_INF, // used for max pooling
     ZERO,    // used for sum pooling
@@ -598,7 +809,7 @@ private:
     }
 
     // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we acually have I must compare the raw
+    // since bfloat16 is not a type we actually have I must compare the raw
     // bits
     if (initValueOp.getResult().getType().getElementType().isBF16()) {
       // Collect the values into a vector
@@ -671,8 +882,8 @@ public:
       ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
@@ -716,8 +927,8 @@ public:
       ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(

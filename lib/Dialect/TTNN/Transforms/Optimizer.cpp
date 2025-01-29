@@ -448,7 +448,8 @@ private:
           producerOpTensorShape, producerOpTensorType.getElementType(),
           producerOpLayout
               .withElementType(consumerOp->getContext(),
-                               consumerOpOutputLayout.getElementType())
+                               consumerOpOutputLayout.getElementType(),
+                               producerOpTensorShape)
               .withBufferType(consumerOp->getContext(),
                               consumerOpOutputLayout.getBufferType())
               .withMemoryLayout(consumerOp->getContext(),

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+#include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -11,11 +12,11 @@
 #include <vector>
 
 #define FMT_HEADER_ONLY
-#include "distributed/mesh_device.hpp"
 #include "eth_l1_address_map.h"
-#include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
 #include "noc/noc_parameters.h"
+#include "tt-metalium/host_api.hpp"
+#include "tt-metalium/mesh_device.hpp"
 
 namespace tt::runtime::system_desc {
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
@@ -257,13 +258,20 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
 std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
+      tt::runtime::common::getDispatchCoreType(std::nullopt);
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
   ::tt::tt_metal::distributed::MeshShape meshShape = {1, numDevices};
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
-          ::tt::tt_metal::DispatchCoreType::WORKER);
+          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape =
+                                                            meshShape},
+          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
+          dispatchCoreType);
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {
@@ -271,7 +279,7 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   } catch (...) {
     eptr = std::current_exception();
   }
-  meshDevice->close_devices();
+  meshDevice->close();
   if (eptr) {
     std::rethrow_exception(eptr);
   }

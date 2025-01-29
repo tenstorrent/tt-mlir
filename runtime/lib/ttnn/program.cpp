@@ -6,6 +6,7 @@
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
+#include "operations/conv/conv_transpose2d.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
@@ -13,6 +14,7 @@
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/permute.h"
 #include "operations/data_movement/repeat.h"
+#include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/transpose.h"
@@ -32,8 +34,10 @@
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
+#include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
+#include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
@@ -187,6 +191,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
+  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
+    return operations::moreh::run(op->type_as_MorehCumSumOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    return operations::reduction::run(op->type_as_ReductionProdOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return operations::reduction::run(op->type_as_ReductionOp(), context);
   }
@@ -218,8 +228,15 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), context);
   }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
+                                          context);
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    return operations::conv::run(op->type_as_ConvTranspose2dOp(), context);
   }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     return operations::deletion::run(op->type_as_DeallocateOp(), context);

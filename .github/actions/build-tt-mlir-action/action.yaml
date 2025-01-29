@@ -7,6 +7,9 @@ inputs:
   enable-op-model:
     description: "Enable op model interface tests"
     required: true
+  enable-emitc:
+    description: "Enable EmitC tests"
+    required: true
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
@@ -45,12 +48,11 @@ runs:
           -DTTMLIR_ENABLE_OPMODEL=${{ inputs.enable-op-model }} \
           -S ${{ inputs.work-dir }}
 
-    - name: Build and Install
+    - name: Build
       shell: bash
       run: |
         source env/activate
         cmake --build ${{ inputs.build-output-dir }}
-        cmake --install ${{ inputs.build-output-dir }} --component Test
 
     - name: Build ttrt
       shell: bash
@@ -64,6 +66,23 @@ runs:
       run: |
         source env/activate
         ttrt query --save-artifacts
+
+    - name: Compile dylibs for EmitC
+      shell: bash
+      if: inputs.enable-emitc == 'ON'
+      run: |
+        source env/activate
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
+        ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
+
+    # Install needs to run after the "Compile dylibs" step
+    #
+    - name: Install
+      shell: bash
+      run: |
+        source env/activate
+        cmake --install ${{ inputs.build-output-dir }} --component Test
 
     - name: Run tt-mlir tests
       shell: bash
@@ -90,9 +109,8 @@ runs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}
+        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-emitc-${{ inputs.enable-emitc }}
         path: ${{ inputs.test_report_path }}
-
 
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4

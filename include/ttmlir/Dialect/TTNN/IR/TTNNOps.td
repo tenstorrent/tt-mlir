@@ -609,6 +609,58 @@ def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
   }];
 }
 
+def TTNN_MinOp : TTNN_ReductionOp<"min"> {
+  let summary = "Min reduction op.";
+  let description = [{
+    This op computes the minimum of all elements of the tensor or along
+    specified dimension.
+
+    Example:
+      input: [[1, 5, 3],
+              [4, 2, 6]]
+
+      // Computing along dim 0
+      output: [1, 2, 3]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 1
+  }];
+}
+
+def TTNN_ProdOp : TTNN_Op<"prod"> {
+  let summary = "Product reduction op.";
+  let description = [{
+    This op computes the product of all elements of the tensor (full product)
+    or along a specific dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Computing along dim 0
+      output: [4, 10, 18]
+
+      // Computing along dim 1
+      output: [6, 120]
+
+      // Computing full product
+      output: 720
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       BoolAttr:$all_dimensions,
+                       BoolAttr:$keep_dim,
+                       I64Attr:$dim_arg,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
@@ -675,9 +727,42 @@ def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds();
+      }
     }];
 
     let hasVerifier = 1;
+}
+
+def TTNN_MorehCumSumOp : TTNN_NamedDPSOp<"moreh_cumsum"> {
+  let summary = "Moreh cummulative sum op.";
+  let description = [{
+    Computes the cumulative sum of elements of a tensor along specified dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Cumulative sum along dim=0:
+      output: [[1, 2, 3],
+               [5, 7, 9]]
+
+      // Cumulative sum along dim=1:
+      output: [[1, 3, 6],
+               [4, 9, 15]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim,
+                       AnyRankedTensor:$output,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 }
 
 def TTNN_SoftmaxOp : TTNN_Op<"softmax",
@@ -706,6 +791,29 @@ def TTNN_TransposeOp : TTNN_Op<"transpose"> {
     let arguments = (ins AnyRankedTensor:$input,
                          SI32Attr:$dim0,
                          SI32Attr:$dim1);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
+    let summary = "Repeat interleave op.";
+    let description = [{
+      Repeats elements of a tensor along a specified dimension.
+      It allows for flexible repetition patterns, where each element can be repeated a different number of times.
+      This is particularly useful for tasks that require duplicating elements in a non-uniform manner.
+
+      Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of repetitions for each element, each element is repeated that number of times.
+      - `dim`: The dimension along which to repeat values.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$repeats,
+                         SI32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -748,11 +856,15 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
 def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let summary = "Repeat op.";
     let description = [{
-      Repeat the input tensor according to number of times specified in repeat_dimensions.
+      Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.
+
+      Parameters:
+        - `input_tensor` (ttnn.Tensor): the input tensor.
+        - `repeat_dims` (number): The number of repetitions for each element.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$shape);
+                         TTNN_ShapeAttr:$repeat_dims);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -850,6 +962,57 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
                          I32Attr:$padding_width,
                          I32Attr:$dilation_height,
                          I32Attr:$dilation_width,
+                         I32Attr:$groups);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_ConvTranspose2dOp : TTNN_NamedDPSOp<"conv_transpose2d"> {
+    let summary = "ConvTranspose2d operation.";
+    let description = [{
+      Applies a 2D transposed convolution operator over an input image composed of several input planes.
+
+      Inputs:
+      - `input` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
+      - `weight` AnyRankedTensor: OIHW format (output_channels x input_channels x height x width)
+      - `bias` Optional<AnyRankedTensor>: (1 x 1 x 1 x output_channels)
+      - `output` AnyRankedTensor: (1 x 1 x (batch_size * height * width) x channels)
+
+      Attributes:
+      - `in_channels` i32: The number of input channels.
+      - `out_channels` i32: The number of output channels.
+      - `batch_size` i32: The batch size.
+      - `input_height` i32: The input height.
+      - `input_width` i32: The input width.
+      - `kernel_size` array<i32>: The kernel size.
+      - `stride` array<i32>: Controls the stride for the cross-correlation.
+      - `padding` array<i32>: Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
+      - `output_padding` array<i32>: Controls the additional size added to one side of the output shape.
+      - `dilation` array<i32>: Controls the spacing between the kernel points
+      - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         TT_Device:$device,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$output_padding,
+                         DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups);
 
     let results = (outs AnyRankedTensor:$result);

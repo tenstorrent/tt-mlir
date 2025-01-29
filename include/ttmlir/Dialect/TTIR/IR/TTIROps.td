@@ -216,7 +216,7 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
+def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise where op.";
     let description = [{
       Eltwise where operation.
@@ -597,7 +597,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence]> {
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence, TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -610,14 +610,14 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
     }];
 }
 
-def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
+def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise subtract.";
     let description = [{
       Eltwise subtract operation.
     }];
 }
 
-def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
+def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
@@ -704,6 +704,70 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
   }];
 }
 
+def TTIR_MinOp : TTIR_ReductionOp<"min"> {
+  let summary = "Min reduction op.";
+  let description = [{
+    This op computes the minimum of all elements of the tensor or along
+    specified dimension.
+
+    Example:
+      input: [[1, 5, 3],
+              [4, 2, 6]]
+
+      // Computing along dim 0
+      output: [1, 2, 3]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 1
+  }];
+}
+
+def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
+    let summary = "And reduction op.";
+    let description = [{
+      Reduces a given tensor using logical and operator along the given dimension(s).
+
+      Example:
+        input: [[True,  False, True, False],
+                [True,  True,  True, True],
+                [False, False, True, True],
+                [False, True,  True, False]]
+
+        // Reduction along dim 0
+        output: [False, False, True, False]
+
+        // Reduction along dim 1
+        output: [False, True, False, False]
+
+        // Reduction for both dimensions (entire tensor)
+        output: [False]
+    }];
+}
+
+def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
+  let summary = "Product reduction op.";
+  let description = [{
+    This op computes the product of all elements of the tensor (full product)
+    or along a specific dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Computing along dim 0
+      output: [4, 10, 18]
+
+      // Computing along dim 1
+      output: [6, 120]
+
+      // Computing full product
+      output: 720
+  }];
+}
+
 def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
@@ -741,6 +805,37 @@ def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTIR_CumSumOp : TTIR_DPSOp<"cumsum"> {
+  let summary = "Cummulative sum op.";
+  let description = [{
+    Computes the cumulative sum of elements of a tensor along specified dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Cumulative sum along dim=0:
+      output: [[1, 2, 3],
+               [5, 7, 9]]
+
+      // Cumulative sum along dim=1:
+      output: [[1, 3, 6],
+               [4, 9, 15]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
@@ -803,6 +898,68 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
+def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
+  let summary = "Repeat operation.";
+  let description = [{
+    The `repeat` operation creates a new tensor by replicating the input tensor's elements
+    along specified dimensions. The number of repetitions for each dimension is defined by
+    the `repeats` attribute, which must have the same rank as the input tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of times to repeat this tensor along each dimension.
+
+    ### Example IR Usage:
+    ```mlir
+    // Input tensor of shape (2, 3)
+    %input = ... : tensor<2x3xf32>
+
+    // Repeat each dimension twice
+    %empty = tensor.empty() : tensor<4x6xf32>
+    %repeated = "repeat"(%input, %empty) {repeat_dimensions = array<i64: 2, 2>} : (tensor<2x3xf32>, tensor<4x6xf32>) -> tensor<4x6xf32>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       DenseI64ArrayAttr:$repeat_dimensions);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
+def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
+    let summary = "Repeat interleave op.";
+    let description = [{
+      Repeats elements of a tensor along a specified dimension.
+      It allows for flexible repetition patterns, where each element can be repeated a different number of times.
+      This is particularly useful for tasks that require duplicating elements in a non-uniform manner.
+
+      Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of repetitions for each element, each element is repeated that number of times.
+      - `dim`: The dimension along which to repeat values.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         UI32Attr:$repeats,
+                         SI32Attr:$dim);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_UpdateCacheOp : TTIR_DPSOp<"update_cache"> {
   let summary = "Update static cache tensor.";
   let description = [{
@@ -851,11 +1008,14 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
       // %arg0: tensor<1x1x32xf32>
       %0 = tensor.empty() : tensor<1x16x32xf32>
       %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+
+      Note: Currently, when generating a TTNN executable, the broadcast and repeat operations share the same semantics due to the lack of tensor view support in TTNN.
+      As a result, the broadcast operation is lowered to a repeat operation in the TTNN compilation pipeline.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         DenseI32ArrayAttr:$broadcast_dimensions);
+                         DenseI64ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -887,6 +1047,58 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
                          SI32Attr:$padding_bottom);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_ConvTranspose2dOp : TTIR_DPSOp<"conv_transpose2d"> {
+    let summary = "ConvTranspose2d operation.";
+    let description = [{
+      Applies a 2D transposed convolution operator over an input image composed of several input planes.
+
+      Inputs:
+      - `input` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
+      - `weight` AnyRankedTensor: OIHW format (output_channels x input_channels x height x width)
+      - `bias` Optional<AnyRankedTensor>: (1 x 1 x 1 x output_channels)
+      - `output` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
+
+      Attributes:
+      - `stride` (i32 | array<i32>): Controls the stride for the cross-correlation.
+      - `padding` (i32 | array<i32>): Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
+      - `output_padding` (i32 | array<i32>): Controls the additional size added to one side of the output shape.
+      - `dilation` (i32 | array<i32>): Controls the spacing between the kernel points
+      - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+
+      Example:
+        %input = tensor.empty() : () -> tensor<256x256x3x3xbf16>
+        %weight = tensor.empty() : () -> tensor<256x256x3x3xbf16>
+        %bias = tensor.empty() : () -> tensor<1x1x1x256xbf16>
+        %output = tensor.empty() : () -> tensor<1x10x10x256xbf16>
+        %0 = "ttir.conv_transpose2d"(%input, %weight, %bias, %output)
+          <{
+            stride = = array<i32: 1, 1>,
+            padding = 0: i32,
+            output_padding = 0: i32,
+            dilation = 1: i32,
+            groups = 1: i32
+          > : (tensor<1x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<1x10x10x256xbf16>) -> tensor<1x10x10x256xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$output_padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         I32Attr:$groups);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1439,21 +1651,21 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
     }];
 }
 
-def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add"> {
+def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
     let summary = "Eltwise add.";
     let description = [{
       Eltwise add operation.
     }];
 }
 
-def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply"> {
+def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
     }];
 }
 
-def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
+def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.

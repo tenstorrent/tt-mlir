@@ -4,6 +4,7 @@
 
 #include <variant>
 
+#include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal.h"
 #include "tt/runtime/runtime.h"
@@ -31,6 +32,19 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
 
 static Tensor createNullTensor() {
   return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
+}
+
+static tt::runtime::MemoryView
+createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
+  return tt::runtime::MemoryView{
+      .numBanks = memoryView.num_banks,
+      .totalBytesPerBank = memoryView.total_bytes_per_bank,
+      .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
+      .totalBytesFreePerBank = memoryView.total_bytes_free_per_bank,
+      .largestContiguousBytesFreePerBank =
+          memoryView.largest_contiguous_bytes_free_per_bank,
+      .blockTable = memoryView.block_table,
+  };
 }
 
 Tensor createTensor(std::shared_ptr<void> data,
@@ -66,14 +80,24 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
+                  std::optional<size_t> l1SmallSize,
+                  std::optional<DispatchCoreType> dispatchCoreType) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
 
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
+  size_t l1SmallSizeValue = l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          grid, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
-          ::tt::tt_metal::DispatchCoreType::WORKER);
+          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid},
+          l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
+
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
 
   return Device(std::static_pointer_cast<void>(meshDevice),
                 DeviceRuntime::TTMetal);
@@ -90,7 +114,7 @@ void closeDevice(Device device) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
   }
 #endif
-  ttmetalMeshDevice.close_devices();
+  ttmetalMeshDevice.close();
 }
 
 void deallocateBuffers(Device deviceHandle) {
@@ -111,6 +135,36 @@ void dumpMemoryReport(Device deviceHandle) {
   for (::tt::tt_metal::IDevice *device : meshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
   }
+}
+
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device deviceHandle, int deviceID) {
+  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+      memoryMap;
+  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+
+  auto *device = meshDevice.get_device(deviceID);
+
+  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::DRAM);
+  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::L1);
+  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::L1_SMALL);
+  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::TRACE);
+
+  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
+      createMemoryView(dramMemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
+      createMemoryView(l1SmallMemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
+      createMemoryView(traceMemoryView);
+
+  return memoryMap;
 }
 
 void wait(Event event) {

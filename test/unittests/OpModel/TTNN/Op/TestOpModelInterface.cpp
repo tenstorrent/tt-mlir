@@ -98,8 +98,8 @@ TEST_F(OpModelBase, ReluInterface) {
     if (l1.has_value()) {
       const auto &[cb_size, peak_size, output_size] = l1.value();
       EXPECT_EQ(cb_size, 8192);
-      EXPECT_EQ(peak_size, 4096);
-      EXPECT_EQ(output_size, 4096);
+      EXPECT_EQ(peak_size, 2048);
+      EXPECT_EQ(output_size, 2048);
     } else {
       FAIL() << "Missing L1 constraints; Error="
              << std::get<2>(constraints).value() << std::endl;
@@ -128,8 +128,8 @@ TEST_F(OpModelBase, SoftmaxInterface) {
     if (l1.has_value()) {
       const auto &[cb_size, peak_size, output_size] = l1.value();
       EXPECT_EQ(cb_size, 137216);
-      EXPECT_EQ(peak_size, 4096);
-      EXPECT_EQ(output_size, 4096);
+      EXPECT_EQ(peak_size, 2048);
+      EXPECT_EQ(output_size, 2048);
     } else {
       FAIL() << "Missing L1 constraints";
     }
@@ -159,8 +159,8 @@ TEST_F(OpModelBase, AddInterface) {
     if (l1.has_value()) {
       const auto &[cb_size, peak_size, output_size] = l1.value();
       EXPECT_EQ(cb_size, 12288);
-      EXPECT_EQ(peak_size, 4096);
-      EXPECT_EQ(output_size, 4096);
+      EXPECT_EQ(peak_size, 2048);
+      EXPECT_EQ(output_size, 2048);
     } else {
       FAIL() << "Missing L1 constraints";
     }
@@ -193,8 +193,8 @@ TEST_F(OpModelBase, MatmulInterface) {
     if (l1.has_value()) {
       const auto &[cb_size, peak_size, output_size] = l1.value();
       EXPECT_EQ(cb_size, 786432);
-      EXPECT_EQ(peak_size, 151552);
-      EXPECT_EQ(output_size, 151552);
+      EXPECT_EQ(peak_size, 131072);
+      EXPECT_EQ(output_size, 131072);
     } else {
       FAIL() << "Missing L1 constraints";
     }
