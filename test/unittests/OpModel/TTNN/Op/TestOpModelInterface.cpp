@@ -17,15 +17,29 @@ namespace mlir::tt::ttnn {
 
 class OpModelBase : public OpModelFixture {
 public:
-  // helper function to extract op data and call into get op constraints
   std::optional<
       std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
                  std::optional<std::string>>>
   getOpConstraints(Operation *op) {
+    if (OpModel backend = dyn_cast<OpModel>(op)) {
+      return backend.getOpConstraints(getInputLayouts(op), getOutputLayout(op));
+    }
+    return std::nullopt;
+  }
+
+  std::optional<
+      std::tuple<bool, std::optional<size_t>, std::optional<std::string>>>
+  getOpRuntime(Operation *op) {
+    if (OpModel backend = dyn_cast<OpModel>(op)) {
+      return backend.getOpRuntime(getInputLayouts(op), getOutputLayout(op));
+    }
+    return std::nullopt;
+  }
+
+  std::vector<TTNNLayoutAttr> getInputLayouts(Operation *op) {
     std::vector<TTNNLayoutAttr> inputs;
 
     // TODO(odjuricic): check for DPS explicitly.
-    // create input layouts
     auto numOperand = op->getNumOperands();
     // some ops have multiple operands
     auto limit = (numOperand > 1) ? numOperand - 1 : numOperand;
@@ -37,20 +51,15 @@ public:
                                            TensorMemoryLayout::Interleaved);
       inputs.push_back(inputLayout);
     }
+    return inputs;
+  }
 
-    // create output layout
+  mlir::tt::ttnn::TTNNLayoutAttr getOutputLayout(Operation *op) {
     auto output = op->getResult(0);
     auto outputShape =
         mlir::cast<RankedTensorType>(output.getType()).getShape();
-    auto outputLayout = CreateTiledLayout(outputShape, BufferType::L1,
-                                          TensorMemoryLayout::Interleaved);
-
-    // call op model interface - getOpConstraints()
-    if (OpModel backend = dyn_cast<OpModel>(op)) {
-      auto constraints = backend.getOpConstraints(inputs, outputLayout);
-      return constraints;
-    }
-    return std::nullopt;
+    return CreateTiledLayout(outputShape, BufferType::L1,
+                             TensorMemoryLayout::Interleaved);
   }
 
   mlir::tt::DeviceAttr getFakeDeviceAttr() {
@@ -90,9 +99,9 @@ TEST_F(OpModelBase, ReluInterface) {
   relu->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test ReluOp interface
-  auto value = getOpConstraints(relu.getOperation());
-  if (value.has_value()) {
-    auto constraints = value.value();
+  auto constraints_opt = getOpConstraints(relu.getOperation());
+  if (constraints_opt.has_value()) {
+    auto constraints = constraints_opt.value();
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
@@ -104,6 +113,17 @@ TEST_F(OpModelBase, ReluInterface) {
       FAIL() << "Missing L1 constraints; Error="
              << std::get<2>(constraints).value() << std::endl;
     }
+  } else {
+    FAIL() << "Failed to cast ReluOp to OpModel";
+  }
+
+  auto runtime_opt = getOpRuntime(relu.getOperation());
+  if (runtime_opt.has_value()) {
+    auto runtime = runtime_opt.value();
+    EXPECT_TRUE(std::get<0>(runtime));
+    EXPECT_TRUE(std::get<1>(runtime).has_value());
+    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
+    EXPECT_FALSE(std::get<2>(runtime).has_value());
   } else {
     FAIL() << "Failed to cast ReluOp to OpModel";
   }
@@ -134,7 +154,18 @@ TEST_F(OpModelBase, SoftmaxInterface) {
       FAIL() << "Missing L1 constraints";
     }
   } else {
-    FAIL() << "Failed to cast ReluOp to OpModel";
+    FAIL() << "Failed to cast SoftmaxOp to OpModel";
+  }
+
+  auto runtime_opt = getOpRuntime(softmax.getOperation());
+  if (runtime_opt.has_value()) {
+    auto runtime = runtime_opt.value();
+    EXPECT_TRUE(std::get<0>(runtime));
+    EXPECT_TRUE(std::get<1>(runtime).has_value());
+    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
+    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  } else {
+    FAIL() << "Failed to cast SoftmaxOp to OpModel";
   }
 }
 
@@ -165,7 +196,18 @@ TEST_F(OpModelBase, AddInterface) {
       FAIL() << "Missing L1 constraints";
     }
   } else {
-    FAIL() << "Failed to cast ReluOp to OpModel";
+    FAIL() << "Failed to cast AddOp to OpModel";
+  }
+
+  auto runtime_opt = getOpRuntime(add.getOperation());
+  if (runtime_opt.has_value()) {
+    auto runtime = runtime_opt.value();
+    EXPECT_TRUE(std::get<0>(runtime));
+    EXPECT_TRUE(std::get<1>(runtime).has_value());
+    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
+    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  } else {
+    FAIL() << "Failed to cast AddOp to OpModel";
   }
 }
 
@@ -199,7 +241,18 @@ TEST_F(OpModelBase, MatmulInterface) {
       FAIL() << "Missing L1 constraints";
     }
   } else {
-    FAIL() << "Failed to cast ReluOp to OpModel";
+    FAIL() << "Failed to cast MatmulOp to OpModel";
+  }
+
+  auto runtime_opt = getOpRuntime(matmul.getOperation());
+  if (runtime_opt.has_value()) {
+    auto runtime = runtime_opt.value();
+    EXPECT_TRUE(std::get<0>(runtime));
+    EXPECT_TRUE(std::get<1>(runtime).has_value());
+    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
+    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  } else {
+    FAIL() << "Failed to cast MatmulOp to OpModel";
   }
 }
 
