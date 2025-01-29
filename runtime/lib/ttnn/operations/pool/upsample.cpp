@@ -25,7 +25,7 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
     std::copy(fbScaleFactor->begin(), fbScaleFactor->end(), scaleHW.begin());
     scaleFactor = scaleHW;
   } else {
-    DEBUG_ASSERT(false);
+    LOG_FATAL("Invalid scale factor type");
   }
 
   std::string mode = op->mode()->str();
@@ -34,8 +34,9 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
                                 op->memory_config(), op->out()))
                           : std::nullopt;
 
-  ::ttnn::Tensor output = ::ttnn::upsample(input, scaleFactor, mode);
+  ::ttnn::Tensor output =
+      ::ttnn::upsample(input, scaleFactor, mode, memoryConfig);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(output));
+  tensorPool.insert_or_assign(op->out()->global_id(), output);
 }
 } // namespace tt::runtime::ttnn::operations::pool
