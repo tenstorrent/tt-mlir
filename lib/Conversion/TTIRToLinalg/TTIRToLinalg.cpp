@@ -26,55 +26,65 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-
-using TensorRanks = SmallVector<int64_t, 2>;
-
-// Helper func to check which dims need to be broadcast and which need to be
-// collapsed.  Assumes that inputShape is broadcast-able to targetShape.
-static void getDimsToBroadcastAndCollapse(
-    ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape,
-    TensorRanks &broadcastDims, SmallVector<TensorRanks, 2> &reassocIndices) {
-
-  broadcastDims.clear();
-  reassocIndices.clear();
+// Get the dimensions to broadcast.
+//
+// This function calculates the dimensions to broadcast. We assume that input
+// and target shapes are broadcastable. For example if input shape is [4, 1, 3]
+// and we want to broadcast to [1, 4, 5, 3], the function will return [0, 2]
+// since we want to broadcast 0th and 2nd dimension of result shape.
+static SmallVector<int64_t, 2> getBroadcastDims(ArrayRef<int64_t> inputShape,
+                                                ArrayRef<int64_t> targetShape) {
+  const int64_t sizeDiff = targetShape.size() - inputShape.size();
+  assert(sizeDiff >= 0 && "targetShape cannot be smaller than inputShape!");
 
   // Create padded input shape by prepending 1s.
   SmallVector<int64_t> paddedInput;
-  const int64_t sizeDiff = targetShape.size() - inputShape.size();
-  assert(sizeDiff >= 0 && "targetShape cannot be smaller than inputShape!");
   paddedInput.append(sizeDiff, 1); // Prepend with 1s
   paddedInput.append(inputShape.begin(), inputShape.end());
 
-  bool broadcastEveryDim = true;
   // Find broadcast dimensions we want to broadcast along (including padding
   // dimensions).
-  for (size_t i = 0; i < targetShape.size(); i++) {
-    assert((paddedInput[i] == targetShape[i] || paddedInput[i] == 1) &&
-           "Shape not broadcast compatible!");
-
-    // All padded dims need broadcast, and any dim with 1 which doesn't match
-    // targetShape needs broadcast.
-    if (i < static_cast<size_t>(sizeDiff) ||
-        (paddedInput[i] == 1 && targetShape[i] != 1)) {
+  SmallVector<int64_t, 2> broadcastDims;
+  for (const auto &it : llvm::enumerate(llvm::zip(paddedInput, targetShape))) {
+    const size_t i = it.index();
+    const auto &[inputDim, targetDim] = it.value();
+    // Prepended dimensions are always broadcasted.
+    if (i < static_cast<size_t>(sizeDiff) || inputDim != targetDim) {
       broadcastDims.push_back(i);
-    } else {
-      broadcastEveryDim = false;
     }
   }
 
-  // If we're broadcasting along every single dim, we want reassocIndices to
-  // remain empty for the broadcast + collapse to work properly.
-  if (broadcastEveryDim) {
-    return;
-  }
+  return broadcastDims;
+}
 
-  // Group sets of contiguous non-broadcast dims together
-  TensorRanks currentGroup;
-  // For reassocIndices, we don't wish to consider any leading broadcast dims
-  // we've added.
+// Get the dimensions to collapse.
+//
+// This function calculates the dimensions to collapse. We assume that input
+// and target shapes are broadcastable. linalg.broadcast requires that input
+// tensor only contains dimensions that won't be broadcasted in input tensor.
+// For example if input shape is [4, 1, 3] and we want to broadcast to [4, 5,
+// 3], then we need to collapse the first dimension of input tensor to [4, 3].
+// This function calculates the dimensions to collapse. In case above, we will
+// return [[0], [1, 2]].
+SmallVector<SmallVector<int64_t, 2>, 2>
+getCollapseDimGroups(ArrayRef<int64_t> inputShape,
+                     ArrayRef<int64_t> targetShape,
+                     SmallVector<int64_t, 2> broadcastDims) {
+  SmallVector<SmallVector<int64_t, 2>, 2> collapseDimGroups;
+
+  // If all dims need to be broadcasted, we collapse into a scalar via empty
+  // groups.
+  if (broadcastDims.size() == targetShape.size()) {
+    return collapseDimGroups;
+  }
+  // We don't wish to consider any leading broadcast dims we've added.
+  const int64_t sizeDiff = targetShape.size() - inputShape.size();
   size_t nextBroadcastDimIdx = sizeDiff;
+
+  SmallVector<int64_t, 2> currentGroup;
   size_t inputIdx = 0;
-  // Fold all leading broadcast dims into the first dim group
+
+  // Fold all leading broadcast dims into the first dim group.
   while (inputIdx < inputShape.size()) {
     const size_t idx = inputIdx;
     currentGroup.push_back(idx);
@@ -97,7 +107,7 @@ static void getDimsToBroadcastAndCollapse(
       nextBroadcastDimIdx++;
       // Non-broadcast dimensions end the current group.
     } else {
-      reassocIndices.push_back(currentGroup);
+      collapseDimGroups.push_back(currentGroup);
       currentGroup.clear();
     }
     currentGroup.push_back(i);
@@ -105,8 +115,10 @@ static void getDimsToBroadcastAndCollapse(
 
   // Add the final group.
   if (!currentGroup.empty()) {
-    reassocIndices.push_back(currentGroup);
+    collapseDimGroups.push_back(currentGroup);
   }
+
+  return collapseDimGroups;
 }
 
 // Conversion pattern of operations which have exactly 2 input and 1 output
@@ -124,7 +136,7 @@ public:
     Location loc = op.getLoc();
 
     // First, compute broadcasted shape from operands.
-    SmallVector<Value, 3> inputs = adaptor.getInputs();
+    SmallVector<Value, 2> inputs = adaptor.getInputs();
     assert(inputs.size() == 2 &&
            "binary element-wise operations must have 2 inputs!");
     ArrayRef<int64_t> input0Shape =
@@ -135,44 +147,41 @@ public:
     SmallVector<int64_t, 4> broadcastedShape;
     if (!OpTrait::util::getBroadcastedShape(input0Shape, input1Shape,
                                             broadcastedShape)) {
-      return rewriter.notifyMatchFailure(
-          op, "Operands are not broadcastable--this should be impossible!");
+      return rewriter.notifyMatchFailure(op, "Operands are not broadcastable!");
     }
 
-    // Replace any inputs which aren't in target shape with broadcast results
-    // which are.
-    SmallVector<Value, 4> broadcastedInputs;
+    // Rewrite inputs to target dims with broadcast and collapse shape ops, as
+    // needed.
+    SmallVector<Value, 2> broadcastedInputs;
     for (Value input : inputs) {
       auto inputRankedTensorType = dyn_cast<RankedTensorType>(input.getType());
       if (!inputRankedTensorType) {
         continue;
       }
-      Type elementType = inputRankedTensorType.getElementType();
 
       // Insert and use a broadcast op if input does not perfectly match target
       // shape.
-      TensorRanks broadCastDims;
-      SmallVector<TensorRanks, 2> reassocIndexes;
-      getDimsToBroadcastAndCollapse(inputRankedTensorType.getShape(),
-                                    broadcastedShape, broadCastDims,
-                                    reassocIndexes);
+      SmallVector<int64_t, 2> broadcastDims =
+          getBroadcastDims(inputRankedTensorType.getShape(), broadcastedShape);
 
-      if (!broadCastDims.empty()) {
+      SmallVector<SmallVector<int64_t, 2>, 2> collapseDimGroups =
+          getCollapseDimGroups(inputRankedTensorType.getShape(),
+                               broadcastedShape, broadcastDims);
+
+      if (!broadcastDims.empty()) {
         Value broadcastInput = input;
         // The broadcast op requires we actually collapse any dimensions with
         // size 1 we want to broadcast along.
-        if (reassocIndexes.size() != inputRankedTensorType.getShape().size()) {
-          auto collapseOp = rewriter.create<tensor::CollapseShapeOp>(
-              loc, input, reassocIndexes);
-          broadcastInput = collapseOp.getResult();
+        if (collapseDimGroups.size() !=
+            inputRankedTensorType.getShape().size()) {
+          broadcastInput = rewriter.create<tensor::CollapseShapeOp>(
+              loc, input, collapseDimGroups);
         }
         auto initTensor = rewriter.create<tensor::EmptyOp>(
-            loc, broadcastedShape, elementType);
+            loc, broadcastedShape, inputRankedTensorType.getElementType());
         auto broadcastOp = rewriter.create<linalg::BroadcastOp>(
-            loc, broadcastInput, initTensor.getResult(), broadCastDims);
-        for (auto result : broadcastOp.getResults()) {
-          broadcastedInputs.push_back(result);
-        }
+            loc, broadcastInput, initTensor.getResult(), broadcastDims);
+        broadcastedInputs.push_back(broadcastOp.getResults().front());
       } else {
         broadcastedInputs.push_back(input);
       }
