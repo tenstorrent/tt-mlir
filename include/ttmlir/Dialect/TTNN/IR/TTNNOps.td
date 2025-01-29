@@ -735,6 +735,36 @@ def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
     let hasVerifier = 1;
 }
 
+def TTNN_MorehCumSumOp : TTNN_NamedDPSOp<"moreh_cumsum"> {
+  let summary = "Moreh cummulative sum op.";
+  let description = [{
+    Computes the cumulative sum of elements of a tensor along specified dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Cumulative sum along dim=0:
+      output: [[1, 2, 3],
+               [5, 7, 9]]
+
+      // Cumulative sum along dim=1:
+      output: [[1, 3, 6],
+               [4, 9, 15]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim,
+                       AnyRankedTensor:$output,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
 def TTNN_SoftmaxOp : TTNN_Op<"softmax",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints"]>]
       > {
@@ -826,11 +856,15 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
 def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let summary = "Repeat op.";
     let description = [{
-      Repeat the input tensor according to number of times specified in repeat_dimensions.
+      Returns a new tensor filled with repetition of input tensor according to number of times specified in repeat_dims.
+
+      Parameters:
+        - `input_tensor` (ttnn.Tensor): the input tensor.
+        - `repeat_dims` (number): The number of repetitions for each element.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$shape);
+                         TTNN_ShapeAttr:$repeat_dims);
 
     let results = (outs AnyRankedTensor:$result);
 

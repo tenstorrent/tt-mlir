@@ -18,6 +18,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -497,13 +498,6 @@ struct GatherToEmbeddingConversionPattern
     auto offsetDims = op.getOffsetDims();
     // collapsed slice dims of the gather op
     auto collapsedSliceDims = op.getCollapsedSliceDims();
-
-    RankedTensorType operandType =
-        mlir::cast<RankedTensorType>(op->getOperand(0).getType());
-    if (!operandType.getElementType().isBF16()) {
-      return rewriter.notifyMatchFailure(
-          op, "only supports bfloat16 input tensor.");
-    }
 
     if (shape.size() > 1) {
       auto hiddenDim = shape[shape.size() - 1];
@@ -1311,8 +1305,8 @@ public:
       auto inputShape =
           mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       output = rewriter.create<ttir::BroadcastOp>(

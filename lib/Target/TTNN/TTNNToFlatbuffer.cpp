@@ -444,6 +444,21 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
+::flatbuffers::Offset<::tt::target::ttnn::MorehCumSumOp>
+createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  auto memoryConfigDesc =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
+
+  return ::tt::target::ttnn::CreateMorehCumSumOp(*cache.fbb, in, output,
+                                                 op.getDim(), memoryConfigDesc);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
 createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
   auto in0 =
@@ -893,12 +908,12 @@ template <typename RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto shape =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(cache, op.getShape());
+  ::llvm::ArrayRef<int64_t> repeatDims = op.getRepeatDims().getShape();
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedAddress, kHostAllocatedSize);
 
-  return ::tt::target::ttnn::CreateRepeatOp(*cache.fbb, in, out, shape);
+  return ::tt::target::ttnn::CreateRepeatOp(
+      *cache.fbb, in, out, cache.fbb->CreateVector<int64_t>(repeatDims));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
@@ -1172,6 +1187,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
     return createOperation(cache, createOp(cache, matmulOp), debugString,
+                           locInfo);
+  }
+  if (auto morehCumSumOp = dyn_cast<MorehCumSumOp>(op); morehCumSumOp) {
+    return createOperation(cache, createOp(cache, morehCumSumOp), debugString,
                            locInfo);
   }
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {

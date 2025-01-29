@@ -807,6 +807,37 @@ def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
     let hasVerifier = 1;
 }
 
+def TTIR_CumSumOp : TTIR_DPSOp<"cumsum"> {
+  let summary = "Cummulative sum op.";
+  let description = [{
+    Computes the cumulative sum of elements of a tensor along specified dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Cumulative sum along dim=0:
+      output: [[1, 2, 3],
+               [5, 7, 9]]
+
+      // Cumulative sum along dim=1:
+      output: [[1, 3, 6],
+               [4, 9, 15]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let summary = "Softmax operation.";
     let description = [{
@@ -865,6 +896,41 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
+  let summary = "Repeat operation.";
+  let description = [{
+    The `repeat` operation creates a new tensor by replicating the input tensor's elements
+    along specified dimensions. The number of repetitions for each dimension is defined by
+    the `repeats` attribute, which must have the same rank as the input tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of times to repeat this tensor along each dimension.
+
+    ### Example IR Usage:
+    ```mlir
+    // Input tensor of shape (2, 3)
+    %input = ... : tensor<2x3xf32>
+
+    // Repeat each dimension twice
+    %empty = tensor.empty() : tensor<4x6xf32>
+    %repeated = "repeat"(%input, %empty) {repeat_dimensions = array<i64: 2, 2>} : (tensor<2x3xf32>, tensor<4x6xf32>) -> tensor<4x6xf32>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       DenseI64ArrayAttr:$repeat_dimensions);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
@@ -942,11 +1008,14 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
       // %arg0: tensor<1x1x32xf32>
       %0 = tensor.empty() : tensor<1x16x32xf32>
       %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+
+      Note: Currently, when generating a TTNN executable, the broadcast and repeat operations share the same semantics due to the lack of tensor view support in TTNN.
+      As a result, the broadcast operation is lowered to a repeat operation in the TTNN compilation pipeline.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         DenseI32ArrayAttr:$broadcast_dimensions);
+                         DenseI64ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 
