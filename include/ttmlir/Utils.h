@@ -241,6 +241,8 @@ getPairOfInteger(mlir::Attribute attr) {
     return llvm::createStringError(
         "Expected integer or pair of integers, got tuple of size %lu",
         tuple.size());
+  } else {
+    return llvm::createStringError("Unexpected attribute type");
   }
 
   return std::make_pair(x, y);

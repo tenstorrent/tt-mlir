@@ -1340,6 +1340,7 @@ public:
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ProdOp>(
         op, reduceOutputType, op.getInput(), reduceOutputTensor,
         op.getKeepDim(), op.getDimArgAttr());
+
     return success();
   }
 };
