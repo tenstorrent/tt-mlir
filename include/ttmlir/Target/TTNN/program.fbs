@@ -66,6 +66,15 @@ table EmptyOp {
   out: tt.target.TensorRef;
 }
 
+table ZerosOp {
+  shape: [int64];
+  dtype: DataType = null;
+  layout: TensorLayout = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
+  out: tt.target.TensorRef;
+}
+
 table OnesOp {
   shape: [int64];
   dtype: DataType = null;
@@ -401,6 +410,7 @@ union OpType {
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
+  ZerosOp,
   OnesOp,
   FullOp,
   EltwiseOp,

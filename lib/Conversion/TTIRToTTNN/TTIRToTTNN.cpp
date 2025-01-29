@@ -92,6 +92,72 @@ public:
 } // namespace
 
 namespace {
+class ZerosOpConversionPattern : public OpConversionPattern<ttir::ZerosOp> {
+public:
+  using OpConversionPattern<ttir::ZerosOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ZerosOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get ttnn::TTNNLayoutAttr of the result type
+    //
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+
+    // Get the shape of tensor
+    //
+    // TODO(svuckovic): (#1435) ShapeAttr accepts int64_t, when it should be
+    // uint32_t
+    //
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), llvm::SmallVector<int64_t, 4>(
+                                   op.getShape().begin(), op.getShape().end()));
+
+    // Get memref
+    //
+    mlir::MemRefType memref = layoutAttr.getMemref();
+
+    // Get data type, tensor layout, device and memory config
+    //
+    DataTypeAttr dTypeAttr =
+        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+    ttnn::BufferType bufferType = layoutAttr.getBufferType();
+    ttnn::Layout ttnnLayoutEnum = llvm::isa<TileType>(memref.getElementType())
+                                      ? ttnn::Layout::Tile
+                                      : ttnn::Layout::RowMajor;
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
+
+    // Device only exists if memLayout is *not* null
+    //
+    auto device =
+        memLayout ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+                  : nullptr;
+
+    // MemoryConfigAttr only exists if memLayout is *not* null
+    //
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        memLayout
+            ? ttnn::MemoryConfigAttr::get(
+                  op.getContext(),
+                  ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+                  ttnn::ShardSpecAttr::get(
+                      op.getContext(),
+                      ttnn::ShapeAttr::get(op.getContext(), memref.getShape())),
+                  memLayout)
+            : nullptr;
+
+    rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class OnesOpConversionPattern : public OpConversionPattern<ttir::OnesOp> {
 public:
   using OpConversionPattern<ttir::OnesOp>::OpConversionPattern;
@@ -1440,6 +1506,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // ANCHOR: op_rewriter_pattern_set
   patterns
       .add<TensorEmptyConversionPattern,
+           ZerosOpConversionPattern,
            OnesOpConversionPattern,
            ToLayoutOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
