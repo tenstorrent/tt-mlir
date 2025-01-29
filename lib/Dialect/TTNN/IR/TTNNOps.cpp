@@ -1577,8 +1577,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
-  // Input tensor is assumed to be in NHWC or NCHW format depending on
-  // channel_last attribute. Enum `Dimensions` assumes NCHW format.
+  // Input tensor is assumed to be in NHWC format.
   enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
   if (inputShape[DIM_H] * scaleH != outputShape[DIM_H]) {
     return emitOpError("Expected output H dimension to be input H dimension * "

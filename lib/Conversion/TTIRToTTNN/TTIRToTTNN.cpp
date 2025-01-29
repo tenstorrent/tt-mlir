@@ -1351,10 +1351,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::Upsample2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!op.getChannelLast()) {
-      op.emitOpError("TTNN only supports NHWC format for UpsampleOp");
-    }
-
     rewriter.replaceOpWithNewOp<ttnn::UpsampleOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getScaleFactor(), adaptor.getMode(),

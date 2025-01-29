@@ -86,16 +86,6 @@ module {
 
 // -----
 module {
-  func.func @upsample2d__mismatch_c_channel_first(%arg0: tensor<3x4x16x16xbf16>) -> tensor<3x8x16x16xbf16> {
-    // CHECK: error: 'ttir.upsample2d' op Expected output C dimension to be 4, got 8
-    %0 = tensor.empty() : tensor<3x8x16x16xbf16>
-    %1 = "ttir.upsample2d"(%arg0, %0) <{scale_factor = 1 : si32, channel_last = false}> : (tensor<3x4x16x16xbf16>, tensor<3x8x16x16xbf16>) -> tensor<3x8x16x16xbf16>
-    return %1 : tensor<3x8x16x16xbf16>
-  }
-}
-
-// -----
-module {
   func.func @upsample2d_unifrom_scale_mismatch_h(%arg0: tensor<3x16x32x4xbf16>) -> tensor<3x16x32x4xbf16> {
     // CHECK: error: 'ttir.upsample2d' op Expected output H dimension to be input H dimension * scaleH = 32, got 16
     %0 = tensor.empty() : tensor<3x16x32x4xbf16>

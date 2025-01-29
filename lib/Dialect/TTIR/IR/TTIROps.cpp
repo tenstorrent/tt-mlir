@@ -1607,32 +1607,27 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
            << scaleH << " and W = " << scaleW << " must be positive integers";
   }
 
-  const bool channelLast = getChannelLast();
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
-  // Input tensor is assumed to be in NHWC or NCHW format depending on
-  // channel_last attribute. Enum `Dimensions` assumes NCHW format.
-  enum Dimensions { DIM_N = 0, DIM_C = 1, DIM_H = 2, DIM_W = 3 };
-  const int dimH = DIM_H - channelLast;
-  const int dimW = DIM_W - channelLast;
-  const int dimC = DIM_C + 2 * channelLast;
-  if (inputShape[dimH] * scaleH != outputShape[dimH]) {
+  // Input tensor is assumed to be in NHWC format.
+  enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
+  if (inputShape[DIM_H] * scaleH != outputShape[DIM_H]) {
     return emitOpError("Expected output H dimension to be input H dimension * "
                        "scaleH = ")
-           << (inputShape[dimH] * scaleH) << ", got " << outputShape[dimH];
+           << (inputShape[DIM_H] * scaleH) << ", got " << outputShape[DIM_H];
   }
-  if (inputShape[dimW] * scaleW != outputShape[dimW]) {
+  if (inputShape[DIM_W] * scaleW != outputShape[DIM_W]) {
     return emitOpError("Expected output W dimension to be input W dimension * "
                        "scaleW = ")
-           << (inputShape[dimW] * scaleW) << ", got " << outputShape[dimW];
+           << (inputShape[DIM_W] * scaleW) << ", got " << outputShape[DIM_W];
   }
   if (inputShape[DIM_N] != outputShape[DIM_N]) {
     return emitOpError("Expected output N dimension to be ")
            << inputShape[DIM_N] << ", got " << outputShape[DIM_N];
   }
-  if (inputShape[dimC] != outputShape[dimC]) {
+  if (inputShape[DIM_C] != outputShape[DIM_C]) {
     return emitOpError("Expected output C dimension to be ")
-           << inputShape[dimC] << ", got " << outputShape[dimC];
+           << inputShape[DIM_C] << ", got " << outputShape[DIM_C];
   }
 
   // Verify that the mode attribute is one of the legal modes. These two modes

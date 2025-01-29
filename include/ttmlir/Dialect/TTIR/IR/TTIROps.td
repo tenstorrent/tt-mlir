@@ -1598,12 +1598,11 @@ def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
     let summary = "Upsample 2D operation.";
 
     let description = [{
-      Upsample 2D operation.
+      Upsample 2D operation. Input tensor is assumed to be in NHWC format.
 
       Attributes:
       - `scale_factor` (si32 | array<i32>): The scale factor for upsampling in H and W dimensions respectively.
       - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
-      - `channel_last` (bool): Whether the input tensor is in NHWC or NCHW format. Default is true (NHWC format).
 
       Example:
         %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
@@ -1615,8 +1614,7 @@ def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
-                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode,
-                         DefaultValuedAttr<BoolAttr, "true">:$channel_last);
+                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode);
 
     let results = (outs AnyRankedTensor:$result);
 
