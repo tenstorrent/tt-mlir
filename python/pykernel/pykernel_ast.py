@@ -93,16 +93,17 @@ class TTKernelCompiler(ast.NodeVisitor):
         "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
     }
 
-    def __init__(self, name):
+    def __init__(self, name, args):
         self.name = name
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
         self.func_entry = None
+        self.initial_cbs = args
         self.symbol_tables = []
         self.supported_nodes = get_supported_nodes()
-        self.ttkernel_keywords = {
+        self.ttkernel_keywords = {  # this should not be the way we're doing this..
             "type_int": IntegerType.get_signless(32, self.ctx),
         }
 
@@ -127,7 +128,8 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise IndexError("Cannot declare function within a function")
 
         arg_types = []
-        for arg in node.args.args:
+        for i in range(len(node.args.args)):
+            arg = node.args.args[i]
             if not arg.annotation:
                 raise ValueError("Function arguments must have type annotations")
             if arg.annotation.id == "int":
@@ -141,10 +143,10 @@ class TTKernelCompiler(ast.NodeVisitor):
             cb_type = ttkernel.ir.CBType.get(
                 self.ctx,  # mlir context
                 0,  # address
-                1,  # cb port
+                self.initial_cbs[i],
                 MemRefType.get(
                     [8, 4, 4], tile_type
-                ),  # memref type - this is usually lowered from tensors?
+                ),  # hardcoded dimensions for now - this is usually lowered from tensors?
             )
             arg_types.append(cb_type)
 
@@ -296,13 +298,9 @@ class TTKernelCompiler(ast.NodeVisitor):
             node.func.id in self.ttkernel_fn_map
         ), f"Function {node.func.id} not supported"
         func = self.ttkernel_fn_map[node.func.id]
-        # print(f"func: {func}")
-        # print(help(inspect.signature(func).parameters))
-        # assert len(node.args) == len(inspect.signature(func).parameters), f"Incorrect number of arguments: expected {len(inspect.signature(func).parameters)}, got {len(node.args)}"
         func_args = []
         for arg in node.args:
             func_arg = self.visit(arg)
-            # print(func_arg)
             if not func_arg:
                 raise ValueError("Function argument not found")
 
@@ -430,7 +428,7 @@ def ttkernel_compile(f):
     @functools.wraps(f)
     def _wrapper(*args, **kwargs):
         m = ast.parse(inspect.getsource(f))
-        b = TTKernelCompiler(f.__name__)
+        b = TTKernelCompiler(f.__name__, args)
         print(ast.dump(m, indent=4) + "\n")
         b.visit(m)
         print(b.module)
