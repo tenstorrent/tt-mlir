@@ -632,6 +632,25 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroa
     }];
 }
 
+// TODO We need to add a broadcastable trait to this op.
+// See issue https://github.com/tenstorrent/tt-mlir/issues/2015
+def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
+    let summary = "Eltwise power OP.";
+    let description = [{
+      Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
+      result tensor. Tensors must be of same shape.
+
+      Example:
+      ```
+        %result = "ttir.power"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+
+        %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
+        %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
+        %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
+      ```
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
