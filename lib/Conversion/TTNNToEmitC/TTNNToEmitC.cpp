@@ -529,15 +529,15 @@ public:
 
     // Create ttnn::Shape() call
     //
-    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
-        rewriter, repeatDims, repeatOp->getBlock(), repeatOp.getLoc(),
+    emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, repeatDims, repeatOp.getLoc(),
         ttnn_to_emitc::utils::ShapeType::Shape);
 
     // Create operands vector
     //
     llvm::SmallVector<Value, 2> operands{
         adaptor.getOperands()[0], // input tensor
-        shapeExpressionOp->getResult(0)};
+        shapeOp->getResult(0)};
 
     // Create ArrayAttr object holding attributes and pointers to operands
     //
@@ -791,12 +791,12 @@ public:
 
     // Create ttnn::SimpleShape() call.
     //
-    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
-        rewriter, shapeAttr, srcOp->getBlock(), srcOp.getLoc());
+    emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, shapeAttr, srcOp.getLoc());
 
     // Create operands vector.
     //
-    llvm::SmallVector<Value, 3> operands{shapeExpressionOp->getResult(0),
+    llvm::SmallVector<Value, 3> operands{shapeOp->getResult(0),
                                          adaptor.getDevice()};
 
     // Create MemoryConfig object first, then pass it to the op.
@@ -865,11 +865,11 @@ public:
 
     // Create ttnn::SimpleShape() call
     //
-    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
-        rewriter, srcOp.getShapeAttr(), srcOp->getBlock(), srcOp.getLoc());
+    emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
 
     llvm::SmallVector<Value, 3> operands{
-        shapeExpressionOp->getResult(0),
+        shapeOp->getResult(0),
     };
 
     // Create ArrayAttr object holding attributes and pointers to operands
