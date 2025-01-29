@@ -10,6 +10,8 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Traits.h"
+
 #include <numeric>
 #include <optional>
 
@@ -954,7 +956,6 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
                                             broadcastedShape)) {
-
       return emitOpError("Batch dimensions of input A(" +
                          ttmlir::utils::join(inputABatchDims, ",") +
                          ") and B(" +
