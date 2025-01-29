@@ -72,6 +72,17 @@ def test_for():
     for i in range(0, 10, 1):
         a = 1
 
+    x = 0
+    y = 10
+    z = 1
+    for i in range(0, 10, 1):
+        # CHECK: %[[X:.*]] = memref.load{{.*}}
+        # CHECK: %[[Y:.*]] = memref.load{{.*}}
+        # CHECK: %[[Z:.*]] = memref.load{{.*}}
+        # CHECK: scf.for {{.*}} = %[[X]] to %[[Y]] step %[[Z]] {{.*}}
+        for j in range(x, y, z):
+            a = 1
+
     return
 
 
