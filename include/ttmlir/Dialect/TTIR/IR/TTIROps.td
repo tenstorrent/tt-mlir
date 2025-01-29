@@ -1608,7 +1608,6 @@ def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
         %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
         %output = tensor.empty() : () -> tensor<10x128x128x3xbf16>
         %0 = "ttir.upsample2d"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128x3xbf16>
-
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
