@@ -104,20 +104,22 @@ struct MLIRModuleLogger {
         action.print(passOut);
         passOut.flush();
 
-        int tildeCount = 0;
-        const int TILDE_BEFORE_PASS_NAME = 3, TILDE_AFTER_PASS_NAME = 4;
+        int backTickCount = 0;
+        const int BACKTICK_BEFORE_PASS_NAME = 3, BACKTICK_AFTER_PASS_NAME = 4;
         for (const auto &c : passOutput) {
           if (c == '`') {
-            tildeCount++;
+            backTickCount++;
           }
 
-          if (tildeCount ==
-              TILDE_BEFORE_PASS_NAME) { // This is the specific tildeCount that
-                                        // prefixes the passName
+          if (backTickCount ==
+              BACKTICK_BEFORE_PASS_NAME) { // This is the specific backTickCount
+                                           // that
+                                           // prefixes the passName
             passName += c;
-          } else if (tildeCount >=
-                     TILDE_AFTER_PASS_NAME) { // Specific count after passName
-                                              // is complete.
+          } else if (backTickCount >=
+                     BACKTICK_AFTER_PASS_NAME) { // Specific count after
+                                                 // passName
+                                                 // is complete.
             break;
           }
         }

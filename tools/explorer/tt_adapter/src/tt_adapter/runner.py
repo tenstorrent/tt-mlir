@@ -5,6 +5,8 @@ import subprocess
 import os
 import tempfile
 
+from collections import defaultdict
+
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttrt import API as ttrt
@@ -178,7 +180,7 @@ class ModelRunner:
             FLATBUFFER = True
             # Write the TTIR from this file into a temporary file to run through the compiler
             ttir_module_str = utils.parse_flatbuffer_file(
-                model_path, at_pass="Canonicalizer"
+                model_path, at_pass="PRE-PIPELINE"
             )
             ttir_module_path = f"{model_path}_ttir.mlir"
             with open(ttir_module_path, "w+") as temp_module:
@@ -232,6 +234,42 @@ class ModelRunner:
 
         # Need this flatbuffer file to inherit the golden data
         golden_map = utils.golden_map_from_flatbuffer(model_path)
+        # need to parse this golden_map
+        golden_data = defaultdict(list)
+        rendered_golden_map = {}
+
+        for entry in golden_map:
+            data = entry["value"]
+            # Turn this into a Torch Tensor to easily format it for the GoldenMap
+            # data is a uint8_t buffer type that contains the data in the format of dtype
+            # We will need to render this data as a buffer reference for the create_golden_tensor function
+
+            import array
+
+            # B is unsigned char in the array library
+            # This will parse the data as a 1D Buffer of uint8_t, exactly the pointer type expected by create_golden_tensor
+            data_arr = array.array("B", data["data"])
+            golden_data["data_arrs"].append(data_arr)
+            # Weird keepalive measure for the GoldenData...?
+
+            golden_data["keys"].append(entry["key"])
+            golden_data["names"].append(data["name"])
+            golden_data["shapes"].append(data["shape"])
+            golden_data["strides"].append(data["stride"])
+            golden_data["dtypes"].append(passes.lookup_dtype(data["dtype"]))
+            golden_data["ptrs"].append(data_arr.buffer_info()[0])
+
+        # Create the golden map using Pybound creator
+        rendered_golden_map = passes.create_golden_map(
+            golden_data["keys"],
+            golden_data["names"],
+            golden_data["shapes"],
+            golden_data["strides"],
+            golden_data["dtypes"],
+            golden_data["ptrs"],
+            len(golden_map),
+        )
+
         # Get module from file
         with open(ttnn_ir_file, "r") as f:
             ttnn_module = utils.parse_mlir_str(f.read())
@@ -250,7 +288,10 @@ class ModelRunner:
         # Run through pybound translation so we can pass golden_map
         try:
             if golden_map:
-                passes.ttnn_to_flatbuffer_file(ttnn_module, flatbuffer_file, golden_map)
+                module_log = passes.ModuleLog()
+                passes.ttnn_to_flatbuffer_file(
+                    ttnn_module, flatbuffer_file, rendered_golden_map, module_log
+                )
             else:
                 passes.ttnn_to_flatbuffer_file(ttnn_module, flatbuffer_file)
         except:

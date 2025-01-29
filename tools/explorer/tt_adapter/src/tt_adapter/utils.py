@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import ttmlir
 from dataclasses import make_dataclass, is_dataclass, asdict
+from collections import defaultdict
 
 import importlib
 import logging
@@ -51,9 +52,11 @@ def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
         return None
 
     cached_modules = debug_info["mlir_stages"]
-    for (pass_name, module) in cached_modules:
-        if pass_name == at_pass:
-            return module
+    # This is a dict {name: ..., source: ...}
+    for module in cached_modules:
+        if module["name"] == at_pass:
+            return module["source"]
+        print(module)
 
     logging.error("at_pass=%s not found in Flatbuffer.", at_pass)
     return None
@@ -65,7 +68,7 @@ def golden_map_from_flatbuffer(fb_path, program=0):
         logging.error(
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer."
         )
-        return None
+        return []
     from ttrt.common.util import Binary, Logger, FileManager
 
     logger = Logger()
@@ -79,30 +82,15 @@ def golden_map_from_flatbuffer(fb_path, program=0):
         debug_info = fbb_dict["programs"][program]["debug_info"]
     except:
         logging.error("Flatbuffer does not contain DebugInfo on Program %d", program)
-        return None
+        return []
 
     if "golden_info" not in debug_info:
         logging.error("Flatbuffer does not contain Golden Data.")
-        return None
+        return []
 
     golden_map = debug_info["golden_info"]["golden_map"]
-    rendered_golden_map = {}
 
-    # Create a np array from the data:
-    data_tensor = torch.Tensor(data["data"])
-
-    for entry in golden_map:
-        data = entry["value"]
-        tensor = ttmlir.passes.create_golden_tensor(
-            data["name"],
-            data["shape"],
-            data["strides"],
-            ttmlir.passes.lookup_dtype(data["dtype"]),
-            data_tensor.data_ptr,
-        )
-        rendered_golden_map[entry["key"]] = tensor
-
-    return rendered_golden_map
+    return golden_map
 
 
 def to_dataclass(obj: dict, dc_name: str = "tempClass"):

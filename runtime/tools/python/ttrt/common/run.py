@@ -456,6 +456,12 @@ class Run:
                                     golden_tensor_torch = torch.frombuffer(
                                         golden_tensor, dtype=dtype
                                     )
+
+                                    print(
+                                        f"Data from golden_tensor {i}",
+                                        golden_tensor_torch,
+                                    )
+
                                     golden_inputs.append(golden_tensor_torch)
 
                             program.populate_inputs(

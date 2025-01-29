@@ -111,7 +111,7 @@ class TTAdapter(model_explorer.Adapter):
             if model_path.endswith(".ttnn"):
                 # Executing on a Flatbuffer so we should parse through that path
                 module_str = utils.parse_flatbuffer_file(
-                    model_path, at_pass="ConvertTTIRToTTNN"
+                    model_path, at_pass="PRE-PIPELINE"
                 )
                 assert module_str is not None, "Failed to parse flatbuffer"
                 if module_str:

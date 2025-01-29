@@ -624,8 +624,12 @@ class Binary(Flatbuffer):
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:
                 assert len(golden_inputs) == len(self.program["inputs"])
-                for golden_input in golden_inputs:
-                    self.input_tensors.append(golden_input)
+
+                for index, input_fb in enumerate(self.program["inputs"]):
+                    reshaped = torch.reshape(
+                        golden_inputs[index], input_fb["desc"]["shape"]
+                    )
+                    self.input_tensors.append(reshaped)
             else:
                 for i in self.program["inputs"]:
                     torch_tensor = init_fn(

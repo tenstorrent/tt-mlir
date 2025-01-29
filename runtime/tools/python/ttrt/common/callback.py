@@ -161,7 +161,8 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
 
-    op_golden_tensor = binary.get_debug_info_golden(loc)
+    op_golden_tensor = binary.get_debug_info_golden(loc.replace("\\", ""))
+    logging.info("Trying to find loc: %s. USING: %s", loc, loc.replace("\\", ""))
 
     if op_golden_tensor is None:
         logging.debug("Golden tensor is None - skipping golden comparison")
