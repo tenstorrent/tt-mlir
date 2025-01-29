@@ -1617,7 +1617,12 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 // Common verifier for all Reduction ops.
 static mlir::LogicalResult
 verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
-               const std::optional<mlir::ArrayAttr> &reduceDims) {
+               const std::optional<mlir::ArrayAttr> &reduceDims, bool keepDim,
+               ::llvm::ArrayRef<int64_t> specifiedOutputShape) {
+  if (!reduceDims) {
+    return mlir::success();
+  }
+
   int64_t inputTensorRank = inputType.getRank();
 
   // TODO(mrakita): Only last two dimensions can be reduced, check for that
@@ -1626,6 +1631,42 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
       static_cast<int64_t>(reduceDims->size()) != inputTensorRank) {
     return reduceOp->emitOpError("Reduce on more than two dimensions is not "
                                  "currently supported by TTNN");
+  }
+
+  // Calculate output shape for given args.
+  //
+  llvm::SmallVector<int64_t> calculatedOutputShape;
+  for (int64_t i = 0; i < inputType.getRank(); ++i) {
+    bool isDimInReduceDims =
+        llvm::any_of(*reduceDims, [i, inputTensorRank](mlir::Attribute attr) {
+          int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(attr).getInt();
+          // Check for match even if negative dim is used.
+          //
+          return reduceDim == i || (reduceDim + inputTensorRank) == i;
+        });
+
+    // If dim is being reduced on, the dim will have size of 1 if keepDim==true,
+    // otherwise the dim is erased.
+    //
+    if (!isDimInReduceDims) {
+      calculatedOutputShape.push_back(inputType.getDimSize(i));
+    } else if (keepDim) {
+      calculatedOutputShape.push_back(1);
+    }
+  }
+
+  // Cover edge case where all dims are reduced, and keepDim==false.
+  if (calculatedOutputShape.size() == 0 && keepDim == false) {
+    calculatedOutputShape.push_back(1);
+  }
+
+  // Finally, compare shapes.
+  //
+  if (!llvm::equal(specifiedOutputShape, calculatedOutputShape)) {
+    return reduceOp->emitOpError(
+        "Expected output shape (" +
+        ttmlir::utils::join(specifiedOutputShape, ", ") + "), got (" +
+        ttmlir::utils::join(calculatedOutputShape, ", ") + ")");
   }
 
   return mlir::success();
@@ -1659,7 +1700,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MaxOp verification.
 ::mlir::LogicalResult MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
+                        getKeepDim(), getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1668,7 +1710,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MeanOp verification.
 ::mlir::LogicalResult MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
+                        getKeepDim(), getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1677,7 +1720,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // SumOp verification.
 ::mlir::LogicalResult SumOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
+                        getKeepDim(), getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1686,7 +1730,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MinOp verification.
 ::mlir::LogicalResult MinOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
+                        getKeepDim(), getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
