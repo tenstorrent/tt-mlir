@@ -9,6 +9,9 @@
 
 namespace mlir::tt::op_model::ttnn {
 
+// todo(arminaleTT): look into dynamically adjusting this
+static constexpr size_t OP_MODEL_DEFAULT_TRACE_REGION_SIZE = 200000;
+
 SingletonDeviceContext::SingletonDeviceContext(const size_t trace_region_size) {
 
   // todo: this replicates logic in runtime/include/tt/runtime/detail/common.h,
@@ -28,7 +31,7 @@ SingletonDeviceContext::~SingletonDeviceContext() {
 }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
-  static SingletonDeviceContext instance = SingletonDeviceContext(200000);
+  static SingletonDeviceContext instance = SingletonDeviceContext(OP_MODEL_DEFAULT_TRACE_REGION_SIZE);
   return instance;
 }
 
