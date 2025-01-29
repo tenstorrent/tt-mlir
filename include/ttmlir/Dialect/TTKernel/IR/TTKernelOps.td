@@ -647,7 +647,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
                          BoolAttr:$multicast_path_reserve);
 }
 
-def TTKernel_NocOpsTableOp : TTKernel_Op<"noc_ops_table"> {
+def TTKernel_NocTransactionsTableOp : TTKernel_Op<"noc_transactions_table"> {
     let summary = [{define an array of parameter entries for a sequence of NOC
      read/write operations
     }];

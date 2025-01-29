@@ -263,9 +263,6 @@ public:
       const PhysicalCoreCoordMapping &physicalCoordMapping,
       std::int64_t addressAlignment, Value *inputCB = nullptr) {
 
-    using std::int32_t;
-    using std::int64_t;
-
     assert(inputBaseAddress);
     assert(outputBaseAddress);
     assert(inputBaseAddress % addressAlignment == 0);
@@ -273,26 +270,32 @@ public:
     OpBuilder nocBuilder = OpBuilder::atBlockEnd(block);
     NocTx::Type type = transactions.front().type;
 
-    // each 'entry' is {I32:$dst, I32:$src, I32:$size, I32:$x, I32:$y,
-    // I32:$numElements}:
-    constexpr int32_t entrySize = 6;
+    // each 'entry' is {I32:$dst, I32:$src, I32:$size, I32:<$y,$x>,
+    // (I32:$numElements if have inputCB)}:
+    int32_t const entrySize = 4 + (inputCB != nullptr);
 
-    // convert 'transactions' into compile time 'NocOpsTableOp' parameters:
+    // convert 'transactions' into compile time 'NocTransactionsTableOp'
+    // parameters:
 
-    llvm::SmallVector<int32_t, (8 * entrySize)> entries;
+    llvm::SmallVector<int32_t, 48> entries;
     for (auto const &tx : transactions) {
-      assert(tx.type ==
-             type); // all transactions are of the same read/write type
+      // all transactions are of the same read/write type:
+      assert(tx.type == type);
+
+      assert(tx.srcOffset % addressAlignment == 0);
+      assert(tx.dstOffset % addressAlignment == 0);
+      assert(tx.size % addressAlignment == 0);
 
       entries.emplace_back(outputBaseAddress + tx.dstOffset);
       entries.emplace_back(inputBaseAddress + tx.srcOffset);
       entries.emplace_back(tx.size);
 
       auto const [yPhys, xPhys] = physicalCoordMapping[tx.coreCoord];
-      entries.emplace_back(xPhys);
-      entries.emplace_back(yPhys);
+      entries.emplace_back((yPhys << 16) | xPhys); // x:lo, y:hi
 
-      entries.emplace_back(tx.numElements);
+      if (inputCB != nullptr) {
+        entries.emplace_back(tx.numElements);
+      }
     }
 
     mlir::IntegerType i32Type = nocBuilder.getI32Type();   // for 'scf' ops
@@ -302,8 +305,8 @@ public:
     auto tableType = MemRefType::get(
         {static_cast<int32_t>(entries.size() / entrySize), entrySize}, i32Type,
         AffineMap::getMultiDimIdentityMap(2, nocBuilder.getContext()));
-    auto tableOp =
-        nocBuilder.create<ttkernel::NocOpsTableOp>(loc, tableType, entriesAttr);
+    auto tableOp = nocBuilder.create<ttkernel::NocTransactionsTableOp>(
+        loc, tableType, entriesAttr);
 
     auto i32 = [&](int32_t value) {
       return nocBuilder.create<arith::ConstantOp>(
@@ -315,44 +318,55 @@ public:
           loc, nocBuilder.getIndexAttr(value));
     };
 
+    auto coordWidth = i32(16);
+    auto coordMask = i32(0xFFFF);
+
     auto loop = nocBuilder.create<scf::ForOp>(loc, i32(0),
                                               i32(transactions.size()), i32(1));
     nocBuilder.setInsertionPointToStart(loop.getBody());
     {
       // memref.load/store requires 'index'-typed indexing, but 'scf.for' can't
-      // use that, so make use of arith indexing casting:
+      // use that, so make use of arith index casting:
 
       auto entry = nocBuilder.create<arith::IndexCastOp>(
           loc, indexType, loop.getInductionVar());
 
-      std::array<Value, 2> vs{entry, index(0)};
+      int32_t slot = 0;
+
+      std::array<Value, 2> vs{entry, index(slot++)};
       auto dst = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
-      vs[1] = index(1);
+      vs[1] = index(slot++);
       auto src = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
 
-      vs[1] = index(2);
+      vs[1] = index(slot++);
       auto size = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
 
-      vs[1] = index(3);
-      auto x = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
-      vs[1] = index(4);
-      auto y = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+      vs[1] = index(slot++);
+      auto xy =
+          nocBuilder.create<memref::LoadOp>(loc, tableOp, vs)->getResult(0);
 
-      // emit read/write op, surrounded with CB ops if needed:
+      // split 'xy' into an <x,y> pair:
+
+      auto x = nocBuilder.create<arith::AndIOp>(loc, xy, coordMask);
+      auto y = nocBuilder.create<arith::ShRUIOp>(loc, xy, coordWidth);
+
+      // emit read/write op, bracketed by CB ops if needed:
 
       auto rw = [&] {
         switch (type) {
         case NocTx::Type::Read: {
           auto srcRemote =
-              nocBuilder.create<ttkernel::GetNocAddrXYOp>(loc, x, y, src);
-          nocBuilder.create<ttkernel::NocAsyncReadOp>(
-              loc, srcRemote.getResult(), dst, size);
+              nocBuilder.create<ttkernel::GetNocAddrXYOp>(loc, x, y, src)
+                  .getResult();
+          nocBuilder.create<ttkernel::NocAsyncReadOp>(loc, srcRemote, dst,
+                                                      size);
         } break;
         case NocTx::Type::Write: {
           auto dstRemote =
-              nocBuilder.create<ttkernel::GetNocAddrXYOp>(loc, x, y, dst);
-          nocBuilder.create<ttkernel::NocAsyncWriteOp>(
-              loc, src, dstRemote.getResult(), size);
+              nocBuilder.create<ttkernel::GetNocAddrXYOp>(loc, x, y, dst)
+                  .getResult();
+          nocBuilder.create<ttkernel::NocAsyncWriteOp>(loc, src, dstRemote,
+                                                       size);
         } break;
         }
       };
@@ -360,14 +374,11 @@ public:
       if (!inputCB) {
         rw();
       } else {
-        vs[1] = index(5);
+        vs[1] = index(slot++);
         auto numElements = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
-
         nocBuilder.create<ttkernel::CBReserveBackOp>(loc, *inputCB,
                                                      numElements);
-
         rw();
-
         nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
         nocBuilder.create<ttkernel::CBPushBackOp>(loc, *inputCB, numElements);
       }

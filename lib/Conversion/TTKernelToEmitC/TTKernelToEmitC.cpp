@@ -355,7 +355,7 @@ public:
   }
 };
 
-// Context used for the analysis step before 'ConvertNocOpsTableOp'
+// Context used for the analysis step before 'ConvertNocTransactionsTableOp'
 struct GlobalArrayDefTable {
   std::unordered_map<std::string,
                      std::tuple<mlir::MemRefType, mlir::DenseI32ArrayAttr>>
@@ -363,14 +363,15 @@ struct GlobalArrayDefTable {
   std::int32_t unique = 0;
 };
 
-struct ConvertNocOpsTableOp
-    : public OpConversionPattern<ttkernel::NocOpsTableOp> {
+struct ConvertNocTransactionsTableOp
+    : public OpConversionPattern<ttkernel::NocTransactionsTableOp> {
 
-  using Op = ttkernel::NocOpsTableOp;
+  using Op = ttkernel::NocTransactionsTableOp;
 
-  ConvertNocOpsTableOp(const TypeConverter &typeConverter, MLIRContext *context,
-                       GlobalArrayDefTable &globalDefs,
-                       PatternBenefit benefit = 1)
+  ConvertNocTransactionsTableOp(const TypeConverter &typeConverter,
+                                MLIRContext *context,
+                                GlobalArrayDefTable &globalDefs,
+                                PatternBenefit benefit = 1)
       : OpConversionPattern(typeConverter, context, benefit),
         globalDefs(&globalDefs) {}
 
@@ -447,7 +448,7 @@ public:
     // capture the insertion point before the first FuncOp, if any:
     Block::iterator ip;
 
-    // collect all NocOpsTable definitions during the traversal:
+    // collect all NocTransactionsTable definitions during the traversal:
     GlobalArrayDefTable globals;
 
     wrapper.walk([&, this](func::FuncOp funcOp) {
@@ -486,7 +487,7 @@ public:
   }
 
   void visit(func::FuncOp funcOp, GlobalArrayDefTable &globals) {
-    // apply arith/scf/memref converters + replace NocOpsTableOp:
+    // apply arith/scf/memref converters + replace NocTransactionsTableOp:
     {
       ConversionTarget target(*funcOp.getContext());
       {
@@ -496,7 +497,7 @@ public:
         target.addIllegalDialect<scf::SCFDialect>();
         target.addIllegalDialect<memref::MemRefDialect>();
 
-        target.addIllegalOp<ttkernel::NocOpsTableOp>();
+        target.addIllegalOp<ttkernel::NocTransactionsTableOp>();
       }
 
       NullTypeConverter typeConverter;
@@ -509,8 +510,8 @@ public:
         populateMemRefToEmitCTypeConversion(typeConverter);
         populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
-        patterns.add<ConvertNocOpsTableOp>(typeConverter, funcOp->getContext(),
-                                           globals);
+        patterns.add<ConvertNocTransactionsTableOp>(
+            typeConverter, funcOp->getContext(), globals);
       }
 
       if (failed(applyPartialConversion(funcOp, target, std::move(patterns)))) {
@@ -695,8 +696,8 @@ private:
 } // namespace
 // ............................................................................
 
-inline LogicalResult
-convertTTKernelRegionToEmitC(Region *region, std::optional<mlir::ModuleOp> &out,
+inline FailureOr<mlir::ModuleOp>
+convertTTKernelRegionToEmitC(Region *region,
                              const ttkernel::ThreadType &threadType) {
   auto loc = region->getLoc();
   auto *ctx = region->getContext();
@@ -725,8 +726,7 @@ convertTTKernelRegionToEmitC(Region *region, std::optional<mlir::ModuleOp> &out,
       return failure();
     }
   }
-  out = std::move(moduleWrapper);
-  return success();
+  return moduleWrapper;
 }
 
 LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
@@ -745,12 +745,13 @@ LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
   // load it here.
   region->getContext()->getOrLoadDialect<emitc::EmitCDialect>();
 
-  std::optional<mlir::ModuleOp> moduleOp;
-  if (convertTTKernelRegionToEmitC(region, moduleOp, threadType).failed()) {
+  FailureOr<mlir::ModuleOp> moduleOp =
+      convertTTKernelRegionToEmitC(region, threadType);
+  if (failed(moduleOp)) {
     return failure();
   }
 
-  if (emitc::translateToCpp(*moduleOp, os).failed()) {
+  if (failed(emitc::translateToCpp(*moduleOp, os))) {
     return failure();
   }
 
