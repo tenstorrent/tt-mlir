@@ -372,7 +372,7 @@ struct ConvertNocOpsTableOp
                        GlobalArrayDefTable &globalDefs,
                        PatternBenefit benefit = 1)
       : OpConversionPattern(typeConverter, context, benefit),
-        globalDefs(globalDefs) {}
+        globalDefs(&globalDefs) {}
 
   LogicalResult
   matchAndRewrite(Op op, typename Op::Adaptor adaptor,
@@ -387,7 +387,7 @@ struct ConvertNocOpsTableOp
           asValidCppId(generateGlobalName(op.getOperation()));
 
       auto inserted =
-          globalDefs.defs.emplace(globalName, std::make_tuple(type, entries));
+          globalDefs->defs.emplace(globalName, std::make_tuple(type, entries));
       assert(inserted.second); // every visit generates a unique global name
 
       auto cType =
@@ -409,7 +409,8 @@ struct ConvertNocOpsTableOp
       ss << (fop ? fop.getSymName() : op->getName().getStringRef()) << '.';
       op = op->getParentOp();
     } while (op != nullptr && !mlir::isa<mlir::ModuleOp>(op));
-    ss << (globalDefs.unique++);
+    ss << (globalDefs->unique++); // shared state mutation ok here, because we
+                                  // know it's nested under module root
     return ss.str();
   }
 
@@ -423,7 +424,7 @@ struct ConvertNocOpsTableOp
     return r;
   }
 
-  GlobalArrayDefTable &globalDefs;
+  GlobalArrayDefTable *globalDefs;
 
 }; // end of class
 
