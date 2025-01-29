@@ -67,58 +67,37 @@ static SmallVector<int64_t, 2> getBroadcastDims(ArrayRef<int64_t> inputShape,
 // This function calculates the dimensions to collapse. In case above, we will
 // return [[0], [1, 2]].
 SmallVector<SmallVector<int64_t, 2>, 2>
-getCollapseDimGroups(ArrayRef<int64_t> inputShape,
-                     ArrayRef<int64_t> targetShape,
-                     SmallVector<int64_t, 2> broadcastDims) {
-  SmallVector<SmallVector<int64_t, 2>, 2> collapseDimGroups;
+getCollapseDims(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> targetShape) {
+  // Calculate the size difference.
+  const size_t sizeDiff = targetShape.size() - inputShape.size();
 
-  // If all dims need to be broadcasted, we collapse into a scalar via empty
-  // groups.
-  if (broadcastDims.size() == targetShape.size()) {
-    return collapseDimGroups;
-  }
-  // We don't wish to consider any leading broadcast dims we've added.
-  const int64_t sizeDiff = targetShape.size() - inputShape.size();
-  size_t nextBroadcastDimIdx = sizeDiff;
+  // Create the padded input shape by prepending 1s.
+  SmallVector<int64_t> paddedInput(sizeDiff, 1);
+  paddedInput.append(inputShape.begin(), inputShape.end());
 
-  SmallVector<int64_t, 2> currentGroup;
-  size_t inputIdx = 0;
-
-  // Fold all leading broadcast dims into the first dim group.
-  while (inputIdx < inputShape.size()) {
-    const size_t idx = inputIdx;
-    currentGroup.push_back(idx);
-    ++inputIdx;
-    if (nextBroadcastDimIdx < broadcastDims.size() &&
-        broadcastDims[nextBroadcastDimIdx] ==
-            static_cast<int64_t>(idx + sizeDiff)) {
-      nextBroadcastDimIdx++;
-    } else {
-      break;
+  SmallVector<int64_t, 2> collapseDims;
+  SmallVector<SmallVector<int64_t, 2>, 2> reassocIndexes;
+  for (size_t i = sizeDiff; i < targetShape.size(); ++i) {
+    const size_t inputDim = paddedInput[i];
+    const size_t targetDim = targetShape[i];
+    // Adjust the index to account for the prepended dimensions
+    // that are not part of the input shape.
+    collapseDims.push_back(i - sizeDiff);
+    if (inputDim == targetDim) {
+      reassocIndexes.push_back(collapseDims);
+      collapseDims.clear();
     }
   }
 
-  // Now group all broadcast dims with following non-broadcast dims.
-  for (size_t i = inputIdx; i < inputShape.size(); ++i) {
-    // Broadcast dims expand the current group.
-    if (nextBroadcastDimIdx < broadcastDims.size() &&
-        static_cast<int64_t>(i + sizeDiff) ==
-            broadcastDims[nextBroadcastDimIdx]) {
-      nextBroadcastDimIdx++;
-      // Non-broadcast dimensions end the current group.
+  if (!collapseDims.empty()) {
+    if (reassocIndexes.empty()) {
+      reassocIndexes.push_back(collapseDims);
     } else {
-      collapseDimGroups.push_back(currentGroup);
-      currentGroup.clear();
+      reassocIndexes.back().append(collapseDims.begin(), collapseDims.end());
     }
-    currentGroup.push_back(i);
   }
 
-  // Add the final group.
-  if (!currentGroup.empty()) {
-    collapseDimGroups.push_back(currentGroup);
-  }
-
-  return collapseDimGroups;
+  return reassocIndexes;
 }
 
 // Conversion pattern of operations which have exactly 2 input and 1 output
@@ -138,7 +117,7 @@ public:
     // First, compute broadcasted shape from operands.
     SmallVector<Value, 2> inputs = adaptor.getInputs();
     assert(inputs.size() == 2 &&
-           "binary element-wise operations must have 2 inputs!");
+           "Binary element-wise operations must have 2 inputs!");
     ArrayRef<int64_t> input0Shape =
         dyn_cast<RankedTensorType>(inputs[0].getType()).getShape();
     ArrayRef<int64_t> input1Shape =
@@ -155,18 +134,21 @@ public:
     SmallVector<Value, 2> broadcastedInputs;
     for (Value input : inputs) {
       auto inputRankedTensorType = dyn_cast<RankedTensorType>(input.getType());
-      if (!inputRankedTensorType) {
-        continue;
-      }
+      assert(inputRankedTensorType &&
+             "Binary element-wise operations must be ranked tensor types!");
 
       // Insert and use a broadcast op if input does not perfectly match target
       // shape.
       SmallVector<int64_t, 2> broadcastDims =
           getBroadcastDims(inputRankedTensorType.getShape(), broadcastedShape);
 
+      // If we need to broadcast along all dims, then we need to collapse to a
+      // scalar via empty collapseDimGroups.
       SmallVector<SmallVector<int64_t, 2>, 2> collapseDimGroups =
-          getCollapseDimGroups(inputRankedTensorType.getShape(),
-                               broadcastedShape, broadcastDims);
+          (broadcastDims.size() != broadcastedShape.size())
+              ? getCollapseDims(inputRankedTensorType.getShape(),
+                                broadcastedShape)
+              : SmallVector<SmallVector<int64_t, 2>, 2>();
 
       if (!broadcastDims.empty()) {
         Value broadcastInput = input;
