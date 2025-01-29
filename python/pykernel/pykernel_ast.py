@@ -74,6 +74,7 @@ def get_supported_nodes():
 class TTKernelCompiler(ast.NodeVisitor):
     ttkernel_fn_map = {
         "unary_op_init_common": ttkernel.unary_op_init_common,
+        "get_arg_val": ttkernel.get_arg_val,
         "cb_wait_front": ttkernel.cb_wait_front,
         "cb_reserve_back": ttkernel.cb_reserve_back,
         "cb_push_back": ttkernel.cb_push_back,
@@ -101,6 +102,9 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.supported_nodes = get_supported_nodes()
+        self.ttkernel_keywords = {
+            "type_int": IntegerType.get_signless(32, self.ctx),
+        }
 
         ttkernel.register_dialect(self.ctx)
 
@@ -257,6 +261,8 @@ class TTKernelCompiler(ast.NodeVisitor):
     # Statements
     def visit_Name(self, node):
         var_name = node.id
+        if var_name in self.ttkernel_keywords:
+            return self.ttkernel_keywords[var_name]
         existing_var_table = self.var_exists(var_name)
         if existing_var_table:
             return existing_var_table[var_name]
@@ -300,16 +306,14 @@ class TTKernelCompiler(ast.NodeVisitor):
             if not func_arg:
                 raise ValueError("Function argument not found")
 
-            if func_arg.type and isinstance(func_arg.type, memref.MemRefType):
+            if hasattr(func_arg, "type") and isinstance(
+                func_arg.type, memref.MemRefType
+            ):
                 func_arg = memref.LoadOp(
                     func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
                 )
 
-            # assert(ttkernel.ir.CBType.cast(func_arg.type)), f"Unable to cast {func_arg} to a CBType"
-
             func_args.append(func_arg)
-
-        # print(help(ttkernel.ir.NocAddr))
 
         return func(*func_args)  # how do i make sure the types are correct?
 
