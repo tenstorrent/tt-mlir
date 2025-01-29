@@ -1,3 +1,4 @@
+// REQUIRES: num-chips-1 || num-chips-2
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" -o output_file.mlir %s
 // RUN: FileCheck %s --input-file=output_file.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer output_file.mlir > %t.ttnn
