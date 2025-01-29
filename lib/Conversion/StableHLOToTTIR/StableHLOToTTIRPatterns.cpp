@@ -1658,7 +1658,6 @@ private:
     return success();
   }
 };
-} // namespace
 
 namespace {
 class StableHLOToTTIRSliceOpConversionPattern

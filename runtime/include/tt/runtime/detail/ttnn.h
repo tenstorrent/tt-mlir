@@ -49,7 +49,7 @@ namespace tt::runtime::ttnn {
 // Default L1 small size to use for the ttnn runtime (32kb).
 constexpr std::size_t kL1SmallSize = 1 << 15;
 
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
 
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,

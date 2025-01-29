@@ -14,7 +14,7 @@
 namespace tt::runtime {
 
 namespace system_desc {
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
 } // namespace system_desc
 
 namespace detail {
@@ -43,7 +43,7 @@ void setCurrentRuntime(const DeviceRuntime &runtime);
 
 void setCompatibleRuntime(const Binary &binary);
 
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
 
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
