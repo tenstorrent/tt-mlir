@@ -1,6 +1,6 @@
-# // SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
-# //
-# // SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 
 # #include "dataflow_api.h"
 # #include "debug/dprint.h"
@@ -30,13 +30,19 @@
 #     }
 # }
 
-# CBIndex is just uint8_t
+# RUN: %python %s | FileCheck %s
+# REQUIRES: pykernel
 
 from pykernel.pykernel_ast import *
 
 
 @ttkernel_compile
-def write_unary(cb_in, cb_out):
+def writer_unary(cb_in: int, cb_out: int):
+    # CHECK: module {
+    # CHECK: func.func @{{.*}}(%[[arg0:.*]]: !ttkernel.cb<{{.*}}>, %[[arg1:.*]]: !ttkernel.cb<{{.*}}>) {
+    # CHECK: "ttkernel.get_arg_val"{{.*}}
+    # CHECK: "ttkernel.get_arg_val"{{.*}}
+    # CHECK: "ttkernel.get_arg_val"{{.*}}
     dst_addr = get_arg_val(type_int, 0)
     bank_id = get_arg_val(type_int, 1)
     num_tiles = get_arg_val(type_int, 2)
@@ -49,11 +55,19 @@ def write_unary(cb_in, cb_out):
     for i in range(0, num_tiles, ublock_size_tiles):
         # dst_noc_addr = get_noc_addr_from_bank_id(True, bank_id, dst_addr)   # get_noc_addr_from_bank_id not implemented
 
+        # CHECK: "ttkernel.cb_wait_front"{{.*}}
         cb_wait_front(cb_out, ublock_size_tiles)
         # l1_read_addr = get_read_ptr(cb_out)                                     # get_read_ptr not implemented - returns uint32_t
         # noc_async_write(l1_read_addr, dst_noc_addr, ublock_size_bytes)
 
+        # CHECK: "ttkernel.noc_async_write_barrier"{{.*}}
         noc_async_write_barrier()
 
+        # CHECK: "ttkernel.cb_pop_front"{{.*}}
         cb_pop_front(cb_out, ublock_size_tiles)
-        dst_addr += ublock_size_bytes
+        dst_addr = dst_addr + ublock_size_bytes
+
+    return
+
+
+writer_unary(0, 16)
