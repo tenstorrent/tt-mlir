@@ -11,6 +11,16 @@ from ttmlir.test_utils import compile_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute
 
 
+@compile_to_flatbuffer([(1, 128, 128, 1)], targets=["ttnn"])
+def test_squeeze(in0: Operand, builder: TTIRBuilder):
+    return builder.squeeze(in0, 0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_unsqueeze(in0: Operand, builder: TTIRBuilder):
+    return builder.unsqueeze(in0, 0)
+
+
 @compile_to_flatbuffer([(128, 128)])
 def test_exp(in0: Operand, builder: TTIRBuilder):
     return builder.exp(in0)
