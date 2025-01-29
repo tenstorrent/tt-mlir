@@ -224,7 +224,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
                              {inputLayout_l1, inputLayout_l1}};
   for (const auto &[input_layout, output_layout] : layout_combinations) {
     std::tie(legal, runtime, errorMsg) = SoftmaxOpInterface::getOpRuntime(
-        tensorShape, input_layout,-1, tensorShape, output_layout);
+        tensorShape, input_layout, -1, tensorShape, output_layout);
     EXPECT_TRUE(legal);
     EXPECT_TRUE(runtime.has_value());
     EXPECT_FALSE(errorMsg.has_value());

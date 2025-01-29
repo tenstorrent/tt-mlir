@@ -31,7 +31,8 @@ SingletonDeviceContext::~SingletonDeviceContext() {
 }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
-  static SingletonDeviceContext instance = SingletonDeviceContext(OP_MODEL_DEFAULT_TRACE_REGION_SIZE);
+  static SingletonDeviceContext instance =
+      SingletonDeviceContext(OP_MODEL_DEFAULT_TRACE_REGION_SIZE);
   return instance;
 }
 

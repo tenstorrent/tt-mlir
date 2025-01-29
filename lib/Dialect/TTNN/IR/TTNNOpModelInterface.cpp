@@ -64,19 +64,19 @@ ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
 ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                 const TTNNLayoutAttr &output) {
-        
-    assert(inputs.size() == 1);
+                     const TTNNLayoutAttr &output) {
 
-    const auto input_shape =
-        mlir::cast<RankedTensorType>(getDpsInputOperand(0)->get().getType())
-            .getShape();
+  assert(inputs.size() == 1);
 
-    const auto output_shape =
-        mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
+  const auto input_shape =
+      mlir::cast<RankedTensorType>(getDpsInputOperand(0)->get().getType())
+          .getShape();
 
-    return op_model::ttnn::ReluOpInterface::getOpRuntime(
-        input_shape, inputs[0], output_shape, output);
+  const auto output_shape =
+      mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
+
+  return op_model::ttnn::ReluOpInterface::getOpRuntime(input_shape, inputs[0],
+                                                       output_shape, output);
 }
 
 //===----------------------------------------------------------------------===//
@@ -108,7 +108,7 @@ AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
 AddOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                        const TTNNLayoutAttr &output) {
+                    const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);
 
   const auto input_shape_a =
@@ -122,7 +122,6 @@ AddOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return op_model::ttnn::AddOpInterface::getOpRuntime(
       input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output);
 }
-
 
 //===----------------------------------------------------------------------===//
 // SoftmaxOp - TTNN Op Model Interface
@@ -151,7 +150,7 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
 SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                            const TTNNLayoutAttr &output) {
+                        const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
 
   const auto input_shape =
@@ -194,7 +193,7 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
 MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                           const TTNNLayoutAttr &output) {
+                       const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);
 
   const auto input_shape_a =
