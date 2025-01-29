@@ -86,6 +86,9 @@ class Golden:
         s += f"\nGolden tensor:\n{self.tensor}"
         return s
 
+    def contiguous(self) -> Golden:
+        return Golden(self.tensor.contiguous())
+
 
 class TTIRBuilder:
     """Builder class providing API for creating TTIR ops."""
@@ -168,6 +171,7 @@ class TTIRBuilder:
     def get_golden_map(self) -> Dict:
         golden_info = {}
         for name, golden_tensor in self.id_golden_map.items():
+            golden_tensor = golden_tensor.contiguous()
             golden_info[name] = create_golden_tensor(
                 name,
                 list(golden_tensor.tensor.shape),
