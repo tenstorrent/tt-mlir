@@ -184,7 +184,7 @@ jobs:
 
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
-      options: --device /dev/tenstorrent/0
+      options: ${{ matrix.build.container-options }}
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
