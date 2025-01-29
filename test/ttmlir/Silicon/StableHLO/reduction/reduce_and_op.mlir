@@ -1,4 +1,4 @@
-// REQUIRES: stablehlo
+// REQUIRES: stablehlo, num-chips-1 || num-chips-2
 // RUN: rm -rf %t.ttnn
 // RUN: rm -rf %t.mlir
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline \

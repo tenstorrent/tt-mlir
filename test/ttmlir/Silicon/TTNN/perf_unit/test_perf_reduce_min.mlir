@@ -1,3 +1,4 @@
+// REQUIRES: num-chips-1 || num-chips-2
 // RUN: rm -rf %t.ttnn
 // RUN: rm -rf %t.mlir
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir

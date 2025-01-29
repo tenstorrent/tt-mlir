@@ -1,3 +1,4 @@
+// REQUIRES: num-chips-1 || num-chips-2
 // RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline="system-desc-path=%system_desc_path%"  %s | FileCheck %s
 #l1_ = #tt.memory_space<l1>
 #layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <4x4>, memref<64x96xf32, #l1_>>
