@@ -19,6 +19,7 @@
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/matmul/matmul.hpp"
+#include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "tensor/shape/small_vector.hpp"

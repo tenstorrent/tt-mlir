@@ -2358,3 +2358,18 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 ::mlir::LogicalResult mlir::tt::ttir::ReduceAndOp::verify() {
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
+
+//===----------------------------------------------------------------------===//
+// CumSumOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::CumSumOp::verify() {
+  int64_t dim = getDim();
+  int64_t inputRank = getInput().getType().getRank();
+  if (dim < 0 || dim >= inputRank) {
+    return emitOpError() << "specified dimension should be between 0 and "
+                         << (inputRank - 1) << ", but got: " << dim << ".";
+  }
+
+  return success();
+}

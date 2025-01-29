@@ -164,6 +164,13 @@ table EltwiseOp {
   params: EltwiseOpParams;
 }
 
+table MorehCumSumOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim: int64;
+  memcfg: tt.target.MemoryConfigDesc;
+}
+
 enum ReductionOpType: uint32 {
   Sum,
   Mean,
@@ -377,6 +384,7 @@ union OpType {
   EltwiseOp,
   LinearOp,
   MatmulOp,
+  MorehCumSumOp,
   ReductionOp,
   ReductionProdOp,
   EmbeddingOp,
