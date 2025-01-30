@@ -17,9 +17,9 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
         InterfaceMethod<
             /*desc=*/[{
                 Returns a tuple of three values:**
-                1. A boolean indicating if runtime estimation was successful.
-                2. If the estimation was successful, the estimated op runtime in nanoseconds.
-                3. If the estimation failed, a string describing the failure.
+                1. A boolean indicating if runtime measurement was successful.
+                2. If the measurement was successful, the estimated op runtime in nanoseconds.
+                3. If the measurement failed, a string describing the failure.
             }],
             /*retTy=*/"std::tuple<bool, std::optional<size_t>, std::optional<std::string>>",
             /*methodName=*/"getOpRuntime",
