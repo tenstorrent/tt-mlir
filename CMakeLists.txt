@@ -89,6 +89,12 @@ if (TTMLIR_ENABLE_STABLEHLO)
   include_directories(${CMAKE_CURRENT_BINARY_DIR}/stablehlo)
   include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
 
+  message(STATUS "=== Debug: Looking for StableHLO targets ===")
+  get_property(targets DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(target ${targets})
+    message(STATUS "Found target: ${target}")
+  endforeach()
+
   # Install StableHLO static libraries
   install(TARGETS
   StablehloReferenceIndex
