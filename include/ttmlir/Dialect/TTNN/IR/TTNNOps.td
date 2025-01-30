@@ -647,6 +647,34 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   }];
 }
 
+def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
+  let summary = "Argmax reduction op.";
+  let description = [{
+    Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
+
+    Example:
+      input: [[1, 5, 3],
+              [2, 4, 6]]
+
+      // Computing along dim 0
+      output: [1, 0, 1]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 5
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       OptionalAttr<I32Attr>:$dim,
+                       BoolAttr:$use_multicore,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       Optional<AnyRankedTensor>:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_ProdOp : TTNN_Op<"prod"> {
   let summary = "Product reduction op.";
   let description = [{

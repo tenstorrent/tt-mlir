@@ -702,6 +702,26 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     let hasVerifier = 1;
 }
 
+def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
+  let summary = "Argmax reduction op.";
+  let description = [{
+    Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
+
+    Example:
+      input: [[1, 5, 3],
+              [2, 4, 6]]
+
+      // Computing along dim 0
+      output: [1, 0, 1]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 5
+  }];
+}
+
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
     let summary = "Sum reduction op.";
     let description = [{

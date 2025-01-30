@@ -2426,6 +2426,22 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 }
 
 //===----------------------------------------------------------------------===//
+// Reduce ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+// ArgMaxOp kernel builder.
+void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                  ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "argmax");
+}
+
+// ArgMaxOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
 // CumSumOp
 //===----------------------------------------------------------------------===//
 
