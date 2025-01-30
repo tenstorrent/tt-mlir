@@ -88,6 +88,27 @@ if (TTMLIR_ENABLE_STABLEHLO)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
   include_directories(${CMAKE_CURRENT_BINARY_DIR}/stablehlo)
   include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
+
+  # Install StableHLO static libraries
+  install(TARGETS
+  StablehloReferenceIndex
+  StablehloReferenceErrors
+  StablehloReferenceElement
+  StablehloReferenceAxes
+  StablehloReferenceValue
+  StablehloReferenceTypes
+  StablehloReferenceToken
+  StablehloReferenceTensor
+  StablehloReferenceScope
+  StablehloReferenceProcessGrid
+  StablehloReferenceProcess
+  StablehloReferenceOps
+  StablehloSerialization
+  InterpreterOps
+  StablehloPortableApi
+  StablehloReferenceNumPy
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  COMPONENT StablehloStatic)
 endif()
 add_subdirectory(include)
 add_subdirectory(lib)
