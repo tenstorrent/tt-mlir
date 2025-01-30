@@ -74,13 +74,13 @@ std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
            std::optional<std::string>>
 getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-                 const int dim_arg, const llvm::ArrayRef<int64_t> &outputShape,
+                 const int dimArg, const llvm::ArrayRef<int64_t> &outputShape,
                  const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
 getOpRuntime(const llvm::ArrayRef<int64_t> &inputShape,
              const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-             const int dim_arg, const llvm::ArrayRef<int64_t> &outputShape,
+             const int dimArg, const llvm::ArrayRef<int64_t> &outputShape,
              const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
 
 }; // namespace SoftmaxOpInterface

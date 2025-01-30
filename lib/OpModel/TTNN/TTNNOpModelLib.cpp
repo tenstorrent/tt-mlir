@@ -360,13 +360,13 @@ std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
            std::optional<std::string>>
 SoftmaxOpInterface::getOpConstraints(
     const llvm::ArrayRef<int64_t> &inputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dim_arg,
+    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dimArg,
     const llvm::ArrayRef<int64_t> &outputShape,
     const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto softmaxOpQuery = [](const llvm::ArrayRef<int64_t> &inputShape,
                            const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-                           const int dim_arg,
+                           const int dimArg,
                            const llvm::ArrayRef<int64_t> &outputShape,
                            const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
     // open device device, will close it at the end of function
@@ -380,12 +380,12 @@ SoftmaxOpInterface::getOpConstraints(
 
     // run op constraint query
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::softmax, device, inputSpec, dim_arg,
+        ::ttnn::softmax, device, inputSpec, dimArg,
         outputSpec.tensor_layout().get_memory_config());
   };
 
   return operation::getOpConstraints("SoftmaxOpInterface", softmaxOpQuery,
-                                     inputShape, inputLayout, dim_arg,
+                                     inputShape, inputLayout, dimArg,
                                      outputShape, outputLayout);
 #else
   return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
@@ -395,13 +395,13 @@ SoftmaxOpInterface::getOpConstraints(
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
 SoftmaxOpInterface::getOpRuntime(
     const llvm::ArrayRef<int64_t> &inputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dim_arg,
+    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dimArg,
     const llvm::ArrayRef<int64_t> &outputShape,
     const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto softmaxOpQuery = [](const llvm::ArrayRef<int64_t> &inputShape,
                            const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-                           const int dim_arg,
+                           const int dimArg,
                            const llvm::ArrayRef<int64_t> &outputShape,
                            const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
     // open device device, will close it at the end of function
@@ -414,12 +414,12 @@ SoftmaxOpInterface::getOpRuntime(
         std::make_tuple(outputShape, outputLayout));
 
     return ::ttnn::graph::query_op_runtime(
-        ::ttnn::softmax, device, inputSpec, dim_arg,
+        ::ttnn::softmax, device, inputSpec, dimArg,
         outputSpec.tensor_layout().get_memory_config());
   };
 
   return operation::getOpRuntime("SoftmaxOpInterface", softmaxOpQuery,
-                                 inputShape, inputLayout, dim_arg, outputShape,
+                                 inputShape, inputLayout, dimArg, outputShape,
                                  outputLayout);
 #else
   return std::make_tuple(false, 0, std::nullopt);
