@@ -123,7 +123,7 @@ void deallocateBuffers(Device deviceHandle) {
           DeviceRuntime::TTMetal);
 
   for (::tt::tt_metal::IDevice *device : meshDevice.get_devices()) {
-    device->deallocate_buffers();
+    device->allocator()->deallocate_buffers();
   }
 }
 
