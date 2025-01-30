@@ -187,6 +187,8 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   // Get buffer type (i.e DRAM/L1 etc)
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
 
+  // llvm::outs() << "curr buffer type: " << currBufferType << "\n";
+
   // Get the current element type (i.e bf16/TileType etc)
   // If the defining op is arange, then we need to assume ROW_MAJOR (scalar)
   // element type.
@@ -411,19 +413,27 @@ public:
     SmallVector<Value, 4> fromDeviceOperands;
     size_t locIdx = 0;
     for (auto operand : callOp.getOperands()) {
+      // operand->dump();
       Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
       std::optional<Value> optionalLayoutOp = createToLayoutOp(
           rewriter, newLoc, operand, BufferType::SystemMemory,
           nullptr /* desiredMemLayoutAttr */, false /* tiled */);
-      Value hostOperand =
-          optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand;
-      fromDeviceOperands.push_back(hostOperand);
+      if (optionalLayoutOp.has_value()) {
+        // llvm::outs() << "did add layout.\n";
+        fromDeviceOperands.push_back(optionalLayoutOp.value());
+      } else {
+        // llvm::outs() << "didn't add layout.\n";
+        fromDeviceOperands.push_back(operand);
+      }
     }
 
     // Create the original CallOp with the new inputs on host.
     auto newCallOp = rewriter.create<func::CallOp>(
         callOp.getLoc(), callOp.getCallee(), callOp.getResultTypes(),
         fromDeviceOperands);
+
+    rewriter.replaceOp(callOp, newCallOp);
+    // newCallOp->dump();
 
     return success();
   }
@@ -628,21 +638,6 @@ public:
         return;
       }
     }
-    // This pass will rewrite s.t. hoisted func calls have their operands +
-    // results moved to/from device as needed, but we rely on DPSOperandRewriter
-    // below to inserted needed toLayout ops for results if they are used by
-    // other ops later.
-    {
-      RewritePatternSet patterns(&getContext());
-      // Move operands + results of hoisted funcs to and from device
-      // appropriately
-      patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
-        signalPassFailure();
-        return;
-      }
-    }
     {
       RewritePatternSet patterns(&getContext());
       // Takes all TTIR ops which have DPS operands
@@ -655,6 +650,7 @@ public:
           &getContext());
       patterns.add<TTNNLayoutForceSystemMemoryRewriter<mlir::func::ReturnOp>>(
           &getContext());
+      patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
