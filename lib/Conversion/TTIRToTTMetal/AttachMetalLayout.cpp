@@ -13,6 +13,8 @@
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRATTACHMETALLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+
+namespace {
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
@@ -35,7 +37,9 @@ public:
         });
   }
 };
+} // namespace
 
+namespace {
 class TTIRLayoutTensorTypeRewriter : public RewritePattern {
 public:
   TTIRLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
@@ -103,7 +107,9 @@ public:
 
   const TypeConverter *converter;
 };
+} // namespace
 
+namespace {
 class TTIRAttachMetalLayout
     : public impl::TTIRAttachMetalLayoutBase<TTIRAttachMetalLayout> {
 
@@ -129,5 +135,6 @@ class TTIRAttachMetalLayout
     registry.insert<mlir::tt::TTDialect>();
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttir
