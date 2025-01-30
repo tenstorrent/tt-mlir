@@ -10,6 +10,9 @@
 namespace mlir::tt::op_model::ttnn {
 
 // todo(arminaleTT): look into dynamically adjusting this
+// getOpRuntime() uses trace capture to run and measure the runtime of an op.
+// This requires the device to be opened with sufficient trace region size. This
+// number is currently set based on manual testing of supported ops
 static constexpr size_t opModelDefaultTraceRegionSize = 200000;
 
 SingletonDeviceContext::SingletonDeviceContext(const size_t traceRegionSize) {
