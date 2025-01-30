@@ -231,66 +231,67 @@ class ModelRunner:
         ############################## Translate #################################
 
         # Need this flatbuffer file to inherit the golden data
-        golden_map = utils.golden_map_from_flatbuffer(model_path)
-        # need to parse this golden_map
-        kept_alive_data_arrs = []
-        rendered_golden_map = {}
+        if FLATBUFFER:
+            golden_map = utils.golden_map_from_flatbuffer(model_path)
+            # need to parse this golden_map
+            kept_alive_data_arrs = []
+            rendered_golden_map = {}
 
-        for entry in golden_map:
-            data = entry["value"]
-            # Turn this into a Torch Tensor to easily format it for the GoldenMap
-            # data is a uint8_t buffer type that contains the data in the format of dtype
-            # We will need to render this data as a buffer reference for the create_golden_tensor function
+            for entry in golden_map:
+                data = entry["value"]
+                # Turn this into a Torch Tensor to easily format it for the GoldenMap
+                # data is a uint8_t buffer type that contains the data in the format of dtype
+                # We will need to render this data as a buffer reference for the create_golden_tensor function
+                import array
 
-            import array
+                # B is unsigned char in the array library
+                # This will parse the data as a 1D Buffer of uint8_t, exactly the pointer type expected by create_golden_tensor
+                data_arr = array.array("B", data["data"])
+                kept_alive_data_arrs.append(data_arr)
+                # Weird keepalive measure for the GoldenData...?
 
-            # B is unsigned char in the array library
-            # This will parse the data as a 1D Buffer of uint8_t, exactly the pointer type expected by create_golden_tensor
-            data_arr = array.array("B", data["data"])
-            kept_alive_data_arrs.append(data_arr)
-            # Weird keepalive measure for the GoldenData...?
-
-            rendered_golden_map[entry["key"]] = passes.create_golden_tensor(
-                data["name"],
-                data["shape"],
-                data["stride"],
-                passes.lookup_dtype(data["dtype"]),
-                data_arr.buffer_info()[0],
-            )
-
-        # Get module from file
-        with open(ttnn_ir_file, "r") as f:
-            ttnn_module = utils.parse_mlir_str(f.read())
-
-        # Don't run the subprocess command anymore
-        # to_flatbuffer_command = [
-        #    f"{self._build_dir}/bin/ttmlir-translate",
-        #    "--ttnn-to-flatbuffer",
-        #    ttnn_ir_file,
-        #    "-o",
-        #    flatbuffer_file,
-        # ]
-
-        self.log("Running TTNN to Flatbuffer File")
-
-        # Run through pybound translation so we can pass golden_map
-        try:
-            if golden_map:
-                module_log = passes.ModuleLog()
-                passes.ttnn_to_flatbuffer_file(
-                    ttnn_module, flatbuffer_file, rendered_golden_map, module_log
+                rendered_golden_map[entry["key"]] = passes.create_golden_tensor(
+                    data["name"],
+                    data["shape"],
+                    data["stride"],
+                    passes.lookup_dtype(data["dtype"]),
+                    data_arr.buffer_info()[0],
                 )
-            else:
-                passes.ttnn_to_flatbuffer_file(ttnn_module, flatbuffer_file)
-        except:
-            self.log("Error while running TTNN to Flatbuffer File")
-            raise ExplorerRunException()
 
-        # translate_process = self.run_in_subprocess(to_flatbuffer_command)
-        # if translate_process.returncode != 0:
-        #    error = "Error while running TTNN to Flatbuffer File"
-        #    self.log(error)
-        #    raise ExplorerRunException(error)
+            # Get module from file
+            with open(ttnn_ir_file, "r") as f:
+                ttnn_module = utils.parse_mlir_str(f.read())
+
+            self.log("Running TTNN to Flatbuffer File")
+
+            # Run through pybound translation so we can pass golden_map
+            try:
+                if golden_map:
+                    module_log = passes.ModuleLog()
+                    passes.ttnn_to_flatbuffer_file(
+                        ttnn_module, flatbuffer_file, rendered_golden_map, module_log
+                    )
+                else:
+                    passes.ttnn_to_flatbuffer_file(ttnn_module, flatbuffer_file)
+            except:
+                self.log("Error while running TTNN to Flatbuffer File")
+                raise ExplorerRunException()
+        else:
+            # Translate to Flatbuffer normally.
+            to_flatbuffer_command = [
+                f"{self._build_dir}/bin/ttmlir-translate",
+                "--ttnn-to-flatbuffer",
+                ttnn_ir_file,
+                "-o",
+                flatbuffer_file,
+            ]
+
+        translate_process = self.run_in_subprocess(to_flatbuffer_command)
+        if translate_process.returncode != 0:
+            error = "Error while running TTNN to Flatbuffer File"
+            self.log(error)
+            raise ExplorerRunException(error)
+
         self.progress = 30
 
         ############################## TTRT Perf #################################
