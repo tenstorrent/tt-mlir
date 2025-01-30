@@ -7,6 +7,47 @@ from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref
 import ast
 import inspect
 import functools
+from ttmlir.passes import ttkernel_to_emitc_backend_pipeline
+
+
+def ttkernel_to_emitc(
+    module,
+    dump_to_file: bool = True,
+    output_file_name: str = "test.mlir",
+):
+    """
+    Converts TTKernel module `module` to EmitC module and optionally dumps to file.
+
+    Wrapper around `ttkernel_to_emitc_backend_pipeline` pybound pass.
+
+    Arguments
+    ---------
+    module: ???
+        TTKernel module to convert to EmitC module
+
+    dump_to_file: bool
+        Flag which indicates that generated EmitC module will be dumped to file.
+
+    output_file_name: str
+        Name of the output file.
+
+    Returns
+    -------
+    MLIR module containing MLIR op graph defined by `module` and instance of TTKernelBuilder.
+    """
+
+    # Now, pass it through the TTIR to TTMetal pipeline. Module gets
+    # modified in place.
+    ttkernel_to_emitc_backend_pipeline(module)
+
+    print("`ttkernel_to_emitc_backend_pipeline` passed successfully.")
+
+    # Optionally dump to file.
+    if dump_to_file:
+        with open(output_file_name, "w") as f:
+            f.write(str(module))
+
+    return module
 
 
 def get_supported_nodes():
@@ -352,7 +393,8 @@ def ttkernel_compile(f):
         # print(ast.dump(m, indent=4) + "\n")
         b.visit(m)
         print(b.module)
-
+        # ttkernel_to_emitc(b.module)
+        # print(b.module)
         # Check if generated IR is valid
         b.module.operation.verify()
 
