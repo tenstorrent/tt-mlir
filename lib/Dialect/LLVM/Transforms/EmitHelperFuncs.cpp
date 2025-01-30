@@ -22,6 +22,7 @@ namespace mlir::tt::llvm_util {
 #define GEN_PASS_DEF_LLVMEMITHELPERFUNCS
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
 
+// Generate wrapper func which
 void generateLLVMHelpersForArgRanks(ModuleOp moduleOp) {
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
@@ -56,8 +57,7 @@ void generateLLVMHelpersForArgRanks(ModuleOp moduleOp) {
     Value structArrayPtr = entryBlock->getArgument(0);
     SmallVector<Value, 16> originalCallArgs;
 
-    // Note: we can't create typed pointer types, but we can create the struct
-    // type
+    // Note we can't create typed pointer types, which is annoying.
     auto wrappedTensorTy = LLVM::LLVMStructType::getLiteral(
         context, {
                      LLVM::LLVMPointerType::get(context), // start
@@ -66,15 +66,11 @@ void generateLLVMHelpersForArgRanks(ModuleOp moduleOp) {
                      LLVM::LLVMPointerType::get(context)  // sizes_and_strides
                  });
 
-    // First get the base pointer to array of tensors (do this once)
-    // Value baseStructPtr = builder.create<LLVM::LoadOp>(
-    //     func.getLoc(), LLVM::LLVMPointerType::get(context), structArrayPtr);
-
-    // Iterate over arg_ranks to unpack tensors
+    // Iterate over arg_ranks to unpack tensors.
     int tensorIdx = 0;
     for (auto rankAttr : argRanksAttr) {
       // Compute the offset for the current tensor (as index * size of
-      // wrapped_tensor)
+      // wrapped_tensor).
       Value tensorIndex = builder.create<LLVM::ConstantOp>(
           func.getLoc(), builder.getI64Type(),
           builder.getI64IntegerAttr(tensorIdx++));
@@ -89,37 +85,35 @@ void generateLLVMHelpersForArgRanks(ModuleOp moduleOp) {
               func.getLoc(), builder.getI64Type(),
               builder.getI64IntegerAttr(wrappedTensorSize)));
 
-      // Get pointer to the struct for this tensor
+      // Get pointer to the struct for this offset-th tensor in input array.
       Value structPtr = builder.create<LLVM::GEPOp>(
           func.getLoc(), ptrTy, ptrTy, structArrayPtr, ValueRange(offset),
           /*inbounds=*/true);
 
-      // Load the entire struct
+      // Load actual tensor object from pointer so we can extract its members.
       Value tensorStruct = builder.create<LLVM::LoadOp>(
           func.getLoc(), wrappedTensorTy, structPtr);
 
-      // Extract fields using extractvalue
       Value tensorBase = builder.create<LLVM::ExtractValueOp>(
           func.getLoc(), ptrTy, tensorStruct,
-          builder.getDenseI64ArrayAttr({0})); // start field
+          builder.getDenseI64ArrayAttr({0}));
+      originalCallArgs.push_back(tensorBase);
 
       Value alignedBase = builder.create<LLVM::ExtractValueOp>(
           func.getLoc(), LLVM::LLVMPointerType::get(context), tensorStruct,
-          builder.getDenseI64ArrayAttr({1})); // aligned_start field
+          builder.getDenseI64ArrayAttr({1}));
+      originalCallArgs.push_back(alignedBase);
 
       Value startIdx = builder.create<LLVM::ExtractValueOp>(
           func.getLoc(), builder.getI64Type(), tensorStruct,
-          builder.getDenseI64ArrayAttr({2})); // start_idx field
+          builder.getDenseI64ArrayAttr({2}));
+      originalCallArgs.push_back(startIdx);
 
       Value sizesAndStrides = builder.create<LLVM::ExtractValueOp>(
           func.getLoc(), LLVM::LLVMPointerType::get(context), tensorStruct,
-          builder.getDenseI64ArrayAttr({3})); // sizes_and_strides field
-
-      originalCallArgs.push_back(tensorBase);
-      originalCallArgs.push_back(alignedBase);
-      originalCallArgs.push_back(startIdx);
-
-      // Iterate over size and stride pairs
+          builder.getDenseI64ArrayAttr({3}));
+      // The sizesAndStrides field is an array itself, so we need to step into
+      // it and extract elements.
       int64_t rank = mlir::cast<IntegerAttr>(rankAttr).getInt();
       for (int i = 0; i < 2 * rank; i++) {
         Value idx = builder.create<LLVM::ConstantOp>(
@@ -135,7 +129,7 @@ void generateLLVMHelpersForArgRanks(ModuleOp moduleOp) {
       }
     }
 
-    // Call the function
+    // Call the original functions with the unpacked args.
     builder.create<LLVM::CallOp>(func.getLoc(), TypeRange(), func.getName(),
                                  originalCallArgs);
 
@@ -149,18 +143,9 @@ class LLVMEmitHelperFuncs
     : public impl::LLVMEmitHelperFuncsBase<LLVMEmitHelperFuncs> {
   using impl::LLVMEmitHelperFuncsBase<
       LLVMEmitHelperFuncs>::LLVMEmitHelperFuncsBase;
-  // using impl::createLLVMEmitHelperFuncs;
 
   void runOnOperation() final {
-    llvm::outs() << "LLVMEmitHelperFuncs::runOnOperation()\n";
-    auto moduleOp = getOperation();
-    // only run this on our hoisted cpu op modules
-    // if (!moduleOp->getAttr("ttir.cpu_module")) {
-    //   return;
-    // }
-    generateLLVMHelpersForArgRanks(moduleOp);
-
-    // for every func in this module, emit a corresponding unpacker
+    generateLLVMHelpersForArgRanks(getOperation());
   }
 };
 
