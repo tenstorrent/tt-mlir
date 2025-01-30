@@ -596,7 +596,6 @@ public:
         modified = true;
       }
     }
-
     return modified ? success() : failure();
   }
 
