@@ -872,32 +872,39 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConstantOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    ::mlir::ElementsAttr valueAttr = op.getValue();
-
-    LogicalResult legalityResult = checkBasicLegality(op, valueAttr, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
-    if (valueAttr.isSplat()) {
-      Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-      float fillValue =
-          valueAttr.getElementType().isInteger()
-              ? getFloatFromIntegerValue(valueAttr)
-              : valueAttr.getSplatValue<mlir::APFloat>().convertToFloat();
-
-      ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
-      rewriter.replaceOpWithNewOp<ttnn::FullOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), device,
-          fillValueAttr);
-
-    } else {
-      return rewriter.notifyMatchFailure(
-          op, "TTNN doesn't currently support tensor creation from multiple "
-              "given values (issue #685)");
-    }
+    // TODO(azecevic): This is fallback if value is not splat attr.
+    rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getValue());
 
     return success();
+
+    // ::mlir::ElementsAttr valueAttr = op.getValue();
+
+    // LogicalResult legalityResult = checkBasicLegality(op, valueAttr,
+    // rewriter); if (!legalityResult.succeeded()) {
+    //   return legalityResult;
+    // }
+
+    // if (valueAttr.isSplat()) {
+    //   Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    //   float fillValue =
+    //       valueAttr.getElementType().isInteger()
+    //           ? getFloatFromIntegerValue(valueAttr)
+    //           : valueAttr.getSplatValue<mlir::APFloat>().convertToFloat();
+
+    //   ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
+    //   rewriter.replaceOpWithNewOp<ttnn::FullOp>(
+    //       op, this->getTypeConverter()->convertType(op.getType()), device,
+    //       fillValueAttr);
+
+    // } else {
+    //   return rewriter.notifyMatchFailure(
+    //       op, "TTNN doesn't currently support tensor creation from multiple "
+    //           "given values (issue #685)");
+    // }
+
+    // return success();
   }
 
 private:

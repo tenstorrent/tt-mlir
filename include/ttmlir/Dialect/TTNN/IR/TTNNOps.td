@@ -1507,4 +1507,21 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     let hasVerifier = 1;
 }
 
+def TTNN_ConstantOp : TTNN_Op<"constant"> {
+    let summary = "Constant op.";
+    let description = [{
+      Produces tensor filled with given constant value.
+
+      Examples:
+        %0 = "ttir.constant"() {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
+        // %0: [[0, 0, 0], [0, 0, 0]]
+        %1 = "ttir.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+        // %1: [0.2, 1.3]
+    }];
+
+    let arguments = (ins ElementsAttr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
 #endif
