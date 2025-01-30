@@ -235,7 +235,7 @@ ReluOpInterface::getOpConstraints(
   return operation::getOpConstraints("ReluOpInterface", reluOpQuery, inputShape,
                                      inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(false, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -310,7 +310,7 @@ AddOpInterface::getOpConstraints(
                                      inputLayoutA, inputShapeB, inputLayoutB,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(false, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -388,7 +388,7 @@ SoftmaxOpInterface::getOpConstraints(
                                      inputShape, inputLayout, dim_arg,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(false, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -469,7 +469,7 @@ MatmulOpInterface::getOpConstraints(
                                      inputLayoutB, outputShape, outputLayout,
                                      transposeA, transposeB);
 #else
-  return std::make_tuple(false, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
