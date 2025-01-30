@@ -267,9 +267,8 @@ class ModelRunner:
             # Run through pybound translation so we can pass golden_map
             try:
                 if golden_map:
-                    module_log = passes.ModuleLog()
                     passes.ttnn_to_flatbuffer_file(
-                        ttnn_module, flatbuffer_file, rendered_golden_map, module_log
+                        ttnn_module, flatbuffer_file, rendered_golden_map
                     )
                 else:
                     passes.ttnn_to_flatbuffer_file(ttnn_module, flatbuffer_file)
@@ -286,11 +285,11 @@ class ModelRunner:
                 flatbuffer_file,
             ]
 
-        translate_process = self.run_in_subprocess(to_flatbuffer_command)
-        if translate_process.returncode != 0:
-            error = "Error while running TTNN to Flatbuffer File"
-            self.log(error)
-            raise ExplorerRunException(error)
+            translate_process = self.run_in_subprocess(to_flatbuffer_command)
+            if translate_process.returncode != 0:
+                error = "Error while running TTNN to Flatbuffer File"
+                self.log(error)
+                raise ExplorerRunException(error)
 
         self.progress = 30
 

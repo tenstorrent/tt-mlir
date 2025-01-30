@@ -9,6 +9,7 @@
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
+#include <pybind11/stl_bind.h>
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
@@ -166,6 +167,11 @@ void populatePassesModule(py::module &m) {
     // NOLINTEND
   });
 
+  // This binds the vector into an interfaceable object in python and also an
+  // opaquely passed one into other functions.
+  py::bind_vector<std::vector<std::pair<std::string, std::string>>>(
+      m, "ModuleLog");
+
   m.def(
       "ttnn_to_flatbuffer_file",
       [](MlirModule module, std::string &filepath,
@@ -190,7 +196,8 @@ void populatePassesModule(py::module &m) {
         }
       },
       py::arg("module"), py::arg("filepath"), py::arg("goldenMap") = py::dict(),
-      py::arg("moduleCache") = py::list());
+      py::arg("moduleCache") =
+          std::vector<std::pair<std::string, std::string>>());
 
   m.def("ttmetal_to_flatbuffer_file",
         [](MlirModule module, std::string &filepath,
@@ -245,30 +252,19 @@ void populatePassesModule(py::module &m) {
                                         reinterpret_cast<std::uint8_t *>(ptr));
         });
 
-  py::class_<std::vector<std::pair<std::string, std::string>>>(m, "ModuleLog")
-      .def(py::init<>())
-      .def("to_list",
-           [](const std::vector<std::pair<std::string, std::string>> &vec) {
-             py::list list;
-             for (const auto &pair : vec) {
-               list.append(py::make_tuple(pair.first, pair.second));
-             }
-             return list;
-           });
-
-  py::class_<mlir::tt::MLIRModuleLogger>(m, "MLIRModuleLogger")
+  py::class_<mlir::tt::MLIRModuleLogger,
+             std::shared_ptr<mlir::tt::MLIRModuleLogger>>(m, "MLIRModuleLogger")
       .def(py::init<>())
       .def(
           "attach_context",
-          [](mlir::tt::MLIRModuleLogger &self, MlirContext ctx,
-             std::vector<std::pair<std::string, std::string>> &moduleCache,
+          [](std::shared_ptr<mlir::tt::MLIRModuleLogger> &self, MlirContext ctx,
              std::vector<std::string> &passnames_to_cache) {
-            self.attachContext(unwrap(ctx), passnames_to_cache, &moduleCache);
+            self->attachContext(unwrap(ctx), passnames_to_cache);
           },
-          py::arg("ctx"), py::arg("moduleCache").noconvert(),
-          py::arg("passnames_to_cache") = py::list())
+          py::arg("ctx"), py::arg("passnames_to_cache") = py::list())
       .def_property_readonly(
-          "module_log",
-          [](mlir::tt::MLIRModuleLogger &self) { return self.moduleCache; });
+          "module_log", [](std::shared_ptr<mlir::tt::MLIRModuleLogger> &self) {
+            return self->moduleCache;
+          });
 }
 } // namespace mlir::ttmlir::python

@@ -346,10 +346,11 @@ def compile_to_flatbuffer(
                     test_fn, inputs_shapes, inputs_types
                 )
                 module_logger = MLIRModuleLogger()
-                module_log = ModuleLog()
-                module_logger.attach_context(module.context, module_log)
+                module_logger.attach_context(module.context)
                 module = ttir_to_ttnn(module, builder, test_base + ".mlir")
-                ttnn_to_flatbuffer(module, builder, test_base + ".ttnn", module_log)
+                ttnn_to_flatbuffer(
+                    module, builder, test_base + ".ttnn", module_logger.module_log
+                )
 
         return wrapper
 

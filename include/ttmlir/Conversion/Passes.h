@@ -32,27 +32,15 @@ struct MLIRModuleLogger {
   std::vector<std::pair<std::string, std::string>> moduleCache;
 
   void attachContext(mlir::MLIRContext *ctx,
-                     std::vector<std::string> passNamesToCache = {},
-                     std::vector<std::pair<std::string, std::string>>
-                         *passedModuleCache = nullptr) {
+                     std::vector<std::string> passNamesToCache = {}) {
     context = ctx;
 
-    context->registerActionHandler([this, passNamesToCache, passedModuleCache](
+    context->registerActionHandler([this, passNamesToCache](
                                        llvm::function_ref<void()> transform,
                                        const mlir::tracing::Action &action) {
       // Also might make sense to store the _FIRST_ module. Or the module before
       // it was sent through the pipeline.
-
-      if (passedModuleCache != nullptr and passedModuleCache->empty()) {
-        // In Python Env so we have to add it ot the passedCache
-        std::string passName = "PRE-PIPELINE", outString;
-        llvm::raw_string_ostream os(outString);
-        mlir::OpPrintingFlags flags;
-        flags.enableDebugInfo();
-        action.getContextIRUnits()[0].print(os, flags);
-        os.flush();
-        passedModuleCache->emplace_back(passName, outString);
-      } else if (passedModuleCache == nullptr and moduleCache.empty()) {
+      if (moduleCache.empty()) {
         // Add it to the current Cache.
         std::string passName = "PRE-PIPELINE", outString;
         llvm::raw_string_ostream os(outString);
@@ -83,6 +71,8 @@ struct MLIRModuleLogger {
           flags.enableDebugInfo();
           passAction.getOp()->print(os, flags);
           os.flush();
+
+          llvm::outs() << "Pass: " << passName << " has correct TypeID\n";
 
           this->moduleCache.emplace_back(passName, outString);
         }
@@ -125,6 +115,9 @@ struct MLIRModuleLogger {
           }
         }
 
+        llvm::outs() << "Pass: " << passName
+                     << " was not registered correctly.\n";
+
         // Now save the ModuleOp from the IRUnits, for PassExecution there will
         // always be only 1 IR unit.
         if (passNamesToCache.empty() or
@@ -137,13 +130,7 @@ struct MLIRModuleLogger {
           action.getContextIRUnits()[0].print(os, flags);
           os.flush();
 
-          // Python passes do not maintain the sufficient context to actually
-          // update moduleCache, one has to be passed You can pass this in
-          // Python using the ModuleLog class in the `passes` module. See
-          // python/Passes.cpp for usage.
-          if (passedModuleCache != nullptr) {
-            passedModuleCache->emplace_back(passName, outString);
-          }
+          this->moduleCache.emplace_back(passName, outString);
         }
       }
     });
