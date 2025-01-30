@@ -5,8 +5,6 @@ import subprocess
 import os
 import tempfile
 
-from collections import defaultdict
-
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttrt import API as ttrt
@@ -235,7 +233,7 @@ class ModelRunner:
         # Need this flatbuffer file to inherit the golden data
         golden_map = utils.golden_map_from_flatbuffer(model_path)
         # need to parse this golden_map
-        golden_data = defaultdict(list)
+        kept_alive_data_arrs = []
         rendered_golden_map = {}
 
         for entry in golden_map:
@@ -249,26 +247,16 @@ class ModelRunner:
             # B is unsigned char in the array library
             # This will parse the data as a 1D Buffer of uint8_t, exactly the pointer type expected by create_golden_tensor
             data_arr = array.array("B", data["data"])
-            golden_data["data_arrs"].append(data_arr)
+            kept_alive_data_arrs.append(data_arr)
             # Weird keepalive measure for the GoldenData...?
 
-            golden_data["keys"].append(entry["key"])
-            golden_data["names"].append(data["name"])
-            golden_data["shapes"].append(data["shape"])
-            golden_data["strides"].append(data["stride"])
-            golden_data["dtypes"].append(passes.lookup_dtype(data["dtype"]))
-            golden_data["ptrs"].append(data_arr.buffer_info()[0])
-
-        # Create the golden map using Pybound creator
-        rendered_golden_map = passes.create_golden_map(
-            golden_data["keys"],
-            golden_data["names"],
-            golden_data["shapes"],
-            golden_data["strides"],
-            golden_data["dtypes"],
-            golden_data["ptrs"],
-            len(golden_map),
-        )
+            rendered_golden_map[entry["key"]] = passes.create_golden_tensor(
+                data["name"],
+                data["shape"],
+                data["stride"],
+                passes.lookup_dtype(data["dtype"]),
+                data_arr.buffer_info()[0],
+            )
 
         # Get module from file
         with open(ttnn_ir_file, "r") as f:

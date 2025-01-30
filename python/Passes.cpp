@@ -9,12 +9,9 @@
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
-#include <pybind11/stl_bind.h>
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
-PYBIND11_MAKE_OPAQUE(mlir::tt::GoldenTensor);
-PYBIND11_MAKE_OPAQUE(std::unordered_map<std::string, mlir::tt::GoldenTensor>);
 
 namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer();
@@ -192,8 +189,7 @@ void populatePassesModule(py::module &m) {
                                    filepath);
         }
       },
-      py::arg("module"), py::arg("filepath"),
-      py::arg("goldenMap").noconvert() = py::dict(),
+      py::arg("module"), py::arg("filepath"), py::arg("goldenMap") = py::dict(),
       py::arg("moduleCache") = py::list());
 
   m.def("ttmetal_to_flatbuffer_file",
@@ -248,33 +244,6 @@ void populatePassesModule(py::module &m) {
           return mlir::tt::GoldenTensor(name, shape, strides, dtype,
                                         reinterpret_cast<std::uint8_t *>(ptr));
         });
-
-  // Opaquely bind the GoldenMapTYpe to prevent conversions and issues in
-  // copying
-  py::bind_map<std::unordered_map<std::string, mlir::tt::GoldenTensor>>(
-      m, "GoldenMapType");
-
-  m.def(
-      "create_golden_map",
-      [](std::vector<std::string> keys, std::vector<std::string> names,
-         std::vector<std::vector<int64_t>> shapes,
-         std::vector<std::vector<int64_t>> strides,
-         std::vector<::tt::target::DataType> dtypes,
-         std::vector<std::uintptr_t> ptrs, int numTensors) {
-        // Create a Golden Map entirely in C++ to prevent data corruption when
-        // storing to module
-        std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap;
-
-        for (int i = 0; i < numTensors; i++) {
-          auto tensor =
-              mlir::tt::GoldenTensor(names[i], shapes[i], strides[i], dtypes[i],
-                                     reinterpret_cast<uint8_t *>(ptrs[i]));
-          goldenMap.emplace(keys[i], tensor);
-        }
-
-        return goldenMap;
-      },
-      py::return_value_policy::move);
 
   py::class_<std::vector<std::pair<std::string, std::string>>>(m, "ModuleLog")
       .def(py::init<>())
