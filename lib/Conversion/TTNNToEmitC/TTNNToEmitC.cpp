@@ -914,12 +914,6 @@ public:
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
         this->convertOpName(srcOp), arrayAttr, nullptr, operands);
 
-      // Finally, convert ttir::EmptyOp to ttnn::EmptyOp
-      //
-      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-          srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-          this->convertOpName(srcOp), arrayAttr, nullptr, operands);
-    }
     return success();
   }
 };

@@ -406,41 +406,24 @@ public:
     if (!callOp->hasAttr("hoisted_call")) {
       return failure();
     }
-    auto device = utils::getOrInsertDevice(rewriter, callOp);
 
     // Create a FromDevice operation for each operand.
     SmallVector<Value, 4> fromDeviceOperands;
     size_t locIdx = 0;
     for (auto operand : callOp.getOperands()) {
-      // Insert FromDevice op before the operand and collect the new operands.
-      auto fromDeviceOp = rewriter.create<ttnn::FromDeviceOp>(
-          callOp.getLoc(), operand.getType(), operand);
       Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
-      std::optional<Value> maybeLayoutOp = createToLayoutOp(
-          rewriter, newLoc, fromDeviceOp.getResult(), BufferType::SystemMemory,
+      std::optional<Value> optionalLayoutOp = createToLayoutOp(
+          rewriter, newLoc, operand, BufferType::SystemMemory,
           nullptr /* desiredMemLayoutAttr */, false /* tiled */);
-      Value hostOpValue = maybeLayoutOp.has_value() ? maybeLayoutOp.value()
-                                                    : fromDeviceOp.getResult();
-      fromDeviceOperands.push_back(hostOpValue);
+      Value hostOperand =
+          optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand;
+      fromDeviceOperands.push_back(hostOperand);
     }
 
-    // Create the original CallOp with the new operands (FromDevice'd).
+    // Create the original CallOp with the new inputs on host.
     auto newCallOp = rewriter.create<func::CallOp>(
         callOp.getLoc(), callOp.getCallee(), callOp.getResultTypes(),
         fromDeviceOperands);
-
-    // Now, insert ToDevice ops for the results of the CallOp.
-    SmallVector<Value, 4> toDeviceResults;
-    for (auto result : newCallOp.getResults()) {
-      // Insert ToDevice op after the result.
-      auto toDeviceOp = rewriter.create<ttnn::ToDeviceOp>(
-          callOp.getLoc(), result.getType(), result, device,
-          ttnn::MemoryConfigAttr{});
-      toDeviceResults.push_back(toDeviceOp.getResult());
-    }
-
-    // Replace the original call with the new ToDevice results.
-    rewriter.replaceOp(callOp, toDeviceResults);
 
     return success();
   }
