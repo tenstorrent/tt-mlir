@@ -170,15 +170,15 @@ template <typename... Args,
                               std::tuple<::llvm::ArrayRef<int64_t>,
                                          ::mlir::tt::ttnn::TTNNLayoutAttr>> &&
                ...)>>
-auto convert_to_tensor_spec(::tt::tt_metal::v0::IDevice *device, Args... args) {
-  auto transform_arg = [device](auto &&arg) {
+auto convertToTensorSpec(::tt::tt_metal::v0::IDevice *device, Args... args) {
+  auto transformArg = [device](auto &&arg) {
     const ::ttnn::TensorSpec spec =
         conversion::getTensorSpec(std::get<0>(arg), std::get<1>(arg));
     detail::checkGrid(device->compute_with_storage_grid_size(),
                       spec.memory_config());
     return spec;
   };
-  return std::make_tuple(transform_arg(std::forward<Args>(args))...);
+  return std::make_tuple(transformArg(std::forward<Args>(args))...);
 }
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -222,7 +222,7 @@ ReluOpInterface::getOpConstraints(
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
-    const auto [input_spec, output_spec] = detail::convert_to_tensor_spec(
+    const auto [input_spec, output_spec] = detail::convertToTensorSpec(
         device, std::make_tuple(inputShape, inputLayout),
         std::make_tuple(outputShape, outputLayout));
 
@@ -235,7 +235,7 @@ ReluOpInterface::getOpConstraints(
   return operation::getOpConstraints("ReluOpInterface", reluOpQuery, inputShape,
                                      inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(false, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -255,7 +255,7 @@ ReluOpInterface::getOpRuntime(
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
-    const auto [input_spec, output_spec] = detail::convert_to_tensor_spec(
+    const auto [input_spec, output_spec] = detail::convertToTensorSpec(
         device, std::make_tuple(inputShape, inputLayout),
         std::make_tuple(outputShape, outputLayout));
 
@@ -267,7 +267,7 @@ ReluOpInterface::getOpRuntime(
   return operation::getOpRuntime("ReluOpInterface", reluOpQuery, inputShape,
                                  inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(true, 0, std::nullopt);
+  return std::make_tuple(false, 0, std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -296,7 +296,7 @@ AddOpInterface::getOpConstraints(
 
     // prepare io specs
     const auto [input_spec_a, input_spec_b, output_spec] =
-        detail::convert_to_tensor_spec(
+        detail::convertToTensorSpec(
             device, std::make_tuple(inputShape_a, inputLayout_a),
             std::make_tuple(inputShape_b, inputLayout_b),
             std::make_tuple(outputShape, outputLayout));
@@ -311,7 +311,7 @@ AddOpInterface::getOpConstraints(
                                      inputLayout_a, inputShape_b, inputLayout_b,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(false, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -336,7 +336,7 @@ AddOpInterface::getOpRuntime(
 
     // prepare io specs
     const auto [input_spec_a, input_spec_b, output_spec] =
-        detail::convert_to_tensor_spec(
+        detail::convertToTensorSpec(
             device, std::make_tuple(inputShape_a, inputLayout_a),
             std::make_tuple(inputShape_b, inputLayout_b),
             std::make_tuple(outputShape, outputLayout));
@@ -351,7 +351,7 @@ AddOpInterface::getOpRuntime(
                                  inputLayout_a, inputShape_b, inputLayout_b,
                                  outputShape, outputLayout);
 #else
-  return std::make_tuple(true, 0, std::nullopt);
+  return std::make_tuple(false, 0, std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -376,7 +376,7 @@ SoftmaxOpInterface::getOpConstraints(
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
-    const auto [input_spec, output_spec] = detail::convert_to_tensor_spec(
+    const auto [input_spec, output_spec] = detail::convertToTensorSpec(
         device, std::make_tuple(inputShape, inputLayout),
         std::make_tuple(outputShape, outputLayout));
 
@@ -390,7 +390,7 @@ SoftmaxOpInterface::getOpConstraints(
                                      inputShape, inputLayout, dim_arg,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(false, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -411,7 +411,7 @@ SoftmaxOpInterface::getOpRuntime(
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
-    const auto [input_spec, output_spec] = detail::convert_to_tensor_spec(
+    const auto [input_spec, output_spec] = detail::convertToTensorSpec(
         device, std::make_tuple(inputShape, inputLayout),
         std::make_tuple(outputShape, outputLayout));
 
@@ -424,7 +424,7 @@ SoftmaxOpInterface::getOpRuntime(
                                  inputShape, inputLayout, dim_arg, outputShape,
                                  outputLayout);
 #else
-  return std::make_tuple(true, 0, std::nullopt);
+  return std::make_tuple(false, 0, std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -455,7 +455,7 @@ MatmulOpInterface::getOpConstraints(
 
     // prepare io specs
     const auto [input_spec_a, input_spec_b, output_spec] =
-        detail::convert_to_tensor_spec(
+        detail::convertToTensorSpec(
             device, std::make_tuple(inputShape_a, inputLayout_a),
             std::make_tuple(inputShape_b, inputLayout_b),
             std::make_tuple(outputShape, outputLayout));
@@ -472,7 +472,7 @@ MatmulOpInterface::getOpConstraints(
                                      inputLayout_b, outputShape, outputLayout,
                                      transpose_a, transpose_b);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(false, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -499,7 +499,7 @@ MatmulOpInterface::getOpRuntime(
 
     // prepare io specs
     const auto [input_spec_a, input_spec_b, output_spec] =
-        detail::convert_to_tensor_spec(
+        detail::convertToTensorSpec(
             device, std::make_tuple(inputShape_a, inputLayout_a),
             std::make_tuple(inputShape_b, inputLayout_b),
             std::make_tuple(outputShape, outputLayout));
@@ -515,7 +515,7 @@ MatmulOpInterface::getOpRuntime(
                                  inputLayout_b, outputShape, outputLayout,
                                  transpose_a, transpose_b);
 #else
-  return std::make_tuple(true, 0, std::nullopt);
+  return std::make_tuple(false, 0, std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
