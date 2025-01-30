@@ -519,4 +519,8 @@ def TT_Tuple : NestedTupleOf<[AnyRankedTensor]>;
 
 def TT_TupleMemberType : AnyTypeOf<[AnyRankedTensor]>;
 
+def TT_ArgumentTypeAttr : EnumAttr<TT_Dialect, TT_ArgumentType, "argument_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 #endif
