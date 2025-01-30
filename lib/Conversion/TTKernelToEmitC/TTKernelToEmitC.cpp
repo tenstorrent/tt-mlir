@@ -447,7 +447,10 @@ public:
           TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>>(
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>>(
           typeConverter, funcOp.getContext());
 
       patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(
