@@ -3,10 +3,6 @@ MLIR
 MLIRTTIRDialect
 )
 
-if (TTMLIR_ENABLE_STABLEHLO)
-list(APPEND link_libs StablehloRegister StablehloPasses SdyRegister)
-endif()
-
 add_mlir_dialect_library(MLIRTTIRPipelines
   TTIRPipelines.cpp
 
