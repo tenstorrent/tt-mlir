@@ -230,7 +230,7 @@ void deallocateBuffers(Device deviceHandle) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   for (::ttnn::IDevice *device : meshDevice.get_devices()) {
-    device->deallocate_buffers();
+    device->allocator()->deallocate_buffers();
   }
 }
 

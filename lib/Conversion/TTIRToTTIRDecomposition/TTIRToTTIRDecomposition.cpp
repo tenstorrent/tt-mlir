@@ -498,13 +498,6 @@ struct GatherToEmbeddingConversionPattern
     // collapsed slice dims of the gather op
     auto collapsedSliceDims = op.getCollapsedSliceDims();
 
-    RankedTensorType operandType =
-        mlir::cast<RankedTensorType>(op->getOperand(0).getType());
-    if (!operandType.getElementType().isBF16()) {
-      return rewriter.notifyMatchFailure(
-          op, "only supports bfloat16 input tensor.");
-    }
-
     if (shape.size() > 1) {
       auto hiddenDim = shape[shape.size() - 1];
       // check if sliceSizes has more than one element
@@ -1311,8 +1304,8 @@ public:
       auto inputShape =
           mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       output = rewriter.create<ttir::BroadcastOp>(

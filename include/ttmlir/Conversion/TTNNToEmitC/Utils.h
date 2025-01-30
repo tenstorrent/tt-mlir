@@ -62,20 +62,15 @@ emitc::OpaqueAttr convertArrayAttrToSpan(Builder &builder, ArrayAttr attr);
 //
 emitc::OpaqueAttr createStdNullopt(Builder &builder);
 
-// Create ttnn::Shape and return emitc::ExpressionOp
+// Helper enum to differentiate between ttnn::Shape and ttnn::SimpleShape
 //
-// ttnn:Shape has a couple constructors, but they are explicit and require
-// specific datatypes on input. However, one of the constructors takes in a
-// tt_metal::Shape - given that it's much easier to construct a
-// tt_metal::Shape, we opted to do that here. The call looks like this:
-// ttnn::Shape(tt::tt_metal::LegacyShape{dim0, dim1, dim2, ...});
+enum class ShapeType { SimpleShape = 0, Shape = 1 };
+
+// Create emitc::CallOpaqueOp to ttnn::SimpleShape (Shape) constructor
 //
-// To make it easier on the eyes, these two calls are packed into one, using
-// EmitC's ExpressionOp.
-//
-emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
-                                  ttnn::ShapeAttr shapeAttr,
-                                  Block *containingBlock, Location loc);
+emitc::CallOpaqueOp createShapeOp(ConversionPatternRewriter &rewriter,
+                                  ttnn::ShapeAttr shapeAttr, Location loc,
+                                  ShapeType shapeType = ShapeType::SimpleShape);
 
 // Create ttnn::MemoryConfig and return emitc::CallOpaqueOp
 //

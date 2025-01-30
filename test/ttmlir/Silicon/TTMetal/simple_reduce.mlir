@@ -1,4 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline="system-desc-path=%system_desc_path%"  %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
 #l1_ = #tt.memory_space<l1>
 #layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <4x4>, memref<64x96xf32, #l1_>>
 #layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <4x1>, memref<64x32xf32, #l1_>>
