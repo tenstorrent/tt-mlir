@@ -31,6 +31,10 @@ set(TTMLIR_LIBS
     TTMLIRTTNNUtils
 )
 
+if (TTMLIR_ENABLE_STABLEHLO)
+list(APPEND TTMLIR_LIBS StablehloRegister SdyRegister)
+endif()
+
 # We supply empty.cpp because CMake does not allow creating a library without sources.
 
 add_library(TTMLIR SHARED empty.cpp)
