@@ -207,16 +207,15 @@ Device::getDeviceConstraints(const mlir::tt::GridAttr &workerGrid) {
 //===----------------------------------------------------------------------===//
 std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
            std::optional<std::string>>
-ReluOpInterface::getOpConstraints(
-    const ::llvm::ArrayRef<int64_t> &inputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-    const ::llvm::ArrayRef<int64_t> &outputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                  llvm::ArrayRef<int64_t> outputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  auto reluOpQuery = [](const ::llvm::ArrayRef<int64_t> &inputShape,
-                        const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-                        const ::llvm::ArrayRef<int64_t> &outputShape,
-                        const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+  auto reluOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                        llvm::ArrayRef<int64_t> outputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
@@ -240,16 +239,15 @@ ReluOpInterface::getOpConstraints(
 }
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
-ReluOpInterface::getOpRuntime(
-    const ::llvm::ArrayRef<int64_t> &inputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-    const ::llvm::ArrayRef<int64_t> &outputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                              llvm::ArrayRef<int64_t> outputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  auto reluOpQuery = [](const ::llvm::ArrayRef<int64_t> &inputShape,
-                        const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-                        const ::llvm::ArrayRef<int64_t> &outputShape,
-                        const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+  auto reluOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                        llvm::ArrayRef<int64_t> outputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
@@ -276,20 +274,19 @@ ReluOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
            std::optional<std::string>>
-AddOpInterface::getOpConstraints(
-    const ::llvm::ArrayRef<int64_t> &inputShapeA,
-    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutA,
-    const ::llvm::ArrayRef<int64_t> &inputShapeB,
-    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutB,
-    const ::llvm::ArrayRef<int64_t> &outputShape,
-    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+AddOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                 llvm::ArrayRef<int64_t> inputShapeB,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  auto addOpQuery = [](const ::llvm::ArrayRef<int64_t> &inputShapeA,
-                       const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutA,
-                       const ::llvm::ArrayRef<int64_t> &inputShapeB,
-                       const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutB,
-                       const ::llvm::ArrayRef<int64_t> &outputShape,
-                       const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+  auto addOpQuery = [](llvm::ArrayRef<int64_t> inputShapeA,
+                       mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                       llvm::ArrayRef<int64_t> inputShapeB,
+                       mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                       llvm::ArrayRef<int64_t> outputShape,
+                       mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
@@ -315,20 +312,19 @@ AddOpInterface::getOpConstraints(
 }
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
-AddOpInterface::getOpRuntime(
-    const ::llvm::ArrayRef<int64_t> &inputShapeA,
-    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutA,
-    const ::llvm::ArrayRef<int64_t> &inputShapeB,
-    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutB,
-    const ::llvm::ArrayRef<int64_t> &outputShape,
-    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                             llvm::ArrayRef<int64_t> inputShapeB,
+                             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                             llvm::ArrayRef<int64_t> outputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  auto addOpQuery = [](const ::llvm::ArrayRef<int64_t> &inputShapeA,
-                       const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutA,
-                       const ::llvm::ArrayRef<int64_t> &inputShapeB,
-                       const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutB,
-                       const ::llvm::ArrayRef<int64_t> &outputShape,
-                       const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+  auto addOpQuery = [](llvm::ArrayRef<int64_t> inputShapeA,
+                       mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                       llvm::ArrayRef<int64_t> inputShapeB,
+                       mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                       llvm::ArrayRef<int64_t> outputShape,
+                       mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
@@ -359,16 +355,16 @@ AddOpInterface::getOpRuntime(
 std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
            std::optional<std::string>>
 SoftmaxOpInterface::getOpConstraints(
-    const llvm::ArrayRef<int64_t> &inputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dimArg,
-    const llvm::ArrayRef<int64_t> &outputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dimArg,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  auto softmaxOpQuery = [](const llvm::ArrayRef<int64_t> &inputShape,
-                           const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+  auto softmaxOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                           mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                            const int dimArg,
-                           const llvm::ArrayRef<int64_t> &outputShape,
-                           const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+                           llvm::ArrayRef<int64_t> outputShape,
+                           mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
@@ -393,17 +389,17 @@ SoftmaxOpInterface::getOpConstraints(
 }
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
-SoftmaxOpInterface::getOpRuntime(
-    const llvm::ArrayRef<int64_t> &inputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dimArg,
-    const llvm::ArrayRef<int64_t> &outputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 const int dimArg,
+                                 llvm::ArrayRef<int64_t> outputShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  auto softmaxOpQuery = [](const llvm::ArrayRef<int64_t> &inputShape,
-                           const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+  auto softmaxOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                           mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                            const int dimArg,
-                           const llvm::ArrayRef<int64_t> &outputShape,
-                           const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+                           llvm::ArrayRef<int64_t> outputShape,
+                           mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
@@ -431,21 +427,20 @@ SoftmaxOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
            std::optional<std::string>>
-MatmulOpInterface::getOpConstraints(
-    const llvm::ArrayRef<int64_t> &inputShapeA,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutA,
-    const llvm::ArrayRef<int64_t> &inputShapeB,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutB,
-    const llvm::ArrayRef<int64_t> &outputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout, bool transposeA,
-    bool transposeB) {
+MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
+                                    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                    llvm::ArrayRef<int64_t> inputShapeB,
+                                    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                    llvm::ArrayRef<int64_t> outputShape,
+                                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                                    bool transposeA, bool transposeB) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  auto matmulOpQuery = [](const llvm::ArrayRef<int64_t> &inputShapeA,
-                          const mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutA,
-                          const llvm::ArrayRef<int64_t> &inputShapeB,
-                          const mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutB,
-                          const llvm::ArrayRef<int64_t> &outputShape,
-                          const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
+  auto matmulOpQuery = [](llvm::ArrayRef<int64_t> inputShapeA,
+                          mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                          llvm::ArrayRef<int64_t> inputShapeB,
+                          mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                          llvm::ArrayRef<int64_t> outputShape,
+                          mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                           bool transposeA, bool transposeB) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
@@ -474,21 +469,20 @@ MatmulOpInterface::getOpConstraints(
 }
 
 std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
-MatmulOpInterface::getOpRuntime(
-    const llvm::ArrayRef<int64_t> &inputShapeA,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutA,
-    const llvm::ArrayRef<int64_t> &inputShapeB,
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutB,
-    const llvm::ArrayRef<int64_t> &outputShape,
-    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout, bool transposeA,
-    bool transposeB) {
+MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                                mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                llvm::ArrayRef<int64_t> inputShapeB,
+                                mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                llvm::ArrayRef<int64_t> outputShape,
+                                mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                                bool transposeA, bool transposeB) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  auto matmulOpQuery = [](const llvm::ArrayRef<int64_t> &inputShapeA,
-                          const mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutA,
-                          const llvm::ArrayRef<int64_t> &inputShapeB,
-                          const mlir::tt::ttnn::TTNNLayoutAttr &inputLayoutB,
-                          const llvm::ArrayRef<int64_t> &outputShape,
-                          const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
+  auto matmulOpQuery = [](llvm::ArrayRef<int64_t> inputShapeA,
+                          mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                          llvm::ArrayRef<int64_t> inputShapeB,
+                          mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                          llvm::ArrayRef<int64_t> outputShape,
+                          mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                           bool transposeA, bool transposeB) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
