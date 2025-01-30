@@ -1276,4 +1276,35 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
     let hasVerifier = 1;
 }
 
+def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
+    let summary = "Upsample 2D op.";
+
+    let description = [{
+      Upsample 2D operation. Input tensor is assumed to be in NHWC format.
+
+      Attributes:
+      - `scale_factor` (si32 | array<i32>): The scale factor for upsampling in H and W dimensions respectively.
+      - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
+
+      Example:
+        // %a: tensor<10x64x32xbf16>
+        %0 = "ttnn.upsample"(%a) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>) -> tensor<10x128x128x3xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
+                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 #endif

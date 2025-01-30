@@ -18,7 +18,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
-#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::tt;

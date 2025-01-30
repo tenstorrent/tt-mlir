@@ -3,20 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
-#include <cstdint>
+#include "mlir/Dialect/Traits.h"
+
 #include <numeric>
 #include <optional>
-
-#include "mlir/Dialect/Traits.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "llvm/ADT/ArrayRef.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
@@ -959,7 +956,6 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
                                             broadcastedShape)) {
-
       return emitOpError("Batch dimensions of input A(" +
                          ttmlir::utils::join(inputABatchDims, ",") +
                          ") and B(" +
@@ -1543,6 +1539,72 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
                        ttmlir::utils::join(expectedResultShape, ", ") +
                        "), got (" + ttmlir::utils::join(resultShape, ", ") +
                        ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// UpsampleOp
+//===----------------------------------------------------------------------===//
+
+// UpsampleOp verification
+::mlir::LogicalResult UpsampleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+
+  // Input tensor is assumed to be 4D tensor.
+  if (inputType.getRank() != 4) {
+    return emitOpError("Expected rank of input tensor is 4, got rank " +
+                       std::to_string(inputType.getRank()));
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("Expected rank of output tensor is 4, got rank " +
+                       std::to_string(outputType.getRank()));
+  }
+
+  auto scaleFactor = ttmlir::utils::getPairOfInteger<int32_t>(getScaleFactor());
+  if (auto error = scaleFactor.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+  int32_t scaleH = scaleFactor->first;
+  int32_t scaleW = scaleFactor->second;
+
+  if (scaleH <= 0 || scaleW <= 0) {
+    return emitOpError("Scale factors H = ")
+           << scaleH << " and W = " << scaleW << " must be positive integers";
+  }
+
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  // Input tensor is assumed to be in NHWC format.
+  enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
+  if (inputShape[DIM_H] * scaleH != outputShape[DIM_H]) {
+    return emitOpError("Expected output H dimension to be input H dimension * "
+                       "scaleH = ")
+           << (inputShape[DIM_H] * scaleH) << ", got " << outputShape[DIM_H];
+  }
+  if (inputShape[DIM_W] * scaleW != outputShape[DIM_W]) {
+    return emitOpError("Expected output W dimension to be input W dimension * "
+                       "scaleW = ")
+           << (inputShape[DIM_W] * scaleW) << ", got " << outputShape[DIM_W];
+  }
+  if (inputShape[DIM_N] != outputShape[DIM_N]) {
+    return emitOpError("Expected output N dimension to be ")
+           << inputShape[DIM_N] << ", got " << outputShape[DIM_N];
+  }
+  if (inputShape[DIM_C] != outputShape[DIM_C]) {
+    return emitOpError("Expected output C dimension to be ")
+           << inputShape[DIM_C] << ", got " << outputShape[DIM_C];
+  }
+
+  // Verify that the mode attribute is one of the legal modes. These two modes
+  // are currently only supported modes in TTNN.
+  llvm::SmallVector<llvm::StringRef> legalModes = {"nearest", "bilinear"};
+  if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
+      legalModes.end()) {
+    return emitOpError("Expected modes are (")
+           << llvm::join(legalModes, ", ") << "), got \"" << getMode() << "\"";
   }
 
   return success();

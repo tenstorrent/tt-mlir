@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Target/Common/Target.h"
+#include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -28,14 +29,9 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Support/LogicalResult.h"
-#include "types_generated.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include <cassert>
-#include <cstdint>
-#include <optional>
 
 namespace mlir::tt {
 
@@ -593,6 +589,43 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
       memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
                    : 0,
       padValue, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
+createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
+  flatbuffers::Offset<::tt::target::TensorRef> input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  flatbuffers::Offset<flatbuffers::String> mode =
+      toFlatbuffer(cache, op.getMode());
+  flatbuffers::Offset<::tt::target::MemoryConfigDesc> memoryConfig =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
+  flatbuffers::Offset<::tt::target::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedAddress, kHostAllocatedSize);
+
+  ::tt::target::ttnn::Scale2D scaleType;
+  ::flatbuffers::Offset<void> scaleFactor;
+  if (auto uniformScaleFactor =
+          mlir::dyn_cast<IntegerAttr>(op.getScaleFactor())) {
+    scaleType = ::tt::target::ttnn::Scale2D::UniformScale2D;
+    scaleFactor = ::tt::target::ttnn::CreateUniformScale2D(
+                      *cache.fbb, uniformScaleFactor.getSInt())
+                      .Union();
+  } else if (auto nonUniformScaleFactor =
+                 mlir::dyn_cast<DenseI32ArrayAttr>(op.getScaleFactor())) {
+    scaleType = ::tt::target::ttnn::Scale2D::NonUniformScale2D;
+    scaleFactor =
+        ::tt::target::ttnn::CreateNonUniformScale2D(
+            *cache.fbb, toFlatbuffer(cache, nonUniformScaleFactor.asArrayRef()))
+            .Union();
+  } else {
+    assert(false && "Unhandled scale factor type");
+  }
+
+  return ::tt::target::ttnn::CreateUpsampleOp(
+      *cache.fbb, input, scaleType, scaleFactor, mode, memoryConfig, output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
@@ -1324,6 +1357,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
     return createOperation(cache, createOp(cache, permuteOp), debugString,
+                           locInfo);
+  }
+  if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
+    return createOperation(cache, createOp(cache, upsampleOp), debugString,
                            locInfo);
   }
 
