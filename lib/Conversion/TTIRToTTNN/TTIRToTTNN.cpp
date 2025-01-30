@@ -31,6 +31,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
+#include <optional>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -360,6 +361,30 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), allDimensions, adaptor.getKeepDim(), dimension,
         /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ReductionArgMaxOpConversionPattern
+    : public OpConversionPattern<ttir::ArgMaxOp> {
+public:
+  using OpConversionPattern<ttir::ArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto dimArg = op.getDimArg();
+
+    rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(),
+        (dimArg && dimArg->size())
+            ? mlir::cast<mlir::IntegerAttr>(dimArg->getValue().front())
+            : nullptr,
+        /*use_multicore*/ false, // Default tt-metal value.
+        /*memoryConfig*/ nullptr, adaptor.getOutput());
     return success();
   }
 };
@@ -1514,6 +1539,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            ReductionOpConversionPattern<ttir::MinOp, ttnn::MinOp>,
            ReductionProdOpConversionPattern,
+           ReductionArgMaxOpConversionPattern,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
            PadOpConversionPattern,
