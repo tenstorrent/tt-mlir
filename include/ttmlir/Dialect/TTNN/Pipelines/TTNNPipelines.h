@@ -137,6 +137,11 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
 
+  Option<bool> repeatFoldingWorkaroundEnabled{
+      *this, "enable-repeat-folding-workaround-pass",
+      llvm::cl::desc("Enable repeat folding workaround pass."),
+      llvm::cl::init(true)};
+
   Option<bool> implicitBroadcastFoldingEnabled{
       *this, "enable-implicit-broadcast-folding-pass",
       llvm::cl::desc("Enable implicit broadcast folding pass."),

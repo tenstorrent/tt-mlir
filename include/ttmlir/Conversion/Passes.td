@@ -50,10 +50,42 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
-def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::func::FuncOp"> {
+def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
                            "mlir::tt::ttkernel::TTKernelDialect"];
 }
+
+def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR dialect to Linalg dialect.";
+  let description = [{
+    Conversion pass to convert TTIR ops with defined conversion pattern into linalg ops, with broadcast and collapse tensor ops as needed.
+    Example:
+    Input:
+      func.func @add_with_broadcast(
+        %arg0: tensor<32x32xf32>,
+        %arg1: tensor<32x1xf32>,
+        %arg2: tensor<32x32xf32>
+      ) -> tensor<32x32xf32> {
+        %1 = "ttir.add"(%arg0, %arg1, %arg2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xf32>, tensor<32x1xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+        return %1 : tensor<32x32xf32>
+      }
+    Output:
+      func.func @add_with_broadcast(
+        %arg0: tensor<32x32xf32>,
+        %arg1: tensor<32x1xf32>,
+        %arg2: tensor<32x32xf32>
+      ) -> tensor<32x32xf32> {
+        %collapsed = tensor.collapse_shape %arg1 [[0, 1]] : tensor<32x1xf32> into tensor<32xf32>
+        %0 = tensor.empty() : tensor<32x32xf32>
+        %broadcasted = linalg.broadcast ins(%collapsed : tensor<32xf32>) outs(%0 : tensor<32x32xf32>) dimensions = [1]
+        %1 = linalg.add ins(%arg0, %broadcasted : tensor<32x32xf32>, tensor<32x32xf32>) outs(%arg2 : tensor<32x32xf32>) -> tensor<32x32xf32>
+        return %1 : tensor<32x32xf32>
+    }
+  }];
+  let constructor = "createConvertTTIRToLinalgPass()";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
+}
+
 
 #endif // TTMLIR_CONVERSION_PASSES

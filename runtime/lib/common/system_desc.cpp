@@ -142,7 +142,8 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
                              device->get_active_ethernet_cores().size();
   std::uint32_t totalDramCores = dramGridSize.x * dramGridSize.y;
   std::uint32_t programCarveOutPerCore =
-      device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
+      device->allocator()->get_base_allocator_addr(
+          ::tt::tt_metal::HalMemType::L1);
   std::uint32_t totalProgramCarveOut = programCarveOutPerCore * totalCores;
   // The total carve out can be interleaved between all dram channels
   std::uint32_t programCarveOutDramSpace =
@@ -174,10 +175,10 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   ::flatbuffers::FlatBufferBuilder fbb;
 
   for (const ::tt::tt_metal::IDevice *device : devices) {
-    size_t l1UnreservedBase =
-        device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
-    size_t dramUnreservedBase =
-        device->get_base_allocator_addr(::tt::tt_metal::HalMemType::DRAM);
+    size_t l1UnreservedBase = device->allocator()->get_base_allocator_addr(
+        ::tt::tt_metal::HalMemType::L1);
+    size_t dramUnreservedBase = device->allocator()->get_base_allocator_addr(
+        ::tt::tt_metal::HalMemType::DRAM);
 
     // Construct chip descriptor
     ::tt::target::Dim2d deviceGrid =

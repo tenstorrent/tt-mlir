@@ -37,8 +37,10 @@ set(TTNN_OPS_SRCS
   # ANCHOR: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
+  ${CMAKE_CURRENT_SOURCE_DIR}/moreh/moreh_cumsum.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/maxpool2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/pool/upsample.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp

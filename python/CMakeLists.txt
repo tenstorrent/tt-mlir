@@ -124,6 +124,7 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.ml_program
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.tosa
+  MLIRPythonSources.Dialects.memref
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonTestInfra
@@ -144,6 +145,20 @@ add_mlir_python_modules(TTMLIRPythonModules
   COMMON_CAPI_LINK_LIBS
     TTMLIRPythonCAPI
 )
+
+if(TTMLIR_ENABLE_PYKERNEL)
+  set(TTPYKERNEL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pykernel")
+  declare_mlir_python_sources(TTPykernelSources
+    ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
+    SOURCES
+      pykernel_ast.py
+  )
+  add_mlir_python_modules(TTPykernelModules
+    ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/pykernel"
+    INSTALL_PREFIX "python_packages/pykernel"
+    DECLARED_SOURCES TTPykernelSources
+  )
+endif()
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT Test EXCLUDE_FROM_ALL)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packages COMPONENT Test EXCLUDE_FROM_ALL)

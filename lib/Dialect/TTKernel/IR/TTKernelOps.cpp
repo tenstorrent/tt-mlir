@@ -34,13 +34,6 @@ static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
   return insideEnqueueProgramOpRegion(parentOp);
 }
 
-::mlir::LogicalResult BuiltinOp::verify() {
-  if (!insideEnqueueProgramOpRegion(getOperation())) {
-    return emitOpError("KernelOp must be inside of a EnqueueProgramOp region");
-  }
-  return success();
-}
-
 ::mlir::LogicalResult CBPushBackOp::verify() {
   if (!insideEnqueueProgramOpRegion(getOperation())) {
     return emitOpError(

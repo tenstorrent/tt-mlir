@@ -20,13 +20,6 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   ];
 }
 
-def TTIRGenericKernel: Pass<"ttir-generic-kernel", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Wrap top level kernel ops in a generic op.
-  }];
-}
-
 def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
@@ -36,7 +29,7 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
   let options = [
     Option<"initMemorySpace", "init-memory-space",
           "::mlir::tt::MemorySpace",
-          /*default=*/"::mlir::tt::MemorySpace::System",
+          /*default=*/"::mlir::tt::MemorySpace::DeviceL1",
            "Set the initial memory space for tensors to start in">
   ];
 }

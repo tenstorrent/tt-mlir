@@ -277,7 +277,8 @@ private:
       RankedTensorType result = RankedTensorType::get(
           oldOutput.getShape(), oldOutput.getElementType(),
           oldOutputLayoutAttr
-              .withElementType(rewriter.getContext(), newElementType)
+              .withElementType(rewriter.getContext(), newElementType,
+                               oldOutput.getShape())
               .withShardShape(rewriter.getContext(), newShardShape));
       return result;
     }
@@ -288,7 +289,8 @@ private:
                         {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, outputDtype);
       RankedTensorType result = RankedTensorType::get(
           oldOutput.getShape(), oldOutput.getElementType(),
-          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType));
+          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType,
+                                              oldOutput.getShape()));
       return result;
     }
 
@@ -433,6 +435,20 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), reshapedGrad, dTypeAttr,
         memoryConfigAttr, adaptor.getOutput());
+    return success();
+  }
+};
+
+class CumSumOpConversionPattern : public OpConversionPattern<ttir::CumSumOp> {
+public:
+  using OpConversionPattern<ttir::CumSumOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumSumOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::MorehCumSumOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getDim(), adaptor.getOutput(), nullptr);
     return success();
   }
 };
@@ -684,11 +700,30 @@ public:
   matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto shapeAttr = adaptor.getBroadcastDimensionsAttr();
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), op.getBroadcastDimensions());
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), rewriter.getI32ArrayAttr(shapeAttr));
+        adaptor.getInput(), shapeAttr);
+
+    return success();
+  }
+};
+
+class RepeatOpConversionPattern : public OpConversionPattern<ttir::RepeatOp> {
+  using OpConversionPattern<ttir::RepeatOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::RepeatOp op, ttir::RepeatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn::ShapeAttr repeatDimensionsAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), op.getRepeatDimensions());
+
+    rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), repeatDimensionsAttr);
 
     return success();
   }
@@ -1308,6 +1343,23 @@ public:
   }
 };
 
+class UpsampleOpConversionPattern
+    : public OpConversionPattern<ttir::Upsample2dOp> {
+public:
+  using OpConversionPattern<ttir::Upsample2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Upsample2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::UpsampleOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getScaleFactor(), adaptor.getMode(),
+        ttnn::MemoryConfigAttr());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -1371,6 +1423,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
+           RepeatOpConversionPattern,
+           CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
@@ -1395,7 +1449,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
-           PermuteOpConversionPattern
+           PermuteOpConversionPattern,
+           UpsampleOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
