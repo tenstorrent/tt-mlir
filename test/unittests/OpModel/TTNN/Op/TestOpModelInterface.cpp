@@ -99,9 +99,9 @@ TEST_F(OpModelBase, ReluInterface) {
   relu->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test ReluOp interface
-  auto constraints_opt = getOpConstraints(relu.getOperation());
-  if (constraints_opt.has_value()) {
-    auto constraints = constraints_opt.value();
+  auto constraintsOpt = getOpConstraints(relu.getOperation());
+  if (constraintsOpt.has_value()) {
+    auto constraints = constraintsOpt.value();
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
@@ -117,9 +117,9 @@ TEST_F(OpModelBase, ReluInterface) {
     FAIL() << "Failed to cast ReluOp to OpModel";
   }
 
-  auto runtime_opt = getOpRuntime(relu.getOperation());
-  if (runtime_opt.has_value()) {
-    auto runtime = runtime_opt.value();
+  auto runtimeOpt = getOpRuntime(relu.getOperation());
+  if (runtimeOpt.has_value()) {
+    auto runtime = runtimeOpt.value();
     EXPECT_TRUE(std::get<0>(runtime));
     EXPECT_TRUE(std::get<1>(runtime).has_value());
     EXPECT_TRUE(std::get<1>(runtime).value() > 0);
@@ -140,9 +140,9 @@ TEST_F(OpModelBase, SoftmaxInterface) {
   softmax->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test SoftmaxOp interface
-  auto value = getOpConstraints(softmax.getOperation());
-  if (value.has_value()) {
-    auto constraints = value.value();
+  auto constraintsOpt = getOpConstraints(softmax.getOperation());
+  if (constraintsOpt.has_value()) {
+    auto constraints = constraintsOpt.value();
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
@@ -157,9 +157,9 @@ TEST_F(OpModelBase, SoftmaxInterface) {
     FAIL() << "Failed to cast SoftmaxOp to OpModel";
   }
 
-  auto runtime_opt = getOpRuntime(softmax.getOperation());
-  if (runtime_opt.has_value()) {
-    auto runtime = runtime_opt.value();
+  auto runtimeOpt = getOpRuntime(softmax.getOperation());
+  if (runtimeOpt.has_value()) {
+    auto runtime = runtimeOpt.value();
     EXPECT_TRUE(std::get<0>(runtime));
     EXPECT_TRUE(std::get<1>(runtime).has_value());
     EXPECT_TRUE(std::get<1>(runtime).value() > 0);
@@ -182,9 +182,9 @@ TEST_F(OpModelBase, AddInterface) {
   add->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test AddOp interface
-  auto value = getOpConstraints(add.getOperation());
-  if (value.has_value()) {
-    auto constraints = value.value();
+  auto constraintsOpt = getOpConstraints(add.getOperation());
+  if (constraintsOpt.has_value()) {
+    auto constraints = constraintsOpt.value();
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
@@ -199,9 +199,9 @@ TEST_F(OpModelBase, AddInterface) {
     FAIL() << "Failed to cast AddOp to OpModel";
   }
 
-  auto runtime_opt = getOpRuntime(add.getOperation());
-  if (runtime_opt.has_value()) {
-    auto runtime = runtime_opt.value();
+  auto runtimeOpt = getOpRuntime(add.getOperation());
+  if (runtimeOpt.has_value()) {
+    auto runtime = runtimeOpt.value();
     EXPECT_TRUE(std::get<0>(runtime));
     EXPECT_TRUE(std::get<1>(runtime).has_value());
     EXPECT_TRUE(std::get<1>(runtime).value() > 0);
@@ -227,9 +227,9 @@ TEST_F(OpModelBase, MatmulInterface) {
   matmul->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test MatmulOp interface
-  auto value = getOpConstraints(matmul.getOperation());
-  if (value.has_value()) {
-    auto constraints = value.value();
+  auto constraintsOpt = getOpConstraints(matmul.getOperation());
+  if (constraintsOpt.has_value()) {
+    auto constraints = constraintsOpt.value();
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
@@ -244,9 +244,9 @@ TEST_F(OpModelBase, MatmulInterface) {
     FAIL() << "Failed to cast MatmulOp to OpModel";
   }
 
-  auto runtime_opt = getOpRuntime(matmul.getOperation());
-  if (runtime_opt.has_value()) {
-    auto runtime = runtime_opt.value();
+  auto runtimeOpt = getOpRuntime(matmul.getOperation());
+  if (runtimeOpt.has_value()) {
+    auto runtime = runtimeOpt.value();
     EXPECT_TRUE(std::get<0>(runtime));
     EXPECT_TRUE(std::get<1>(runtime).has_value());
     EXPECT_TRUE(std::get<1>(runtime).value() > 0);
