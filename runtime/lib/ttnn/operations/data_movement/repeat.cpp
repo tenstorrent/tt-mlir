@@ -11,10 +11,10 @@ void run(const ::tt::target::ttnn::RepeatOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
-  const auto *fbShape = op->shape();
-  const std::vector<uint32_t> dims(fbShape->begin(), fbShape->end());
-  ::ttnn::Shape shape(dims);
-  ::ttnn::Tensor out = ::ttnn::repeat(in, shape);
+  const auto *fbShape = op->repeat_dims();
+  const std::vector<uint32_t> repeatDims(fbShape->begin(), fbShape->end());
+  ::ttnn::Shape repeatDimsShape(repeatDims);
+  ::ttnn::Tensor out = ::ttnn::repeat(in, repeatDimsShape);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

@@ -71,7 +71,18 @@ def run_cmake_setup():
         "-DCMAKE_CXX_COMPILER=clang++",
     ]
 
-    subprocess.run(cmake_command, check=True, cwd=tt_mlir_home)
+    try:
+        result = subprocess.run(
+            cmake_command, check=True, cwd=tt_mlir_home, capture_output=True, text=True
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error setting up cmake environment: {e}")
+        print(e.stderr)
+        print(e.stdout)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error setting up cmake environment: {e}")
+        sys.exit(1)
 
     run_cmake_setup.already_created = True
 
@@ -116,8 +127,12 @@ def compile_shared_object(cpp_file_path, output_dir):
 
         # Run build
         #
+        print(f"\nBuilding: {cpp_base_name}")
         build_command = ["cmake", "--build", build_dir, "--", "ttnn-dylib"]
-        subprocess.run(build_command, check=True, cwd=tt_mlir_home)
+        result = subprocess.run(
+            build_command, check=True, cwd=tt_mlir_home, capture_output=True, text=True
+        )
+        print(f"  Build finished successfully!")
 
         # Confirm .so exists
         if not os.path.isfile(compiled_so_path):
@@ -129,12 +144,17 @@ def compile_shared_object(cpp_file_path, output_dir):
         output_file_name = cpp_base_name + ".so"
         destination_path = os.path.join(output_dir, output_file_name)
         shutil.copy2(compiled_so_path, destination_path)
-        print(f"Successfully copied compiled file to {destination_path}.")
+        print(f"  Successfully copied compiled file to {destination_path}.")
+        os.remove(source_cpp_path)
     except subprocess.CalledProcessError as e:
-        print(f"Error during build process: {e}")
+        print(f"  Error during build process: {e}")
+        print(e.stderr)
+        print(e.stdout)
         sys.exit(1)
     except Exception as e:
-        print(f"Error during file operations: {e}")
+        print(f"  Error during file operations: {e}")
+        print(e.stderr)
+        print(e.stdout)
         sys.exit(1)
     finally:
         pass

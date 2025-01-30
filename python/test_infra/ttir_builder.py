@@ -137,26 +137,32 @@ class TTIRBuilder:
         """Retrieves shape of operand which is expected to be a shaped type."""
         return self._get_type(input).shape
 
-    def generate_and_store_random_golden(self, operand: Operand) -> Golden:
+    def generate_and_store_random_golden(
+        self, operand: Operand, dtype: torch.dtype = torch.float32
+    ) -> Golden:
         """
-        Generates random tensor of `operand`s shape, assigns it to a golden,
+        Generates random tensor of `dtype`s of `operand`s shape, assigns it to a golden,
         and maps `operand` to that golden.
 
         Returns generated golden.
         """
         seed = self._get_seed()
-        random_tensor = self._generate_random_tensor(self.get_shape(operand), seed)
+        random_tensor = self._generate_random_tensor(
+            self.get_shape(operand), dtype, seed
+        )
         golden = Golden(random_tensor, seed)
         self._store_golden(operand, golden)
         return golden
 
-    def generate_input_golden(self, operand: Operand, index: int) -> None:
+    def generate_input_golden(
+        self, operand: Operand, dtype: torch.dtype, index: int
+    ) -> None:
         """
-        Generates random tensor of `input`s shape, assigns it to a golden,
+        Generates random tensor of `dtype`s of `input`s shape, assigns it to a golden,
         and maps `input` to that golden.
         """
         self.id_golden_map[f"input_{index}"] = self.generate_and_store_random_golden(
-            operand
+            operand, dtype
         )
 
     def get_golden_map(self) -> Dict:
@@ -200,12 +206,26 @@ class TTIRBuilder:
         return seed
 
     @staticmethod
-    def _generate_random_tensor(shape: Shape, seed: int) -> torch.Tensor:
+    def _generate_random_tensor(
+        shape: Shape, dtype: torch.dtype, seed: int
+    ) -> torch.Tensor:
         """
-        Generates random tensor of shape `shape`, using `seed` to seed torch
+        Generates random tensor of shape `shape`, with type `dtype`, using `seed` to seed torch
         random generator.
         """
-        return torch.randn(shape, generator=torch.manual_seed(seed))
+
+        if dtype.is_floating_point:
+            return torch.randn(shape, generator=torch.manual_seed(seed), dtype=dtype)
+        else:
+            min_int = torch.iinfo(dtype).min
+            max_int = torch.iinfo(dtype).max
+            return torch.randint(
+                low=min_int,
+                high=max_int,
+                size=shape,
+                generator=torch.manual_seed(seed),
+                dtype=dtype,
+            )
 
     def _get_golden(self, operand: Operand) -> Golden:
         """Retrieves stored golden for `operand`."""
@@ -258,6 +278,40 @@ class TTIRBuilder:
         assert isinstance(typ, RankedTensorType), "Only ranked tensors are supported"
 
         return typ
+
+    # ----- Utility Conversion ----
+
+    def get_type_from_torch_dtype(self, dtype: torch.dtype) -> Type:
+        """
+        Returns a MLIR `Type` obj corresponding to `dtype`
+        """
+        match dtype:
+            case torch.bfloat16:
+                return BF16Type.get(self._ctx)
+            case torch.float16:
+                return F16Type.get(self._ctx)
+            case torch.float32:
+                return F32Type.get(self._ctx)
+            case torch.float64:
+                return F64Type.get(self._ctx)
+            case torch.int8:
+                return IntegerType.get_signless(8, self._ctx)
+            case torch.int16:
+                return IntegerType.get_signless(16, self._ctx)
+            case torch.int32:
+                return IntegerType.get_signless(32, self._ctx)
+            case torch.int64:
+                return IntegerType.get_signless(64, self._ctx)
+            case torch.uint8:
+                return IntegerType.get_unsigned(8, self._ctx)
+            case torch.uint16:
+                return IntegerType.get_unsigned(16, self._ctx)
+            case torch.uint32:
+                return IntegerType.get_unsigned(32, self._ctx)
+            case torch.uint64:
+                return IntegerType.get_unsigned(64, self._ctx)
+            case _:
+                raise TypeError(f"Invalid Type {type}")
 
     # ----- Utility factories -----
 

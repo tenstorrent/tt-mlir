@@ -130,6 +130,8 @@ def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
     let description = [{
       Must be called before copy_tile.
     }];
+
+    let arguments = (ins TTKernel_CB:$cb0);
 }
 
 def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
@@ -537,6 +539,181 @@ def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
     }];
 }
 
+def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
+    let summary = "GetSemaphoreOp";
+    let description = [{
+      Get L1 addr of the semaphore with specified semaphore id
+    }];
+
+    let arguments = (ins I32:$semaphore_id);
+    let results = (outs TTKernel_L1Addr:$sem_addr);
+}
+
+def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
+    let summary = "NocSemaphoreInc";
+    let description = [{
+      The Tensix core executing this function call initiates an atomic increment
+      (with 32-bit wrap) of a remote Tensix core L1 memory address. This L1 memory
+      address is used as a semaphore of size 4 Bytes, as a synchronization
+      mechanism.
+    }];
+
+    let arguments = (ins TTKernel_NocAddr:$addr, I32:$incr, I32:$noc_id);
+}
+
+def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
+    let summary = "NocSemaphoreSet";
+    let description = [{
+      Sets the value of a local L1 memory address on the Tensix core executing
+      this function to a specific value. This L1 memory address is used as a
+      semaphore of size 4 Bytes, as a synchronization mechanism. Also, see
+      *noc_semaphore_wait*.
+    }];
+
+    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, I32:$val);
+}
+
+def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
+    let summary = "NocSemaphoreWait";
+    let description = [{
+      A blocking call that waits until the value of a local L1 memory address on
+      the Tensix core executing this function becomes equal to a target value.
+      This L1 memory address is used as a semaphore of size 4 Bytes, as a
+      synchronization mechanism. Also, see *noc_semaphore_set*.
+    }];
+
+    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, I32:$val);
+}
+
+def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"noc_semaphore_wait_min"> {
+    let summary = "NocSemaphoreWaitMin";
+    let description = [{
+      A blocking call that waits until the value of a local L1 memory address on
+      the Tensix core executing this function becomes equal or greater than a target value.
+      This L1 memory address is used as a semaphore of size 4 Bytes, as a
+      synchronization mechanism. Also, see *noc_semaphore_set*.
+    }];
+
+    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, I32:$val);
+}
+
+def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multicast"> {
+    let summary = "NocSemaphoreSetMulticast";
+    let description = [{
+      Initiates an asynchronous write from a source address in L1 memory on the
+      Tensix core executing this function call to a rectangular destination grid.
+      The destinations are specified using a uint64_t encoding referencing an
+      on-chip grid of nodes located at NOC coordinate range
+      (x_start,y_start,x_end,y_end) and a local address created using
+      *get_noc_multicast_addr* function. The size of data that is sent is 4 Bytes.
+      This is usually used to set a semaphore value at the destination nodes, as a
+      way of a synchronization mechanism. The same as *noc_async_write_multicast*
+      with preset size of 4 Bytes.
+      With this API, the multicast sender cannot be part of the multicast
+      destinations. If the multicast sender has to be in the multicast
+      destinations (i.e. must perform a local L1 write), the other API variant
+      *noc_semaphore_set_multicast_loopback_src* can be used.
+    }];
+
+    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr,
+                         TTKernel_NocAddr:$dst_noc_addr_multicast,
+                         I32:$num_dests,
+                         BoolAttr:$linked,
+                         BoolAttr:$multicast_path_reserve);
+}
+
+def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set_multicast_loopback_src"> {
+    let summary = "NocSemaphoreSetMulticastLoopback";
+    let description = [{
+      Initiates an asynchronous write from a source address in L1 memory on the
+      Tensix core executing this function call to a rectangular destination grid.
+      The destinations are specified using a uint64_t encoding referencing an
+      on-chip grid of nodes located at NOC coordinate range
+      (x_start,y_start,x_end,y_end) and a local address created using
+      *get_noc_multicast_addr* function. The size of data that is sent is 4 Bytes.
+      This is usually used to set a semaphore value at the destination nodes, as a
+      way of a synchronization mechanism. The same as *noc_async_write_multicast*
+      with preset size of 4 Bytes.
+      Note: With this API, sending data only to the source node (when num_dests
+      is 1) may result in unexpected behaviour. For some parameters, hangs have
+      been observed. For some other parameters, nothing may happen. Consider using
+      regular non multicast operations such as *noc_async_write* in this case.
+    }];
+
+    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr,
+                         TTKernel_NocAddr:$dst_noc_addr_multicast,
+                         I32:$num_dests,
+                         BoolAttr:$linked,
+                         BoolAttr:$multicast_path_reserve);
+}
+
+def TTKernel_NocTransactionsTableOp : TTKernel_Op<"noc_transactions_table"> {
+    let summary = [{define an array of parameter entries for a sequence of NOC
+     read/write operations
+    }];
+    let description = [{
+      Encapsulates parameters for a group of NOC read/write operations as
+      an array of (dst, src, size, dst_x, dst_y, numElements) entries, with
+      each entry slot of type int32_t.
+      An entry defines an src->dst data movement operation and as either
+      a read (remote src, local dst) or a write (local src, remote dst) by
+      the calling core.
+    }];
+
+    let arguments = (ins DenseI32ArrayAttr:$entries);
+    let results = (outs AnyStaticShapeMemRef:$table);
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel Compile and runtime arguments operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
+    let summary = "Get runtime arg value.";
+    let description = [{
+      Get runtime argument value at specified index.
+    }];
+
+    let arguments = (ins I32:$arg_index);
+
+    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+}
+
+def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
+    let summary = "Get compile-time arg value.";
+    let description = [{
+      Get compile-time argument value at specified index.
+    }];
+
+    let arguments = (ins I32:$arg_index);
+
+    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel Helper functions
+//===----------------------------------------------------------------------===//
+
+def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr uint32_t*>"> {
+    let summary = "CastToL1Ptr";
+    let description = [{
+      Cast specified addr to L1 pointer.
+    }];
+
+    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr]>:$addr);
+
+    let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
+}
+
+def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
+    let summary = "StoreToL1";
+    let description = [{
+      Store value to L1.
+    }];
+
+    let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//
@@ -603,19 +780,6 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
 // TTKernel Misc operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_BuiltinOp : TTKernel_Op<"builtin"> {
-    let summary = "Builtin call.";
-    let description = [{
-      Kernel operation
-    }];
-
-    let arguments = (ins FlatSymbolRefAttr:$op,
-                         FlatSymbolRefAttr:$kind,
-                         Variadic<AnyMemRefOrCB>:$args);
-
-    let hasVerifier = 1;
-}
-
 def TTKernel_ReturnOp : TTKernel_Op<"return", [Pure, ReturnLike, Terminator]> {
     let summary = "Return op.";
     let description = [{
@@ -660,24 +824,24 @@ def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
     let results = (outs I32:$writePtr);
 }
 
-def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr uint32_t*>"> {
-    let summary = "CastToL1Ptr";
+def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
+    let summary = "GetReadPtr";
     let description = [{
-      Cast specified addr to L1 pointer.
+      GetReadPtr operation
     }];
 
-    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr]>:$addr);
-
-    let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs I32:$readPtr);
 }
 
-def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
-    let summary = "StoreToL1";
+def TTKernel_GetTileSizeOp : TTKernel_Op<"get_tile_size"> {
+    let summary = "Get the tile size in bytes of a given CB";
     let description = [{
-      Store value to L1.
+      get_tile_size operation
     }];
-
-    let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs I32:$tileSizeBytes);
 }
+
 
 #endif
