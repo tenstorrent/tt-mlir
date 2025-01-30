@@ -739,6 +739,19 @@ createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
                                                op.getBatchOffset());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ConstantOp>
+createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  auto value = cache.fbb->CreateVector(std::vector<uint8_t>(
+      reinterpret_cast<const uint8_t *>(op.getValue().getAsOpaquePointer()),
+      reinterpret_cast<const uint8_t *>(op.getValue().getAsOpaquePointer()) +
+          op.getValue().getElementType().getIntOrFloatBitWidth() *
+              op.getValue().size()));
+  return ::tt::target::ttnn::CreateConstantOp(*cache.fbb, output, value);
+}
+
 template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
