@@ -183,8 +183,6 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   // Get buffer type (i.e DRAM/L1 etc)
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
 
-  // llvm::outs() << "curr buffer type: " << currBufferType << "\n";
-
   // Get the current element type (i.e bf16/TileType etc)
   // If the defining op is arange, then we need to assume ROW_MAJOR (scalar)
   // element type.
@@ -409,18 +407,12 @@ public:
     SmallVector<Value, 4> fromDeviceOperands;
     size_t locIdx = 0;
     for (auto operand : callOp.getOperands()) {
-      // operand->dump();
       Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
       std::optional<Value> optionalLayoutOp = createToLayoutOp(
           rewriter, newLoc, operand, BufferType::SystemMemory,
           nullptr /* desiredMemLayoutAttr */, false /* tiled */);
-      if (optionalLayoutOp.has_value()) {
-        // llvm::outs() << "did add layout.\n";
-        fromDeviceOperands.push_back(optionalLayoutOp.value());
-      } else {
-        // llvm::outs() << "didn't add layout.\n";
-        fromDeviceOperands.push_back(operand);
-      }
+      fromDeviceOperands.push_back(
+          optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand);
     }
 
     // Create the original CallOp with the new inputs on host.
@@ -429,7 +421,6 @@ public:
         fromDeviceOperands);
 
     rewriter.replaceOp(callOp, newCallOp);
-    // newCallOp->dump();
 
     return success();
   }
