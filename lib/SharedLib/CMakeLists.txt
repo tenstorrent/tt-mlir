@@ -53,39 +53,14 @@ list(APPEND TTMLIR_LIBS
     VhloTypes
     StablehloOps
     StablehloRegister
-    StablehloReferenceToken
     StablehloLinalgTransforms
-    StablehloReferenceValue
-    StablehloReferenceScope
-    StablehloPasses
-    StablehloReferenceOps
     StablehloSerialization
     InterpreterOps
     StablehloPortableApi
-    StablehloPasses
     StablehloAssemblyFormat
-    StablehloOps
-    StablehloReferenceElement
-    StablehloReferenceOps
-    StablehloReferenceTensor
-    StablehloRegister
-    StablehloBase
-    StablehloPasses
-    StablehloReferenceErrors
-    StablehloReferenceProcess
-    StablehloReferenceToken
-    StablehloSerialization
     StablehloBroadcastUtils
-    StablehloPortableApi
-    StablehloReferenceIndex
-    StablehloReferenceProcessGrid
-    StablehloReferenceTypes
     StablehloTypeInference
-    StablehloLinalgTransforms
-    StablehloReferenceAxes
     StablehloReferenceNumPy
-    StablehloReferenceScope
-    StablehloReferenceValue
     SdyDialect
     SdyRegister
 )
