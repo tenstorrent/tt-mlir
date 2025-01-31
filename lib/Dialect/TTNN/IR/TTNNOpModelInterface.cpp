@@ -46,11 +46,11 @@ ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
 
-  const auto input_shape =
+  const auto inputShape =
       mlir::cast<RankedTensorType>(getDpsInputOperand(0)->get().getType())
           .getShape();
 
-  const auto output_shape =
+  const auto outputShape =
       mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
 
   auto check = detail::checkDeviceWorkerGrid(getOperation());
@@ -59,7 +59,24 @@ ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return op_model::ttnn::ReluOpInterface::getOpConstraints(
-      input_shape, inputs[0], output_shape, output);
+      inputShape, inputs[0], outputShape, output);
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const TTNNLayoutAttr &output) {
+
+  assert(inputs.size() == 1);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getDpsInputOperand(0)->get().getType())
+          .getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
+
+  return op_model::ttnn::ReluOpInterface::getOpRuntime(inputShape, inputs[0],
+                                                       outputShape, output);
 }
 
 //===----------------------------------------------------------------------===//
@@ -72,12 +89,12 @@ AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);
 
-  const auto input_shape_a =
+  const auto inputShapeA =
       mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
-  const auto input_shape_b =
+  const auto inputShapeB =
       mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
 
-  const auto output_shape =
+  const auto outputShape =
       mlir::cast<RankedTensorType>(getResult(0).getType()).getShape();
 
   auto check = detail::checkDeviceWorkerGrid(getOperation());
@@ -86,7 +103,24 @@ AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return op_model::ttnn::AddOpInterface::getOpConstraints(
-      input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output);
+      inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output);
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+AddOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+  const auto inputShapeB =
+      mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult(0).getType()).getShape();
+
+  return op_model::ttnn::AddOpInterface::getOpRuntime(
+      inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output);
 }
 
 //===----------------------------------------------------------------------===//
@@ -99,10 +133,10 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
 
-  const auto input_shape =
+  const auto inputShape =
       mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
 
-  const auto output_shape =
+  const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
   auto check = detail::checkDeviceWorkerGrid(getOperation());
@@ -111,7 +145,22 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return op_model::ttnn::SoftmaxOpInterface::getOpConstraints(
-      input_shape, inputs[0], getDimension(), output_shape, output);
+      inputShape, inputs[0], getDimension(), outputShape, output);
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::SoftmaxOpInterface::getOpRuntime(
+      inputShape, inputs[0], getDimension(), outputShape, output);
 }
 
 //===----------------------------------------------------------------------===//
@@ -124,12 +173,12 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);
 
-  const auto input_shape_a =
+  const auto inputShapeA =
       mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
-  const auto input_shape_b =
+  const auto inputShapeB =
       mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
 
-  const auto output_shape =
+  const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
   auto check = detail::checkDeviceWorkerGrid(getOperation());
@@ -138,7 +187,25 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return op_model::ttnn::MatmulOpInterface::getOpConstraints(
-      input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output,
+      inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output,
+      false, false);
+}
+
+std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+  const auto inputShapeB =
+      mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::MatmulOpInterface::getOpRuntime(
+      inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output,
       false, false);
 }
 
