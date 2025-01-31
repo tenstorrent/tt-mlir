@@ -104,6 +104,8 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout);
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 
+size_t getSize(Tensor tensor);
+
 void memcpy(void *dst, Tensor src);
 
 void memcpy(Tensor dst, Tensor src);
