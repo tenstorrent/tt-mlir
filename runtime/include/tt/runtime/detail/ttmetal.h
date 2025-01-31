@@ -119,16 +119,20 @@ createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
   std::array<uint32_t, 2> pageShape = {static_cast<uint32_t>(tile_shape->y()),
                                        shardShape[1]};
 
-  auto tensorRank = layout->stride()->size();
-  auto innerDim = layout->stride()->Get(tensorRank - 2);
-  assert(layout->stride()->size() >= 2);
-  assert((layout->stride()->Get(0) * tensorDesc->shape()->Get(0)) %
-             (pageShape[0] * innerDim) ==
-         0);
+  auto tensorRank = tensorDesc->shape()->size();
+  auto innerDim = tensorDesc->shape()->Get(tensorRank - 1);
+  assert(tensorDesc->shape()->size() >= 2);
+
+  uint32_t outerElements = 1;
+  for (size_t i = 0; i < tensorRank - 1; i++) {
+    outerElements *= tensorDesc->shape()->Get(i);
+  }
+
+  assert(outerElements % pageShape[0] == 0);
   assert(innerDim % pageShape[1] == 0);
+
   std::array<uint32_t, 2> tensorShape = {
-      (layout->stride()->Get(0) * tensorDesc->shape()->Get(0)) /
-          (pageShape[0] * innerDim),
+      outerElements / pageShape[0],
       innerDim / pageShape[1],
   };
 

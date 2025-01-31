@@ -105,12 +105,10 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
     FlatbufferObjectCache &cache, ttnn::TTNNLayoutAttr layoutAttr,
     mlir::ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
-  auto strideInt64 = layoutAttr.getStride(logicalShape);
-  std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
   auto coreRangeSet =
       toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
   return ::tt::target::CreateLayoutDescDirect(
-      *cache.fbb, &stride, toFlatbuffer(cache, OOBVal::Undef), &coreRangeSet,
+      *cache.fbb, toFlatbuffer(cache, OOBVal::Undef), &coreRangeSet,
       cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
                         layoutAttr.getMemLayout()));
 }
