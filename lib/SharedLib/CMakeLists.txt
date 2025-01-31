@@ -32,7 +32,63 @@ set(TTMLIR_LIBS
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)
-list(APPEND TTMLIR_LIBS StablehloRegister SdyRegister)
+# list(APPEND TTMLIR_LIBS StablehloRegister SdyRegister)
+list(APPEND TTMLIR_LIBS
+    StablehloBase
+    StablehloReferenceIndex
+    StablehloReferenceErrors
+    StablehloReferenceElement
+    StablehloReferenceAxes
+    StablehloReferenceValue
+    StablehloReferenceTypes
+    StablehloReferenceToken
+    StablehloReferenceTensor
+    StablehloReferenceScope
+    StablehloReferenceProcessGrid
+    StablehloReferenceProcess
+    StablehloReferenceOps
+    StablehloPasses
+    ChloOps
+    VhloOps
+    VhloTypes
+    StablehloOps
+    StablehloRegister
+    StablehloReferenceToken
+    StablehloLinalgTransforms
+    StablehloReferenceValue
+    StablehloReferenceScope
+    StablehloPasses
+    StablehloReferenceOps
+    StablehloSerialization
+    InterpreterOps
+    StablehloPortableApi
+    StablehloPasses
+    StablehloAssemblyFormat
+    StablehloOps
+    StablehloReferenceElement
+    StablehloReferenceOps
+    StablehloReferenceTensor
+    StablehloRegister
+    StablehloBase
+    StablehloPasses
+    StablehloReferenceErrors
+    StablehloReferenceProcess
+    StablehloReferenceToken
+    StablehloSerialization
+    StablehloBroadcastUtils
+    StablehloPortableApi
+    StablehloReferenceIndex
+    StablehloReferenceProcessGrid
+    StablehloReferenceTypes
+    StablehloTypeInference
+    StablehloLinalgTransforms
+    StablehloReferenceAxes
+    StablehloReferenceNumPy
+    StablehloReferenceScope
+    StablehloReferenceValue
+    SdyDialect
+    SdyRegister
+)
 endif()
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
