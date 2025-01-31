@@ -7,18 +7,31 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include <ttnn/operations/functions.hpp>
+#include <type_traits>
 
 namespace tt::runtime::ttnn::operations::creation {
+
+template <typename T>
+constexpr bool is_host_type_v =
+    std::is_constructible_v<::tt::tt_metal::OwnedBuffer,
+                            ::tt::tt_metal::owned_buffer::Buffer<T>>;
+
 template <typename T>
 ::tt::tt_metal::OwnedBuffer buffer(const ::flatbuffers::Vector<uint8_t> *data) {
-  auto size = data->size() / sizeof(T);
-  ::tt::tt_metal::owned_buffer::Buffer<T> ownedBuffer =
-      tt::tt_metal::owned_buffer::create<T>(size);
+  if constexpr (is_host_type_v<T>) {
+    auto size = data->size() / sizeof(T);
+    ::tt::tt_metal::owned_buffer::Buffer<T> ownedBuffer =
+        tt::tt_metal::owned_buffer::create<T>(size);
 
-  for (size_t i = 0; i < size; ++i) {
-    ownedBuffer[i] = *data->GetAs<T>(i);
+    for (size_t i = 0; i < size; ++i) {
+      ownedBuffer[i] = *data->GetAs<T>(i);
+    }
+    return ownedBuffer;
+  } else {
+    LOG_FATAL("Unsupported data type");
+    return {};
   }
-  return ownedBuffer;
 }
 
 void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
@@ -48,6 +61,9 @@ void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
     break;
   case ::ttnn::DataType::BFLOAT16:
     owned_buffer = buffer<bfloat16>(rawData);
+    break;
+  case ::ttnn::DataType::BFLOAT4_B:
+    owned_buffer = buffer<bfloat4_b>(rawData);
     break;
   default:
     LOG_FATAL("Unsupported data type");
