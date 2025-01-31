@@ -317,6 +317,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
       [&cache, arr](size_t i) { return toFlatbuffer(cache, arr[i]); });
 }
 
+inline flatbuffers::Offset<flatbuffers::String>
+toFlatbuffer(FlatbufferObjectCache &cache, llvm::StringRef str) {
+  return cache.fbb->CreateString(str.data(), str.size());
+}
+
 inline flatbuffers::Offset<::tt::target::ChipDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
   assert(chipDesc.getGrid().size() == 2 && "expected a 2D grid");

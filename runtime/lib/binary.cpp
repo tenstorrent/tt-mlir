@@ -7,6 +7,7 @@
 #include "flatbuffers/idl.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
@@ -34,6 +35,20 @@ static std::string asJson(void const *fbb, uint8_t const *binarySchema,
   const char *err = ::flatbuffers::GenerateText(parser, fbb, &text);
   LOG_ASSERT(not err, "Failed to generate JSON: ", err);
   return text;
+}
+
+static std::vector<uint32_t>
+calculateStride(std::vector<uint32_t> const &shape) {
+  LOG_ASSERT(
+      workaround::Env::get().defaultStrideComputation,
+      "Stride currently removed from flatbuffer thus defaultStrideComputation"
+      "workaround must be enabled");
+  LOG_ASSERT(!shape.empty());
+  std::vector<uint32_t> stride(shape.size(), 1);
+  for (size_t i = shape.size() - 1; i > 0; i--) {
+    stride[i - 1] = stride[i] * shape[i];
+  }
+  return stride;
 }
 
 namespace ttnn {
@@ -70,8 +85,7 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
                   input->desc()->shape()->end()};
-    desc.stride = {input->desc()->layout()->stride()->begin(),
-                   input->desc()->layout()->stride()->end()};
+    desc.stride = calculateStride(desc.shape);
     desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
         input->desc()->layout()->memory_desc()->data_type());
     desc.dataType = input->desc()->layout()->memory_desc()->data_type();
@@ -88,8 +102,7 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
                   output->desc()->shape()->end()};
-    desc.stride = {output->desc()->layout()->stride()->begin(),
-                   output->desc()->layout()->stride()->end()};
+    desc.stride = calculateStride(desc.shape);
     desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
         output->desc()->layout()->memory_desc()->data_type());
     desc.dataType = output->desc()->layout()->memory_desc()->data_type();
@@ -156,8 +169,7 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
                   input->desc()->shape()->end()};
-    desc.stride = {input->desc()->layout()->stride()->begin(),
-                   input->desc()->layout()->stride()->end()};
+    desc.stride = calculateStride(desc.shape);
     desc.itemsize = utils::dataTypeElementSize(
         input->desc()->layout()->memory_desc()->data_type());
     desc.dataType = input->desc()->layout()->memory_desc()->data_type();
@@ -177,8 +189,7 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
                   output->desc()->shape()->end()};
-    desc.stride = {output->desc()->layout()->stride()->begin(),
-                   output->desc()->layout()->stride()->end()};
+    desc.stride = calculateStride(desc.shape);
     desc.itemsize = utils::dataTypeElementSize(
         output->desc()->layout()->memory_desc()->data_type());
     desc.dataType = output->desc()->layout()->memory_desc()->data_type();

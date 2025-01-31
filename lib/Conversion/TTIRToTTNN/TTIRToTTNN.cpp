@@ -35,7 +35,6 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-
 class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
 public:
@@ -90,7 +89,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class OnesOpConversionPattern : public OpConversionPattern<ttir::OnesOp> {
 public:
   using OpConversionPattern<ttir::OnesOp>::OpConversionPattern;
@@ -154,7 +155,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
 public:
@@ -297,7 +300,9 @@ private:
     llvm_unreachable("Unreachable code path. Unexpected output layout enum");
   }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -318,7 +323,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ReductionOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -335,7 +342,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ReductionProdOpConversionPattern
     : public OpConversionPattern<ttir::ProdOp> {
 public:
@@ -369,7 +378,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class EmbeddingOpConversionPattern
     : public OpConversionPattern<ttir::EmbeddingOp> {
 public:
@@ -385,7 +396,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class EmbeddingBackwardOpConversionPattern
     : public OpConversionPattern<ttir::EmbeddingBackwardOp> {
 public:
@@ -438,7 +451,25 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
+class CumSumOpConversionPattern : public OpConversionPattern<ttir::CumSumOp> {
+public:
+  using OpConversionPattern<ttir::CumSumOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumSumOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::MorehCumSumOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getDim(), adaptor.getOutput(), nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class RepeatInterleaveOpConversionPattern
     : public OpConversionPattern<ttir::RepeatInterleaveOp> {
 public:
@@ -454,7 +485,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SoftmaxOpConversionPattern : public OpConversionPattern<ttir::SoftmaxOp> {
 public:
   using OpConversionPattern<ttir::SoftmaxOp>::OpConversionPattern;
@@ -468,7 +501,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TransposeOpConversionPattern
     : public OpConversionPattern<ttir::TransposeOp> {
 public:
@@ -483,7 +518,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ClampOpConversionPattern : public OpConversionPattern<ttir::ClampOp> {
 public:
   using OpConversionPattern<ttir::ClampOp>::OpConversionPattern;
@@ -497,7 +534,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class UpdateCacheOpConversionPattern
     : public OpConversionPattern<ttir::UpdateCacheOp> {
 public:
@@ -533,7 +572,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class FillCacheOpConversionPattern
     : public OpConversionPattern<ttir::FillCacheOp> {
 public:
@@ -569,7 +610,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseUnaryWithFloatParameterOpConversionPattern
@@ -586,7 +629,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConcatOpConversionPattern : public OpConversionPattern<ttir::ConcatOp> {
 public:
   using OpConversionPattern<ttir::ConcatOp>::OpConversionPattern;
@@ -605,7 +650,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ReshapeOpConversionPattern : public OpConversionPattern<ttir::ReshapeOp> {
 public:
   using OpConversionPattern<ttir::ReshapeOp>::OpConversionPattern;
@@ -619,7 +666,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
 public:
   using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
@@ -634,7 +683,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SqueezeOpConversionPattern : public OpConversionPattern<ttir::SqueezeOp> {
 public:
   using OpConversionPattern<ttir::SqueezeOp>::OpConversionPattern;
@@ -676,7 +727,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class BroadcastOpConversionPattern
     : public OpConversionPattern<ttir::BroadcastOp> {
   using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
@@ -686,16 +739,37 @@ public:
   matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto shapeAttr = adaptor.getBroadcastDimensionsAttr();
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), op.getBroadcastDimensions());
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), rewriter.getI32ArrayAttr(shapeAttr));
+        adaptor.getInput(), shapeAttr);
 
     return success();
   }
 };
 
+class RepeatOpConversionPattern : public OpConversionPattern<ttir::RepeatOp> {
+  using OpConversionPattern<ttir::RepeatOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::RepeatOp op, ttir::RepeatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn::ShapeAttr repeatDimensionsAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), op.getRepeatDimensions());
+
+    rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), repeatDimensionsAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class UnsqueezeOpConversionPattern
     : public OpConversionPattern<ttir::UnsqueezeOp> {
 public:
@@ -743,7 +817,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConstantOpConversionPattern
     : public OpConversionPattern<ttir::ConstantOp> {
 public:
@@ -820,7 +896,9 @@ private:
     assert(false && "Unsupported integer type.");
   }
 };
+} // namespace
 
+namespace {
 class LinearOpConversionPattern : public OpConversionPattern<ttir::LinearOp> {
 public:
   using OpConversionPattern<ttir::LinearOp>::OpConversionPattern;
@@ -834,8 +912,10 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
+namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
 public:
   using OpConversionPattern<ttir::MatmulOp>::OpConversionPattern;
@@ -849,8 +929,10 @@ public:
     return success();
   }
 };
+} // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
+namespace {
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -943,7 +1025,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConvTranspose2dOpConversionPattern
     : public OpConversionPattern<ttir::ConvTranspose2dOp> {
 public:
@@ -1042,7 +1126,9 @@ private:
     return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
   }
 };
+} // namespace
 
+namespace {
 class MaxPool2dOpConversionPattern
     : public OpConversionPattern<ttir::MaxPool2dOp> {
 public:
@@ -1111,7 +1197,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TypecastOpConversionPattern
     : public OpConversionPattern<ttir::TypecastOp> {
   using OpConversionPattern<ttir::TypecastOp>::OpConversionPattern;
@@ -1137,7 +1225,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SubtractOpConversionPattern
     : public OpConversionPattern<ttir::SubtractOp> {
   using OpConversionPattern<ttir::SubtractOp>::OpConversionPattern;
@@ -1177,7 +1267,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class AllReduceOpConversionPattern
     : public OpConversionPattern<ttir::AllReduceOp> {
 public:
@@ -1202,7 +1294,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class MeshShardOpConversionPattern
     : public OpConversionPattern<ttir::MeshShardOp> {
 public:
@@ -1221,7 +1315,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class AllGatherOpConversionPattern
     : public OpConversionPattern<ttir::AllGatherOp> {
 public:
@@ -1238,7 +1334,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ArangeOpConversionPattern : public OpConversionPattern<ttir::ArangeOp> {
 public:
   using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
@@ -1277,7 +1375,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
 public:
   using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
@@ -1293,7 +1393,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
 public:
   using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
@@ -1309,7 +1411,25 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
+class UpsampleOpConversionPattern
+    : public OpConversionPattern<ttir::Upsample2dOp> {
+public:
+  using OpConversionPattern<ttir::Upsample2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Upsample2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::UpsampleOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getScaleFactor(), adaptor.getMode(),
+        ttnn::MemoryConfigAttr());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -1373,6 +1493,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
+           RepeatOpConversionPattern,
+           CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
@@ -1397,7 +1519,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
-           PermuteOpConversionPattern
+           PermuteOpConversionPattern,
+           UpsampleOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

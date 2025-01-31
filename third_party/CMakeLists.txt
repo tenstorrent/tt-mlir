@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "008a38f361a6135423f5c09401934d2219316516")
+set(TT_METAL_VERSION "064646adfcb5f0b923a24a633d532552bd43e06d")
 
 if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
   set(ARCH_NAME "grayskull")
@@ -85,6 +85,48 @@ set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+# When installing, copy all needed files (for runtime) from `tt-metal` repo to the install directory.
+# EXCLUDE_FROM_ALL is used to avoid installing these files when installing the default component.
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+  REGEX "ttnn/ttnn" EXCLUDE
+)
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/runtime
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  USE_SOURCE_PERMISSIONS
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+)
+
+# `tt_metal` directory is installed with two commands, since we need special handling of `third_party` directory.
+# We only need `tt_llk_*" and `umd` files from `third_party` directory.
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+  PATTERN "third_party" EXCLUDE
+)
+
+# NOTE: For some reason, CMake creates all directories even for non-matched files, but those will be empty.
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+  FILES_MATCHING
+  REGEX "third_party/tt_llk_*"
+  REGEX "third_party/umd/"
+)
 
 list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH})
