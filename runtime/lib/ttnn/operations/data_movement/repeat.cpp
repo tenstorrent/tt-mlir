@@ -13,7 +13,7 @@ void run(const ::tt::target::ttnn::RepeatOp *op, ProgramContext &context) {
   DEBUG_ASSERT(in.is_allocated());
   const auto *fbShape = op->repeat_dims();
   const std::vector<uint32_t> repeatDims(fbShape->begin(), fbShape->end());
-  ::ttnn::Shape repeatDimsShape(repeatDims);
+  ::ttnn::SimpleShape repeatDimsShape(repeatDims);
   ::ttnn::Tensor out = ::ttnn::repeat(in, repeatDimsShape);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
