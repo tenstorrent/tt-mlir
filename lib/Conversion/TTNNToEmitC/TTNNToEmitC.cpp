@@ -568,11 +568,11 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     ttnn::ShapeAttr repeatDims = repeatOp.getRepeatDimsAttr();
 
-    // Create ttnn::Shape() call
+    // Create ttnn::SimpleShape() call
     //
     emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, repeatDims, repeatOp.getLoc(),
-        ttnn_to_emitc::utils::ShapeType::Shape);
+        ttnn_to_emitc::utils::ShapeType::SimpleShape);
 
     // Create operands vector
     //
