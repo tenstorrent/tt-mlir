@@ -49,8 +49,10 @@ from pykernel.pykernel_ast import *
 def eltwise_sfpu(cb_in: int, cb_out: int):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%[[arg0:.*]]: !ttkernel.cb<{{.*}}>, %[[arg1:.*]]: !ttkernel.cb<{{.*}}>) {
-    per_core_block_cnt = 1  # get_compile_time_arg_val(0)                 # get_compile_time_arg_val not implemented
-    per_core_block_dim = 1  # get_compile_time_arg_val(1)
+    # CHECK: {{.*}}"ttkernel.get_compile_time_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_compile_time_arg_val"{{.*}}
+    per_core_block_cnt = get_compile_time_arg_val(type_int, 0)
+    per_core_block_dim = get_compile_time_arg_val(type_int, 1)
 
     # CHECK: "ttkernel.unary_op_init_common"(%[[arg0]], %[[arg1]]){{.*}}
     unary_op_init_common(cb_in, cb_out)
@@ -61,15 +63,14 @@ def eltwise_sfpu(cb_in: int, cb_out: int):
         for j in range(0, per_core_block_dim, 1):
             # CHECK: "ttkernel.tile_regs_acquire"(){{.*}}
             # CHECK: "ttkernel.cb_wait_front"{{.*}}
-            tile_regs_acquire()  # acquire_dst() is deprecated, use tile_regs_acquire instead
+            tile_regs_acquire()
             cb_wait_front(cb_in, 1)
 
             # CHECK: "ttkernel.copy_tile"{{.*}}
             # CHECK: "ttkernel.pack_tile"{{.*}}
             copy_tile(cb_in, 0, 0)
-            pack_tile(
-                0, cb_out, 0
-            )  # last parameter is a optional index in c++ but not optional in pybind
+            pack_tile(0, cb_out, 0)
+            # last parameter is a optional index in C++ but not optional in pybind
 
             # CHECK: "ttkernel.cb_pop_front"{{.*}}
             # CHECK: "ttkernel.tile_regs_release"(){{.*}}

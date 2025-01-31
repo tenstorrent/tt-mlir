@@ -42,27 +42,29 @@ from pykernel.pykernel_ast import *
 def reader_unary(cb_in: int, cb_out: int):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%[[arg0:.*]]: !ttkernel.cb<{{.*}}>, %[[arg1:.*]]: !ttkernel.cb<{{.*}}>) {
-    # CHECK: "ttkernel.get_arg_val"{{.*}}
-    # CHECK: "ttkernel.get_arg_val"{{.*}}
-    # CHECK: "ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     src_addr = get_arg_val(type_int, 0)
     bank_id = get_arg_val(type_int, 1)
     num_tiles = get_arg_val(type_int, 2)
 
+    # CHECK: {{.*}}"ttkernel.get_tile_size"{{.*}}
     ublock_size_tiles = 1
-    ublock_size_bytes = 5  # get_tile_size(0) * ublock_size_tiles                    # get_tile_size not implemented
+    ublock_size_bytes = get_tile_size(cb_in) * ublock_size_tiles
 
     for i in range(0, num_tiles, ublock_size_tiles):
-        #     src_noc_addr = get_noc_addr_from_bank_id(True, bank_id, src_addr)       # get_noc_addr_from_bank_id not implemented
+        # CHECK: %[[SRC_NOC_ADDR:.*]] = "ttkernel.get_noc_addr_from_bank_id"{{.*}}
+        src_noc_addr = get_noc_addr_from_bank_id(bank_id, src_addr)
 
         # CHECK: "ttkernel.cb_reserve_back"{{.*}}
         cb_reserve_back(cb_in, ublock_size_tiles)
-        #     l1_write_addr = get_write_ptr(0)                                        # get_write_ptr not implemented
 
-        #     # let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$dstLocalL1Addr, I32:$size);
-        #     noc_async_read(src_noc_addr, l1_write_addr, ublock_size_bytes)
-
+        # CHECK: {{.*}}"ttkernel.get_write_ptr"{{.*}}
+        # CHECK: "ttkernel.noc_async_read"(%[[SRC_NOC_ADDR]], {{.*}}, {{.*}}){{.*}}
         # CHECK: "ttkernel.noc_async_read_barrier"{{.*}}
+        l1_write_addr = get_write_ptr(cb_in)
+        noc_async_read(src_noc_addr, l1_write_addr, ublock_size_bytes)
         noc_async_read_barrier()
 
         # CHECK: "ttkernel.cb_push_back"{{.*}}

@@ -87,6 +87,11 @@ class TTKernelCompiler(ast.NodeVisitor):
         "unpack_a": ttkernel.unpack_a,
         "unpack_ab": ttkernel.unpack_ab,
         "add": ttkernel.add,
+        "get_compile_time_arg_val": ttkernel.get_compile_time_arg_val,
+        "get_write_ptr": ttkernel.get_write_ptr,
+        "get_read_ptr": ttkernel.get_read_ptr,
+        "get_tile_size": ttkernel.get_tile_size,
+        "get_noc_addr_from_bank_id": ttkernel.get_noc_addr_from_bank_id,
         "noc_async_read": ttkernel.noc_async_read,
         "noc_async_write": ttkernel.noc_async_write,
         "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
@@ -272,21 +277,22 @@ class TTKernelCompiler(ast.NodeVisitor):
         return None
 
     def visit_Assign(self, node):
-        # print(f"visit_Assign")
         assert len(node.targets) == 1, "Only single assignments supported"
         var = self.visit(node.targets[0])
         value = self.visit(node.value)
-
-        if not var:
-            sym_table = self.symbol_tables[-1]
-            var_name = node.targets[0].id
-            var_type = value.type
-            memref_type = MemRefType.get([1], var_type)
-            var = memref.alloca(memref_type, [], [])
-            sym_table[var_name] = var
-
-        # TODO: need to handle arrays and other types
-        memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
+        sym_table = self.symbol_tables[-1]
+        var_name = node.targets[0].id
+        if value.type != IntegerType.get_signless(32):
+            # Assumption: if it doesn't return an I32, then it is a TTKernel type.
+            # TTKernel types will be SSA only unless there is a need to store them on stack.
+            sym_table[var_name] = value
+        else:
+            if not var:  # should check here if var is an array
+                var_type = value.type
+                memref_type = MemRefType.get([1], var_type)
+                var = memref.alloca(memref_type, [], [])
+                sym_table[var_name] = var
+            memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     def visit_AugAssign(self, node):
         raise NotImplementedError("AugAssign not supported yet")
@@ -429,7 +435,7 @@ def ttkernel_compile(f):
     def _wrapper(*args, **kwargs):
         m = ast.parse(inspect.getsource(f))
         b = TTKernelCompiler(f.__name__, args)
-        print(ast.dump(m, indent=4) + "\n")
+        # print(ast.dump(m, indent=4) + "\n")
         b.visit(m)
         print(b.module)
 
