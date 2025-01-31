@@ -52,10 +52,8 @@ set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
 set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libdevice.so)
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
   set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
-  # set(TRACY_LIBRARY_VERSIONED_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so.0.10.0)
 else()
   set(TRACY_LIBRARY_PATH "")
-  # set(TRACY_LIBRARY_VERSIONED_PATH "")
 endif()
 
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_LIBRARY_DIR} PARENT_SCOPE)
@@ -63,7 +61,6 @@ set(TTNN_LIBRARY_PATH ${TTNN_LIBRARY_PATH} PARENT_SCOPE)
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_PATH} PARENT_SCOPE)
 set(DEVICE_LIBRARY_PATH ${DEVICE_LIBRARY_PATH} PARENT_SCOPE)
 set(TRACY_LIBRARY_PATH ${TRACY_LIBRARY_PATH} PARENT_SCOPE)
-# set(TRACY_LIBRARY_VERSIONED_PATH ${TRACY_LIBRARY_VERSIONED_PATH} PARENT_SCOPE)
 
 ExternalProject_Add(
   tt-metal
@@ -134,7 +131,10 @@ install(
 list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH})
 
-
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  list(APPEND library_names TRACY_LIBRARY)
+  list(APPEND library_paths ${TRACY_LIBRARY_PATH})
+endif()
 
 foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_library(${lib_name} SHARED IMPORTED GLOBAL)
@@ -142,21 +142,15 @@ foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_dependencies(${lib_name} tt-metal)
 endforeach()
 
-install(FILES ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  add_library(TRACY_LIBRARY TRACY_LIBRARY_PATH SHARED IMPORTED GLOBAL)
-  add_dependencies(TRACY_LIBRARY tt-metal)
-  install(CODE
-      "
-      MESSAGE(STATUS \"Installing tt-mlir runtime shared lib dependencies (${TRACY_LIBRARY_PATH}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
-      file(
-          INSTALL
-          ${TRACY_LIBRARY_PATH}
-          DESTINATION ${CMAKE_INSTALL_LIBDIR}
-          TYPE SHARED_LIBRARY
-          FOLLOW_SYMLINK_CHAIN
-      )"
-      COMPONENT SharedLib
-      EXCLUDE_FROM_ALL
-  )
-endif()
+install(CODE
+    "
+    MESSAGE(STATUS \"Installing tt-metal shared lib dependencies (${library_paths}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
+    file(
+        INSTALL
+        ${library_paths}
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        TYPE SHARED_LIBRARY
+        FOLLOW_SYMLINK_CHAIN
+    )"
+    COMPONENT SharedLib
+)
