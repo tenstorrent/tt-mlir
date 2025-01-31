@@ -7,6 +7,7 @@
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include <mlir/IR/BuiltinTypes.h>
 
 namespace mlir::tt::ttnn::wa {
 
@@ -163,4 +164,27 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
+
+// Factory method to create a set of workarounds for cumsum operation operands.
+// The cumsum op generates incorrect results for integer data types. So input
+// tensor is converted to float32 in case of integer input.
+
+// Metal issue for generation of incorrect outputs for integer inputs.
+// https://github.com/tenstorrent/tt-mlir/issues/1979
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(
+    RankedTensorType inputType) {
+  mlir::Type inputElementType = inputType.getElementType();
+  // DataType dataType = elementTypeToDataType(inputElementType);
+  TTNNOperandWorkarounds typeWorkaround =
+      isa<IntegerType>(inputElementType)
+          ? TTNNOperandWorkarounds(DataType::Float32)
+          : TTNNOperandWorkarounds();
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkaround)
+      .addInputOperandWorkaround(typeWorkaround)
+      .addOutputOperandWorkaround(typeWorkaround);
+}
+
 } // namespace mlir::tt::ttnn::wa

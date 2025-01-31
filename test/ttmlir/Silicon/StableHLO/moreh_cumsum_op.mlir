@@ -70,4 +70,43 @@ module @moreh_cumsum attributes {} {
     }) : (tensor<8x2x4x16xbf16>, tensor<bf16>) -> tensor<8x2x4x16xbf16>
     return %0 : tensor<8x2x4x16xbf16>
   }
+
+  func.func @test_moreh_cumsum_work_around(%arg0: tensor<1x10xi64>) -> tensor<1x10xi64> {
+    // CHECK-LABEL: func.func @test_moreh_cumsum_work_around(
+    %c = stablehlo.constant dense<0> : tensor<i64>
+    // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"
+    // CHECK-SAME: {shape = [1 : i32, 10 : i32, 1 : i32, 1 : i32]}
+    // CHECK-SAME: tensor<1x10xi32
+    // CHECK-SAME: -> tensor<1x10x1x1xi32
+    // CHECK: %[[EMPTY:[0-9]+]] = "ttnn.empty"
+    // CHECK-SAME: {dtype = #tt.supportedDataTypes<u32>
+    // CHECK-SAME: -> tensor<1x10x1x1xi32
+    // CHECK: %[[ARG0:[0-9]+]] = "ttnn.typecast"(%[[RESHAPE]])
+    // CHECK-SAME: {dtype = #tt.supportedDataTypes<f32>}
+    // CHECK-SAME: tensor<1x10x1x1xi32
+    // CHECK-SAME: -> tensor<1x10x1x1xf32
+    // CHECK: %[[ARG1:[0-9]+]] = "ttnn.typecast"(%[[EMPTY]])
+    // CHECK-SAME: {dtype = #tt.supportedDataTypes<f32>}
+    // CHECK-SAME: tensor<1x10x1x1xi32
+    // CHECK-SAME: -> tensor<1x10x1x1xf32
+    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"(%[[ARG0]], %[[ARG1]])
+    // CHECK-SAME: <{dim = 1 : i64}>
+    // CHECK-SAME: tensor<1x10x1x1xf32
+    // CHECK-SAME: tensor<1x10x1x1xf32
+    // CHECK-SAME: -> tensor<1x10x1x1xf32
+    // CHECK: %[[TYPECAST:[0-9]+]] = "ttnn.typecast"(%[[CUMSUM]])
+    // CHECK-SAME: {dtype = #tt.supportedDataTypes<u32>}
+    // CHECK-SMAE: tensor<1x10x1x1xf32
+    // CHECK-SAME: -> tensor<1x10x1x1xi32
+    // CHECK: "ttnn.reshape"(%[[TYPECAST]])
+    // CHECK-SAME: <{shape = [1 : i32, 10 : i32]}>
+    // CHECK-SAME: tensor<1x10x1x1xi32
+    // CHECK-SAME: -> tensor<1x10xi32
+    %0 = "stablehlo.reduce_window"(%arg0, %c) <{padding = dense<[[0, 0], [9, 0]]> : tensor<2x2xi64>, window_dilations = array<i64: 1, 1>, window_dimensions = array<i64: 1, 10>, window_strides = array<i64: 1, 1>}> ({
+    ^bb0(%arg1: tensor<i64>, %arg2: tensor<i64>):
+      %1 = stablehlo.add %arg1, %arg2 : tensor<i64>
+      stablehlo.return %1 : tensor<i64>
+    }) : (tensor<1x10xi64>, tensor<i64>) -> tensor<1x10xi64>
+    return %0 : tensor<1x10xi64>
+  }
 }
