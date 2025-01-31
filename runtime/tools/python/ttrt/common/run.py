@@ -204,6 +204,13 @@ class Run:
             help="check for memory leaks (use in conjunction with --memory)",
         )
         Run.register_arg(
+            name="--disable-eth-dispatch",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable putting dispatch on ethernet cores - place it on worker cores instead",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -407,8 +414,15 @@ class Run:
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
+            dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
+
+            if self["--disable-eth-dispatch"]:
+                dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
+
             device = ttrt.runtime.open_device(
-                self.query.device_ids, enable_async_ttnn=self["--enable-async-ttnn"]
+                self.query.device_ids,
+                dispatch_core_type=dispatch_core_type,
+                enable_async_ttnn=self["--enable-async-ttnn"],
             )
 
             callback_runtime_config = CallbackRuntimeConfig(
