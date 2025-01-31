@@ -352,11 +352,6 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                 DeviceRuntime::TTNN);
 }
 
-size_t getSize(Tensor tensor) {
-  const ::ttnn::Tensor &runtimeTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  return runtimeTensor.volume() * runtimeTensor.element_size();
-}
-
 void memcpy(void *dst, Tensor src) {
   const ::ttnn::Tensor &srcTensor = src.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
   if (utils::isOnHost(srcTensor.storage_type())) {

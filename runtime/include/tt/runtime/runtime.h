@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "tt/runtime/types.h"
+#include "tt/runtime/detail/ttnn.h"
 
 namespace tt::runtime {
 
@@ -80,6 +81,11 @@ inline Tensor createTensor(Device device, Layout layout,
                                      desc.itemsize);
 }
 
+inline size_t getSize(Tensor tensor) {
+  const ::ttnn::Tensor &runtimeTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  return runtimeTensor.volume() * runtimeTensor.element_size();
+}
+
 tt::target::DataType getTensorDataType(Tensor tensor);
 
 size_t getNumAvailableDevices();
@@ -103,8 +109,6 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
-
-size_t getSize(Tensor tensor);
 
 void memcpy(void *dst, Tensor src);
 
