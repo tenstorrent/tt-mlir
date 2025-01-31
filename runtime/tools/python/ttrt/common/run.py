@@ -392,9 +392,7 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            debug_env = ttrt.runtime.DebugEnv.get(
-                self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
-            )
+            debug_env = ttrt.runtime.DebugEnv.get(self["--load-kernels-from-disk"])
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-maxpool2d-preshard"],
@@ -409,7 +407,9 @@ class Run:
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
-            device = ttrt.runtime.open_device(self.query.device_ids)
+            device = ttrt.runtime.open_device(
+                self.query.device_ids, enable_async_ttnn=self["--enable-async-ttnn"]
+            )
 
             callback_runtime_config = CallbackRuntimeConfig(
                 device,
