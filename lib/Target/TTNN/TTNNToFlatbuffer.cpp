@@ -35,6 +35,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <mlir/IR/BuiltinTypes.h>
 #include <optional>
 
 namespace mlir::tt {
@@ -115,8 +116,7 @@ flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
       toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
   return ::tt::target::CreateLayoutDescDirect(
       *cache.fbb, &stride, toFlatbuffer(cache, OOBVal::Undef), &coreRangeSet,
-      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
-                        layoutAttr.getMemLayout()));
+      memrefAttrToFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getMemLayout()));
 }
 } // namespace mlir::tt
 
@@ -330,11 +330,41 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
 
+
+  // auto layout = llvm::dyn_cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
+  // if (layout.getMemLayout().getValue() == ttnn::TensorMemoryLayout::HeightSharded) {
+  //   auto v = getOperandThroughDPSOps(op.getResult());
+  //   v.dump();
+  //   auto tensor = llvm::dyn_cast<RankedTensorType>(v.getType());
+  //   auto dpsLayout = llvm::dyn_cast<TTNNLayoutAttr>(tensor.getEncoding());
+  // }
+
+
+
+  // auto dbglayout = llvm::dyn_cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
+  // if (dbglayout.getMemLayout().getValue() == ttnn::TensorMemoryLayout::HeightSharded) {
+  //   llvm::errs() << "HeightSharded\n";
+  //   op.dump();
+  // }
+
   uint32_t numShards = 1;
   auto strategy = createDistributionStrategy(
       cache, op.getDevice(), mlir::cast<RankedTensorType>(op.getType()),
       numShards);
   auto output = getOperandThroughDPSOps(op.getResult());
+
+
+  auto tensor = llvm::dyn_cast<RankedTensorType>(output.getType());
+  auto dpsLayout = llvm::dyn_cast<TTNNLayoutAttr>(tensor.getEncoding());
+
+  if (dpsLayout.getMemLayout().getValue() == ttnn::TensorMemoryLayout::HeightSharded) {
+    llvm::errs() << "HeightSharded\n";
+    op.dump();
+    llvm::errs() << "Output\n";
+    output.dump();
+    llvm::errs() << "Tensor\n";
+    tensor.dump();
+  }
 
   auto device = getOperandThroughDPSOps(op.getDevice());
 
@@ -440,6 +470,32 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getB()));
   auto output = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
+
+  auto layout = llvm::dyn_cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
+  if (layout.getMemLayout().getValue() == ttnn::TensorMemoryLayout::HeightSharded) {
+    auto v = getOperandThroughDPSOps(op.getResult());
+    v.dump();
+    auto tensor = llvm::dyn_cast<RankedTensorType>(v.getType());
+    auto dpsLayout = llvm::dyn_cast<TTNNLayoutAttr>(tensor.getEncoding());
+    llvm::outs() << "MatmulOp with HeightSharded layout is not supported\n";
+    llvm::outs() << "Output tensor layout: " << dpsLayout.getMemLayout() << "\n";
+
+    llvm::outs() << "OFFSET: " << output.o << "\n";
+    llvm::outs() << "\n";
+
+
+    
+    FlatbufferObjectCache testCache(cache.fbb);
+    assert(cache.exists(v));
+    assert(not testCache.exists(v));
+    // ::flatbuffers::Offset<::tt::target::TensorRef> ftensor = tensorValueToFlatbuffer(testCache, v, 0, 0);
+    // output = ftensor;
+
+    // Print tensor layout
+    // llvm::outs() << "Output tensor layout: " << ftensor.desc()->layout()->memory_desc() << "\n";
+    
+  }
+
   return ::tt::target::ttnn::CreateMatmulOp(*cache.fbb, in0, in1, output);
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary

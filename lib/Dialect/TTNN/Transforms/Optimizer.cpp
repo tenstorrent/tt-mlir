@@ -5,12 +5,17 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/Value.h>
+#include <mlir/IR/Visitors.h>
 
 namespace mlir::tt::ttnn {
 
@@ -155,6 +160,10 @@ public:
 
     ModuleOp moduleOp = getOperation();
 
+    // Dump the whole IR to a "pre_optimzier.mlir" file.
+    //
+    utils::irToFile(moduleOp, "pre_optimizer.mlir");
+  
     // Get the max grid size from the system description.
     //
     assert(moduleOp->hasAttr(tt::DeviceAttr::name));
@@ -192,6 +201,7 @@ public:
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
     std::unordered_set<Edge> memReconfigEdges;
+    std::vector<Operation *> spillToDramOps;
     if (memoryLayoutAnalysisEnabled) {
       // Extract override resharding edges
       //
@@ -208,6 +218,7 @@ public:
       legalLayouts = memoryLayoutAnalysis.getResult().legalLayouts;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;
+      spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
     }
 
     // Pick optimal op configuration.
@@ -330,6 +341,8 @@ public:
         processMemReconfigEdges(memReconfigEdges);
       }
 
+      processSpillOps(spillToDramOps);
+
       // Update the function type to reflect the updated return operation's
       // result types.
       //
@@ -338,6 +351,11 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+
+
+    // Dump the whole IR to a "post_optimzier.mlir" file.
+    //
+    utils::irToFile(moduleOp, "post_optimizer.mlir");
   }
 
 private:
@@ -440,6 +458,11 @@ private:
       TTNNLayoutAttr producerOpLayout =
           mlir::cast<TTNNLayoutAttr>(producerOpTensorType.getEncoding());
 
+      llvm::outs() << "Producer Op: " << producerOp->getName() << "\n";
+      producerOp->dump();
+      llvm::outs() << "Consumer Op: " << consumerOp->getName() << "\n";
+      consumerOp->dump();
+
       // TODO(nobradovic): Match memory space and layout of consumer op.
       // This actually needs to be properly resolved based on op type, output
       // layout and other inputs.
@@ -492,9 +515,78 @@ private:
             outputLayout, outputDataType, outputMemConfigAttr,
             getDeviceOpValue(consumerOp));
 
+        llvm::outs() << "Memory Reconfig Op: " << memoryReconfigOp->getName()
+                     << "\n";
+        memoryReconfigOp->dump();
+
+        utils::irToFile(producerOp->getParentOfType<ModuleOp>(), "post_optimizer_pre_error.mlir");
+
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
       }
+    }
+  }
+
+  void processSpillOps(const std::vector<Operation *> &spillToDramOps) {
+    for (Operation *op : spillToDramOps) {
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+      TTNNLayoutAttr layoutAttr =
+          mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+      // Create a new tensor type with DRAM layout.
+      TTNNLayoutAttr dramLayoutAttr = layoutAttr.withBufferType(
+          op->getContext(), BufferType::DRAM)
+          .withMemoryLayout(op->getContext(), TensorMemoryLayout::Interleaved);
+      RankedTensorType newTensorType = RankedTensorType::get(
+          tensorShape, tensorType.getElementType(), dramLayoutAttr);
+
+      // Create a ToLayoutOp with the new DRAM layout.
+      OpBuilder builder(op->getContext());
+      DataTypeAttr dataTypeAttr = DataTypeAttr::get(
+          op->getContext(), dramLayoutAttr.getDataType());
+      Layout layoutEnum = dramLayoutAttr.getLayout();
+      LayoutAttr layout = LayoutAttr::get(op->getContext(), layoutEnum);
+      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+          op->getContext(),
+          BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+          ShardSpecAttr::get(
+              op->getContext(),
+              ShapeAttr::get(op->getContext(), dramLayoutAttr.getShardShape())),
+          dramLayoutAttr.getMemLayout());
+
+
+      builder.setInsertionPointAfter(op);
+      Operation *toLayoutOp = builder.create<ToLayoutOp>(
+          op->getLoc(), newTensorType, op->getResult(0), layout, dataTypeAttr,
+          memConfigAttr, getDeviceOpValue(op));
+
+      llvm::outs() << "Spill Op: " << op->getName() << "\n";
+      toLayoutOp->dump();
+
+      utils::irToFile(op->getParentOfType<ModuleOp>(), "pre_use_error.mlir");
+
+      // print all uses:
+      for (auto &use : op->getResult(0).getUses()) {
+        llvm::outs() << "use: " << use.getOwner()->getName() << "\n";
+        use.getOwner()->dump();
+        if (use.getOwner() != toLayoutOp) {
+          llvm::outs() << "replacing use\n";
+          use.getOwner()->setOperand(use.getOperandNumber(),
+                                     toLayoutOp->getResult(0));
+          llvm::outs() << "use replaced\n";
+              // use.set(toLayoutOp->getResult(0));
+        }
+      }
+
+      // Update all consumers to use the new ToLayoutOp result.
+      // op->getResult(0).replaceAllUsesExcept(toLayoutOp->getResult(0), toLayoutOp);
+      // for (auto &use : op->getResult(0).getUses()) {
+      //   if (use.getOwner() != toLayoutOp) {
+      //     use.set(toLayoutOp->getResult(0));
+      //   }
+      // }
     }
   }
 };

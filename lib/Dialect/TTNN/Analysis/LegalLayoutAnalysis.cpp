@@ -35,6 +35,7 @@ bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
     RankedTensorType tensorType =
         mlir::cast<RankedTensorType>(op->getResult(0).getType());
     llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+    // TODO(odjuricic): Does this return the same shape as metal does for 3 and 4d tensors?
     llvm::SmallVector<int64_t, 2> tiledShape =
         layout.getTiledShape(tensorShape);
     llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
@@ -47,6 +48,11 @@ bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
       // Could also experiment with tiledShape[i] % gridShape[i] == 0, but need
       // more context.
       if (tiledShape[i] < gridShape[i]) {
+        return false;
+      }
+
+      // Exact number of cores...
+      if (tiledShape[i] % gridShape[i] != 0) {
         return false;
       }
     }
@@ -319,7 +325,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
   analysisResult.insert(
       analysisResult.end(), shardedResults.begin(),
       shardedResults.begin() +
-          std::min(analysisInput.maxShardedGrids,
+          std::min(analysisInput.maxShardedLayouts,
                    static_cast<int64_t>(shardedResults.size())));
 
   // Apply partial layout overrides. Remove layouts that conflict with at least

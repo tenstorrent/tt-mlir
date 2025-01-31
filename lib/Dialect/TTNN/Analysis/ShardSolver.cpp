@@ -5,9 +5,12 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include <llvm/Support/Casting.h>
+#include <llvm/Support/raw_ostream.h>
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <mlir/Support/LLVM.h>
 #include <unordered_set>
+#include <utility>
 
 namespace mlir::tt::ttnn {
 
@@ -92,6 +95,7 @@ bool ShardSolver::resolveStep() {
       assert(not(consumerLayouts.empty() && producerLayouts.empty()));
 
       PathSet::Paths paths;
+      std::unordered_map<std::string, int> errorCount;
       Bitset edgeProducerBitset = kBitsetNone;
       Bitset edgeConsumerBitset = kBitsetNone;
       std::uint64_t producer_count =
@@ -120,10 +124,16 @@ bool ShardSolver::resolveStep() {
           // Update checkShardCompatible with op type, other input
           // spec(weight).
           //
-          bool validShardPair =
-              reshardOnEdge ||
+          auto [validShardPair, error] =
               checkShardCompatible(producerOp, producerLayouts[producerId],
                                    consumerOp, consumerLayouts[consumerId]);
+          if (!errorCount.count(error)) {
+            errorCount.insert({error, 0});
+          }
+          errorCount[error]++;
+
+          validShardPair = validShardPair || reshardOnEdge;
+
 
           if (validShardPair) {
             assert(producerId <=
@@ -137,11 +147,30 @@ bool ShardSolver::resolveStep() {
         }
       }
 
+      // IF this is totaly empty, of if just dram is left, we need to split the chain in order not to discard sharded configurations.
+      // After the split, we should rerun the solver on individual chains.
+      // Maybe even do this in legal layout analysis, try all inputs and outputs and discard legality of layouts based on that.
+      // Then create chains based on ops having legal layouts.
+      // TODO: ALSO NEED TO RUN CHECK WHEN RESHARD EDGE IS INSERTED to see which input is legal.
+      if (paths.empty()) {
+        llvm::outs() << "\n\nNov valid solution for edge: ";
+        llvm::outs() << "Producer Op: " << producerOp->getName() << "\n";
+        producerOp->dump();
+        llvm::outs() << "Consumer Op: " << consumerOp->getName() << "\n";
+        consumerOp->dump();
+        llvm::outs() << "Error counts:\n";
+        for (const auto &error : errorCount) {
+          llvm::outs() << error.first.substr(80, 250) << ": " << error.second << "\n";
+        }
+
+      }
+
       if (paths.empty() || ((*producerBitset & edgeProducerBitset) == 0) ||
           ((*consumerBitset & edgeConsumerBitset) == 0)) {
 
         // No valid paths found for this edge, mark it for resharding.
         //
+
         insertReshard(edge);
         reshardInserted = true;
         *consumerBitset = kBitsetAll;
@@ -177,6 +206,8 @@ bool ShardSolver::resolveStep() {
     updateSolver(op, false /* expand_root */);
   }
 
+  postprocessLastOp();
+
   return true;
 }
 
@@ -184,7 +215,16 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op) {
   // TODO(nobradovic,mbezulj): Add check whether this op type can have sharded
   // output from interleaved inputs. For now assuming it can.
   //
-  return true;
+  //TODO add constraint chech or false
+  return false;
+}
+
+bool ShardSolver::supportsShardedInputInterleavedOutput(Operation *op) {
+  // TODO(nobradovic,mbezulj): Add check whether this op type can have sharded
+  // output from interleaved inputs. For now assuming it can.
+  //
+  //TODO add constraint chech or false
+  return false;
 }
 
 // We need to check if first op requires sharded inputs and if so, insert
@@ -192,6 +232,7 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op) {
 // size limits.
 //
 void ShardSolver::preprocessFirstOp() {
+  // Add constraint check
   Operation *firstOp = shardSpecs->front().op;
   if (supportsInterleavedInputShardedOutput(firstOp) &&
       memReconfigEdges.count(
@@ -224,7 +265,7 @@ void ShardSolver::preprocessFirstOp() {
     }
 
     TTNNLayoutAttr firstOpLayout = firstOpLayouts[i];
-    assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
+    // assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
     TTNNLayoutAttr firstOpInputShardedLayout =
         firstOpInputLayout
@@ -247,6 +288,21 @@ void ShardSolver::preprocessFirstOp() {
       firstOpBitset->reset(i);
     }
   }
+}
+
+// Check if we can go from a sharded layout to dram. If not add mem reconfig edge.
+void ShardSolver::postprocessLastOp() {
+  // Add constraint check
+
+  // Operation *lastOp = shardSpecs->back().op;
+  // if (not supportsShardedInputInterleavedOutput(lastOp) ||
+  //     memReconfigEdges.count(
+  //         OutputEdge(lastOp)) == 0) {
+      
+  //     memReconfigEdges.insert(
+  //         OutputEdge(lastOp));
+
+  // }
 }
 
 void ShardSolver::insertReshard(const Edge &edge) {
@@ -505,22 +561,30 @@ void ShardSolver::set(Operation *op, TTNNLayoutAttr const &layout) {
   updateSolver(op, true /*expand_root*/, true /*invokedBySet*/);
 }
 
-bool ShardSolver::checkShardCompatible(
+std::pair<bool, std::string> ShardSolver::checkShardCompatible(
     Operation *producerOp, TTNNLayoutAttr const &producerLayout,
     Operation *consumerOp, TTNNLayoutAttr const &consumerLayout) const {
 
   // Custom(test) hook for shard compatibility check.
   //
   if (customCheckShardCompatible) {
-    return customCheckShardCompatible(producerOp, producerLayout, consumerOp,
-                                      consumerLayout);
+    return std::make_pair(customCheckShardCompatible(producerOp, producerLayout, consumerOp,
+                                      consumerLayout), "Custom check failed.");
   }
-
-  // TEMP : Dummy mock implementation, will be replaced.
+  // Figure out this const based on exec data, but will be replaced
+  // with API.
   //
+  constexpr float tensorL1UsageCap = 0.8;
 
-  if (OpModel backend = dyn_cast<OpModel>(consumerOp)) {
+  // HOW DOES THIS MANAGE TO CAST even tho it's not a implemented...
+  if (llvm::isa<OpModel>(consumerOp)) {
+    
 
+    // CAHNGE TO USE LARGEST SHARDED GIRD INSTEAD OF l1 interlaved!!!!
+
+    OpModel backend = dyn_cast<OpModel>(consumerOp);
+    // Constraints are implemented for this op.
+    //
     auto deviceAttr = mlir::tt::getCurrentScopeDevice(producerOp);
     assert(deviceAttr);
     auto workerGrid = deviceAttr.getWorkerGrid();
@@ -533,37 +597,60 @@ bool ShardSolver::checkShardCompatible(
 
     // Some ops have multiple operands; and some ops have output also an
     // operand. TBD if there is a more robust way to get real number of inputs.
-    // TODO(odjuricic): cast to DPSop?
-    numOperands = (numOperands > 1) ? numOperands - 1 : numOperands;
+    // TODO(odjuricic): Do we want to remove the last operand or should we use
+    // DPS?
+    if (llvm::isa<DestinationStyleOpInterface>(consumerOp)) {
+      numOperands = numOperands - 1;
+    }
+
+    if (numOperands > 2) {
+      consumerOp->emitError(
+          "Ops with more than 2 operands are not supported in Optimizer");
+      assert(false &&
+            "Ops with more than 2 operands are not supported in Optimizer");
+    }
+
     std::vector<TTNNLayoutAttr> inputLayouts;
 
-    auto inputUnderCheck =
-        mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
-    bool inputUnderCheckFound = false;
+    // // Assert that the first operand is the input under check.
+    // llvm::outs()<<"producerOp: "<<producerOp->getName()<<"\n";
+    // producerOp->dump();
+    // llvm::outs()<<"consumerOp: "<<consumerOp->getName()<<"\n";
+    // consumerOp->dump();
 
-    for (uint32_t i = 0; i < numOperands; i++) {
+    // // Print all producerOp operands
+    // for (uint32_t i = 0; i < producerOp->getNumOperands(); i++) {
+    //   llvm::outs()<<"producerOp->getOperand("<<i<<"): "<<producerOp->getOperand(i).getDefiningOp()->getName()<<"\n";
+    //   producerOp->getOperand(i).getDefiningOp()->dump();
+    // }
+
+    // assert(producerOp->getOperand(0).getDefiningOp() == consumerOp &&
+    //        "Only first operand can be in a shard chain.");
+
+    inputLayouts.push_back(producerLayout);
+
+    for (uint32_t i = 1; i < numOperands; i++) {
       auto operand = consumerOp->getOperand(i);
       auto input = mlir::cast<RankedTensorType>(operand.getType());
 
-      if ((inputUnderCheckFound == false) &&
-          (inputUnderCheck.getShape() == input.getShape())) {
-        // this is the input we are checking compatibility for
-        inputUnderCheckFound = true;
-        inputLayouts.push_back(producerLayout);
-      } else {
-        // this is the other input that we DRAM interleave
+      // this is the other input that we DRAM interleave
+      // TODO just use the input as is? and assert DRAM?
+      // Or fetch dram option for this op? This cannot be done now since we
+      // don't pass dram configs into solver.
 
-        // what if it is tilized already?
-        auto elementType =
+      auto elementType = input.getElementType();
+      if (!llvm::isa<TileType>(elementType)) {
+        // TODO(odjuricic): Do we need this? Jackson new change.
+        elementType =
             TileType::get(consumerOp->getContext(), input.getElementType());
-
-        auto layout = TTNNLayoutAttr::get(
-            consumerOp->getContext(), input.getShape(), elementType,
-            BufferType::DRAM, workerGrid,
-            TensorMemoryLayoutAttr::get(consumerOp->getContext(),
-                                        TensorMemoryLayout::Interleaved));
-        inputLayouts.push_back(layout);
       }
+
+      auto layout = TTNNLayoutAttr::get(
+          consumerOp->getContext(), input.getShape(), elementType,
+          BufferType::DRAM, workerGrid,
+          TensorMemoryLayoutAttr::get(consumerOp->getContext(),
+                                      TensorMemoryLayout::Interleaved));
+      inputLayouts.push_back(layout);
     }
 
     auto [legal, l1Usage, errorMsg] =
@@ -579,7 +666,7 @@ bool ShardSolver::checkShardCompatible(
         producerLayout.dump();
         consumerLayout.dump();
       }
-      return false;
+      return std::make_pair(false, errorMsg.value());
     }
     if (debug) {
       llvm::errs() << "OpModel constraints valid. ";
@@ -588,48 +675,71 @@ bool ShardSolver::checkShardCompatible(
       producerLayout.dump();
       consumerLayout.dump();
     }
-  }
 
-  // May need to fetch other inputs for consumerOp(weights/join node).
-  //
+    // What will output tensor usage be if op is DPS?
+    // For now, no op here is DPS.
+    // Can we get input tensor as well? Then we don't need to calculate on our
+    // side.
+    auto [cBUsagePeak, tensorUsage, outputTensorUsage] = l1Usage.value();
 
-  // Need to plug shard checking API.
-  //
-
-  // Need to plug API for L1 usage.
-  //
-  // Calculate L1 tensor memory usage based on :
-  // currentOp output tensor shard spec, nextOp exec and nextOp output
-  // tensor.
-  //
-  assert(producerLayout.hasShardedL1TensorMemoryLayout() &&
-         consumerLayout.hasShardedL1TensorMemoryLayout());
-
-  // Perform L1 usage check only if deviceAttr is available.
-  //
-  if (deviceAttr) {
     RankedTensorType producerTensorType =
         mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
     uint64_t producerL1OutputUsage = producerLayout.getTensorSizeInBytes(
         producerTensorType.getShape(), deviceAttr);
 
-    RankedTensorType consumerTensorType =
-        mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType());
-    uint64_t consumerL1OutputUsage = consumerLayout.getTensorSizeInBytes(
-        consumerTensorType.getShape(), deviceAttr);
-    // Figure out this const based on exec data, but will be replaced
-    // with API.
+    // RankedTensorType consumerTensorType =
+    //     mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType());
+    // uint64_t consumerL1OutputUsage = consumerLayout.getTensorSizeInBytes(
+    //     consumerTensorType.getShape(), deviceAttr);
+
+    bool l1UsageValid = (producerL1OutputUsage + outputTensorUsage +
+                         cBUsagePeak) < tensorL1UsageCap * usableL1CacheSize;
+
+    if (!l1UsageValid) {
+      return std::make_pair(false, "Not enough L1 memory");
+    }
+
+  } else {
+    // Constraints are not implemented for this op. Use fallback.
+    // Shard compat assumption. Try to keep same shard layout.
     //
-    constexpr float tensorL1UsageCap = 0.8;
+    // TODO(odjurcic) Put this fallback under a flag.
+
+    if (producerLayout.getMemLayout() != consumerLayout.getMemLayout()) {
+      return std::make_pair(false, "FALLBACK: tensor memory layout mismatch");
+    }
+
+    // Calculate L1 tensor memory usage based on :
+    // currentOp output tensor shard spec, nextOp exec and nextOp output
+    // tensor.
+    //
+
+    uint64_t producerL1OutputUsage = 0;
+    if (producerLayout.hasL1BufferType()) {
+      RankedTensorType producerTensorType =
+          mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+      producerL1OutputUsage = producerLayout.getTensorSizeInBytes(
+          producerTensorType.getShape(), deviceAttr);
+    }
+
+    uint64_t consumerL1OutputUsage = 0;
+    if (consumerLayout.hasL1BufferType()) {
+      RankedTensorType consumerTensorType =
+          mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType());
+      consumerL1OutputUsage = consumerLayout.getTensorSizeInBytes(
+          consumerTensorType.getShape(), deviceAttr);
+    }
+
     bool l1UsageValid = (producerL1OutputUsage + consumerL1OutputUsage) <
                         tensorL1UsageCap * usableL1CacheSize;
 
     if (!l1UsageValid) {
-      return false;
+      return std::make_pair(false, "Not enough L1 memory");
     }
   }
 
-  return true;
+  // TODO Do we run constraints enable mnist sharding test in CI?
+  return std::make_pair(true, "");
 }
 
 // Preprocess ShardSolver search space to make a helper structure which links op
@@ -688,8 +798,13 @@ ShardSolver::produceMaxCoreUsage() {
     //
     for (size_t i = 0; i < layouts.size(); ++i) {
       TTNNLayoutAttr const &layout = layouts[i];
-      uint64_t coreUsage = layout.getGrid().getGridVolume();
-      accCoreUsage[op].push_back(coreUsage);
+      uint64_t score = layout.getGrid().getGridVolume();
+      if (layout.hasDRAMBufferType()) {
+        score = 0;
+      } else if (layout.hasInterleavedL1TensorMemoryLayout()) {
+        score = 1;
+      }
+      accCoreUsage[op].push_back(score);
     }
 
     // Add core usage of current op users via live path connections.

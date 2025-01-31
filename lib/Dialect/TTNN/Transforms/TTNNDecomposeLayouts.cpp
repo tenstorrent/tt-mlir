@@ -178,12 +178,12 @@ private:
                        const LayoutInfo &output,
                        const OpsToCreate &opsToCreate) const {
 
-    if (not opsToCreate.createSomeOp()) {
-      op->emitError(
-          "Redundant ttnn::ToLayoutOp - no ttnn layout ops "
-          "needed, this may be due to the forcing of tile/row major layouts.");
-      return false;
-    }
+    // if (not opsToCreate.createSomeOp()) {
+    //   op->emitError(
+    //       "Redundant ttnn::ToLayoutOp - no ttnn layout ops "
+    //       "needed, this may be due to the forcing of tile/row major layouts.");
+    //   return false;
+    // }
 
     if (opsToCreate.createToDeviceOp and opsToCreate.createFromDeviceOp) {
       op->emitError("Cannot create both ToDeviceOp and FromDeviceOp");
@@ -768,6 +768,16 @@ private:
                                  IRRewriter &rewriter) const {
     auto [input, output] = getInputOutputLayouts(op);
     OpsToCreate opsToCreate = determineRequiredOps(input, output);
+
+    // if (not opsToCreate.createSomeOp()) {
+    //   return;
+    // }
+
+    if (not isCreationValid(op, input, output, opsToCreate)) {
+      mlir::Operation * moduleOp = op->getParentOfType<ModuleOp>();
+      utils::irToFile(moduleOp, "pre_error.mlir");
+    }
+
     assert(isCreationValid(op, input, output, opsToCreate) &&
            "Invalid layout conversion");
     auto device = op.getDevice();

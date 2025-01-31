@@ -35,7 +35,7 @@ struct ShardSolverSolution {
 //
 class ShardSolver {
 private:
-  static constexpr size_t kNumBitsetBits = 64;
+  static constexpr size_t kNumBitsetBits = 256;
   using Bitset = std::bitset<kNumBitsetBits>;
   static Bitset kBitsetAll;
   static constexpr Bitset kBitsetNone = Bitset{};
@@ -276,10 +276,11 @@ private:
                            Operation *ignoreOp = nullptr);
 
   void preprocessFirstOp();
-  bool checkShardCompatible(Operation *producerOp,
-                            TTNNLayoutAttr const &producerLayout,
-                            Operation *consumerOp,
-                            TTNNLayoutAttr const &consumerLayout) const;
+  void postprocessLastOp();
+  static bool supportsShardedInputInterleavedOutput(Operation *op);
+  std::pair<bool, std::string> checkShardCompatible(
+      Operation *producerOp, TTNNLayoutAttr const &producerLayout,
+      Operation *consumerOp, TTNNLayoutAttr const &consumerLayout) const;
 
 public:
   ShardSolver(const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>

@@ -23,6 +23,11 @@ struct Edge {
   }
 };
 
+struct OutputEdge : public Edge {
+  OutputEdge(Operation *producerOp)
+      : Edge(producerOp, nullptr, 0) {}
+};
+
 } // namespace mlir::tt::ttnn
 
 namespace std {

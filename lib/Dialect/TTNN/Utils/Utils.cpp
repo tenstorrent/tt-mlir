@@ -153,4 +153,18 @@ Type getElementType(MLIRContext *context, Layout tensorLayout,
              : ttnn::utils::createRowMajorTypeFromDtype(context, dataType);
 }
 
+// Save the IR to a file for debugging.
+void irToFile(mlir::Operation *op, std::string filename) {
+  OpPrintingFlags printFlags;
+  printFlags = printFlags.enableDebugInfo();
+
+  std::error_code ec;
+  llvm::raw_fd_ostream file(filename, ec);
+  if (ec) {
+    llvm::errs() << "Error opening file: " << ec.message() << "\n";
+    return;
+  }
+  op->print(file, printFlags);
+}
+
 } // namespace mlir::tt::ttnn::utils

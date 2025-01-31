@@ -18,6 +18,7 @@ bool MemoryLayoutAnalysis::applyOverrides() {
   return false;
 }
 
+// TODO not sharded anymore
 llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
 filterShardedOnly(const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
                       &legalLayouts) {
@@ -25,8 +26,10 @@ filterShardedOnly(const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
   for (const auto &opLayouts : legalLayouts) {
     std::vector<TTNNLayoutAttr> opShardedLayouts;
     for (const auto &layout : opLayouts.second) {
-      if (layout.hasShardedL1TensorMemoryLayout()) {
-        opShardedLayouts.push_back(layout);
+      if (layout.hasL1BufferType() or layout.hasDRAMBufferType()) {
+        if (not layout.hasInterleavedL1TensorMemoryLayout()) {
+          opShardedLayouts.push_back(layout);
+        }
       }
     }
 
@@ -103,6 +106,10 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     analysisResult.memReconfigEdges.insert(
         l1ChainConfig.getMemReconfigEdges().begin(),
         l1ChainConfig.getMemReconfigEdges().end());
+    
+    if (l1ChainConfig.shouldSpillEndToDRAM()) {
+      analysisResult.spillToDramOps.push_back(l1ChainConfig.getLastOp());
+    }
   }
 }
 } // namespace mlir::tt::ttnn

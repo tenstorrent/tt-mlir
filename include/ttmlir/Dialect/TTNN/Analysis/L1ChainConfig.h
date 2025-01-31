@@ -40,6 +40,7 @@ private:
   llvm::DenseSet<Operation *> l1ChainedOps;
   std::unordered_set<Edge> memReconfigEdges;
   L1ChainState state = L1ChainState::InBuild;
+  bool spillEndToDRAM = false;
 
 public:
   L1ChainConfig() : opL1MemSpecs(), state() {}
@@ -72,6 +73,14 @@ public:
 
   uint64_t size() const { return opL1MemSpecs.size(); }
   void merge(L1ChainConfig &other);
+
+  Operation *getLastOp() const {
+    assert(!opL1MemSpecs.empty());
+    return opL1MemSpecs.back().op;
+  }
+
+  void setSpillEndToDRAM(bool spill) { spillEndToDRAM = spill; }
+  bool shouldSpillEndToDRAM() const { return spillEndToDRAM; }
 };
 
 } // namespace mlir::tt::ttnn

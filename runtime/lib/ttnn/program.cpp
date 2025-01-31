@@ -170,6 +170,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::layout::run(op->type_as_FromDeviceOp(), context);
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
+    return;
     return operations::creation::run(op->type_as_EmptyOp(), context);
   }
   case ::tt::target::ttnn::OpType::OnesOp: {

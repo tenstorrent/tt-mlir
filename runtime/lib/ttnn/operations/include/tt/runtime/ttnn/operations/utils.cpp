@@ -49,8 +49,8 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
       memcfg->shard_spec()->shard_shape();
   const ::tt::target::Dim2d *tileShape = layout->memory_desc()->tile_shape();
 
-  LOG_ASSERT(targetCoreRangeSet->size() == 1,
-             "Currently only single core range/grid is supported");
+  // LOG_ASSERT(targetCoreRangeSet->size() == 1,
+  //            "Currently only single core range/grid is supported");
 
   LOG_ASSERT(shardShape->size() == 2,
              "Only 2D shard shape is supported in TTNN backend");

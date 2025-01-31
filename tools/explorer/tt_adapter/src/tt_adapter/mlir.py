@@ -305,14 +305,15 @@ def parse_memory_config(attr):
             value="x".join(map(str, memory_config.shard_spec.shard_shape.shape)),
         )
     )
-    result.append(
-        graph_builder.KeyValue(
-            key="tensor-memory-layout",
-            value=str(
-                ttnn.TensorMemoryLayout(memory_config.tensor_memory_layout.value)
+    
+    memory_layout = memory_config.tensor_memory_layout_as_int
+    if memory_layout is not None:
+        result.append(
+            graph_builder.KeyValue(
+                key="tensor_memory_layout",
+                value=str(ttnn.TensorMemoryLayout(memory_layout)),
             ),
         )
-    )
     return result
 
 
@@ -324,6 +325,8 @@ def parse_force(attr):
 @AttrHandler.register_handler("dtype")
 def parse_dtype(attr):
     dtype = tt.ir.DataTypeAttr.maybe_downcast(attr)
+    if not dtype:
+        return [graph_builder.KeyValue(key="dtype", value=str(attr))]
     return [
         graph_builder.KeyValue(
             key="dtype", value=str(tt.DataType(dtype.data_type_as_int))
@@ -408,16 +411,16 @@ def parse_ttnn_ttnn_layout(attr):
                     "input_type": "value_list",
                     "options": [str(o) for o in ttnn.TensorMemoryLayout],
                 },
-            )
+            ) 
         )
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
-                key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
+                key="grid_shape", value=",".join(map(str, layout.grid_attr.shape))
             ),
             editable={
                 "input_type": "grid",
-                "separator": "x",
+                "separator": ",",
                 "min_value": 1,
                 "max_value": 100,
                 "step": 1,
@@ -583,7 +586,6 @@ def build_graph(module, perf_trace=None):
     if perf_trace is not None:
         for _, row in perf_trace.iterrows():
             loc = parse_loc_string(row["LOC"])
-            assert loc not in loc_to_perf
             if loc:
                 loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
 
@@ -689,6 +691,9 @@ def build_graph(module, perf_trace=None):
                                     graph_builder.KeyValue(
                                         key="__tensor_tag", value=target_node.label
                                     ),
+                                    graph_builder.KeyValue(
+                                        key="shape", value=str(operand.type.shape if hasattr(operand.type, "shape") else [])
+                                    ),
                                 ]
                                 + output_attrs,
                             )
@@ -697,17 +702,42 @@ def build_graph(module, perf_trace=None):
 
     # Add performance data to the graph color overlay, if it exists
     overlay_data = None
-    if perf_node_data:
-        gradient = [
-            node_data_builder.GradientItem(stop=0, bgColor="yellow"),
-            node_data_builder.GradientItem(stop=1, bgColor="red"),
-        ]
-        graph_node_data = node_data_builder.GraphNodeData(
-            results=perf_node_data, gradient=gradient
-        )
-        overlay_data = node_data_builder.ModelNodeData(
-            graphsData={"tt-graph": graph_node_data}
-        )
+    # if perf_node_data:
+    #     gradient = [
+    #         node_data_builder.GradientItem(stop=0, bgColor="yellow"),
+    #         node_data_builder.GradientItem(stop=1, bgColor="red"),
+    #     ]
+    #     graph_node_data = node_data_builder.GraphNodeData(
+    #         results=perf_node_data, gradient=gradient
+    #     )
+    #     overlay_data = node_data_builder.ModelNodeData(
+    #         graphsData={"tt-graph": graph_node_data}
+    #     )
+
+
+
+    gradient = [
+        node_data_builder.GradientItem(stop=0, bgColor="yellow"),
+        node_data_builder.GradientItem(stop=1, bgColor="red"),
+    ]
+
+    
+    sharded_nodes = {}
+    for op in op_to_graph_node.values():
+        for attr in op.attrs:
+            if attr.key == 'buffer_type' and attr.value == str(ttnn.BufferType.L1):
+                sharded_nodes[op.id] = node_data_builder.NodeDataResult(1, bgColor="blue")
+                break
+
+    print("SHADED NODES", sharded_nodes)
+
+    graph_node_data = node_data_builder.GraphNodeData(
+        results=sharded_nodes, gradient=gradient
+    )
+    overlay_data = node_data_builder.ModelNodeData(
+        graphsData={"tt-graph": graph_node_data}
+    )
+    
 
     graph.groupNodeAttributes = group_node_attrs
     return graph, overlay_data
