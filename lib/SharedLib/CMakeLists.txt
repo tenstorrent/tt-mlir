@@ -68,14 +68,14 @@ endif()
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
 
-add_library(TTMLIR SHARED empty.cpp)
+add_library(TTMLIRRuntime SHARED empty.cpp)
 add_library(TTMLIRCompiler SHARED empty.cpp)
 
 add_dependencies(TTMLIRCompiler
     ${TTMLIR_LIBS}
 )
 
-add_dependencies(TTMLIR
+add_dependencies(TTMLIRRuntime
     TTMLIRCompiler
     ${TTNN_RUNTIME_LIBS}
     ${TTNN_LIBS}
