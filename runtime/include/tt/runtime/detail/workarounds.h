@@ -17,12 +17,12 @@ struct Env {
 #endif
   get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
-      bool toDtypeOnHost = true)
+      bool toDtypeOnHost = true, bool defaultStrideComputation = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true);
+    return Env(true, true, true, true, true);
   }
 #endif
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
@@ -45,14 +45,23 @@ struct Env {
   // to handle this, we should remove this workaround.
   bool toDtypeOnHost;
 
+  // TODO(bug #2045): Our current stride calculation is incorrect for tilized
+  // tensors. The current solution is to remove stride entirely from the
+  // flatbuffer and calculate the stride in runtime assuming using the default
+  // method ignoring details like grid, layout etc. Once we have a more
+  // sophisticated way for handling this, we can remove this workaround.
+  bool defaultStrideComputation;
+
 private:
   constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
-                bool readUpdateIndexFromDeviceForKVCache, bool toDtypeOnHost)
+                bool readUpdateIndexFromDeviceForKVCache, bool toDtypeOnHost,
+                bool defaultStrideComputation)
       : maxpool2dPreshard(maxpool2dPreshard),
         swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        toDtypeOnHost(toDtypeOnHost) {}
+        toDtypeOnHost(toDtypeOnHost),
+        defaultStrideComputation(defaultStrideComputation) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -66,6 +75,8 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << env.readUpdateIndexFromDeviceForKVCache << "\n";
   os << "\t"
      << "toDtypeOnHost: " << env.toDtypeOnHost << "\n";
+  os << "\t"
+     << "defaultStrideComputation: " << env.defaultStrideComputation << "\n";
   os << "}";
   return os;
 }

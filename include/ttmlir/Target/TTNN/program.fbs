@@ -140,7 +140,8 @@ enum EltwiseOpType: uint32 {
   LeakyRelu,
   Scatter,
   Tan,
-  Tanh
+  Tanh,
+  Power
 }
 
 table ClampOpParams {
