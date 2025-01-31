@@ -482,6 +482,7 @@ union OpType {
   UpsampleOp,
   PadOp,
   CpuOp,
+  ConstantOp,
 }
 
 table Operation {

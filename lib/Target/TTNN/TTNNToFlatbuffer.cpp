@@ -744,11 +744,10 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
 
-  auto value = cache.fbb->CreateVector(std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t *>(op.getValue().getAsOpaquePointer()),
-      reinterpret_cast<const uint8_t *>(op.getValue().getAsOpaquePointer()) +
-          op.getValue().getElementType().getIntOrFloatBitWidth() *
-              op.getValue().size()));
+  auto rawData =
+      mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue()).getRawData();
+  auto rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+  auto value = cache.fbb->CreateVector(rawVector);
   return ::tt::target::ttnn::CreateConstantOp(*cache.fbb, output, value);
 }
 
@@ -1511,6 +1510,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
     return createOperation(cache, createOp(cache, upsampleOp), debugString,
+                           locInfo);
+  }
+  if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {
+    return createOperation(cache, createOp(cache, constantOp), debugString,
                            locInfo);
   }
 
