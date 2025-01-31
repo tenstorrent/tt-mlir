@@ -613,7 +613,8 @@ public:
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>>(
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>>(
           typeConverter, funcOp.getContext());
 
       patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(
