@@ -6,6 +6,7 @@
 #define TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
 #ifdef TTMLIR_ENABLE_OPMODEL
 
+#include "hostdevcommon/common_values.hpp"
 #include <cstddef>
 
 namespace tt {
@@ -32,7 +33,8 @@ public:
   ::tt::tt_metal::v0::IDevice *getDevice() { return m_device; }
 
 private:
-  SingletonDeviceContext();
+  SingletonDeviceContext(
+      const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE);
   ~SingletonDeviceContext();
 
   SingletonDeviceContext(const SingletonDeviceContext &) = delete;

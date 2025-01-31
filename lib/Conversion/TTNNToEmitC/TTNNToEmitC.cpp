@@ -37,8 +37,6 @@
 using namespace mlir;
 using namespace mlir::tt;
 
-namespace {
-
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
       "static_cast<::ttnn::IDevice *>(nullptr)");
@@ -46,6 +44,7 @@ emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
 
 // Base class for TTNN to EmitC OpConversionPattern.
 //
+namespace {
 template <typename SourceOp>
 class TTNNToEmitCBaseOpConversionPattern
     : public OpConversionPattern<SourceOp> {
@@ -71,9 +70,11 @@ public:
                               getPrefixSwapPattern());
   }
 };
+} // namespace
 
 // Default op conversion pattern, used to convert most ops.
 //
+namespace {
 template <typename SourceOp>
 class DefaultOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
@@ -109,12 +110,14 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Eltwise Unary op conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
 // modelled in the dialect (memcfg).
 //
+namespace {
 template <typename SourceOp>
 class EltwiseUnaryOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
@@ -144,6 +147,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // EltwiseUnaryWithFastAndApproximateModeOp conversion pattern
 //
@@ -217,6 +221,7 @@ public:
 // Currently, it has to insert nullopts for some parameters that are not
 // modelled in the dialect (output dtype, memcfg).
 //
+namespace {
 template <typename SourceOp>
 class EltwiseBinaryOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
@@ -249,6 +254,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Linear op conversion pattern
 //
@@ -283,6 +289,7 @@ public:
 
 // Matmul op conversion pattern
 //
+namespace {
 class MatmulOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::MatmulOp> {
 
@@ -322,6 +329,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Softmax op conversion pattern
 //
@@ -591,6 +599,7 @@ public:
 
 // GetDeviceOp conversion pattern
 //
+namespace {
 class GetDeviceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::GetDeviceOp> {
 
@@ -617,9 +626,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ToDeviceOp conversion pattern
 //
+namespace {
 class ToDeviceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToDeviceOp> {
 
@@ -672,9 +683,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // FromDeviceOp conversion pattern
 //
+namespace {
 class FromDeviceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::FromDeviceOp> {
 
@@ -693,9 +706,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // TypecastOp conversion pattern
 //
+namespace {
 class TypecastOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::TypecastOp> {
 
@@ -718,9 +733,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ToMemoryConfig conversion pattern
 //
+namespace {
 class ToMemoryConfigOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToMemoryConfigOp> {
 
@@ -765,9 +782,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ToLayoutOp conversion pattern
 //
+namespace {
 class ToLayoutOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToLayoutOp> {
 
@@ -796,9 +815,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // EmptyOp conversion pattern
 //
+namespace {
 class EmptyOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::EmptyOp> {
 
@@ -860,9 +881,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // OnesOp conversion pattern
 //
+namespace {
 class OnesOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::OnesOp> {
 
@@ -942,9 +965,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // DeallocateOp conversion pattern
 //
+namespace {
 class DeallocateOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocateOp> {
 
@@ -968,9 +993,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // arith::ConstantOp conversion pattern
 //
+namespace {
 class ArithConstantOpConversionPattern
     : public OpConversionPattern<arith::ConstantOp> {
 
@@ -991,7 +1018,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class GetTupleElementOpConversionPattern
     : public OpConversionPattern<tt::GetTupleElementOp> {
 
@@ -1027,7 +1056,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TupleOpConversionPattern : public OpConversionPattern<tt::TupleOp> {
 
 public:
@@ -1052,6 +1083,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Module Op conversion pattern
 //
@@ -1059,6 +1091,7 @@ public:
 // ttmlir-translate would complain when translating to C++ if there were any
 // attributes from "unregistered" dialects.
 //
+namespace {
 class ModuleOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::ModuleOp> {
 
@@ -1079,7 +1112,6 @@ public:
     return success();
   }
 };
-
 } // namespace
 
 namespace mlir::tt {

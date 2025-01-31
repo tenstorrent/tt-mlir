@@ -134,7 +134,6 @@ table MemoryDesc {
 }
 
 table LayoutDesc {
-  stride: [int];
   oob_val: OOBVal;
   core_range_set: [Dim2dRange];
   memory_desc: MemoryDesc;

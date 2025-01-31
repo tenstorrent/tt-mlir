@@ -47,7 +47,6 @@ namespace mlir::tt::ttkernel {
 } // namespace mlir::tt::ttkernel
 
 // ............................................................................
-namespace {
 
 emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
   switch (port) {
@@ -122,14 +121,17 @@ emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
 
 // A no-op type converter:
 // (note that the trivial T->T conversion is necessary)
+namespace {
 class NullTypeConverter : public TypeConverter {
 public:
   NullTypeConverter() {
     addConversion([](Type type) { return type; });
   }
 };
+} // namespace
 
 // Type converter used for TTKernel/TTMetal conversions:
+namespace {
 class TTKernelToEmitCTypeConverter : public NullTypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
@@ -151,7 +153,9 @@ public:
         });
   }
 };
+} // namespace
 
+namespace {
 class TTKernelStoreToL1OpToEmitCOpRewriter
     : public OpConversionPattern<ttkernel::StoreToL1Op> {
 
@@ -183,7 +187,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTMetalToEmitCFuncArgsRewriter
     : public OpConversionPattern<func::FuncOp> {
 public:
@@ -226,7 +232,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTMetalToEmitCReturnRewriter
     : public OpConversionPattern<ttkernel::ReturnOp> {
 public:
@@ -244,7 +252,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTMetalToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -329,7 +339,9 @@ public:
 private:
   std::string opName;
 };
+} // namespace
 
+namespace {
 template <typename Op, typename Adaptor = typename Op::Adaptor>
 class TTKernelMacroOpToEmitCOpRewriter : public OpConversionPattern<Op> {
 public:
@@ -354,15 +366,19 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Context used for the analysis step before 'ConvertNocTransactionsTableOp'
+namespace {
 struct GlobalArrayDefTable {
   std::unordered_map<std::string,
                      std::tuple<mlir::MemRefType, mlir::DenseI32ArrayAttr>>
       defs;
   std::int32_t unique = 0;
 };
+} // namespace
 
+namespace {
 struct ConvertNocTransactionsTableOp
     : public OpConversionPattern<ttkernel::NocTransactionsTableOp> {
 
@@ -428,7 +444,9 @@ struct ConvertNocTransactionsTableOp
   GlobalArrayDefTable *globalDefs;
 
 }; // end of class
+} // namespace
 
+namespace {
 class ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
           ConvertTTKernelToEmitCPass> {
@@ -611,8 +629,8 @@ public:
     }
   }
 };
-
 } // namespace
+
 // ............................................................................
 
 namespace mlir::tt {
@@ -622,10 +640,10 @@ std::unique_ptr<::mlir::Pass> createConvertTTKernelToEmitC() {
 }
 
 // ............................................................................
-namespace {
 
 // Class used to add includes and other boilerplate code to the generated
 // kernel.
+namespace {
 class ThreadConfigHelper {
 public:
   ThreadConfigHelper(OpBuilder *builder, Location loc,
@@ -695,8 +713,8 @@ private:
   Location loc;
   ttkernel::ThreadType threadType;
 };
-
 } // namespace
+
 // ............................................................................
 
 inline FailureOr<mlir::ModuleOp>
