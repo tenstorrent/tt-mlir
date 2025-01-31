@@ -94,8 +94,7 @@ target_link_libraries(TTMLIRCompiler PRIVATE
     flatbuffers
 )
 
-target_link_libraries(TTMLIR PRIVATE
-    TTMLIRCompiler
+target_link_libraries(TTMLIRRuntime PRIVATE
 
     # Forces the inclusion of all symbols in the shared object
     # This is necessary because the JIT will not be able to find the symbols otherwise
