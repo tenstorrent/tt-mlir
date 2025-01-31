@@ -1193,8 +1193,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                EltwiseBinaryOpConversionPattern<ttnn::MinimumOp>,
                EltwiseBinaryOpConversionPattern<ttnn::DivOp>,
                EltwiseBinaryOpConversionPattern<ttnn::ScatterOp>,
-               EltwiseBinaryOpConversionPattern<ttnn::RemainderOp>>(
-      typeConverter, ctx);
+               EltwiseBinaryOpConversionPattern<ttnn::RemainderOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::PowerOp>>(typeConverter,
+                                                                ctx);
 
   // Tensor manipulation ops
   //
