@@ -144,6 +144,8 @@ endforeach()
 
 install(FILES ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  add_library(TRACY_LIBRARY TRACY_LIBRARY_PATH SHARED IMPORTED GLOBAL)
+  add_dependencies(TRACY_LIBRARY tt-metal)
   install(CODE
       "
       MESSAGE(STATUS \"Installing tt-mlir runtime shared lib dependencies (${TRACY_LIBRARY_PATH}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
