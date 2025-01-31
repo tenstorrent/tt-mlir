@@ -216,6 +216,7 @@ jobs:
 
         echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "perf_report_path=perf_$JOB_ID" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -295,7 +296,16 @@ jobs:
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
+        # collect ops_perf_results.csv
         cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
+
+    - name: Collect and Upload Perf Reports
+      if: matrix.build.enable_perf == 'ON'
+      uses: ./.github/actions/collect-and-upload-perf-reports
+      with:
+        reports_dir: ttrt-artifacts
+        perf_report_path: ${{ steps.strings.outputs.perf_report_path }}
+        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.build_name }}
 
     - name: Run emitc tests
       shell: bash
