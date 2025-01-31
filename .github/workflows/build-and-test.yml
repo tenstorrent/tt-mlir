@@ -635,7 +635,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "Run build and test tt-mlir (TT machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
+        job_name: "Run build and test tt-mlir (TT machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.name }}, ${{ matrix.build.build_name }})"
 
     - name: Set reusable strings
       id: strings
