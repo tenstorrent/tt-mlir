@@ -22,6 +22,8 @@ module attributes {} {
     %4 = "ttkernel.get_noc_addr_xy"(%c0_i32, %c0_i32, %c262208_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
     // CHECK: emitc.call_opaque "noc_async_read"[[C:.*]]
     "ttkernel.noc_async_read"(%4, %c262432_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
+    // CHECK: [[C:.*]] = emitc.call_opaque "get_noc_addr_from_bank_id"[[C:.*]] {template_args = [#emitc.opaque<"true">]} [[C:.*]]
+    %5 = "ttkernel.get_noc_addr_from_bank_id"(%c32_i32, %c262432_i32) : (i32, i32) -> !ttkernel.noc_addr
     // CHECK: emitc.call_opaque "noc_async_read_barrier"[[C:.*]]
     "ttkernel.noc_async_read_barrier"() : () -> ()
     "ttkernel.return"() : () -> ()
