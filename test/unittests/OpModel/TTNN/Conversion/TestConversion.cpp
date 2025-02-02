@@ -13,14 +13,14 @@ class MlirToTtnnConversion : public OpModelFixture {};
 //================================================================================
 // getDataType
 //================================================================================
-class MlirToTtnnConversionSimpleShape
+class MlirToTtnnConversionShape
     : public MlirToTtnnConversion,
       public testing::WithParamInterface<mlir::SmallVector<int64_t>> {};
 
-TEST_P(MlirToTtnnConversionSimpleShape, SimpleShape) {
+TEST_P(MlirToTtnnConversionShape, Shape) {
   const auto &tensorShape = GetParam();
   const auto &shape =
-      mlir::tt::op_model::ttnn::conversion::getSimpleShape(tensorShape);
+      mlir::tt::op_model::ttnn::conversion::getShape(tensorShape);
 
   EXPECT_EQ(shape.size(), tensorShape.size());
   for (size_t i = 0; i < shape.size(); ++i) {
@@ -29,13 +29,13 @@ TEST_P(MlirToTtnnConversionSimpleShape, SimpleShape) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ToSimpleShape, MlirToTtnnConversionSimpleShape,
+    ToShape, MlirToTtnnConversionShape,
     ::testing::Values(mlir::SmallVector<int64_t>{64, 32},
                       mlir::SmallVector<int64_t>{64, 32, 128},
                       mlir::SmallVector<int64_t>{64, 32, 128, 256}));
 
 //================================================================================
-// getSimpleShape
+// getShape
 //================================================================================
 class MlirToTtnnConversionDataType
     : public MlirToTtnnConversion,
@@ -501,13 +501,13 @@ TEST_F(MlirToTtnnConversion, TensorSpec) {
     const auto layout =
         CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                           mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
-    const auto ttnnSimpleShape =
-        mlir::tt::op_model::ttnn::conversion::getSimpleShape(tensorShape);
+    const auto ttnnShape =
+        mlir::tt::op_model::ttnn::conversion::getShape(tensorShape);
     const auto ttnnLayout =
         mlir::tt::op_model::ttnn::conversion::getTensorLayout(layout);
     const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
         tensorShape, layout);
-    EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnSimpleShape.volume());
+    EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
               tt::tt_metal::Layout::TILE);
   }
@@ -516,13 +516,13 @@ TEST_F(MlirToTtnnConversion, TensorSpec) {
     const auto layout =
         CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                              mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
-    const auto ttnnSimpleShape =
-        mlir::tt::op_model::ttnn::conversion::getSimpleShape(tensorShape);
+    const auto ttnnShape =
+        mlir::tt::op_model::ttnn::conversion::getShape(tensorShape);
     const auto ttnnLayout =
         mlir::tt::op_model::ttnn::conversion::getTensorLayout(layout);
     const auto tensorSpec = mlir::tt::op_model::ttnn::conversion::getTensorSpec(
         tensorShape, layout);
-    EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnSimpleShape.volume());
+    EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
               tt::tt_metal::Layout::ROW_MAJOR);
   }

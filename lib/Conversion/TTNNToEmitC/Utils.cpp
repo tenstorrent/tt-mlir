@@ -193,10 +193,8 @@ emitc::OpaqueAttr createStdNullopt(Builder &builder) {
 }
 
 emitc::CallOpaqueOp createShapeOp(ConversionPatternRewriter &rewriter,
-                                  ttnn::ShapeAttr shapeAttr, Location loc,
-                                  ShapeType shapeType) {
-  llvm::StringRef shapeTypeStr =
-      shapeType == ShapeType::SimpleShape ? "ttnn::SimpleShape" : "ttnn::Shape";
+                                  ttnn::ShapeAttr shapeAttr, Location loc) {
+  llvm::StringRef shapeTypeStr = "ttnn::Shape";
 
   return rewriter.create<emitc::CallOpaqueOp>(
       loc, emitc::OpaqueType::get(rewriter.getContext(), shapeTypeStr),
