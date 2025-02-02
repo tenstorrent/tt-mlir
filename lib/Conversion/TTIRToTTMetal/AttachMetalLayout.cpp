@@ -34,8 +34,9 @@ public:
           auto newLayout =
               MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid)
                   .withElementType(ctx, tileType);
-          return RankedTensorType::get(type.getShape(), type.getElementType(),
-                                       newLayout);
+          // DO NOT COMMIT
+          return RankedTensorType::get(newLayout.getShardShape(false),
+                                       newLayout.getElementType(), newLayout);
         });
   }
 };
