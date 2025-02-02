@@ -101,7 +101,7 @@ makeTypedBuffer(::tt::target::DataType dtype,
 }
 
 void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
-  ::ttnn::SimpleShape shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
+  ::ttnn::Shape shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
       *op->out()->desc()->shape()));
 
   ::tt::tt_metal::OwnedBuffer ownedBuffer = makeTypedBuffer(
