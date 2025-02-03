@@ -2,8 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TT.h"    
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Iterators.h>
 #include <mlir/Rewrite/FrozenRewritePatternSet.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -13,9 +15,9 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRTENSORLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-class TTIRGenericTensorTypeRewriter : public RewritePattern {
+class TTIRGenericTensorLayoutRewriter : public RewritePattern {
 public:
-  TTIRGenericTensorTypeRewriter(MLIRContext *ctx)
+  TTIRGenericTensorLayoutRewriter(MLIRContext *ctx)
       : RewritePattern(ttir::GenericOp::getOperationName(), /*benefit=*/1, ctx) {}
 
   static GridAttr getOptimalGrid(MLIRContext *ctx,
@@ -43,81 +45,105 @@ public:
     return GridAttr::get(ctx, grid_shape);
   }
 
-  static void assignLocalLayout(Operation *op, PatternRewriter &rewriter, DeviceAttr &device) {
-    // Output tensor
-    llvm::errs() << "Assigning local layout for " << op->getName() << "\n";
-    // assert(op->getResults().size() == 1 && "Only one result tensor is supported for now");
-    if (op->getNumResults() > 0) {
+  static RankedTensorType getLocalLayout(Value tensor, PatternRewriter &rewriter, DeviceAttr &device) {
+    // llvm::errs() << "Assigning local layout for " << op->getName() << "\n";
+    
       RankedTensorType result_type =
-          mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+          mlir::dyn_cast<RankedTensorType>(tensor.getType());
       auto result_encoding =
           mlir::dyn_cast_or_null<MetalLayoutAttr>(result_type.getEncoding());
       assert(result_encoding &&
              "Tensor type must have a MetalLayoutAttr encoding");
       auto optimal_output_grid = getOptimalGrid(
-          op->getContext(), result_encoding.getMemref().getShape(),
+          tensor.getContext(), result_encoding.getMemref().getShape(),
           device.getWorkerGrid().getShape());
-      optimal_output_grid.dump();
 
       auto new_result_encoding =
-          MetalLayoutAttr::get(op->getContext(), result_type,
+          MetalLayoutAttr::get(tensor.getContext(), result_type,
                                result_encoding.getMemorySpace(),
                                optimal_output_grid)
-              .withElementType(op->getContext(),
+              .withElementType(tensor.getContext(),
                                result_encoding.getMemref().getElementType());
 
       auto new_tensor_type = RankedTensorType::get(result_type.getShape(),
                                                    result_type.getElementType(),
                                                    new_result_encoding);
-      op->getResult(0).setType(new_tensor_type);
-    }
-  
-    // // Input tensors
-    // for (auto operand : op->getOperands()) {
-    //   RankedTensorType operand_type =
-    //       mlir::dyn_cast<RankedTensorType>(operand.getType());
-    //   auto operand_encoding =
-    //       mlir::dyn_cast_or_null<MetalLayoutAttr>(operand_type.getEncoding());
-    //   assert(operand_encoding &&
-    //          "Tensor type must have a MetalLayoutAttr encoding");
-    //   auto optimal_input_grid = getOptimalGrid(
-    //       op->getContext(), operand_encoding.getMemref().getShape(), device.getWorkerGrid().getShape());
-    //   auto new_operand_encoding = MetalLayoutAttr::get(op->getContext(), operand_type, 
-    //                                                    operand_encoding.getMemorySpace(), optimal_input_grid).withElementType(op->getContext(), operand_encoding.getMemref().getElementType());
-    //   auto new_tensor_type = RankedTensorType::get(operand_type.getShape(),
-    //                                                operand_type.getElementType(),
-    //                                                new_operand_encoding);
-    //   operand.setType(new_tensor_type);
-    // }
+      return new_tensor_type;
   }
 
   LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
-    // op = mlir::dyn_cast<ttir::GenericOp>(op);
     auto device = getCurrentScopeDevice(op);
     assert(device && "Device not found");
-    assignLocalLayout(op, rewriter, device);
-    return success();
+    auto genericOp = mlir::cast<ttir::GenericOp>(op);
+
+    // Update output tensor type
+    assert(op->getResults().size() == 1 &&
+           "Only one result tensor is supported for now");
+    auto optimal_layout = getLocalLayout(op->getResult(0), rewriter, device);
+    op->getResult(0).setType(optimal_layout);
+    auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op);
+    assert(dpsOp.getNumDpsInits() == 1 &&
+           "Only one result tensor is supported for now");
+    dpsOp.getDpsInits()[0].setType(optimal_layout);
+
+    // Update generic grid
+    genericOp.setGridAttr(mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid());
+
+    // Update memrefs
+    // Block *genericBlock = genericOp.get
+
+
+    return failure(); // need some better way to exit cond. the rewriter than always returning false!
   }
 
     // const TypeConverter *converter; 
 };
 
+class TTIRFuncReturnTensorLayoutRewriter : public RewritePattern {
+public:
+  TTIRFuncReturnTensorLayoutRewriter(MLIRContext *ctx)
+      : RewritePattern(func::ReturnOp::getOperationName(), /*benefit=*/1,
+                       ctx) {}
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+    if (mlir::isa<ttir::ToLayoutOp>(op->getOperand(0).getDefiningOp())) {
+      return failure();
+    }
+    auto returnTensorType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+    auto emptyOp = rewriter.create<tensor::EmptyOp>(op->getLoc(), returnTensorType.getShape(), returnTensorType.getElementType(), returnTensorType.getEncoding());
+    auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(op->getLoc(), returnTensorType, op->getOperand(0), emptyOp);
+    op->setOperand(0, toLayoutOp.getResult());
+    return success();
+  }
+};
 
-class TTIRTensorLayout
-    : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
+class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
 
   using impl::TTIRTensorLayoutBase<TTIRTensorLayout>::TTIRTensorLayoutBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericTensorTypeRewriter>(&getContext());
-    GreedyRewriteConfig config = GreedyRewriteConfig();
-    config.maxNumRewrites = 1;
-    config.maxIterations = 1;
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
-      signalPassFailure();
-      return;
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<
+          TTIRFuncReturnTensorLayoutRewriter>(
+          &getContext());
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+        signalPassFailure();
+        return;
+      }
+    }
+
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTIRGenericTensorLayoutRewriter>(&getContext());
+      GreedyRewriteConfig config = GreedyRewriteConfig();
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      if (failed(
+              applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
+        signalPassFailure();
+        return;
+      }
     }
   }
 
