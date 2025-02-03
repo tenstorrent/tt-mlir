@@ -18,7 +18,7 @@ namespace mlir::tt::llvm_to_cpu {
 
 void registerLLVMToDynamicLibrary() {
   TranslateFromMLIRRegistration reg(
-      "llvm-to-dylib", "translate llvm dialect to dynamic library",
+      "llvm-to-dylib", "Translate LLVM dialect to dynamic library",
       [](Operation *op, llvm::raw_ostream &os) -> LogicalResult {
         return translateLLVMToDyLib(op, os);
       },

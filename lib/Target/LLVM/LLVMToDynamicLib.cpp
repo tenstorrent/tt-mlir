@@ -34,13 +34,13 @@
 
 namespace mlir::tt::llvm_to_cpu {
 
-// flag to toggle whether we delete temp files after we're done with them
+// Flag to toggle whether we delete temp files after consuming them.
 static llvm::cl::opt<bool>
     cleanupTempFiles("cleanup-dylib-temp-files",
                      llvm::cl::desc("Delete temporary files after translation"),
                      llvm::cl::init(true));
 
-// helper to create randomized tempDir to store our temp files
+// Create randomized tempDir to store our temp files.
 llvm::SmallString<128> createTempDir() {
   llvm::SmallString<128> tempDir;
   if (llvm::sys::fs::createUniqueDirectory("ttmlir_tmp", tempDir)) {
@@ -50,7 +50,7 @@ llvm::SmallString<128> createTempDir() {
   return tempDir;
 }
 
-// helper to create specific temp file inside a dir
+// Create specific temp file inside a given dir.
 llvm::SmallString<128> createTempFile(llvm::StringRef tempDir,
                                       llvm::StringRef prefix,
                                       llvm::StringRef extension) {
@@ -63,7 +63,7 @@ llvm::SmallString<128> createTempFile(llvm::StringRef tempDir,
   return tempFile;
 }
 
-// Function to convert MLIR ModuleOp to LLVM Module
+// Convert MLIR ModuleOp to LLVM Module.
 std::unique_ptr<llvm::Module>
 convertToLLVMModule(mlir::ModuleOp cpuModule, llvm::LLVMContext &llvmContext) {
   mlir::registerLLVMDialectTranslation(*cpuModule.getContext());
@@ -77,7 +77,7 @@ convertToLLVMModule(mlir::ModuleOp cpuModule, llvm::LLVMContext &llvmContext) {
   return llvmModule;
 }
 
-// helper to get an llvm::TargetMachine with proper default options
+// Get an llvm::TargetMachine with proper default options.
 std::unique_ptr<llvm::TargetMachine>
 createTargetMachine(llvm::StringRef targetTriple) {
   std::string errorMessage;
@@ -97,20 +97,21 @@ createTargetMachine(llvm::StringRef targetTriple) {
   return machine;
 }
 
+// Generate .o file from LLVM Module.
 llvm::LogicalResult compileToObject(llvm::Module &module,
                                     llvm::LLVMContext &context,
                                     llvm::StringRef outputFilename) {
 
-  //  Initialize LLVM targets
+  //  Initialize LLVM targets.
   // TODO (#1631): eventually, we should get this working on other archs, but
-  // adding new archs requires corresponding cmake changes
+  // adding new archs requires corresponding cmake changes.
   LLVMInitializeX86Target();
   LLVMInitializeX86TargetMC();
   LLVMInitializeX86TargetInfo();
   LLVMInitializeX86AsmPrinter();
   LLVMInitializeX86AsmParser();
 
-  // Set target triple if not already set
+  // Set target triple if not already set.
   if (module.getTargetTriple().empty()) {
     auto defaultTriple = llvm::sys::getDefaultTargetTriple();
     module.setTargetTriple(defaultTriple);
@@ -123,10 +124,9 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
     return llvm::failure();
   }
 
-  // Set data layout
   module.setDataLayout(targetMachine->createDataLayout());
 
-  // Create an output file stream to write the object file
+  // Create an output file stream to write the object file.
   std::error_code EC;
   llvm::raw_fd_ostream out(outputFilename, EC, llvm::sys::fs::OF_None);
   if (EC) {
@@ -134,7 +134,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
     return llvm::failure();
   }
 
-  // Emit object code to the file
+  // Emit object code to the file.
   llvm::legacy::PassManager passManager;
   passManager.add(
       new llvm::TargetLibraryInfoWrapperPass(targetMachine->getTargetTriple()));
@@ -149,7 +149,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   return llvm::success();
 }
 
-// simple wrapper for running link command + error handling
+// Run actual system call + handle any errors.
 llvm::LogicalResult runLinkCommand(llvm::StringRef commandLine) {
   llvm::dbgs() << "Running linker command:\n" << commandLine << "\n";
   const auto exitCode = system(commandLine.data());
@@ -162,7 +162,7 @@ llvm::LogicalResult runLinkCommand(llvm::StringRef commandLine) {
   return llvm::failure();
 }
 
-// wrapper function to invoke linker w/ correct options on set of .o files
+// Invoke linker with correct options on set of .o files.
 llvm::LogicalResult
 linkDynamicLibrary(llvm::StringRef libraryName,
                    ArrayRef<llvm::StringRef> objectFileNames) {
@@ -170,34 +170,33 @@ linkDynamicLibrary(llvm::StringRef libraryName,
       llvm::SmallString<13>("ld.lld-17"), llvm::SmallString<13>("-o"),
       libraryName};
 
-  // no stdlib dependency makes things easier for us
+  // No stdlib dependency makes things easier for us
   flags.emplace_back("-nostdlib");
 
-  // want to create a standalone dylib w/o dependencies on other dylibs
-  // apparently, only lld supports this combo
+  // We want to create a standalone dylib w/o dependencies on other dylibs;
+  // apparently, only lld supports this combo.
   flags.emplace_back("-static");
   flags.emplace_back("-shared");
 
   // In our case, we probably don't gain much useful info from debug symbols
-  // anyway
+  // anyway.
   flags.emplace_back("--strip-debug");
 
-  // Link all input .o into 1 output .so
+  // Link all input .o into 1 output .so file.
   for (const auto &objectFile : objectFileNames) {
     flags.emplace_back(objectFile);
   }
 
   auto commandLine = llvm::join(flags, " ");
-  if (llvm::failed(runLinkCommand(commandLine)))
+  if (llvm::failed(runLinkCommand(commandLine))) {
     return llvm::failure();
+  }
   return llvm::success();
 }
 
-// checker to make sure we don't attempt translation unless entire module is
-// properly converted to LLVM Dialect
+// Verify that all operations in given module are in LLVM Dialect.
 llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
-
   bool isAllLLVM = true;
 
   module.walk([&](Operation *op) {
@@ -209,12 +208,12 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
     }
   });
 
-  if (isAllLLVM) {
-    return llvm::success();
-  } else {
+  if (!isAllLLVM) {
     llvm::errs() << "Module contains non-LLVM dialect operations.\n";
     return llvm::failure();
   }
+
+  return llvm::success();
 }
 
 // Wrapper func to create objects, link them into dylib, and return dylib as
@@ -267,8 +266,8 @@ compileAndLinkToSharedLibrary(llvm::Module &module,
 llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
   auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
   if (!moduleOp) {
-    llvm::errs() << "The operation is not a ModuleOp, cannot perform this "
-                    "translation on anything but entire modules\n";
+    llvm::errs()
+        << "Cannot perform translation. Root operation is not ModuleOp.\n";
     return llvm::failure();
   }
   if (llvm::failed(verifyAllLLVM(moduleOp))) {
