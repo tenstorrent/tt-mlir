@@ -10,8 +10,8 @@ include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
-class TTIR_TileOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, !listconcat([TTIR_GenericParent], traits)> {
+class TTIR_TileOp<string mnemonic, list<Trait> traits = [TTIR_TileOpTrait]> :
+    TTIR_Op<mnemonic, !listconcat([HasParent<"GenericOp">], traits)> {
 }
 
 //===----------------------------------------------------------------------===//
@@ -24,8 +24,9 @@ def TTIR_TileAddOp : TTIR_TileOp<"tile_add">{
         The `tile_add` operation adds two tensors element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
-    let results = (outs TT_Tile:$result); // questionable: should tile ops actually return anything? tensix math ops will leave results in dest regs, up to packer to get result to l1
+    let arguments = (ins TT_Tile:$lhs, 
+                         TT_Tile:$rhs);
+    let results = (outs TT_Tile:$result);
 }
 
 def TTIR_TileSubOp : TTIR_TileOp<"tile_sub">{
@@ -34,7 +35,8 @@ def TTIR_TileSubOp : TTIR_TileOp<"tile_sub">{
         The `tile_sub` operation subtracts two tensors element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
+    let arguments = (ins TT_Tile:$lhs, 
+                         TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
 }
 
@@ -44,7 +46,8 @@ def TTIR_TileMulOp : TTIR_TileOp<"tile_mul">{
         The `tile_mul` operation multiplies two tensors element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
+    let arguments = (ins TT_Tile:$lhs, 
+                         TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
 }
 
@@ -81,10 +84,24 @@ def TTIR_TileLogOp : TTIR_TileOp<"tile_log">{
 def TTIR_TileReduceSumOp : TTIR_TileOp<"tile_reduce_sum">{
     let summary = "TTIR Tile Reduce Sum Op";
     let description = [{
-        The `tile_reduce_sum` operation computes the sum of all elements in the input tensor.
+        The `tile_reduce_sum` operation computes the sum of all elements in the input tensor over the specified reduction dims.
     }];
 
-    let arguments = (ins TT_Tile:$a, TT_Tile:$b);
+    let arguments = (ins TT_Tile:$a, 
+                         TT_Tile:$b,
+                         OptionalAttr<I32ArrayAttr>:$dim_arg);
+    let results = (outs TT_Tile:$result);
+}
+
+def TTIR_TileReduceMaxOp : TTIR_TileOp<"tile_reduce_max">{
+    let summary = "TTIR Tile Reduce Max Op";
+    let description = [{
+        The `tile_reduce_max` operation computes the max of all elements in the input tensor over the specified reduction dims.
+    }];
+
+    let arguments = (ins TT_Tile:$a, 
+                         TT_Tile:$b,
+                         OptionalAttr<I32ArrayAttr>:$dim_arg);
     let results = (outs TT_Tile:$result);
 }
 
@@ -94,7 +111,8 @@ def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block">{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$a, AnyNon0RankedMemRef:$b);
+    let arguments = (ins AnyNon0RankedMemRef:$a, 
+                         AnyNon0RankedMemRef:$b);
     let results = (outs AnyNon0RankedMemRef:$result);
 
     let hasVerifier = 1;

@@ -26,7 +26,4 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h.inc"
 
-#define GET_OP_CLASSES
-#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.h.inc"
-
 #endif // TTMLIR_DIALECT_TTIR_IR_TTIROPS_H

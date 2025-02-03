@@ -67,6 +67,11 @@ public:
   }
 };
 
+template <typename ConcreteType>
+class TTIRTileOpTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTIRTileOpTrait> {
+};
+
 } // namespace OpTrait
 } // namespace ttir
 } // namespace tt
