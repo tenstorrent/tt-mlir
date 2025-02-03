@@ -27,6 +27,7 @@ MLIRTTMetalDialect
 MLIRTTIRPipelines
 MLIRTTNNPipelines
 MLIRTTMetalPipelines
+MLIRTTKernelPipelines
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)
