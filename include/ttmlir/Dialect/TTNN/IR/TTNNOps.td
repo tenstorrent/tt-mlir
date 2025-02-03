@@ -647,7 +647,7 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   }];
 }
 
-def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
+def TTNN_ArgMaxOp : TTNN_NamedDPSOp<"argmax"> {
   let summary = "Argmax reduction op.";
   let description = [{
     Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
@@ -683,6 +683,10 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
                        BoolAttr:$use_multicore,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                        Optional<AnyRankedTensor>:$output);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 
   let results = (outs AnyRankedTensor:$result);
 }
