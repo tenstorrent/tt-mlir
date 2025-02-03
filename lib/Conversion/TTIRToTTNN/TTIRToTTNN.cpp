@@ -27,11 +27,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <llvm/ADT/FloatingPointMode.h>
-#include <llvm/Support/LogicalResult.h>
 
 #include <cstdint>
-#include <mlir/Support/LLVM.h>
 
 using namespace mlir;
 using namespace mlir::tt;
