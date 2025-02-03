@@ -93,7 +93,6 @@ void buildLinalgGeneric(::mlir::Location loc, ::mlir::Block *block,
             loc, args[0].getType(), args[0], args[1]);
         nestedBuilder.create<mlir::linalg::YieldOp>(nestedLoc, result);
       });
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange());
 }
 
 class TTIRGenericRegionRewriter
@@ -494,17 +493,15 @@ class TTIRGenericDatamovementRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  LogicalResult
-  buildDatamovementBlock(OpBuilder blockBuilder, Location loc,
-                         std::pair<unsigned, unsigned> inputOperandsRange,
-                         std::pair<unsigned, unsigned> outputOperandsRange,
-                         ArrayRef<OpOperand> genericOperands,
-                         ArrayRef<BlockArgument> blockOperands,
-                         ArrayAttr indexingMaps,
-                         ArrayAttr iteratorTypes) const {
+  LogicalResult buildDatamovementBlock(OpBuilder blockBuilder, Location loc,
+                                       Value genericOperand, Value blockOperand,
+                                       ArrayAttr indexingMaps,
+                                       ArrayAttr iteratorTypes,
+                                       bool isOutput) const {
     auto zero = blockBuilder.create<arith::ConstantOp>(
         loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(0));
     MemTxType memTxType = blockBuilder.getType<MemTxType>();
+
     auto createDMA = [&](Value src, Value dst) {
       MemRefType memrefType = mlir::cast<MemRefType>(dst.getType());
       SmallVector<Value> zeros(memrefType.getShape().size(), zero);
@@ -517,41 +514,22 @@ public:
                        .getResult();
     };
 
-    // Initial gather
-    SmallVector<Value> memTxs;
-    for (unsigned i = inputOperandsRange.first;
-         i < (inputOperandsRange.first + inputOperandsRange.second); ++i) {
-      memTxs.push_back(createDMA(genericOperands[i].get(), blockOperands[i]));
+    if (isOutput) {
+      // Wait for compute
+      blockBuilder.create<ttir::AwaitOp>(loc, ValueRange(blockOperand));
     }
-    for (Value memTx : memTxs) {
-      blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
-    }
-    memTxs.clear();
+
+    Value memTx = createDMA(blockOperand, genericOperand);
+    blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
 
     // Multicast
 #if 0
-    for (unsigned i = inputOperandsRange.first;
-         i < (inputOperandsRange.first + inputOperandsRange.second); ++i) {
-      memTxs.push_back(createDMA(genericOperands[i].get(), blockOperands[i]));
-    }
-    for (Value memTx : memTxs) {
-      blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
-    }
-    memTxs.clear();
 #endif
 
-    // Wait for compute
-    blockBuilder.create<ttir::YieldOp>(loc, ValueRange());
-
-    // Writer
-    for (unsigned i = outputOperandsRange.first;
-         i < (outputOperandsRange.first + outputOperandsRange.second); ++i) {
-      memTxs.push_back(createDMA(blockOperands[i], genericOperands[i].get()));
+    if (!isOutput) {
+      // Wait for compute
+      blockBuilder.create<ttir::YieldOp>(loc, ValueRange(blockOperand));
     }
-    for (Value memTx : memTxs) {
-      blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
-    }
-    memTxs.clear();
 
     return success();
   }
@@ -563,33 +541,63 @@ public:
       return failure();
     }
 
+    // One per operand
+    auto numDataMovementRegions = generic.getNumOperands();
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getCbs(), generic.getOutputs(), generic.getGrid(),
         generic.getIndexingMaps(), generic.getIteratorTypes(),
-        generic.getOperandCbMapping(), generic.getNumRegions() + 1);
+        generic.getOperandCbMapping(),
+        generic.getNumRegions() + numDataMovementRegions);
 
-    Block *datamovementBlock = &newGeneric.getRegion(0).emplaceBlock();
-    datamovementBlock->addArguments(
-        generic.getRegion(0).getArgumentTypes(),
-        SmallVector<mlir::Location>(
-            generic.getRegion(0).getArgumentTypes().size(), generic.getLoc()));
+    // Insert the new data movement regions.
+    auto [outputOperandsIndex, outputOperandsLength] =
+        generic.getODSOperandIndexAndLength(2);
+    for (OpOperand &operand : generic->getOpOperands()) {
+      Block *datamovementBlock =
+          &newGeneric.getRegion(operand.getOperandNumber()).emplaceBlock();
+      datamovementBlock->addArguments(
+          generic.getRegion(0).getArgumentTypes(),
+          SmallVector<mlir::Location>(
+              generic.getRegion(0).getArgumentTypes().size(),
+              generic.getLoc()));
 
-    OpBuilder blockBuilder = OpBuilder::atBlockEnd(datamovementBlock);
-    auto result = buildDatamovementBlock(
-        blockBuilder, generic->getLoc(), generic.getODSOperandIndexAndLength(0),
-        generic.getODSOperandIndexAndLength(2), generic->getOpOperands(),
-        datamovementBlock->getArguments(), generic.getIndexingMaps(),
-        generic.getIteratorTypes());
-    if (failed(result)) {
-      return result;
+      OpBuilder blockBuilder = OpBuilder::atBlockEnd(datamovementBlock);
+      bool isOutput = operand.getOperandNumber() >= outputOperandsIndex;
+      auto result = buildDatamovementBlock(
+          blockBuilder, generic->getLoc(),
+          generic->getOperand(operand.getOperandNumber()),
+          datamovementBlock->getArgument(operand.getOperandNumber()),
+          generic.getIndexingMaps(), generic.getIteratorTypes(), isOutput);
+      if (failed(result)) {
+        return result;
+      }
     }
 
-    for (unsigned regionNum = 1; regionNum < newGeneric.getNumRegions();
-         ++regionNum) {
-      auto &newRegion = newGeneric.getRegion(regionNum);
-      auto &oldRegion = generic.getRegion(regionNum - 1);
-      newRegion.takeBody(oldRegion);
+    // Copy over the original compute region.
+    unsigned computeRegionIndex = numDataMovementRegions;
+    auto &newRegion = newGeneric.getRegion(computeRegionIndex);
+    auto &oldRegion = generic.getRegion(0);
+    newRegion.takeBody(oldRegion);
+
+    // Await / Yield insertion to compute region.
+    {
+      Block *computeBlock = &newGeneric.getRegion(computeRegionIndex).front();
+      OpBuilder blockBuilder = OpBuilder::atBlockBegin(computeBlock);
+      auto [inputOperandsIndex, inputOperandsLength] =
+          generic.getODSOperandIndexAndLength(0);
+
+      // Await the inputs
+      blockBuilder.create<ttir::AwaitOp>(
+          generic->getLoc(), ValueRange(computeBlock->getArguments().take_front(
+                                 inputOperandsLength)));
+
+      blockBuilder.setInsertionPointToEnd(computeBlock);
+
+      // Yield the outputs
+      blockBuilder.create<ttir::YieldOp>(
+          generic->getLoc(), ValueRange(computeBlock->getArguments().take_back(
+                                 outputOperandsLength)));
     }
 
     rewriter.replaceOp(generic, newGeneric);

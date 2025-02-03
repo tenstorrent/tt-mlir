@@ -34,7 +34,12 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 
 def TTIR_GenericOp : TTIR_DPSOp<"generic",
   [ AttrSizedOperandSegments
-  , BufferizableOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
   , NoTerminator
   , MemoryEffects<[MemWrite]>
   ]> {
@@ -88,26 +93,6 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic",
       MutableOperandRange getDpsInitsMutable() {
         return getOutputsMutable();
       }
-
-      // Bufferization Interface
-      //
-      bool bufferizesToMemoryRead(
-          ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &);
-
-      bool bufferizesToMemoryWrite(
-          ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &);
-
-      ::mlir::LogicalResult bufferize(
-          ::mlir::RewriterBase &rewriter,
-          const ::mlir::bufferization::BufferizationOptions &options);
-
-      ::mlir::FailureOr<::mlir::BaseMemRefType>
-      getBufferType(::mlir::Value value,
-                    const ::mlir::bufferization::BufferizationOptions &options,
-                    ::llvm::SmallVector<::mlir::Value> &invocationStack);
-
-      ::mlir::bufferization::AliasingValueList getAliasingValues(
-          ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &);
     }];
 }
 
@@ -1842,7 +1827,20 @@ def TTIR_YieldOp : TTIR_Op<"yield", [HasParent<"GenericOp">, MemoryEffects<[MemR
       Yield operation, return control flow to another thread
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$values);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AwaitOp : TTIR_Op<"await", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Await op.";
+    let description = [{
+      Await operation, return control flow to another thread
+    }];
+
+    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$values);
+
+    let hasVerifier = 1;
 }
 
 def TTIR_SychronizeOp : TTIR_Op<"synchronize", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
