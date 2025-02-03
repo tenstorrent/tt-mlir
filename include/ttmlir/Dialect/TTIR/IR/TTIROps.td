@@ -1793,8 +1793,8 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
 }
 
-def TTIR_GridIndexOp : TTIR_Op<"grid_index", [HasParent<"GenericOp">, Pure]> {
-    let summary = "Grid Index op.";
+def TTIR_IterIndexOp : TTIR_Op<"iter_index", [HasParent<"GenericOp">, Pure]> {
+    let summary = "Iter Index op.";
     let description = [{
       Return the index of the current element in the iteration for the given generic op dimension.
     }];

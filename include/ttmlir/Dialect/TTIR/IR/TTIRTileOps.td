@@ -111,7 +111,10 @@ def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block">{
     let hasVerifier = 1;
 }
 
-def TTIR_DMAOp : TTIR_TileOp<"dma", [AttrSizedOperandSegments]> {
+def TTIR_DMAOp : TTIR_TileOp<"dma", 
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]> // Custom memory effects??
+  ]> {
     let summary = "TTIR DMA Op";
     let description = [{
     }];
@@ -122,7 +125,7 @@ def TTIR_DMAOp : TTIR_TileOp<"dma", [AttrSizedOperandSegments]> {
     let results = (outs TTIR_MemTx:$result);
 }
 
-def TTIR_DMAWaitOp : TTIR_TileOp<"dma_wait"> {
+def TTIR_DMAWaitOp : TTIR_TileOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> { // Custom memory effects??
     let summary = "TTIR DMA wait Op";
     let description = [{
     }];

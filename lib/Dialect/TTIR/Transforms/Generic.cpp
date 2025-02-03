@@ -206,42 +206,35 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    bool allConverted = true;
-    for (Region &region : op.getRegions()) {
-      Block *entry = &region.front();
-      auto args = entry->getArguments();
-      allConverted &= llvm::all_of(args, isLinearizedMemref);
-    }
-    if (allConverted) {
+    unsigned numRegions = op.getNumRegions();
+    // Only linearize the last region. i.e. compute
+    Block *entry = &op.getRegion(numRegions - 1).front();
+    rewriter.setInsertionPointToStart(entry);
+    auto args = entry->getArguments();
+    if (llvm::all_of(args, isLinearizedMemref)) {
       return failure();
     }
 
     rewriter.modifyOpInPlace(op, [&]() {
-      for (Region &region : op.getRegions()) {
-        Block *entry = &region.front();
-        auto args = entry->getArguments();
-        rewriter.setInsertionPointToStart(entry);
-        for (auto arg : args) {
-          if (isLinearizedMemref(arg)) {
-            continue;
-          }
-          auto memref = mlir::cast<MemRefType>(arg.getType());
-          auto shape = memref.getShape();
-          auto linearMap = linearizeAffineMap(
-              rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
-          SmallVector<ReassociationIndices, 4> collapsedDims = {
-              llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
-          auto linearizedArg = rewriter.create<memref::CollapseShapeOp>(
-              arg.getLoc(), arg, collapsedDims);
-          rewriter.replaceAllUsesExcept(arg, linearizedArg->getResult(0),
-                                        linearizedArg);
-          for (auto user : linearizedArg->getUsers()) {
-            if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
-              load.setMap(linearMap.compose(load.getMap()));
-            } else if (auto store =
-                           mlir::dyn_cast<affine::AffineStoreOp>(user)) {
-              store.setMap(linearMap.compose(store.getMap()));
-            }
+      for (auto arg : args) {
+        if (isLinearizedMemref(arg)) {
+          continue;
+        }
+        auto memref = mlir::cast<MemRefType>(arg.getType());
+        auto shape = memref.getShape();
+        auto linearMap = linearizeAffineMap(
+            rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
+        SmallVector<ReassociationIndices, 4> collapsedDims = {
+            llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
+        auto linearizedArg = rewriter.create<memref::CollapseShapeOp>(
+            arg.getLoc(), arg, collapsedDims);
+        rewriter.replaceAllUsesExcept(arg, linearizedArg->getResult(0),
+                                      linearizedArg);
+        for (auto user : linearizedArg->getUsers()) {
+          if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
+            load.setMap(linearMap.compose(load.getMap()));
+          } else if (auto store = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
+            store.setMap(linearMap.compose(store.getMap()));
           }
         }
       }
@@ -479,9 +472,55 @@ public:
 
   LogicalResult
   buildDatamovementBlock(OpBuilder blockBuilder, Location loc,
+                         std::pair<unsigned, unsigned> inputOperandsRange,
+                         std::pair<unsigned, unsigned> outputOperandsRange,
                          ArrayRef<OpOperand> genericOperands,
                          ArrayRef<BlockArgument> blockOperands) const {
+    auto zero = blockBuilder.create<arith::ConstantOp>(
+        loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(0));
+    MemTxType memTxType = blockBuilder.getType<MemTxType>();
+    SmallVector<Value> memTxs;
+    for (unsigned i = inputOperandsRange.first;
+         i < (inputOperandsRange.first + inputOperandsRange.second); ++i) {
+      MemRefType memrefType =
+          mlir::cast<MemRefType>(blockOperands[i].getType());
+      SmallVector<Value> zeros(memrefType.getShape().size(), zero);
+      auto numElements = blockBuilder.create<arith::ConstantOp>(
+          loc, blockBuilder.getIndexType(),
+          blockBuilder.getIndexAttr(memrefType.getShape().size()));
+      auto memTx = blockBuilder
+                       .create<ttir::DMAOp>(
+                           loc, memTxType, genericOperands[i].get(), zeros,
+                           zeros, blockOperands[i], zeros, zeros, numElements)
+                       .getResult();
+      memTxs.push_back(memTx);
+    }
+    for (Value memTx : memTxs) {
+      blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
+    }
+
     blockBuilder.create<ttir::YieldOp>(loc, ValueRange());
+
+    memTxs.clear();
+    for (unsigned i = outputOperandsRange.first;
+         i < (outputOperandsRange.first + outputOperandsRange.second); ++i) {
+      MemRefType memrefType =
+          mlir::cast<MemRefType>(blockOperands[i].getType());
+      SmallVector<Value> zeros(memrefType.getShape().size(), zero);
+      auto numElements = blockBuilder.create<arith::ConstantOp>(
+          loc, blockBuilder.getIndexType(),
+          blockBuilder.getIndexAttr(memrefType.getShape().size()));
+      auto memTx = blockBuilder
+                       .create<ttir::DMAOp>(
+                           loc, memTxType, blockOperands[i], zeros, zeros,
+                           genericOperands[i].get(), zeros, zeros, numElements)
+                       .getResult();
+      memTxs.push_back(memTx);
+    }
+    for (Value memTx : memTxs) {
+      blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
+    }
+
     return success();
   }
 
@@ -505,9 +544,10 @@ public:
             generic.getRegion(0).getArgumentTypes().size(), generic.getLoc()));
 
     OpBuilder blockBuilder = OpBuilder::atBlockEnd(datamovementBlock);
-    auto result = buildDatamovementBlock(blockBuilder, generic->getLoc(),
-                                         generic->getOpOperands(),
-                                         datamovementBlock->getArguments());
+    auto result = buildDatamovementBlock(
+        blockBuilder, generic->getLoc(), generic.getODSOperandIndexAndLength(0),
+        generic.getODSOperandIndexAndLength(2), generic->getOpOperands(),
+        datamovementBlock->getArguments());
     if (failed(result)) {
       return result;
     }
