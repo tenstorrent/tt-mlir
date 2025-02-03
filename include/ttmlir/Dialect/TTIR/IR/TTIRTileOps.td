@@ -99,14 +99,20 @@ def TTIR_TileReduceSumOp : TTIR_TileOp<"tile_reduce_sum">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block">{
+def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block",
+  [ DestinationStyleOpInterface
+  , MemoryEffects<[MemRead, MemWrite]> // Custom memory effects??
+  ]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$a, AnyNon0RankedMemRef:$b);
-    let results = (outs AnyNon0RankedMemRef:$result);
+    let arguments = (ins AnyNon0RankedMemRef:$a, AnyNon0RankedMemRef:$b, AnyNon0RankedMemRef:$output);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 
     let hasVerifier = 1;
 }
@@ -121,7 +127,7 @@ def TTIR_DMAOp : TTIR_TileOp<"dma",
 
     let arguments = (ins AnyNon0RankedMemRef:$src, Variadic<Index>:$srcIndices, Variadic<Index>:$srcStride,
                          AnyNon0RankedMemRef:$dst, Variadic<Index>:$dstIndices, Variadic<Index>:$dstStride,
-                         Index:$numElements);
+                         Index:$numElements, Variadic<Index>:$mcastOffset, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 }
 

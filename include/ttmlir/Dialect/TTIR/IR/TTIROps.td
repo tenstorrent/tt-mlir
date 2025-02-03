@@ -1817,7 +1817,7 @@ def TTIR_IterIndexOp : TTIR_Op<"iter_index", [HasParent<"GenericOp">, Pure]> {
       Return the index of the current element in the iteration for the given generic op dimension.
     }];
 
-    let arguments = (ins Index:$dimension);
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
 }
 
@@ -1843,7 +1843,7 @@ def TTIR_AwaitOp : TTIR_Op<"await", [HasParent<"GenericOp">, MemoryEffects<[MemR
     let hasVerifier = 1;
 }
 
-def TTIR_SychronizeOp : TTIR_Op<"synchronize", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
+def TTIR_SynchronizeOp : TTIR_Op<"synchronize", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "Synchronize op.";
     let description = [{
     }];

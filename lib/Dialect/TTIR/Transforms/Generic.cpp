@@ -153,11 +153,9 @@ public:
 
     auto [genericOp, block] = buildGenericOp(op, rewriter);
     OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
-    auto res = blockBuilder.create<ttir::TileMatmulBlockOp>(
-        op->getLoc(), block->getArgument(2).getType(), block->getArgument(0),
-        block->getArgument(1));
-    blockBuilder.create<mlir::tt::ttir::YieldOp>(
-        op->getLoc(), mlir::ValueRange(res.getResult()));
+    blockBuilder.create<ttir::TileMatmulBlockOp>(
+        op->getLoc(), block->getArgument(0), block->getArgument(1),
+        block->getArgument(2));
     rewriter.replaceOp(op, genericOp);
     return success();
   }
@@ -493,25 +491,94 @@ class TTIRGenericDatamovementRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  LogicalResult buildDatamovementBlock(OpBuilder blockBuilder, Location loc,
-                                       Value genericOperand, Value blockOperand,
-                                       ArrayAttr indexingMaps,
-                                       ArrayAttr iteratorTypes,
-                                       bool isOutput) const {
+  static bool compatibleDeviceGrid(DeviceAttr device, GridAttr grid) {
+    if (grid.getShape().size() != device.getWorkerGrid().getShape().size()) {
+      return false;
+    }
+    return true;
+  }
+
+  static SmallVector<IteratorType>
+  calculateMcastIterators(GridAttr grid, DeviceAttr device,
+                          AffineMap indexingMap, ArrayAttr iteratorTypes) {
+    assert(grid.getShape().size() == 2 && "Currently only support 2D grid");
+    assert(grid.getShape().size() == indexingMap.getNumResults());
+    assert(compatibleDeviceGrid(device, grid));
+
+    bool allParallel = true;
+    SmallVector<IteratorType> mcastIterators;
+    mcastIterators.reserve(grid.getShape().size());
+    for (unsigned dim = 0; dim < grid.getShape().size(); dim++) {
+      unsigned dimPosition = indexingMap.getDimPosition(dim);
+
+      IteratorType iteratorType =
+          mlir::cast<IteratorTypeAttr>(iteratorTypes[dimPosition]).getValue();
+      mcastIterators.push_back(iteratorType);
+      allParallel &= iteratorType == IteratorType::Parallel;
+    }
+
+    return allParallel ? SmallVector<IteratorType>() : mcastIterators;
+  }
+
+  static std::pair<SmallVector<Value>, SmallVector<Value>>
+  calculateMcastArguments(OpBuilder blockBuilder, Location loc, GridAttr grid,
+                          DeviceAttr device, AffineMap indexingMap,
+                          ArrayAttr iteratorTypes) {
+    SmallVector<IteratorType> mcastIterators =
+        calculateMcastIterators(grid, device, indexingMap, iteratorTypes);
+    if (mcastIterators.empty()) {
+      return std::make_pair(SmallVector<Value>(), SmallVector<Value>());
+    }
+
+    Value zero = blockBuilder.create<arith::ConstantOp>(
+        loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(0));
+    Value one = blockBuilder.create<arith::ConstantOp>(
+        loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(1));
+
+    SmallVector<Value> mcastOffset;
+    SmallVector<Value> mcastShape;
+    mcastOffset.reserve(grid.getShape().size());
+    mcastShape.reserve(grid.getShape().size());
+
+    for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
+      Value gridDim = blockBuilder.create<arith::ConstantOp>(
+          loc, blockBuilder.getIndexType(),
+          blockBuilder.getIndexAttr(grid.getShape()[dim]));
+      if (iteratorType == IteratorType::Parallel) {
+        Value iter = blockBuilder.create<IterIndexOp>(
+            loc, blockBuilder.getIndexType(),
+            blockBuilder.getI64IntegerAttr(dim));
+        mcastOffset.push_back(Value(iter));
+        mcastShape.push_back(Value(one));
+      } else {
+        mcastOffset.push_back(zero);
+        mcastShape.push_back(gridDim);
+      }
+    }
+
+    return std::make_pair(mcastOffset, mcastShape);
+  }
+
+  static LogicalResult buildDatamovementBlock(
+      OpBuilder blockBuilder, Location loc, Value genericOperand,
+      Value blockOperand, GridAttr grid, DeviceAttr device,
+      AffineMap indexingMap, ArrayAttr iteratorTypes, bool isOutput) {
     auto zero = blockBuilder.create<arith::ConstantOp>(
         loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(0));
     MemTxType memTxType = blockBuilder.getType<MemTxType>();
 
-    auto createDMA = [&](Value src, Value dst) {
+    auto createDMA = [&](Value src, Value dst,
+                         SmallVector<Value> mcastOffset = {},
+                         SmallVector<Value> mcastShape = {}) {
       MemRefType memrefType = mlir::cast<MemRefType>(dst.getType());
       SmallVector<Value> zeros(memrefType.getShape().size(), zero);
       auto numElements = blockBuilder.create<arith::ConstantOp>(
           loc, blockBuilder.getIndexType(),
           blockBuilder.getIndexAttr(memrefType.getShape().size()));
       return blockBuilder
-                       .create<ttir::DMAOp>(loc, memTxType, src, zeros, zeros,
-                                            dst, zeros, zeros, numElements)
-                       .getResult();
+          .create<ttir::DMAOp>(loc, memTxType, src, zeros, zeros, dst, zeros,
+                               zeros, numElements, mcastOffset, mcastShape)
+          .getResult();
     };
 
     if (isOutput) {
@@ -519,12 +586,21 @@ public:
       blockBuilder.create<ttir::AwaitOp>(loc, ValueRange(blockOperand));
     }
 
-    Value memTx = createDMA(blockOperand, genericOperand);
+    Value memTx = isOutput ? createDMA(blockOperand, genericOperand)
+                           : createDMA(genericOperand, blockOperand);
     blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
 
     // Multicast
-#if 0
-#endif
+    auto [mcastOffset, mcastShape] = calculateMcastArguments(
+        blockBuilder, loc, grid, device, indexingMap, iteratorTypes);
+    assert(mcastOffset.size() == mcastShape.size());
+    if (!mcastOffset.empty()) {
+      blockBuilder.create<ttir::SynchronizeOp>(loc);
+      Value mcastSrc = blockOperand;
+      Value mcastDst = blockOperand;
+      Value mcastMemTx = createDMA(mcastSrc, mcastDst, mcastOffset, mcastShape);
+      blockBuilder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
+    }
 
     if (!isOutput) {
       // Wait for compute
@@ -553,6 +629,7 @@ public:
     // Insert the new data movement regions.
     auto [outputOperandsIndex, outputOperandsLength] =
         generic.getODSOperandIndexAndLength(2);
+    auto device = getCurrentScopeDevice(generic);
     for (OpOperand &operand : generic->getOpOperands()) {
       Block *datamovementBlock =
           &newGeneric.getRegion(operand.getOperandNumber()).emplaceBlock();
@@ -564,11 +641,16 @@ public:
 
       OpBuilder blockBuilder = OpBuilder::atBlockEnd(datamovementBlock);
       bool isOutput = operand.getOperandNumber() >= outputOperandsIndex;
+      AffineMap indexingMap =
+          mlir::cast<AffineMapAttr>(
+              generic.getIndexingMaps()[operand.getOperandNumber()])
+              .getValue();
       auto result = buildDatamovementBlock(
           blockBuilder, generic->getLoc(),
           generic->getOperand(operand.getOperandNumber()),
           datamovementBlock->getArgument(operand.getOperandNumber()),
-          generic.getIndexingMaps(), generic.getIteratorTypes(), isOutput);
+          generic.getGrid(), device, indexingMap, generic.getIteratorTypes(),
+          isOutput);
       if (failed(result)) {
         return result;
       }
