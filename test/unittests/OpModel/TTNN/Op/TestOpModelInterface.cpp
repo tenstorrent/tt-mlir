@@ -11,6 +11,8 @@
 #include "mlir/IR/AffineExpr.h"
 #include "gtest/gtest.h"
 
+#include <cstddef>
+#include <llvm/Support/Error.h>
 #include <optional>
 
 namespace mlir::tt::ttnn {
@@ -27,13 +29,11 @@ public:
     return std::nullopt;
   }
 
-  std::optional<
-      std::tuple<bool, std::optional<size_t>, std::optional<std::string>>>
-  getOpRuntime(Operation *op) {
+  llvm::Expected<size_t> getOpRuntime(Operation *op) {
     if (OpModel backend = dyn_cast<OpModel>(op)) {
       return backend.getOpRuntime(getInputLayouts(op), getOutputLayout(op));
     }
-    return std::nullopt;
+    return llvm::createStringError("Could not cast op to OpModel");
   }
 
   std::vector<TTNNLayoutAttr> getInputLayouts(Operation *op) {
@@ -117,15 +117,11 @@ TEST_F(OpModelBase, ReluInterface) {
     FAIL() << "Failed to cast ReluOp to OpModel";
   }
 
-  auto runtimeOpt = getOpRuntime(relu.getOperation());
-  if (runtimeOpt.has_value()) {
-    auto runtime = runtimeOpt.value();
-    EXPECT_TRUE(std::get<0>(runtime));
-    EXPECT_TRUE(std::get<1>(runtime).has_value());
-    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
-    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  auto runtimeExp = getOpRuntime(relu.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << "Failed to cast ReluOp to OpModel";
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 TEST_F(OpModelBase, SoftmaxInterface) {
@@ -157,15 +153,11 @@ TEST_F(OpModelBase, SoftmaxInterface) {
     FAIL() << "Failed to cast SoftmaxOp to OpModel";
   }
 
-  auto runtimeOpt = getOpRuntime(softmax.getOperation());
-  if (runtimeOpt.has_value()) {
-    auto runtime = runtimeOpt.value();
-    EXPECT_TRUE(std::get<0>(runtime));
-    EXPECT_TRUE(std::get<1>(runtime).has_value());
-    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
-    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  auto runtimeExp = getOpRuntime(softmax.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << "Failed to cast SoftmaxOp to OpModel";
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 
@@ -199,15 +191,11 @@ TEST_F(OpModelBase, AddInterface) {
     FAIL() << "Failed to cast AddOp to OpModel";
   }
 
-  auto runtimeOpt = getOpRuntime(add.getOperation());
-  if (runtimeOpt.has_value()) {
-    auto runtime = runtimeOpt.value();
-    EXPECT_TRUE(std::get<0>(runtime));
-    EXPECT_TRUE(std::get<1>(runtime).has_value());
-    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
-    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  auto runtimeExp = getOpRuntime(add.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << "Failed to cast AddOp to OpModel";
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 
@@ -244,15 +232,11 @@ TEST_F(OpModelBase, MatmulInterface) {
     FAIL() << "Failed to cast MatmulOp to OpModel";
   }
 
-  auto runtimeOpt = getOpRuntime(matmul.getOperation());
-  if (runtimeOpt.has_value()) {
-    auto runtime = runtimeOpt.value();
-    EXPECT_TRUE(std::get<0>(runtime));
-    EXPECT_TRUE(std::get<1>(runtime).has_value());
-    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
-    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  auto runtimeExp = getOpRuntime(matmul.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << "Failed to cast MatmulOp to OpModel";
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 

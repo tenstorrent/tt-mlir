@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.h"
+#include "llvm/Support/Error.h"
 #include <type_traits>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -18,6 +19,7 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Error.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -72,8 +74,8 @@ getOpConstraints(const std::string_view &name, Callable &callable,
 }
 
 template <class Callable>
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
-getOpRuntime(const std::string_view &name, Callable &callable, auto &&...args) {
+llvm::Expected<size_t> getOpRuntime(const std::string_view &name,
+                                    Callable &callable, auto &&...args) {
   ::ttnn::graph::RuntimeQueryResponse query;
   try {
     query = callable(std::forward<decltype(args)>(args)...);
@@ -84,12 +86,11 @@ getOpRuntime(const std::string_view &name, Callable &callable, auto &&...args) {
 
   // check if query was successful
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
-    return std::make_tuple(
-        false, std::nullopt,
+    return llvm::createStringError(
         query.error_message.value_or("<error message not set>"));
   }
 
-  return std::make_tuple(true, query.runtime, std::nullopt);
+  return query.runtime;
 }
 
 } // namespace operation
@@ -238,7 +239,7 @@ ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                               llvm::ArrayRef<int64_t> outputShape,
@@ -265,7 +266,7 @@ ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   return operation::getOpRuntime("ReluOpInterface", reluOpQuery, inputShape,
                                  inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(false, 0, std::nullopt);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -311,7 +312,7 @@ AddOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                              mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                              llvm::ArrayRef<int64_t> inputShapeB,
@@ -345,7 +346,7 @@ AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                                  inputLayoutA, inputShapeB, inputLayoutB,
                                  outputShape, outputLayout);
 #else
-  return std::make_tuple(false, 0, std::nullopt);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -388,7 +389,7 @@ SoftmaxOpInterface::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                  const int dimArg,
@@ -418,7 +419,7 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                  inputShape, inputLayout, dimArg, outputShape,
                                  outputLayout);
 #else
-  return std::make_tuple(false, 0, std::nullopt);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -468,7 +469,7 @@ MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                                 llvm::ArrayRef<int64_t> inputShapeB,
@@ -505,7 +506,7 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                                  inputLayoutB, outputShape, outputLayout,
                                  transposeA, transposeB);
 #else
-  return std::make_tuple(false, 0, std::nullopt);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 

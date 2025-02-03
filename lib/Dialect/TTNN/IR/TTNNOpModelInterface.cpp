@@ -11,7 +11,9 @@
 
 #include "mlir/IR/Operation.h"
 
+#include "llvm/Support/Error.h"
 #include <cassert>
+#include <cstddef>
 #include <optional>
 #include <tuple>
 
@@ -62,7 +64,7 @@ ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       inputShape, inputs[0], outputShape, output);
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const TTNNLayoutAttr &output) {
 
@@ -106,7 +108,7 @@ AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output);
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 AddOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                     const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);
@@ -148,7 +150,7 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       inputShape, inputs[0], getDimension(), outputShape, output);
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                         const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -191,7 +193,7 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       false, false);
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                        const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);

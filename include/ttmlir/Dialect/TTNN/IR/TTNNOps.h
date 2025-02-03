@@ -21,7 +21,11 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #define GET_OP_CLASSES
+// clang-format off
+// Required for OpModel return types
+#include "llvm/Support/Error.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h.inc"
+// clang-format on
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"
 
 #endif
