@@ -62,15 +62,10 @@ emitc::OpaqueAttr convertArrayAttrToSpan(Builder &builder, ArrayAttr attr);
 //
 emitc::OpaqueAttr createStdNullopt(Builder &builder);
 
-// Helper enum to differentiate between ttnn::Shape and ttnn::SimpleShape
-//
-enum class ShapeType { SimpleShape = 0, Shape = 1 };
-
-// Create emitc::CallOpaqueOp to ttnn::SimpleShape (Shape) constructor
+// Create emitc::CallOpaqueOp to ttnn::Shape constructor
 //
 emitc::CallOpaqueOp createShapeOp(ConversionPatternRewriter &rewriter,
-                                  ttnn::ShapeAttr shapeAttr, Location loc,
-                                  ShapeType shapeType = ShapeType::SimpleShape);
+                                  ttnn::ShapeAttr shapeAttr, Location loc);
 
 // Create ttnn::MemoryConfig and return emitc::CallOpaqueOp
 //

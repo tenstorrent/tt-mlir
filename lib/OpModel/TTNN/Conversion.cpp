@@ -38,13 +38,13 @@ getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
   }
 }
 
-::ttnn::SimpleShape getSimpleShape(const ::llvm::ArrayRef<int64_t> shape) {
+::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
   ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
     small_vector_shape.push_back(static_cast<uint32_t>(dim));
   }
 
-  return ::ttnn::SimpleShape(small_vector_shape);
+  return ::ttnn::Shape(small_vector_shape);
 }
 
 const std::array<uint32_t, 2>
@@ -147,7 +147,7 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
                                  const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
-  return ::ttnn::TensorSpec(getSimpleShape(shape), getTensorLayout(layout));
+  return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
 } // namespace conversion
