@@ -8,10 +8,12 @@ namespace tt::runtime::workaround {
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
 const Env &Env::get(bool maxpool2dPreshard, bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
-                    bool toDtypeOnHost, bool defaultStrideComputation) {
+                    bool toDtypeOnHost, bool defaultStrideComputation,
+                    bool toLayoutAPIAssumeSingleChip) {
   static const Env config(maxpool2dPreshard, swapBinaryOperands,
                           readUpdateIndexFromDeviceForKVCache, toDtypeOnHost,
-                          defaultStrideComputation);
+                          defaultStrideComputation,
+                          toLayoutAPIAssumeSingleChip);
   return config;
 }
 #endif

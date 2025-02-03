@@ -210,7 +210,7 @@ void GreedyL1InterleavedPolicy::run() {
           // memory.
           //
           else {
-            if (scheduler.isTTShedulableOp(operandOp)) {
+            if (scheduler.isTTSchedulableOp(operandOp)) {
               opsPrecedence.push_back(operandOp);
             }
           }

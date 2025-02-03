@@ -30,8 +30,11 @@ public:
       });
     });
     for (Operation *op : opsToReplace) {
-      this->createLayoutConversionOps(mlir::cast<ttnn::ToLayoutOp>(op),
-                                      rewriter);
+      if (failed(createLayoutConversionOps(mlir::cast<ttnn::ToLayoutOp>(op),
+                                           rewriter))) {
+        signalPassFailure();
+        return;
+      }
       rewriter.eraseOp(op);
     }
   }
@@ -42,6 +45,7 @@ private:
     ttnn::Layout layoutEnum;
     DataType dataType;
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
+    GridAttr shardGrid;
     llvm::SmallVector<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
@@ -51,7 +55,9 @@ private:
                                    ttnn::ShapeAttr::get(context, shardShape)),
           tensorMemoryLayout);
     }
-
+    bool isL1Sharded() const {
+      return isShardedMemoryLayout(tensorMemoryLayout.getValue());
+    }
     bool isOnHost() const {
       return bufferType == ttnn::BufferType::SystemMemory;
     }
@@ -115,6 +121,9 @@ private:
     auto inputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getInput().getType().getEncoding());
 
+    auto outputLayoutAttr =
+        mlir::cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
+
     assert(op.getMemoryConfig().has_value());
     MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
 
@@ -131,9 +140,12 @@ private:
     input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
     output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
 
+    input.shardGrid = inputLayoutAttr.getGrid();
+    output.shardGrid = outputLayoutAttr.getGrid();
+
     input.shardShape = inputLayoutAttr.getShardShape();
-    output.shardShape =
-        llvm::SmallVector<int64_t>{outputMemoryConfig.getShardShapeArray()};
+    output.shardShape = outputLayoutAttr.getShardShape();
+
     return {input, output};
   }
 
@@ -148,14 +160,6 @@ private:
 
     opsToCreate.createTypecastOp = input.dataType != output.dataType;
     opsToCreate.createToLayoutOp = input.layoutEnum != output.layoutEnum;
-    // TODO(bug #665):
-    // Insert a ToLayoutOp manually if we're moving from device to host to
-    // untilize. Since we're hardcoding tile layout, the tensor may be row
-    // major in mlir, and therefore it would appear as if we don't need to
-    // untilize
-    opsToCreate.createToLayoutOp |=
-        (opsToCreate.createFromDeviceOp and
-         output.layoutEnum == ttnn::Layout::RowMajor);
 
     // ToDeviceOp can handle the creation of the memory config of the initial
     // device tensor
@@ -168,8 +172,10 @@ private:
            output.bufferType == ttnn::BufferType::L1) or
           (input.bufferType == ttnn::BufferType::L1 and
            output.bufferType == ttnn::BufferType::DRAM);
+      // If shard grids don't match we need to reshard
       opsToCreate.createToMemoryConfigOp |=
-          (input.shardShape != output.shardShape);
+          (input.isL1Sharded() and output.isL1Sharded() and
+           input.shardGrid != output.shardGrid);
     }
     return opsToCreate;
   }
@@ -802,24 +808,30 @@ private:
    *   sizeof(uint32_t). For now, we will always untilize on host. We rarely
    * need device to device untilize, so the perf hit should be acceptable.
    */
-  void createLayoutConversionOps(ttnn::ToLayoutOp op,
-                                 IRRewriter &rewriter) const {
+  mlir::LogicalResult createLayoutConversionOps(ttnn::ToLayoutOp op,
+                                                IRRewriter &rewriter) const {
     auto [input, output] = getInputOutputLayouts(op);
     OpsToCreate opsToCreate = determineRequiredOps(input, output);
-    assert(isCreationValid(op, input, output, opsToCreate) &&
-           "Invalid layout conversion");
+    if (not isCreationValid(op, input, output, opsToCreate)) {
+      return failure();
+    }
+
     auto device = op.getDevice();
-    assert((device || output.isOnHost()) &&
-           "Op device must be set for output tensors on device");
+    if (!device && !output.isOnHost()) {
+      op->emitError("Device not specified for device tensor");
+      return failure();
+    }
+
     OpCreationInfo info(device, input, output, opsToCreate);
 
     Value currentInput = op.getInput();
 
     if (input.isOnHost()) {
       handleHostInputLayoutConversion(op, rewriter, currentInput, info);
-      return;
+      return success();
     }
     handleDeviceInputLayoutConversion(op, rewriter, currentInput, info);
+    return success();
   }
 };
 } // namespace mlir::tt::ttnn

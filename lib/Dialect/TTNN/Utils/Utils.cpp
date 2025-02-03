@@ -83,7 +83,7 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unknown MemorySpace");
 }
 
-Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
+Type dataTypeToElementType(::mlir::MLIRContext *context, DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
     return FloatType::getF32(context);
@@ -104,11 +104,14 @@ Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
   case DataType::BFP_BFloat2:
     return FloatType::getBF16(context);
   case DataType::UInt32:
-    return IntegerType::get(context, 32);
+    return IntegerType::get(context, 32,
+                            IntegerType::SignednessSemantics::Unsigned);
   case DataType::UInt16:
-    return IntegerType::get(context, 16);
+    return IntegerType::get(context, 16,
+                            IntegerType::SignednessSemantics::Unsigned);
   case DataType::UInt8:
-    return IntegerType::get(context, 8);
+    return IntegerType::get(context, 8,
+                            IntegerType::SignednessSemantics::Unsigned);
   }
 }
 
@@ -179,7 +182,7 @@ Type getElementType(MLIRContext *context, Layout tensorLayout,
   return tensorLayout == Layout::Tile
              ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
                              dataType)
-             : ttnn::utils::createRowMajorTypeFromDtype(context, dataType);
+             : ttnn::utils::dataTypeToElementType(context, dataType);
 }
 
 } // namespace mlir::tt::ttnn::utils

@@ -19,11 +19,11 @@ struct EmptyTensorConfig {
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
 
   EmptyTensorConfig(const ::tt::target::ttnn::EmptyOp *op)
-      : shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
+      : shape(::tt::runtime::ttnn::operations::utils::toTTNNShape(
             *op->out()->desc()->shape())),
         dtype(::tt::runtime::ttnn::operations::utils::getDataType(op->out())),
+        layout(::tt::runtime::ttnn::utils::toTTNNLayout(op->layout())),
         numShards(op->num_shards()), strategy(op->strategy()) {
-    layout = ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
     if (op->device()) {
       LOG_ASSERT(op->memcfg(),
                  "Memory config must be provided when device is provided");

@@ -358,15 +358,24 @@ public:
       //
       mlir::TupleType tuplifiedInputTensors =
           mlir::TupleType::get(&getContext(), originalFuncType.getInputs());
-      tt::DeviceType deviceType = getDeviceOp.getResult().getType();
+      std::optional<tt::DeviceType> deviceType = std::nullopt;
+      if (getDeviceOp) {
+        deviceType = getDeviceOp.getResult().getType();
+      }
       mlir::TupleType tuplifiedOutputTensors =
           mlir::TupleType::get(&getContext(), originalFuncType.getResults());
 
       // Create modified function type (signature) that takes the input tuple
       // and device as operands, and returns the output tuple
       //
-      FunctionType modifiedFuncType = originalFuncType.clone(
-          {tuplifiedInputTensors, deviceType}, tuplifiedOutputTensors);
+      SmallVector<Type> modifiedInputTypes;
+      modifiedInputTypes.push_back(tuplifiedInputTensors);
+      if (deviceType.has_value()) {
+        modifiedInputTypes.push_back(*deviceType);
+      }
+      FunctionType modifiedFuncType =
+          originalFuncType.clone(modifiedInputTypes, tuplifiedOutputTensors);
+
       rewriter.modifyOpInPlace(forwardFuncOp,
                                [&forwardFuncOp, &modifiedFuncType]() {
                                  forwardFuncOp.setType(modifiedFuncType);
@@ -387,10 +396,14 @@ public:
       // The return statement is modified to return a tuple
       //
       Block &entryBlock = forwardFuncOp.getBlocks().front();
+      size_t paramOffset = 1;
       entryBlock.insertArgument(/*index=*/0u, tuplifiedInputTensors,
                                 forwardFuncOp.getLoc());
-      entryBlock.insertArgument(/*index=*/1u, deviceType,
-                                forwardFuncOp.getLoc());
+      if (deviceType.has_value()) {
+        entryBlock.insertArgument(/*index=*/1u, *deviceType,
+                                  forwardFuncOp.getLoc());
+        paramOffset++;
+      }
 
       rewriter.setInsertionPointToStart(&entryBlock);
       for (size_t idx = 0; idx < originalFuncType.getInputs().size(); idx++) {
@@ -398,19 +411,22 @@ public:
             rewriter.create<mlir::tt::GetTupleElementOp>(
                 forwardFuncOp.getLoc(), forwardFuncOp.getArgument(0), idx);
 
-        rewriter.replaceAllUsesWith(entryBlock.getArgument(2 + idx),
+        rewriter.replaceAllUsesWith(entryBlock.getArgument(paramOffset + idx),
                                     getTupleElementOp);
       }
 
       // Erase original arguments
       //
-      entryBlock.eraseArguments(2, originalFuncType.getInputs().size());
+      entryBlock.eraseArguments(paramOffset,
+                                originalFuncType.getInputs().size());
 
       // Remove device usage and remove the original GetDeviceOp
       //
-      rewriter.replaceAllUsesWith(getDeviceOp.getResult(),
-                                  entryBlock.getArgument(1));
-      rewriter.eraseOp(getDeviceOp);
+      if (getDeviceOp) {
+        rewriter.replaceAllUsesWith(getDeviceOp.getResult(),
+                                    entryBlock.getArgument(1));
+        rewriter.eraseOp(getDeviceOp);
+      }
 
       // Find return statement and replace with tuple
       //
