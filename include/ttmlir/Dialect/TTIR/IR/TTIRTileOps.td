@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
+include "ttmlir/Dialect/TTIR/IR/TTIROpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
 class TTIR_TileOp<string mnemonic, list<Trait> traits = []> :
@@ -108,6 +109,25 @@ def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block">{
     let results = (outs AnyNon0RankedMemRef:$result);
 
     let hasVerifier = 1;
+}
+
+def TTIR_DMAOp : TTIR_TileOp<"dma", [AttrSizedOperandSegments]> {
+    let summary = "TTIR DMA Op";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyNon0RankedMemRef:$src, Variadic<Index>:$srcIndices, Variadic<Index>:$srcStride,
+                         AnyNon0RankedMemRef:$dst, Variadic<Index>:$dstIndices, Variadic<Index>:$dstStride,
+                         Index:$numElements);
+    let results = (outs TTIR_MemTx:$result);
+}
+
+def TTIR_DMAWaitOp : TTIR_TileOp<"dma_wait"> {
+    let summary = "TTIR DMA wait Op";
+    let description = [{
+    }];
+
+    let arguments = (ins TTIR_MemTx:$mem_tx);
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTILEOPS_TD

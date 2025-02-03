@@ -23,6 +23,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICLINEARIZEMEMREF
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRGENERICOPCBS
+#define GEN_PASS_DEF_TTIRGENERICDATAMOVEMENT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -461,4 +462,59 @@ public:
     }
   }
 };
+
+namespace {
+class TTIRGenericDatamovementRewriter : public OpRewritePattern<GenericOp> {
+public:
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GenericOp generic,
+                                PatternRewriter &rewriter) const final {
+    if (generic.getNumRegions() > 1) {
+      // Already inserted, skip.
+      return failure();
+    }
+
+    auto newGeneric = rewriter.create<GenericOp>(
+        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
+        generic.getCbs(), generic.getOutputs(), generic.getGrid(),
+        generic.getIndexingMaps(), generic.getIteratorTypes(),
+        generic.getOperandCbMapping(), generic.getNumRegions() + 1);
+
+    Block *datamovementBlock = &newGeneric.getRegion(0).emplaceBlock();
+    datamovementBlock->addArguments(
+        generic.getRegion(0).getArgumentTypes(),
+        SmallVector<mlir::Location>(
+            generic.getRegion(0).getArgumentTypes().size(), generic.getLoc()));
+    OpBuilder blockBuilder = OpBuilder::atBlockEnd(datamovementBlock);
+    blockBuilder.create<ttir::YieldOp>(generic.getLoc(), ValueRange());
+
+    for (unsigned regionNum = 1; regionNum < newGeneric.getNumRegions();
+         ++regionNum) {
+      auto &newRegion = newGeneric.getRegion(regionNum);
+      auto &oldRegion = generic.getRegion(regionNum - 1);
+      newRegion.takeBody(oldRegion);
+    }
+
+    rewriter.replaceOp(generic, newGeneric);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTIRGenericDatamovement : public impl::TTIRGenericDatamovementBase<TTIRGenericDatamovement> {
+public:
+  using impl::TTIRGenericDatamovementBase<TTIRGenericDatamovement>::TTIRGenericDatamovementBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericDatamovementRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+    }
+  }
+};
+} // namespace
 } // namespace mlir::tt::ttir

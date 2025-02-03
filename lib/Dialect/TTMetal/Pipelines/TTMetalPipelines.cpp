@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
@@ -56,6 +57,12 @@ void createTTIRToTTMetalBackendPipeline(
     // bufferizationOptions.bufferAlignment = TODO;
     pm.addPass(
         mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
+    // TODO
+    // bufferization::BufferDeallocationPipelineOptions
+    // bufferDeallocationOptions;
+    // mlir::bufferization::buildBufferDeallocationPipeline(
+    //    pm, bufferDeallocationOptions);
+    pm.addPass(mlir::tt::ttir::createTTIRGenericDatamovement());
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
     pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
     pm.addPass(mlir::createLowerAffinePass());
