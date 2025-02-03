@@ -10,6 +10,7 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "gtest/gtest.h"
+#include <llvm/Support/Error.h>
 
 namespace mlir::tt::op_model::ttnn {
 
@@ -31,7 +32,6 @@ TEST_F(OpModelTest, ReluInterleaved) {
   size_t cb_size = 0;
   size_t peak_size = 0;
   size_t output_size = 0;
-  std::optional<size_t> runtime = 0;
 
   std::tie(legal, errorMsg) = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(legal);
@@ -83,12 +83,13 @@ TEST_F(OpModelTest, ReluInterleaved) {
                              {inputLayout_dram, inputLayout_l1},
                              {inputLayout_l1, inputLayout_l1}};
   for (const auto &[input_layout, output_layout] : layout_combinations) {
-    std::tie(legal, runtime, errorMsg) = ReluOpInterface::getOpRuntime(
-        tensorShape, input_layout, tensorShape, output_layout);
-    EXPECT_TRUE(legal);
-    EXPECT_TRUE(runtime.has_value());
-    EXPECT_FALSE(errorMsg.has_value());
-    EXPECT_TRUE(runtime.value() > 0);
+    auto runtimeExp = ReluOpInterface::getOpRuntime(tensorShape, input_layout,
+                                                    tensorShape, output_layout);
+
+    // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+    // which llvm::Expected<T> does not have
+    EXPECT_TRUE(static_cast<bool>(runtimeExp));
+    EXPECT_TRUE(runtimeExp.get() > 0);
   }
 }
 
@@ -109,7 +110,6 @@ TEST_F(OpModelTest, ReluSharded) {
   size_t cb_size = 0;
   size_t peak_size = 0;
   size_t output_size = 0;
-  std::optional<size_t> runtime = 0;
 
   std::tie(legal, errorMsg) = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(legal);
@@ -124,12 +124,10 @@ TEST_F(OpModelTest, ReluSharded) {
   EXPECT_EQ(output_size, tensorShape[0] * tensorShape[1] * 2 / workerCoresN300);
   EXPECT_EQ(peak_size, tensorShape[0] * tensorShape[1] * 2 / workerCoresN300);
 
-  std::tie(legal, runtime, errorMsg) = ReluOpInterface::getOpRuntime(
+  auto runtimeExp = ReluOpInterface::getOpRuntime(
       tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_hs);
-  EXPECT_TRUE(legal);
-  EXPECT_TRUE(runtime.has_value());
-  EXPECT_FALSE(errorMsg.has_value());
-  EXPECT_TRUE(runtime.value() > 0);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 
   legal = std::get<0>(ReluOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_i));
@@ -139,10 +137,11 @@ TEST_F(OpModelTest, ReluSharded) {
       tensorShape, inputLayout_l1_i, tensorShape, inputLayout_l1_hs));
   // Unary operation requires Input and Output memory layout to match.
   EXPECT_EQ(legal, false);
-  legal = std::get<0>(ReluOpInterface::getOpRuntime(
-      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_i));
+  runtimeExp = ReluOpInterface::getOpRuntime(tensorShape, inputLayout_l1_hs,
+                                             tensorShape, inputLayout_l1_i);
   // Unary operation requires Input and Output memory layout to match.
-  EXPECT_EQ(legal, false);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
 }
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
@@ -161,7 +160,6 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   size_t cb_size = 0;
   size_t peak_size = 0;
   size_t output_size = 0;
-  std::optional<size_t> runtime = 0;
 
   std::tie(legal, errorMsg) = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(legal);
@@ -223,12 +221,10 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
                              {inputLayout_dram, inputLayout_l1},
                              {inputLayout_l1, inputLayout_l1}};
   for (const auto &[input_layout, output_layout] : layout_combinations) {
-    std::tie(legal, runtime, errorMsg) = SoftmaxOpInterface::getOpRuntime(
+    auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
         tensorShape, input_layout, -1, tensorShape, output_layout);
-    EXPECT_TRUE(legal);
-    EXPECT_TRUE(runtime.has_value());
-    EXPECT_FALSE(errorMsg.has_value());
-    EXPECT_TRUE(runtime.value() > 0);
+    EXPECT_TRUE(static_cast<bool>(runtimeExp));
+    EXPECT_TRUE(runtimeExp.get() > 0);
   }
 }
 
@@ -249,7 +245,6 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   size_t cb_size = 0;
   size_t peak_size = 0;
   size_t output_size = 0;
-  std::optional<size_t> runtime = 0;
 
   std::tie(legal, errorMsg) = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(legal);
@@ -284,12 +279,10 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_EQ(output_size, 32768);
   EXPECT_EQ(peak_size, 32768);
 
-  std::tie(legal, runtime, errorMsg) = SoftmaxOpInterface::getOpRuntime(
+  auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
       tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
-  EXPECT_TRUE(legal);
-  EXPECT_TRUE(runtime.has_value());
-  EXPECT_FALSE(errorMsg.has_value());
-  EXPECT_TRUE(runtime.value() > 0);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
 TEST_F(OpModelTest, AddInterleaved) {
@@ -308,7 +301,6 @@ TEST_F(OpModelTest, AddInterleaved) {
   size_t cb_size = 0;
   size_t peak_size = 0;
   size_t output_size = 0;
-  std::optional<size_t> runtime = 0;
 
   std::tie(legal, errorMsg) = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(legal);
@@ -412,13 +404,11 @@ TEST_F(OpModelTest, AddInterleaved) {
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
 
-  std::tie(legal, runtime, errorMsg) = AddOpInterface::getOpRuntime(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram);
-  EXPECT_TRUE(legal);
-  EXPECT_TRUE(runtime.has_value());
-  EXPECT_FALSE(errorMsg.has_value());
-  EXPECT_TRUE(runtime.value() > 0);
+  auto runtimeExp = AddOpInterface::getOpRuntime(tensorShape, inputLayout_dram,
+                                                 tensorShape, inputLayout_dram,
+                                                 tensorShape, inputLayout_dram);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
 TEST_F(OpModelTest, AddSharded) {
@@ -533,7 +523,6 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
   size_t cbSize = 0;
   size_t peakSize = 0;
   size_t outputSize = 0;
-  std::optional<size_t> runtime = 0;
 
   std::tie(legal, l1Usage, errorMsg) = MatmulOpInterface::getOpConstraints(
       inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputShape,
@@ -549,14 +538,14 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
     EXPECT_EQ(outputSize, expectedOutputSize);
   }
 
-  std::tie(legal, runtime, errorMsg) = MatmulOpInterface::getOpRuntime(
+  auto runtimeExp = MatmulOpInterface::getOpRuntime(
       inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputShape,
       outputLayout, false, false);
-  EXPECT_EQ(legal, expectedLegal);
-  EXPECT_EQ(runtime.has_value(), expectedLegal);
-  EXPECT_EQ(errorMsg.has_value(), !expectedLegal);
-  if (runtime.has_value()) {
-    EXPECT_TRUE(runtime.value() > 0);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
   }
   std::cout << errorMsg.value_or("No errors") << std::endl;
 }

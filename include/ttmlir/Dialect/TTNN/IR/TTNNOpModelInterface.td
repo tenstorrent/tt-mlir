@@ -21,11 +21,11 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
                 2. If the measurement was successful, the estimated op runtime in nanoseconds.
                 3. If the measurement failed, a string describing the failure.
             }],
-            /*retTy=*/"std::tuple<bool, std::optional<size_t>, std::optional<std::string>>",
+            /*retTy=*/"llvm::Expected<size_t>",
             /*methodName=*/"getOpRuntime",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::make_tuple(false, 0, std::nullopt);"
+            /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
         InterfaceMethod<
             /*desc=*/[{
