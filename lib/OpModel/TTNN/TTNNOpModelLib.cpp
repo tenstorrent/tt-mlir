@@ -46,8 +46,7 @@ namespace operation {
  * @return A tuple containing query results.
  */
 template <class Callable>
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 getOpConstraints(const std::string_view &name, Callable &callable,
                  auto &&...args) {
   ::ttnn::graph::ConstraintQueryResponse query;
@@ -60,17 +59,13 @@ getOpConstraints(const std::string_view &name, Callable &callable,
 
   // check if query was successful
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
-    return std::make_tuple(
-        false, std::nullopt,
+    return llvm::createStringError(
         query.error_message.value_or("<error message not set>"));
   }
 
-  return std::make_tuple(
-      true,
-      std::make_tuple(query.resource_usage.cb_peak_size_per_core,
-                      query.resource_usage.l1_buffers_peak_per_core,
-                      query.resource_usage.l1_output_buffer_per_core),
-      std::nullopt);
+  return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
+                         query.resource_usage.l1_buffers_peak_per_core,
+                         query.resource_usage.l1_output_buffer_per_core);
 }
 
 template <class Callable>
@@ -188,7 +183,7 @@ auto convertToTensorSpec(::tt::tt_metal::v0::IDevice *device, Args... args) {
 // Device
 //===----------------------------------------------------------------------===//
 
-std::tuple<bool, std::optional<std::string>>
+llvm::Expected<bool>
 Device::getDeviceConstraints(const mlir::tt::GridAttr &workerGrid) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   try {
@@ -196,18 +191,18 @@ Device::getDeviceConstraints(const mlir::tt::GridAttr &workerGrid) {
                           .getDevice()
                           ->compute_with_storage_grid_size(),
                       workerGrid);
+    return true;
   } catch (const std::exception &e) {
-    return std::make_tuple(false, e.what());
+    return llvm::createStringError(e.what());
   }
 #endif
-  return std::make_tuple(true, std::nullopt);
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
 // ReluOp
 //===----------------------------------------------------------------------===//
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                   llvm::ArrayRef<int64_t> outputShape,
@@ -235,7 +230,7 @@ ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
   return operation::getOpConstraints("ReluOpInterface", reluOpQuery, inputShape,
                                      inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -273,8 +268,7 @@ ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 AddOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                                  llvm::ArrayRef<int64_t> inputShapeB,
@@ -308,7 +302,7 @@ AddOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                      inputLayoutA, inputShapeB, inputLayoutB,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -353,8 +347,7 @@ AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 SoftmaxOpInterface::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dimArg,
@@ -385,7 +378,7 @@ SoftmaxOpInterface::getOpConstraints(
                                      inputShape, inputLayout, dimArg,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -426,8 +419,7 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                                     llvm::ArrayRef<int64_t> inputShapeB,
@@ -465,7 +457,7 @@ MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                      inputLayoutB, outputShape, outputLayout,
                                      transposeA, transposeB);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
