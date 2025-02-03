@@ -34,6 +34,13 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
   ];
 }
 
+def TTIRTensorLayout: Pass<"ttir-tensor-layout", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Analyze the graph and select optimal layouts, insert reinterpret_layout where needed.
+  }];
+}
+
 def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
