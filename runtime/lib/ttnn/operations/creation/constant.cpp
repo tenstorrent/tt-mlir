@@ -44,7 +44,7 @@ using BufferCreatorFn =
     ::tt::tt_metal::OwnedBuffer (*)(const ::flatbuffers::Vector<uint8_t> *);
 
 template <size_t... Is>
-constexpr auto makeBufferTable(std::index_sequence<Is...>) {
+static constexpr auto makeBufferTable(std::index_sequence<Is...>) {
   return std::array<BufferCreatorFn, sizeof...(Is)>{
       [](const ::flatbuffers::Vector<uint8_t> *data)
           -> tt::tt_metal::OwnedBuffer {
@@ -55,7 +55,7 @@ constexpr auto makeBufferTable(std::index_sequence<Is...>) {
 }
 
 constexpr auto bufferTable = makeBufferTable(
-    std::make_index_sequence<tt::runtime::ttnn::utils::DTypeCountV>{});
+    std::make_index_sequence<tt::runtime::ttnn::utils::DTypeCountV>());
 
 static tt::tt_metal::OwnedBuffer
 makeTypedBuffer(::tt::target::DataType dtype,
