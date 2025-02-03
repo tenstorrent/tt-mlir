@@ -3,9 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cmath>
-#include <cstdint>
 #include <limits>
-#include <mlir/IR/Operation.h>
 #include <vector>
 
 #include "mlir/Dialect/Traits.h"
@@ -195,6 +193,18 @@ private:
     return success();
   }
 
+  // This function verify all the required conditions to convert stablehlo
+  // reduce op to TTIR argmax op
+  // 1. Two inputs values ot the op.
+  //   a. first input is the input tensor.
+  //   b. second input is defined with stablehlo.iota
+  // 2. Two init values
+  //   a. first init value is -inf (for float) or int_min (for integer input)
+  //   b. second init value is 0
+  // 3. Two results generated and only second result is consumed.
+  // 4. One block in reducer body.
+  // 5. Pattern match the ops of reducer body; tt-torch and tt-xla generates
+  //    different pattern. So pattern matching is performed separately.
   bool isArgMax(mlir::stablehlo::ReduceOp &srcOp,
                 mlir::stablehlo::ReduceOp::Adaptor &adaptor,
                 ConversionPatternRewriter &rewriter) const {
@@ -217,6 +227,7 @@ private:
     return true;
   }
 
+  // Validate the inputs.
   bool hasValidInputs(mlir::OperandRange inputs) const {
     if (inputs.size() != 2) {
       return false;
@@ -225,6 +236,7 @@ private:
     return isa<stablehlo::IotaOp>(inputs.back().getDefiningOp()) ? true : false;
   }
 
+  // Validate the outputs.
   bool hasValidOutputs(mlir::ResultRange results) const {
     if (results.size() != 2) {
       return false;
@@ -237,6 +249,7 @@ private:
     return true;
   }
 
+  // Validate initialization values.
   bool hasValidInitValues(mlir::OperandRange initValues) const {
     if (initValues.size() != 2) {
       return false;
@@ -253,6 +266,7 @@ private:
     return true;
   }
 
+  // Validate reducer body.
   bool hasValidReducerBody(mlir::Region &body) const {
     auto &blocks = body.getBlocks();
     if (blocks.size() != 1) {
@@ -273,6 +287,7 @@ private:
     return false;
   }
 
+  // Pattern match the ops for tt-torch.
   bool verifyTorchOpPattern(mlir::Operation &operation) const {
     mlir::Operation *op = &operation;
     if (!isa<stablehlo::CompareOp>(op)) {
@@ -317,6 +332,7 @@ private:
     return true;
   }
 
+  // Pattern match the ops for tt-xla.
   bool verifyJaxOpPattern(mlir::Operation &operation) const {
     mlir::Operation *op = &operation;
     if (!isa<stablehlo::CompareOp>(op)) {
@@ -376,6 +392,7 @@ private:
     return true;
   }
 
+  // Initializer verifier.
   bool verifyInitValue(mlir::Value val,
                        TypicalInitReductionValue desired) const {
     Operation *initValue = val.getDefiningOp();

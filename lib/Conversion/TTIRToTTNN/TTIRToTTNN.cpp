@@ -457,10 +457,6 @@ public:
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto dimArg = op.getDimArg();
-    if (dimArg && dimArg->size() > 1) {
-      return rewriter.notifyMatchFailure(
-          op, "specified dimension can only have 1 element.");
-    }
 
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),

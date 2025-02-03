@@ -2438,6 +2438,13 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // ArgMaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
+  auto dimArg = getDimArg();
+  if (dimArg && dimArg->size() > 1) {
+    return getOperation()->emitOpError()
+           << "can only reduce one dimension; number of specified dimensions: "
+           << dimArg->size() << ".";
+  }
+
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
 
