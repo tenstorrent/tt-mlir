@@ -279,12 +279,17 @@ private:
     }
     ttnn::LayoutAttr layoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
-    RankedTensorType inputType =
+    RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
-    Type memrefElementType = utils::getElementType(
-        op.getContext(), info.output.layoutEnum, info.output.dataType);
+    // Remove this once we have type conversion pass in TTIR.
+    // Issue for tracking: https://github.com/tenstorrent/tt-mlir/issues/1277.
+    Type memrefElementType =
+        info.output.layoutEnum == ttnn::Layout::RowMajor
+            ? currentInputType.getElementType()
+            : utils::getElementType(op.getContext(), info.output.layoutEnum,
+                                    info.output.dataType);
     RankedTensorType newResultType =
-        utils::createRankedTensorTypeWithElementType(inputType,
+        utils::createRankedTensorTypeWithElementType(currentInputType,
                                                      memrefElementType);
     return this->createOp<ttnn::ToLayoutOp>(
         rewriter, op, newResultType, currentInput, layoutAttr,
