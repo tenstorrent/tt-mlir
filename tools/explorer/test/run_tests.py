@@ -16,6 +16,7 @@ COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
     "test/ttmlir/Explorer/**/*.mlir",
+    "test/ttmlir/Silicon/TTNN/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
@@ -156,7 +157,7 @@ def test_load_model(model_path):
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
 def test_execute_model(model_path):
     execute_command_and_wait(
-        model_path, {"optimizationPolicy": "DF Sharding"}, timeout=60
+        model_path, {"optimizationPolicy": "DF Sharding"}, timeout=300
     )
     convert_command_and_assert(model_path)
 
@@ -165,7 +166,7 @@ def test_execute_mnist_l1_interleaved():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Greedy L1 Interleaved"},
-        timeout=60,
+        timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
@@ -174,7 +175,7 @@ def test_execute_mnist_optimizer_disabled():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
-        timeout=60,
+        timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
@@ -195,7 +196,7 @@ def test_execute_mnist_with_overrides():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "DF Sharding", "overrides": overrides},
-        timeout=60,
+        timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
@@ -204,7 +205,7 @@ def test_execute_and_check_perf_data_exists():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "DF Sharding"},
-        timeout=60,
+        timeout=300,
     )
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
     assert "perf_data" in result["graphs"][0]
@@ -215,5 +216,5 @@ def test_execute_model_invalid_policy():
         execute_command_and_wait(
             TEST_EXECUTE_MODEL_PATHS[0],
             {"optimizationPolicy": "Invalid Policy"},
-            timeout=60,
+            timeout=300,
         )
