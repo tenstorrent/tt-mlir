@@ -27,8 +27,6 @@
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
-#define GET_OP_CLASSES
-#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.cpp.inc"
 
 //===----------------------------------------------------------------------===//
 // BitwiseXorOp
@@ -2230,22 +2228,6 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         }
         return mlir::failure();
       });
-}
-
-//===----------------------------------------------------------------------===//
-// TileMatmulBlockOp
-//===----------------------------------------------------------------------===//
-
-// TileMatmulBlockOp verification
-::mlir::LogicalResult mlir::tt::ttir::TileMatmulBlockOp::verify() {
-
-  if (!llvm::isa<mlir::tt::TileType>(getA().getType().getElementType()) ||
-      !llvm::isa<mlir::tt::TileType>(getB().getType().getElementType())) {
-    return emitOpError("MemRef operands to TileMatmulBlock must have tt.tile "
-                       "element type");
-  }
-
-  return success();
 }
 
 //===----------------------------------------------------------------------===//

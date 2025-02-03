@@ -124,12 +124,4 @@ def TTIR_FullyBroadcastable : OpInterface<"FullyBroadcastable"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
 
-def TTIR_GenericParent : OpInterface<"GenericParent"> {
-  let cppNamespace = "::mlir::tt::ttir";
-
-  let verify = [{
-    return detail::verifyGenericParent($_op);
-  }];
-}
-
 #endif
