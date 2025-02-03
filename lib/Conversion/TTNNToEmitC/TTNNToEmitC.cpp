@@ -289,6 +289,7 @@ public:
 
 // Matmul op conversion pattern
 //
+// ANCHOR: adding_an_op_matmul_op_rewriter_emitc
 namespace {
 class MatmulOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::MatmulOp> {
@@ -330,6 +331,7 @@ public:
   }
 };
 } // namespace
+// ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
 
 // Softmax op conversion pattern
 //
@@ -1115,6 +1117,7 @@ public:
 
 namespace mlir::tt {
 
+// ANCHOR: op_rewriter_pattern_set_emitc
 void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  mlir::RewritePatternSet &patterns,
                                  TypeConverter &typeConverter) {
@@ -1260,5 +1263,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
 }
+// ANCHOR_END: op_rewriter_pattern_set_emitc
 
 } // namespace mlir::tt

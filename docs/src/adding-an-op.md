@@ -105,6 +105,8 @@ For more details on adding ops to the TTNN dialect, refer to [TTNN Dialect Contr
 
 ## 3. Convert / Implement the Op in the TTNN passes
 
+### TTIR to TTNN
+
 Next we will implement the conversion from the TTIR `matmul` Op to the TTNN `matmul` Op.
 This is a trivial conversion, as the Ops are identical in their semantics, so
 the changeset isn't going to be very instructive, but will at least point to the
@@ -150,10 +152,21 @@ Invoked as part of the rewrite set:
 MatmulOpConversionPattern
 ```
 
-### Note:
-We also need to add this op to the C++ emitter,
-`lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp` see
-`populateTTNNToEmitCPatterns(...)`.
+### TTNN to EmitC
+
+Similarly, we also need to add a pattern to convert from TTNN dialect to EmitC dialect.
+
+Method to populate rewrite patterns can be found in `lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp`:
+
+```cpp
+{{#include ../../../lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp:op_rewriter_pattern_set_emitc}}
+```
+
+Conversion pattern for matmul op:
+
+```cpp
+{{#include ../../../lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp:adding_an_op_matmul_op_rewriter_emitc}}
+```
 
 ## 4. Add a compiler unit test for the Op
 
@@ -332,3 +345,9 @@ TTNN EmitC tests live in the `test/ttmlir/EmitC/TTNN` path. In our case, the tes
 ```
 
 The first two `RUN` lines create a flatbuffer. The third and forth convert to EmitC dialect, translate to C++, then output the result to `matmul.mlir.cpp` file.
+
+Additionally, the op's header file `operations/matmul/matmul.hpp` should be added to the list of includes in `tools/ttnn-standalone/ttnn-precompiled.hpp`:
+
+```cpp
+{{#include ../../../tools/ttnn-standalone/ttnn-precompiled.hpp:standalone_includes}}
+```
