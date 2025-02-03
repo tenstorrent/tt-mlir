@@ -10,39 +10,6 @@
 
 namespace tt::runtime::ttnn::operations::creation {
 
-template <::tt::target::DataType DataType>
-struct NativeDType {
-  using type = std::monostate;
-};
-template <>
-struct NativeDType<::tt::target::DataType::Float32> {
-  using type = float;
-};
-template <>
-struct NativeDType<::tt::target::DataType::BFloat16> {
-  using type = bfloat16;
-};
-template <>
-struct NativeDType<::tt::target::DataType::UInt32> {
-  using type = uint32_t;
-};
-template <>
-struct NativeDType<::tt::target::DataType::UInt16> {
-  using type = uint16_t;
-};
-template <>
-struct NativeDType<::tt::target::DataType::UInt8> {
-  using type = uint8_t;
-};
-
-template <::tt::target::DataType DataType>
-using NativeDTypeT = typename NativeDType<DataType>::type;
-
-template <typename T>
-constexpr bool IsHostTypeV =
-    std::is_constructible_v<::tt::tt_metal::OwnedBuffer,
-                            ::tt::tt_metal::owned_buffer::Buffer<T>>;
-
 template <typename T>
 static T getElement(const ::flatbuffers::Vector<uint8_t> *data, size_t i) {
   if constexpr (std::is_same_v<T, bfloat16>) {
@@ -56,7 +23,7 @@ static T getElement(const ::flatbuffers::Vector<uint8_t> *data, size_t i) {
 template <typename T>
 static ::tt::tt_metal::OwnedBuffer
 makeBuffer(const ::flatbuffers::Vector<uint8_t> *data) {
-  if constexpr (IsHostTypeV<T>) {
+  if constexpr (tt::runtime::ttnn::utils::IsHostTypeV<T>) {
     size_t size = data->size() / sizeof(T);
     LOG_ASSERT(data->size() % sizeof(T) == 0, "Invalid data size");
 
@@ -73,10 +40,6 @@ makeBuffer(const ::flatbuffers::Vector<uint8_t> *data) {
   }
 }
 
-constexpr size_t DTypeMinV = static_cast<size_t>(tt::target::DataType::MIN);
-constexpr size_t DTypeMaxV = static_cast<size_t>(tt::target::DataType::MAX);
-constexpr size_t DTypeCountV = DTypeMaxV - DTypeMinV + 1;
-
 using BufferCreatorFn =
     ::tt::tt_metal::OwnedBuffer (*)(const ::flatbuffers::Vector<uint8_t> *);
 
@@ -85,14 +48,14 @@ constexpr auto makeBufferTable(std::index_sequence<Is...>) {
   return std::array<BufferCreatorFn, sizeof...(Is)>{
       [](const ::flatbuffers::Vector<uint8_t> *data)
           -> tt::tt_metal::OwnedBuffer {
-        return makeBuffer<
-            NativeDTypeT<static_cast<::tt::target::DataType>(DTypeMinV + Is)>>(
+        return makeBuffer<tt::runtime::ttnn::utils::NativeDTypeT<static_cast<
+            ::tt::target::DataType>(tt::runtime::ttnn::utils::DTypeMinV + Is)>>(
             data);
       }...};
 }
 
-constexpr auto bufferTable =
-    makeBufferTable(std::make_index_sequence<DTypeCountV>{});
+constexpr auto bufferTable = makeBufferTable(
+    std::make_index_sequence<tt::runtime::ttnn::utils::DTypeCountV>{});
 
 static tt::tt_metal::OwnedBuffer
 makeTypedBuffer(::tt::target::DataType dtype,

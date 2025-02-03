@@ -747,8 +747,8 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto rawData =
       mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue()).getRawData();
   auto rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
-  auto value = cache.fbb->CreateVector(rawVector);
-  return ::tt::target::ttnn::CreateConstantOp(*cache.fbb, output, value);
+  return ::tt::target::ttnn::CreateConstantOpDirect(*cache.fbb, output,
+                                                    &rawVector);
 }
 
 template <typename EltwiseOp>
