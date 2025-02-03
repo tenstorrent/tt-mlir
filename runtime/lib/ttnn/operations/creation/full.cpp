@@ -11,7 +11,7 @@
 
 namespace tt::runtime::ttnn::operations::creation {
 struct FullTensorConfig {
-  ::ttnn::SimpleShape shape;
+  ::ttnn::Shape shape;
   ::ttnn::DataType dtype;
   ::ttnn::Layout layout;
   float fillValue;

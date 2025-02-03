@@ -797,6 +797,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Tan;
   } else if constexpr (std::is_same_v<EltwiseOp, TanhOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Tanh;
+  } else if constexpr (std::is_same_v<EltwiseOp, PowerOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Power;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -1211,6 +1213,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto leakyReluOp = dyn_cast<LeakyReluOp>(op); leakyReluOp) {
     return createOperation(cache, createEltwiseOp(cache, leakyReluOp),
                            debugString, locInfo);
+  }
+  if (auto powerOp = dyn_cast<PowerOp>(op); powerOp) {
+    return createOperation(cache, createEltwiseOp(cache, powerOp), debugString,
+                           locInfo);
   }
   if (auto linearOp = dyn_cast<LinearOp>(op); linearOp) {
     return createOperation(cache, createOp(cache, linearOp), debugString,

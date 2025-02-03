@@ -10,6 +10,7 @@ try:
         MemoryBufferType,
         DataType,
         DeviceRuntime,
+        DispatchCoreType,
         DebugEnv,
         DebugHooks,
         get_current_runtime,

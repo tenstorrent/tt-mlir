@@ -1348,6 +1348,68 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRAllGatherOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::AllGatherOp> {
+  using OpConversionPattern<mlir::stablehlo::AllGatherOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::AllGatherOp srcOp,
+                  mlir::stablehlo::AllGatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the operation
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (failed(err)) {
+      return err;
+    }
+
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    SmallVector<Type> ttirTypes;
+    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
+                                                      ttirTypes))) {
+      return failure();
+    }
+
+    auto ttirOperands = srcOp.getOperandsMutable();
+    ttirOperands.append(ValueRange(outputTensor));
+
+    SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
+    SmallVector<NamedAttribute> ttirAttrs;
+    StringAttr dimAttrName = StringAttr::get(this->getContext(), "dim");
+    IntegerAttr allGatherDimAttr = rewriter.getSI32IntegerAttr(
+        static_cast<int32_t>(adaptor.getAllGatherDim()));
+    ttirAttrs.push_back({dimAttrName, allGatherDimAttr});
+
+    auto ttirAllGatherOp = rewriter.create<mlir::tt::ttir::AllGatherOp>(
+        srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
+        ttirAttrs);
+    rewriter.replaceOp(srcOp, ttirAllGatherOp);
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkBasicLegality(mlir::stablehlo::AllGatherOp &srcOp,
+                     mlir::stablehlo::AllGatherOp::Adaptor adaptor,
+                     ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllGatherOp must have one input/output for now.");
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRCustomCallOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
@@ -1998,6 +2060,8 @@ addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::RemOp, mlir::tt::ttir::RemainderOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::PowOp, mlir::tt::ttir::PowerOp>>(typeConverter, ctx);
 }
 
 static void addReduceOpsConversionPatterns(MLIRContext *ctx,
@@ -2078,6 +2142,7 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRAllReduceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRAllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }

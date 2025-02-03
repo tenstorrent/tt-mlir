@@ -21,12 +21,12 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
         *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
   } else {
     DEBUG_ASSERT(
-        input.get_shape().rank() > 1,
+        input.get_logical_shape().rank() > 1,
         "Sharding requires higher than 2 dimensional tensor. Tensor rank=",
-        input.get_shape().rank());
+        input.get_logical_shape().rank());
     auto rowMesh = static_cast<size_t>(shardShape[0]);
     auto colMesh = static_cast<size_t>(shardShape[1]);
-    int lastDim = input.get_shape().rank() - 1;
+    int lastDim = input.get_logical_shape().rank() - 1;
 
     ::ttnn::distributed::Shard2dConfig shard2dConfig;
     // last tile replicate
@@ -61,7 +61,7 @@ void ShardToFullShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
   } else {
     auto rowMesh = static_cast<size_t>(shardShape[0]);
     auto colMesh = static_cast<size_t>(shardShape[1]);
-    int lastDim = input.get_shape().rank() - 1;
+    int lastDim = input.get_logical_shape().rank() - 1;
     if ((rowMesh * colMesh) ==
         (meshDevice.num_rows() * meshDevice.num_cols())) {
       // Full multi-device storage concatenation
