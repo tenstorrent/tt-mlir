@@ -1793,7 +1793,17 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
 }
 
-def TTIR_YieldOp : TTIR_Op<"yield", [MemoryEffects<[MemRead, MemWrite]>]> {
+def TTIR_GridIndexOp : TTIR_Op<"grid_index", [HasParent<"GenericOp">, Pure]> {
+    let summary = "Grid Index op.";
+    let description = [{
+      Return the index of the current element in the iteration for the given generic op dimension.
+    }];
+
+    let arguments = (ins Index:$dimension);
+    let results = (outs Index:$result);
+}
+
+def TTIR_YieldOp : TTIR_Op<"yield", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "Yield op.";
     let description = [{
       Yield operation, return control flow to another thread

@@ -206,33 +206,42 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    Block *entry = &op.getRegion(0).front();
-    rewriter.setInsertionPointToStart(entry);
-    auto args = entry->getArguments();
-    if (llvm::all_of(args, isLinearizedMemref)) {
+    bool allConverted = true;
+    for (Region &region : op.getRegions()) {
+      Block *entry = &region.front();
+      auto args = entry->getArguments();
+      allConverted &= llvm::all_of(args, isLinearizedMemref);
+    }
+    if (allConverted) {
       return failure();
     }
 
     rewriter.modifyOpInPlace(op, [&]() {
-      for (auto arg : args) {
-        if (isLinearizedMemref(arg)) {
-          continue;
-        }
-        auto memref = mlir::cast<MemRefType>(arg.getType());
-        auto shape = memref.getShape();
-        auto linearMap = linearizeAffineMap(
-            rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
-        SmallVector<ReassociationIndices, 4> collapsedDims = {
-            llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
-        auto linearizedArg = rewriter.create<memref::CollapseShapeOp>(
-            arg.getLoc(), arg, collapsedDims);
-        rewriter.replaceAllUsesExcept(arg, linearizedArg->getResult(0),
-                                      linearizedArg);
-        for (auto user : linearizedArg->getUsers()) {
-          if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
-            load.setMap(linearMap.compose(load.getMap()));
-          } else if (auto store = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
-            store.setMap(linearMap.compose(store.getMap()));
+      for (Region &region : op.getRegions()) {
+        Block *entry = &region.front();
+        auto args = entry->getArguments();
+        rewriter.setInsertionPointToStart(entry);
+        for (auto arg : args) {
+          if (isLinearizedMemref(arg)) {
+            continue;
+          }
+          auto memref = mlir::cast<MemRefType>(arg.getType());
+          auto shape = memref.getShape();
+          auto linearMap = linearizeAffineMap(
+              rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
+          SmallVector<ReassociationIndices, 4> collapsedDims = {
+              llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
+          auto linearizedArg = rewriter.create<memref::CollapseShapeOp>(
+              arg.getLoc(), arg, collapsedDims);
+          rewriter.replaceAllUsesExcept(arg, linearizedArg->getResult(0),
+                                        linearizedArg);
+          for (auto user : linearizedArg->getUsers()) {
+            if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
+              load.setMap(linearMap.compose(load.getMap()));
+            } else if (auto store =
+                           mlir::dyn_cast<affine::AffineStoreOp>(user)) {
+              store.setMap(linearMap.compose(store.getMap()));
+            }
           }
         }
       }
@@ -468,6 +477,14 @@ class TTIRGenericDatamovementRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
+  LogicalResult
+  buildDatamovementBlock(OpBuilder blockBuilder, Location loc,
+                         ArrayRef<OpOperand> genericOperands,
+                         ArrayRef<BlockArgument> blockOperands) const {
+    blockBuilder.create<ttir::YieldOp>(loc, ValueRange());
+    return success();
+  }
+
   LogicalResult matchAndRewrite(GenericOp generic,
                                 PatternRewriter &rewriter) const final {
     if (generic.getNumRegions() > 1) {
@@ -486,8 +503,14 @@ public:
         generic.getRegion(0).getArgumentTypes(),
         SmallVector<mlir::Location>(
             generic.getRegion(0).getArgumentTypes().size(), generic.getLoc()));
+
     OpBuilder blockBuilder = OpBuilder::atBlockEnd(datamovementBlock);
-    blockBuilder.create<ttir::YieldOp>(generic.getLoc(), ValueRange());
+    auto result = buildDatamovementBlock(blockBuilder, generic->getLoc(),
+                                         generic->getOpOperands(),
+                                         datamovementBlock->getArguments());
+    if (failed(result)) {
+      return result;
+    }
 
     for (unsigned regionNum = 1; regionNum < newGeneric.getNumRegions();
          ++regionNum) {
