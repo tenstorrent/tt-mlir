@@ -32,7 +32,12 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 // TTIR top level ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments, BufferizableOpInterface, MemoryEffects<[MemWrite]>]> {
+def TTIR_GenericOp : TTIR_DPSOp<"generic",
+  [ AttrSizedOperandSegments
+  , BufferizableOpInterface
+  , NoTerminator
+  , MemoryEffects<[MemWrite]>
+  ]> {
     let summary = "Generically dispatch work to a grid of cores.";
     let description = [{
       This generic op carries a region that represents the work each core does. The region is
@@ -1788,10 +1793,10 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
 }
 
-def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
+def TTIR_YieldOp : TTIR_Op<"yield", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "Yield op.";
     let description = [{
-      Yield operation, this is required by MLIR to mark the end of a dispatch region.
+      Yield operation, return control flow to another thread
     }];
 
     let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
