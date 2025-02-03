@@ -141,6 +141,29 @@ public:
   }
 };
 
+class TTIRGenericMatmulRewriter
+    : public OpRewritePattern<MatmulOp> {
+public:
+  using OpRewritePattern<MatmulOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(MatmulOp op,
+                                PatternRewriter &rewriter) const final {
+    if (mlir::isa<GenericOp>(op.getOperation()->getParentOp())) {
+      return failure();
+    }
+
+    auto [genericOp, block] = buildGenericOp(op, rewriter);
+    OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
+    auto res = blockBuilder.create<ttir::TileMatmulBlockOp>(
+        op->getLoc(), block->getArgument(2).getType(), block->getArgument(0),
+        block->getArgument(1));
+    blockBuilder.create<mlir::tt::ttir::YieldOp>(
+        op->getLoc(), mlir::ValueRange(res.getResult()));
+    rewriter.replaceOp(op, genericOp);
+    return success();
+  }
+};
+
 class TTIRGenericRegion
     : public impl::TTIRGenericRegionBase<TTIRGenericRegion> {
 public:
@@ -149,6 +172,7 @@ public:
     RewritePatternSet patterns(&getContext());
     if (newLowering) {
       patterns.add<TTIRGenericMaximumRewriter>(&getContext());
+      patterns.add<TTIRGenericMatmulRewriter>(&getContext());
     } else {
       patterns.add<TTIRGenericRegionRewriter>(&getContext());
     }
@@ -475,51 +499,59 @@ public:
                          std::pair<unsigned, unsigned> inputOperandsRange,
                          std::pair<unsigned, unsigned> outputOperandsRange,
                          ArrayRef<OpOperand> genericOperands,
-                         ArrayRef<BlockArgument> blockOperands) const {
+                         ArrayRef<BlockArgument> blockOperands,
+                         ArrayAttr indexingMaps,
+                         ArrayAttr iteratorTypes) const {
     auto zero = blockBuilder.create<arith::ConstantOp>(
         loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(0));
     MemTxType memTxType = blockBuilder.getType<MemTxType>();
+    auto createDMA = [&](Value src, Value dst) {
+      MemRefType memrefType = mlir::cast<MemRefType>(dst.getType());
+      SmallVector<Value> zeros(memrefType.getShape().size(), zero);
+      auto numElements = blockBuilder.create<arith::ConstantOp>(
+          loc, blockBuilder.getIndexType(),
+          blockBuilder.getIndexAttr(memrefType.getShape().size()));
+      return blockBuilder
+                       .create<ttir::DMAOp>(loc, memTxType, src, zeros, zeros,
+                                            dst, zeros, zeros, numElements)
+                       .getResult();
+    };
+
+    // Initial gather
     SmallVector<Value> memTxs;
     for (unsigned i = inputOperandsRange.first;
          i < (inputOperandsRange.first + inputOperandsRange.second); ++i) {
-      MemRefType memrefType =
-          mlir::cast<MemRefType>(blockOperands[i].getType());
-      SmallVector<Value> zeros(memrefType.getShape().size(), zero);
-      auto numElements = blockBuilder.create<arith::ConstantOp>(
-          loc, blockBuilder.getIndexType(),
-          blockBuilder.getIndexAttr(memrefType.getShape().size()));
-      auto memTx = blockBuilder
-                       .create<ttir::DMAOp>(
-                           loc, memTxType, genericOperands[i].get(), zeros,
-                           zeros, blockOperands[i], zeros, zeros, numElements)
-                       .getResult();
-      memTxs.push_back(memTx);
+      memTxs.push_back(createDMA(genericOperands[i].get(), blockOperands[i]));
     }
     for (Value memTx : memTxs) {
       blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
     }
+    memTxs.clear();
 
+    // Multicast
+#if 0
+    for (unsigned i = inputOperandsRange.first;
+         i < (inputOperandsRange.first + inputOperandsRange.second); ++i) {
+      memTxs.push_back(createDMA(genericOperands[i].get(), blockOperands[i]));
+    }
+    for (Value memTx : memTxs) {
+      blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
+    }
+    memTxs.clear();
+#endif
+
+    // Wait for compute
     blockBuilder.create<ttir::YieldOp>(loc, ValueRange());
 
-    memTxs.clear();
+    // Writer
     for (unsigned i = outputOperandsRange.first;
          i < (outputOperandsRange.first + outputOperandsRange.second); ++i) {
-      MemRefType memrefType =
-          mlir::cast<MemRefType>(blockOperands[i].getType());
-      SmallVector<Value> zeros(memrefType.getShape().size(), zero);
-      auto numElements = blockBuilder.create<arith::ConstantOp>(
-          loc, blockBuilder.getIndexType(),
-          blockBuilder.getIndexAttr(memrefType.getShape().size()));
-      auto memTx = blockBuilder
-                       .create<ttir::DMAOp>(
-                           loc, memTxType, blockOperands[i], zeros, zeros,
-                           genericOperands[i].get(), zeros, zeros, numElements)
-                       .getResult();
-      memTxs.push_back(memTx);
+      memTxs.push_back(createDMA(blockOperands[i], genericOperands[i].get()));
     }
     for (Value memTx : memTxs) {
       blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
     }
+    memTxs.clear();
 
     return success();
   }
@@ -547,7 +579,8 @@ public:
     auto result = buildDatamovementBlock(
         blockBuilder, generic->getLoc(), generic.getODSOperandIndexAndLength(0),
         generic.getODSOperandIndexAndLength(2), generic->getOpOperands(),
-        datamovementBlock->getArguments());
+        datamovementBlock->getArguments(), generic.getIndexingMaps(),
+        generic.getIteratorTypes());
     if (failed(result)) {
       return result;
     }
