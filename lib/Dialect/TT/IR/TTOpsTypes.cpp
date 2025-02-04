@@ -2,23 +2,24 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdint>
-#include <fstream>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/Support/LLVM.h>
-#include <numeric>
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Utils.h"
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Target/Common/Target.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/TypeSwitch.h"
+#include "ttmlir/Utils.h"
+
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/StringExtras.h>
+#include <llvm/ADT/TypeSwitch.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Builders.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/DialectImplementation.h>
+#include <mlir/Support/LLVM.h>
+
+#include <cstdint>
+#include <fstream>
+#include <numeric>
 
 using namespace mlir::tt;
 
