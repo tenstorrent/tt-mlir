@@ -36,7 +36,7 @@ def compile_as_mlir_module(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[torch.dtype]] = None,
-    module_dump: bool = False,
+    module_dump: bool = True,
 ):
     """
     Define a MLIR module specified as a python function.

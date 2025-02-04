@@ -17,7 +17,7 @@ def TTNN_VerificationInterface : OpInterface<"TTNNVerificationInterface"> {
 
 def ChangesDataType : NativeOpTrait<"ChangesDataType">;
 def ChangesBufferType : NativeOpTrait<"ChangesBufferType">;
-def ChangesMemoryLayout: NativeOpTrait<"ChangesBufferType">;
+def ChangesMemoryLayout: NativeOpTrait<"ChangesMemoryLayout">;
 def ChangesTensorLayout : NativeOpTrait<"ChangesTensorLayout">;
 def DoesNotChangeTensorEncoding : NativeOpTrait<"DoesNotChangeTensorEncoding">;
 

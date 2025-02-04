@@ -2,12 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <numeric>
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
+
+#include <numeric>
 
 using namespace mlir::tt::ttnn;
 

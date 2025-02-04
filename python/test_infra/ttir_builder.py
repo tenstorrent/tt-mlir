@@ -134,8 +134,12 @@ class TTIRBuilder:
                 i += 1
 
     def get_shape(self, input: Operand) -> Shape:
-        """Retrieves shape of operand which is expected to be a shaped type."""
+        """Retrieves shape of operand which is expected to be RankedTensorType."""
         return self._get_type(input).shape
+
+    def get_element_type(self, input: Operand) -> Shape:
+        """Retrieves element type of operand which is expected to be RankedTensorType."""
+        return self._get_type(input).element_type
 
     def generate_and_store_random_golden(
         self, operand: Operand, dtype: torch.dtype = torch.float32
@@ -318,23 +322,21 @@ class TTIRBuilder:
     def ranked_tensor_type(
         self,
         shape: Shape,
-        data_type: Optional[Type] = None,
+        dtype: Type,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
         """Convenience wrapper constructing `RankedTensorType`."""
-        dtype = data_type if data_type is not None else self._default_dtype
         with self._ctx, self._loc:
             return RankedTensorType.get(shape, dtype, encoding)
 
     def empty(
         self,
         shape: Shape,
-        data_type: Optional[Type] = None,
+        element_type: Type,
     ) -> OpView:
         """Convenience wrapper constructing `tensor.EmptyOp`."""
-        dtype = data_type if data_type is not None else self._default_dtype
         with self._ctx, self._loc:
-            op = tensor.EmptyOp(shape, dtype)
+            op = tensor.EmptyOp(shape, element_type)
 
             self.generate_and_store_random_golden(op)
 
@@ -359,6 +361,7 @@ class TTIRBuilder:
         organize_ttir_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
+        output_dtype: Optinal[Type] = None,
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
     ) -> Any:
@@ -413,7 +416,10 @@ class TTIRBuilder:
 
         with self._ctx, self._loc:
             shape = self.get_shape(inputs[0]) if not output_shape else output_shape
-            output = self.empty(shape)
+            element_type = (
+                self.get_element_type(inputs[0]) if not output_dtype else output_dtype
+            )
+            output = self.empty(shape, element_type)
 
             id = self.get_next_global_id()
             loc = get_loc_of_extra_file_callee(id=id)

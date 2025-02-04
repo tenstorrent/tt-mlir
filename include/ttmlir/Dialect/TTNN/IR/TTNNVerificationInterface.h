@@ -37,7 +37,7 @@ public:
     tt::ttnn::TTNNLayoutAttr outputLayout =
         cast<tt::ttnn::TTNNLayoutAttr>(outputType.getEncoding());
 
-    if (inputLayout.getElementType() == outputLayout.getElementType()) {
+    if (!changesDataType(inputLayout, outputLayout)) {
       return op->emitOpError("Output layout data type should be different from "
                              "input layout data type.");
     }
@@ -59,7 +59,7 @@ public:
     auto outputLayout = tt::ttnn::utils::getLayoutAttrFromTensor(
         cast<RankedTensorType>(output.getType()));
 
-    if (inputLayout.getBufferType() == outputLayout.getBufferType()) {
+    if (!changesBufferType(inputLayout, outputLayout)) {
       return op->emitOpError(
           "Output buffer type should be different from input buffer type.");
     }
@@ -82,7 +82,7 @@ public:
     auto outputLayout = tt::ttnn::utils::getLayoutAttrFromTensor(
         cast<RankedTensorType>(output.getType()));
 
-    if (inputLayout.getMemLayout() == outputLayout.getMemLayout()) {
+    if (!changesMemoryLayout(inputLayout, outputLayout)) {
       return op->emitOpError(
           "Output memory layout should be different from input memory layout.");
     }
@@ -104,7 +104,7 @@ public:
     auto outputLayout = tt::ttnn::utils::getLayoutAttrFromTensor(
         cast<RankedTensorType>(output.getType()));
 
-    if (inputLayout.getLayout() == outputLayout.getLayout()) {
+    if (!changesTensorLayout(inputLayout, outputLayout)) {
       return op->emitOpError(
           "Output tensor layout should be different from input tensor layout.");
     }

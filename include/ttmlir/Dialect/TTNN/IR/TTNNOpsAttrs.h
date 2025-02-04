@@ -42,4 +42,24 @@ inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrDefs.h.inc"
 
+inline bool changesDataType(mlir::tt::ttnn::TTNNLayoutAttr input,
+                            mlir::tt::ttnn::TTNNLayoutAttr output) {
+  return input.getScalarElementType() != output.getScalarElementType();
+}
+
+inline bool changesMemoryLayout(mlir::tt::ttnn::TTNNLayoutAttr input,
+                                mlir::tt::ttnn::TTNNLayoutAttr output) {
+  return input.getMemLayout() != output.getMemLayout();
+}
+
+inline bool changesBufferType(mlir::tt::ttnn::TTNNLayoutAttr input,
+                              mlir::tt::ttnn::TTNNLayoutAttr output) {
+  return input.getBufferType() != output.getBufferType();
+}
+
+inline bool changesTensorLayout(mlir::tt::ttnn::TTNNLayoutAttr input,
+                                mlir::tt::ttnn::TTNNLayoutAttr output) {
+  return input.getLayout() != output.getLayout();
+}
+
 #endif // TTMLIR_DIALECT_TTNN_IR_TTNNOPSATTRS_H
