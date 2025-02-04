@@ -22,8 +22,7 @@ public:
   llvm::Expected<std::tuple<size_t, size_t, size_t>>
   getOpConstraints(Operation *op) {
     if (OpModel backend = dyn_cast<OpModel>(op)) {
-      return backend.getOpConstraints(getInputLayouts(op),
-      getOutputLayout(op));
+      return backend.getOpConstraints(getInputLayouts(op), getOutputLayout(op));
     }
     return llvm::createStringError("Could not cast op to OpModel");
   }
@@ -93,8 +92,7 @@ TEST_F(OpModelBase, ReluInterface) {
   auto input = createEmptyTensor(tensorShape);
   auto output = createEmptyTensor(tensorShape);
 
-  auto relu = builder.create<ReluOp>(builder.getUnknownLoc(),
-  output.getType(),
+  auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), output.getType(),
                                      ::mlir::ValueRange{input, output});
   relu->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
@@ -159,8 +157,7 @@ TEST_F(OpModelBase, AddInterface) {
   auto output = createEmptyTensor(tensorShape);
 
   auto add = builder.create<AddOp>(builder.getUnknownLoc(), output.getType(),
-                                   ::mlir::ValueRange{input1, input2,
-                                   output});
+                                   ::mlir::ValueRange{input1, input2, output});
   add->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test AddOp interface
