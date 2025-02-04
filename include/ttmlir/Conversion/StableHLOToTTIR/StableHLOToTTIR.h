@@ -16,6 +16,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                      TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass();
+std::unique_ptr<OperationPass<ModuleOp>> createConvertShardyToTTIRPass();
 #endif
 
 } // namespace mlir::tt

@@ -40,6 +40,7 @@ void createStableHLOToTTIRPipeline(
   if (options.legalizeCompositeToCallEnabled) {
     pm.addPass(stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
+  pm.addPass(createConvertShardyToTTIRPass());
   pm.addPass(createConvertStableHLOToTTIRPass());
   if (options.removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());

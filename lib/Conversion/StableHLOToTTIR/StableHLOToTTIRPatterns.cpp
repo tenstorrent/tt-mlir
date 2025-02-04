@@ -17,6 +17,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -1239,18 +1240,17 @@ public:
       }
     }
 
-    // Algorithm: search for first non-one working dimension from back
-    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    size_t dim = replicaGroupsShape.size() - 1;
-    for (auto s = replicaGroupsShape.rbegin(); s != replicaGroupsShape.rend();
-         ++s, --dim) {
-      if (*s != 1) {
-        break;
-      }
-    }
+    // Algorithm: search for first non-one dimension of input tensor from back
+    mlir::RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(srcOp.getOperands().front().getType());
+    auto inputShape = inputType.getShape();
+    auto non_one_it = std::find_if(inputShape.rbegin(), inputShape.rend(),
+                                   [](int64_t s) { return s != 1; });
+    size_t dim = inputType.getRank() - 1 -
+                 std::distance(inputShape.rbegin(), non_one_it);
     if (dim < 0) {
       // all one shape, then select the fastest dim
-      dim = replicaGroupsShape.size();
+      dim = inputType.getRank() - 1;
     }
     StringAttr dimName = StringAttr::get(this->getContext(), "dim");
     IntegerAttr dimAttr =
@@ -1393,9 +1393,23 @@ public:
     }
 
     mlir::tt::sharding_utils::MeshSharding meshSharding;
-    if (failed(mlir::tt::sharding_utils::parseGSPMDShardingAttr(
-            shardingAttr.getValue(), meshSharding))) {
+    auto error = meshSharding.convertGSPMDShardingToMeshSharding(
+        shardingAttr.getValue());
+    if (auto e = error.takeError()) {
       return failure();
+    }
+
+    // For GSPMD, meshShape is extracted by the parser. Then, add it as module
+    // attribute such that the information is used by later pipeline stage.
+    auto meshShape = meshSharding.getMeshShape();
+    if (meshShape.size() > 1) {
+      auto module = srcOp->getParentOfType<ModuleOp>();
+      if (!module) {
+        llvm_unreachable("Require module as one of parent ops.");
+      }
+      mlir::tt::utils::addMeshToModuleAttribute(
+          getContext(), module, StringAttr::get(getContext(), "mesh_gspmd"),
+          meshShape);
     }
 
     if (callTargetName == kSPMDFullToShardShapeTarget) {
@@ -1430,13 +1444,13 @@ public:
         return failure();
       }
 
-      meshSharding.shardDirection = mlir::tt::MeshShardDirection::ShardToFull;
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
           srcOp, outputTypes, srcOp.getInputs().front(), outputTensor,
-          meshSharding.shardType, meshSharding.shardDirection,
-          meshSharding.shardShape, meshSharding.shardDims);
+          meshSharding.getShardType(),
+          mlir::tt::MeshShardDirection::ShardToFull,
+          meshSharding.getShardShape(), meshSharding.getShardDims());
     } else if (callTargetName == kShardingTarget) {
-      if (meshSharding.shardType == mlir::tt::MeshShardType::Manual) {
+      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Manual) {
         // "manual" sharding indicates match between input/output tensor shape
         // and no sharding is required.
         srcOp.getResult(0).replaceAllUsesWith(srcOp->getOperand(0));
@@ -1462,11 +1476,11 @@ public:
           return failure();
         }
 
-        meshSharding.shardDirection = mlir::tt::MeshShardDirection::FullToShard;
         rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
             srcOp, outputTypes, srcOp.getInputs().front(), outputTensor,
-            meshSharding.shardType, meshSharding.shardDirection,
-            meshSharding.shardShape, meshSharding.shardDims);
+            meshSharding.getShardType(),
+            mlir::tt::MeshShardDirection::FullToShard,
+            meshSharding.getShardShape(), meshSharding.getShardDims());
       }
     }
     return success();
