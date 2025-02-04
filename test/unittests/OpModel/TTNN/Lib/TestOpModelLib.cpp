@@ -31,6 +31,27 @@ struct ExpectedResult {
   size_t expectedPeakSize = 0;
   size_t expectedOutputSize = 0;
 };
+
+const TestTensor interleavedN300X1024Dram = {
+    {OpModelFixture::workerCoresN300, 1024},
+    mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+    mlir::tt::ttnn::BufferType::DRAM};
+const TestTensor interleavedN300X1024L1 = {
+    {OpModelFixture::workerCoresN300, 1024},
+    mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+    mlir::tt::ttnn::BufferType::L1};
+
+const TestTensor interleaved2048X2048Dram = {
+    {2048, 2048},
+    mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+    mlir::tt::ttnn::BufferType::DRAM,
+    llvm::SmallVector<int64_t>{8, 8}};
+
+const TestTensor inerleaved2048X2048L1 = {
+    {2048, 2048},
+    mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+    mlir::tt::ttnn::BufferType::L1,
+    llvm::SmallVector<int64_t>{8, 8}};
 } // namespace detail
 
 class OpModelUnaryEltwiseParam : public OpModelTest,
@@ -82,38 +103,18 @@ TEST_P(OpModelUnaryEltwiseParam, Relu) {
 INSTANTIATE_TEST_SUITE_P(
     ReluTests, OpModelUnaryEltwiseParam,
     ::testing::Values(
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 8192, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::ExpectedResult{true, 8192, 2048, 2048}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 8192, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::ExpectedResult{true, 8192, 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 8192, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 8192, 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 8192, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 8192, 2048, 2048}),
         std::make_tuple(
             detail::TestTensor{
                 {14 * OpModelFixture::workerCoresN300 * 32, 32},
@@ -144,146 +145,116 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::BufferType::L1},
             detail::ExpectedResult{false})));
 
-// TEST_F(OpModelTest, SoftmaxInterleaved) {
-//   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-//   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
-//   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
-//       CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
-//                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-//   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
-//       CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-//                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+TEST_F(OpModelTest, SoftmaxInterleaved) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
-//   bool legal = false;
-//   std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
-//   std::optional<std::string> errorMsg = "";
-//   size_t cb_size = 0;
-//   size_t peak_size = 0;
-//   size_t output_size = 0;
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
 
-//   std::tie(legal, errorMsg) = Device::getDeviceConstraints(workerGrid);
-//   EXPECT_TRUE(legal);
+  auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
 
-//   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
-//       tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
-//   EXPECT_EQ(legal, true);
-//   EXPECT_TRUE(l1Usage.has_value());
-//   EXPECT_FALSE(errorMsg.has_value());
-//   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
-//   EXPECT_EQ(cb_size, 137216);
-//   EXPECT_EQ(output_size, 0);
-//   EXPECT_EQ(peak_size, 0);
+  constraintsExp = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_l1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 2048);
+  EXPECT_EQ(peak_size, 2048);
 
-//   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
-//       tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_l1);
-//   EXPECT_EQ(legal, true);
-//   EXPECT_TRUE(l1Usage.has_value());
-//   EXPECT_FALSE(errorMsg.has_value());
-//   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
-//   EXPECT_EQ(cb_size, 137216);
-//   EXPECT_EQ(output_size, 2048);
-//   EXPECT_EQ(peak_size, 2048);
+  constraintsExp = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
 
-//   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
-//       tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram);
-//   EXPECT_EQ(legal, true);
-//   EXPECT_TRUE(l1Usage.has_value());
-//   EXPECT_FALSE(errorMsg.has_value());
-//   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
-//   EXPECT_EQ(cb_size, 137216);
-//   EXPECT_EQ(output_size, 0);
-//   EXPECT_EQ(peak_size, 0);
+  constraintsExp = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_l1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 2048);
+  EXPECT_EQ(peak_size, 2048);
 
-//   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
-//       tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_l1);
-//   EXPECT_EQ(legal, true);
-//   EXPECT_TRUE(l1Usage.has_value());
-//   EXPECT_FALSE(errorMsg.has_value());
-//   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
-//   EXPECT_EQ(cb_size, 137216);
-//   EXPECT_EQ(output_size, 2048);
-//   EXPECT_EQ(peak_size, 2048);
+  constraintsExp = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
 
-//   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
-//       tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
-//   EXPECT_TRUE(legal);
-//   EXPECT_TRUE(l1Usage.has_value());
-//   EXPECT_FALSE(errorMsg.has_value());
-//   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
-//   EXPECT_EQ(cb_size, 137216);
-//   EXPECT_EQ(output_size, 0);
-//   EXPECT_EQ(peak_size, 0);
+  std::vector<std::tuple<mlir::tt::ttnn::TTNNLayoutAttr,
+                         mlir::tt::ttnn::TTNNLayoutAttr>>
+      layout_combinations = {{inputLayout_dram, inputLayout_dram},
+                             {inputLayout_l1, inputLayout_dram},
+                             {inputLayout_dram, inputLayout_l1},
+                             {inputLayout_l1, inputLayout_l1}};
+  for (const auto &[input_layout, output_layout] : layout_combinations) {
+    auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
+        tensorShape, input_layout, -1, tensorShape, output_layout);
+    EXPECT_TRUE(static_cast<bool>(runtimeExp));
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  }
+}
 
-//   std::vector<std::tuple<mlir::tt::ttnn::TTNNLayoutAttr,
-//                          mlir::tt::ttnn::TTNNLayoutAttr>>
-//       layout_combinations = {{inputLayout_dram, inputLayout_dram},
-//                              {inputLayout_l1, inputLayout_dram},
-//                              {inputLayout_dram, inputLayout_l1},
-//                              {inputLayout_l1, inputLayout_l1}};
-//   for (const auto &[input_layout, output_layout] : layout_combinations) {
-//     auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
-//         tensorShape, input_layout, -1, tensorShape, output_layout);
-//     EXPECT_TRUE(static_cast<bool>(runtimeExp));
-//     EXPECT_TRUE(runtimeExp.get() > 0);
-//   }
-// }
+TEST_F(OpModelTest, SoftmaxSharded) {
+  const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
+                                                  32};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
-// TEST_F(OpModelTest, SoftmaxSharded) {
-//   const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
-//                                                   32};
-//   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
-//   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
-//       CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-//                         mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
-//   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
-//       CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-//                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
 
-//   bool legal = false;
-//   std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
-//   std::optional<std::string> errorMsg = "";
-//   size_t cb_size = 0;
-//   size_t peak_size = 0;
-//   size_t output_size = 0;
+  auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  EXPECT_EQ(cb_size, 24576);
+  EXPECT_EQ(output_size, 32768);
+  EXPECT_EQ(peak_size, 32768);
 
-//   std::tie(legal, errorMsg) = Device::getDeviceConstraints(workerGrid);
-//   EXPECT_TRUE(legal);
+  constraintsExp = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_i);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 24576);
+  EXPECT_EQ(output_size, 32768);
+  EXPECT_EQ(peak_size, 32768);
 
-//   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
-//       tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs);
-//   EXPECT_TRUE(legal);
-//   EXPECT_TRUE(l1Usage.has_value());
-//   EXPECT_FALSE(errorMsg.has_value());
-//   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
-//   EXPECT_EQ(cb_size, 24576);
-//   EXPECT_EQ(output_size, 32768);
-//   EXPECT_EQ(peak_size, 32768);
+  constraintsExp = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 24576);
+  EXPECT_EQ(output_size, 32768);
+  EXPECT_EQ(peak_size, 32768);
 
-//   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
-//       tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_i);
-//   EXPECT_TRUE(legal);
-//   EXPECT_TRUE(l1Usage.has_value());
-//   EXPECT_FALSE(errorMsg.has_value());
-//   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
-//   EXPECT_EQ(cb_size, 24576);
-//   EXPECT_EQ(output_size, 32768);
-//   EXPECT_EQ(peak_size, 32768);
-
-//   std::tie(legal, l1Usage, errorMsg) = SoftmaxOpInterface::getOpConstraints(
-//       tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
-//   EXPECT_TRUE(legal);
-//   EXPECT_TRUE(l1Usage.has_value());
-//   EXPECT_FALSE(errorMsg.has_value());
-//   std::tie(cb_size, peak_size, output_size) = l1Usage.value();
-//   EXPECT_EQ(cb_size, 24576);
-//   EXPECT_EQ(output_size, 32768);
-//   EXPECT_EQ(peak_size, 32768);
-
-//   auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
-//       tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
-//   EXPECT_TRUE(static_cast<bool>(runtimeExp));
-//   EXPECT_TRUE(runtimeExp.get() > 0);
-// }
+  auto runtimeExp = SoftmaxOpInterface::getOpRuntime(
+      tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
 
 class OpModelBinaryEltwiseParam : public OpModelTest,
                                   public testing::WithParamInterface<
@@ -340,94 +311,38 @@ TEST_P(OpModelBinaryEltwiseParam, Add) {
 INSTANTIATE_TEST_SUITE_P(
     AddTests, OpModelBinaryEltwiseParam,
     ::testing::Values(
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::ExpectedResult{true, 12288, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::ExpectedResult{true, 12288, 2048, 2048}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::ExpectedResult{true, 12288, 2048, 2048}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::ExpectedResult{true, 12288, 2048, 2048}),
-        std::make_tuple(
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM},
-            detail::TestTensor{{OpModelFixture::workerCoresN300, 1024},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1},
-            detail::ExpectedResult{true, 12288, 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 12288, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 12288, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 12288, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 12288, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 12288, 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 12288, 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 12288, 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 12288, 2048, 2048}),
         std::make_tuple(
             detail::TestTensor{
                 {16 * OpModelFixture::workerCoresN300 * 32, 32},
@@ -529,126 +444,46 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
 INSTANTIATE_TEST_SUITE_P(
     MatmulInterleavedTests, OpModelMatmulParam,
     ::testing::Values(
-        std::make_tuple(
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            llvm::SmallVector<int64_t>{8, 8},
-            detail::ExpectedResult{true, 655360, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            llvm::SmallVector<int64_t>{8, 8},
-            detail::ExpectedResult{true, 786432, 131072, 131072}),
-        std::make_tuple(
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            llvm::SmallVector<int64_t>{8, 8},
-            detail::ExpectedResult{true, 786432, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            llvm::SmallVector<int64_t>{8, 8},
-            detail::ExpectedResult{true, 786432, 131072, 131072}),
-        std::make_tuple(
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            llvm::SmallVector<int64_t>{8, 8},
-            detail::ExpectedResult{true, 786432, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            llvm::SmallVector<int64_t>{8, 8},
-            detail::ExpectedResult{true, 786432, 131072, 131072}),
-        std::make_tuple(
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::DRAM,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            llvm::SmallVector<int64_t>{8, 8},
-            detail::ExpectedResult{true, 786432, 0, 0}),
-        std::make_tuple(
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            detail::TestTensor{{2048, 2048},
-                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                               mlir::tt::ttnn::BufferType::L1,
-                               llvm::SmallVector<int64_t>{8, 8}},
-            llvm::SmallVector<int64_t>{8, 8},
-            detail::ExpectedResult{true, 786432, 131072, 131072})));
+        std::make_tuple(detail::interleaved2048X2048Dram,
+                        detail::interleaved2048X2048Dram,
+                        detail::interleaved2048X2048Dram,
+                        llvm::SmallVector<int64_t>{8, 8},
+                        detail::ExpectedResult{true, 655360, 0, 0}),
+        std::make_tuple(detail::interleaved2048X2048Dram,
+                        detail::interleaved2048X2048Dram,
+                        detail::inerleaved2048X2048L1,
+                        llvm::SmallVector<int64_t>{8, 8},
+                        detail::ExpectedResult{true, 786432, 131072, 131072}),
+        std::make_tuple(detail::interleaved2048X2048Dram,
+                        detail::inerleaved2048X2048L1,
+                        detail::interleaved2048X2048Dram,
+                        llvm::SmallVector<int64_t>{8, 8},
+                        detail::ExpectedResult{true, 786432, 0, 0}),
+        std::make_tuple(detail::interleaved2048X2048Dram,
+                        detail::inerleaved2048X2048L1,
+                        detail::inerleaved2048X2048L1,
+                        llvm::SmallVector<int64_t>{8, 8},
+                        detail::ExpectedResult{true, 786432, 131072, 131072}),
+        std::make_tuple(detail::inerleaved2048X2048L1,
+                        detail::interleaved2048X2048Dram,
+                        detail::interleaved2048X2048Dram,
+                        llvm::SmallVector<int64_t>{8, 8},
+                        detail::ExpectedResult{true, 786432, 0, 0}),
+        std::make_tuple(detail::inerleaved2048X2048L1,
+                        detail::interleaved2048X2048Dram,
+                        detail::inerleaved2048X2048L1,
+                        llvm::SmallVector<int64_t>{8, 8},
+                        detail::ExpectedResult{true, 786432, 131072, 131072}),
+        std::make_tuple(detail::inerleaved2048X2048L1,
+                        detail::inerleaved2048X2048L1,
+                        detail::interleaved2048X2048Dram,
+                        llvm::SmallVector<int64_t>{8, 8},
+                        detail::ExpectedResult{true, 786432, 0, 0}),
+        std::make_tuple(detail::inerleaved2048X2048L1,
+                        detail::inerleaved2048X2048L1,
+                        detail::inerleaved2048X2048L1,
+                        llvm::SmallVector<int64_t>{8, 8},
+                        detail::ExpectedResult{true, 786432, 131072, 131072})));
 
 INSTANTIATE_TEST_SUITE_P(
     MatmulShardedTests, OpModelMatmulParam,
