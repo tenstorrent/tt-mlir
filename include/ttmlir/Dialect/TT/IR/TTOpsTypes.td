@@ -235,7 +235,7 @@ def TT_StreamLayoutAttr : TT_Attr<"StreamLayout", "stream", [MemRefLayoutAttrInt
     - AffineMap: Provides affine map indexing into the associated data stream.
     - StreamMode: Encodes 'Alias' or 'Stream' mode.
     - NumBuffers: Number of back buffers used for double buffering, I/O latency hiding, etc
-                  (always 1 in 'Alias' stream mode).  
+                  (always 1 in 'Alias' stream mode).
   }];
   let parameters = (ins "AffineMap":$affineMap,
                         AttrParameter<"StreamMode", "Encodes 'Alias' or 'Stream' mode.">:$streamMode,
@@ -248,9 +248,9 @@ def TT_StreamLayoutAttr : TT_Attr<"StreamLayout", "stream", [MemRefLayoutAttrInt
         switch (memorySpace) {
           case MemorySpace::DeviceL1: return { StreamMode::Alias, 1 };
           default: return { StreamMode::Stream, 1 };
-        } 
+        }
       };
-  }];      
+  }];
 }
 
 def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
@@ -354,7 +354,7 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       MetalLayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
       MetalLayoutAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
       MetalLayoutAttr withStreamLayout(::mlir::MLIRContext *context, StreamLayoutAttr stream);
-      
+
 
       uint64_t getMemrefSizeBytes() const;
       MemorySpace getMemorySpace() const;
