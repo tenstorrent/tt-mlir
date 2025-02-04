@@ -1,7 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=2,4" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
-// REQUIRES: multi-chip-x8
 
 func.func @forward(%arg0: tensor<1x1x256x512xf32>) -> tensor<1x1x256x512xf32> {
   %0 = tensor.empty() : tensor<1x1x128x128xf32>

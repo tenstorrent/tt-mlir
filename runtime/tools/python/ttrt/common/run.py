@@ -246,7 +246,11 @@ class Run:
                 artifacts_folder_path=self["--artifact-dir"],
             )
         )
-        self.query = Query({"--quiet": True}, self.logger, self.artifacts)
+        self.query = Query(
+            {"--quiet": True, "--disable-eth-dispatch": self["--disable-eth-dispatch"]},
+            self.logger,
+            self.artifacts,
+        )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.results = Results(self.logger, self.file_manager)

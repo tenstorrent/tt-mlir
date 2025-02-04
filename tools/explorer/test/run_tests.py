@@ -16,7 +16,7 @@ TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
     "tools/explorer/test/models/*.mlir",
 ]
-MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir"
+MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
