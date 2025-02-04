@@ -108,9 +108,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.initial_cbs = args
         self.symbol_tables = []
         self.supported_nodes = get_supported_nodes()
-        self.ttkernel_keywords = {  # this should not be the way we're doing this..
-            "type_int": IntegerType.get_signless(32, self.ctx),
-        }
 
         ttkernel.register_dialect(self.ctx)
 
@@ -268,8 +265,11 @@ class TTKernelCompiler(ast.NodeVisitor):
     # Statements
     def visit_Name(self, node):
         var_name = node.id
-        if var_name in self.ttkernel_keywords:
-            return self.ttkernel_keywords[var_name]
+
+        # NOTE: some kernelops require passing return type as arg
+        if var_name == "int":
+            return IntegerType.get_signless(32, self.ctx)
+
         existing_var_table = self.var_exists(var_name)
         if existing_var_table:
             return existing_var_table[var_name]
@@ -320,9 +320,6 @@ class TTKernelCompiler(ast.NodeVisitor):
             func_args.append(func_arg)
 
         return func(*func_args)  # how do i make sure the types are correct?
-
-    def visit_arguments(self, node):
-        print(f"visit_arguments")
 
     # Expressions
     def visit_Expr(self, node):

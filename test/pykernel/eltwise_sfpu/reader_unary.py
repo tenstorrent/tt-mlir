@@ -45,9 +45,9 @@ def reader_unary(cb_in: int, cb_out: int):
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    src_addr = get_arg_val(type_int, 0)
-    bank_id = get_arg_val(type_int, 1)
-    num_tiles = get_arg_val(type_int, 2)
+    src_addr = get_arg_val(int, 0)
+    bank_id = get_arg_val(int, 1)
+    num_tiles = get_arg_val(int, 2)
 
     # CHECK: {{.*}}"ttkernel.get_tile_size"{{.*}}
     ublock_size_tiles = 1

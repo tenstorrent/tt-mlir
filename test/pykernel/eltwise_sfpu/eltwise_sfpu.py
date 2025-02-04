@@ -51,8 +51,8 @@ def eltwise_sfpu(cb_in: int, cb_out: int):
     # CHECK: func.func @{{.*}}(%[[arg0:.*]]: !ttkernel.cb<{{.*}}>, %[[arg1:.*]]: !ttkernel.cb<{{.*}}>) {
     # CHECK: {{.*}}"ttkernel.get_compile_time_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_compile_time_arg_val"{{.*}}
-    per_core_block_cnt = get_compile_time_arg_val(type_int, 0)
-    per_core_block_dim = get_compile_time_arg_val(type_int, 1)
+    per_core_block_cnt = get_compile_time_arg_val(int, 0)
+    per_core_block_dim = get_compile_time_arg_val(int, 1)
 
     # CHECK: "ttkernel.unary_op_init_common"(%[[arg0]], %[[arg1]]){{.*}}
     unary_op_init_common(cb_in, cb_out)
