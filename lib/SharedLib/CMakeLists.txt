@@ -16,6 +16,7 @@ set(TTMLIR_LIBS
     MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTKernelDialect
+    MLIRLLVMTransforms
     TTMLIRTTIRToTTIRDecomposition
     TTMLIRTTIRToTTNN
     TTMLIRTTIRToTTMetal
