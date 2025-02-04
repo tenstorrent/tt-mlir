@@ -2,9 +2,11 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
+//
+// UNSUPPORTED: true
+// Outstanding bug: https://github.com/tenstorrent/tt-mlir/issues/2072
 
-func.func @forward(%arg0: tensor<512x1024xbf16>) -> tensor<512x1xbf16> {
-  %0 = tensor.empty() : tensor<512x1xbf16>
-  %1 = "ttir.mean"(%arg0, %0) <{dim_arg = [-1: i32], keep_dim = true}> : (tensor<512x1024xbf16>, tensor<512x1xbf16>) -> tensor<512x1xbf16>
-  return %1 : tensor<512x1xbf16>
+func.func @ones() -> tensor<13x24x56x42xbf16> {
+  %0 = "ttir.ones"() <{shape = array<i32:13, 24, 56, 42>}> : () -> tensor<13x24x56x42xbf16>
+  return %0 : tensor<13x24x56x42xbf16>
 }

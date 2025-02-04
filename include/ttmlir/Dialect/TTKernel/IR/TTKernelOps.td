@@ -479,6 +479,16 @@ def TTKernel_GetNocAddrXYOp : TTKernel_Op<"get_noc_addr_xy"> {
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
+def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
+    let summary = "GetNocAddrFromBankID";
+    let description = [{
+      GetNocAddrFromBankID api
+    }];
+
+    let arguments = (ins I32:$bank_id, I32:$bankAddressOffset);
+    let results = (outs TTKernel_NocAddr:$nocAddr);
+}
+
 def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
     let summary = "GetNocAddr";
     let description = [{

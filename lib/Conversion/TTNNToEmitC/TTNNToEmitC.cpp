@@ -289,6 +289,7 @@ public:
 
 // Matmul op conversion pattern
 //
+// ANCHOR: adding_an_op_matmul_op_rewriter_emitc
 namespace {
 class MatmulOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::MatmulOp> {
@@ -301,25 +302,33 @@ public:
   matchAndRewrite(ttnn::MatmulOp matmulOp, ttnn::MatmulOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    // ANCHOR: adding_an_op_matmul_ttnn_to_emitc_array_attrs
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this.
     //
     ArrayAttr arrayAttrs = rewriter.getArrayAttr({
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 1),
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               0), // points to operand 0
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               1), // points to operand 1
+        ttnn_to_emitc::utils::convertBoolAttr(
+            rewriter,
+            BoolAttr::get(
+                rewriter.getContext(),
+                false)), // bool attr denoting transposeA is set to false
         ttnn_to_emitc::utils::convertBoolAttr(
             rewriter, BoolAttr::get(rewriter.getContext(), false)),
-        ttnn_to_emitc::utils::convertBoolAttr(
-            rewriter, BoolAttr::get(rewriter.getContext(), false)),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter), // std::nullopt
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 2),
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               2), // points to operand 2
     });
+    // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         matmulOp, this->getTypeConverter()->convertType(matmulOp.getType()),
@@ -330,6 +339,7 @@ public:
   }
 };
 } // namespace
+// ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
 
 // Softmax op conversion pattern
 //
@@ -882,6 +892,88 @@ public:
 };
 } // namespace
 
+// ZerosOp conversion pattern
+//
+class ZerosOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ZerosOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::ZerosOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::ZerosOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // ttnn:ZerosOp has 5 input params:
+    //
+    // let arguments = (ins TTNN_ShapeAttr:$shape,
+    //                      OptionalAttr<TT_DataTypeAttr>:$dtype,
+    //                      OptionalAttr<TTNN_LayoutAttr>:$layout,
+    //                      Optional<TT_Device>:$device,
+    //                      OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    //
+    // Some of them are Attrs, some are Values. ShapeAttr is required, while
+    // others are optional. Additionally, in the context of C++, some of the
+    // Attrs (like shape) need to be instantiated into objects before being
+    // passed to the op. Therefore:
+    //
+    // We first create a ttnn::SimpleShape object (SSA) by calling
+    // createShapeOp() and add it to the operands vector, but also add an
+    // IndexAttr in ArrayAttr to reference it (this is an EmitC mechanism that
+    // allows for combining Attrs and Values when calling an OpaqueOp). All the
+    // other input params are optional, so we create them on-the-fly into the
+    // ArrayAttr, whether they are an actual Attr, or a Value pointed to by
+    // IndexAttr. If they are present, we create the object and pass it to the
+    // op. If not, we pass std::nullopt.
+
+    // Create ttnn::SimpleShape() call
+    //
+    emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
+
+    llvm::SmallVector<Value, 3> operands{
+        shapeOp->getResult(0),
+    };
+
+    // Create ArrayAttr object holding attributes and pointers to operands
+    //
+    // Params that are Values are added to the operands vector on-the-fly, and
+    // a corresponding IndexAttr is added to the ArrayAttr to reference them.
+    //
+    size_t operandIndex = 0;
+    ArrayAttr arrayAttr = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(operandIndex++), // ttnn::SimpleShape
+        srcOp.getDtype().has_value()
+            ? ttnn_to_emitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::DataType
+        srcOp.getLayout().has_value()
+            ? ttnn_to_emitc::utils::convertLayoutAttr(rewriter,
+                                                      srcOp.getLayoutAttr())
+            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Layout
+        adaptor.getDevice()
+            ? (operands.append(1, adaptor.getDevice()),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
+            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Device
+        srcOp.getMemoryConfig().has_value()
+            ? (operands.append(
+                   1, ttnn_to_emitc::utils::createMemoryConfigOp(
+                          rewriter, srcOp.getMemoryConfigAttr(), srcOp.getLoc())
+                          ->getResult(0)),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::MemoryConfig
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttr, nullptr, operands);
+
+    return success();
+  }
+};
+
 // OnesOp conversion pattern
 //
 namespace {
@@ -1115,6 +1207,7 @@ public:
 
 namespace mlir::tt {
 
+// ANCHOR: op_rewriter_pattern_set_emitc
 void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  mlir::RewritePatternSet &patterns,
                                  TypeConverter &typeConverter) {
@@ -1137,6 +1230,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   // clang-format off
   patterns.add<EmptyOpConversionPattern,
+               ZerosOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<ttnn::FullOp>,
                DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
@@ -1260,5 +1354,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
 }
+// ANCHOR_END: op_rewriter_pattern_set_emitc
 
 } // namespace mlir::tt
