@@ -251,6 +251,8 @@ def TT_StreamLayoutAttr : TT_Attr<"StreamLayout", "stream", [MemRefLayoutAttrInt
         }
       };
   }];
+
+  let genVerifyDecl = 1;
 }
 
 def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {

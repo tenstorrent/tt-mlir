@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <fstream>
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/Support/LLVM.h>
 #include <numeric>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -373,6 +374,19 @@ unsigned SystemDescAttr::getNocDRAMAddressAlignBytes(unsigned chipIndex) const {
 
 unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
+}
+
+::llvm::LogicalResult StreamLayoutAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    AffineMap affineMap, StreamMode streamMode, uint32_t numBuffers) {
+  if (streamMode == StreamMode::Alias) {
+    if (numBuffers != 1) {
+      emitError() << "'Alias' mode must imply no buffering: numBuffers = "
+                  << numBuffers;
+      return ::mlir::failure();
+    }
+  }
+  return ::mlir::success();
 }
 
 //
