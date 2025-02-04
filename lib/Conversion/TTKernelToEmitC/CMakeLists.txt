@@ -8,12 +8,5 @@ add_mlir_conversion_library(TTMLIRTTKernelToEmitC
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIRIR
-  MLIRPass
-  MLIRArithToEmitC
-  MLIRMemRefToEmitC
-  MLIRSCFToEmitC
-  MLIREmitCDialect
-  MLIRTargetCpp
-  MLIRTransformUtils
+  MLIR
 )
