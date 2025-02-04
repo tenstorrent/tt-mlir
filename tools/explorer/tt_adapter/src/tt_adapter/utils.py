@@ -56,7 +56,6 @@ def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
     for module in cached_modules:
         if module["name"] == at_pass:
             return module["source"]
-        print(module)
 
     logging.error("at_pass=%s not found in Flatbuffer.", at_pass)
     return None

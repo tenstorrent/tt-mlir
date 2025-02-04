@@ -113,9 +113,11 @@ class TTAdapter(model_explorer.Adapter):
                 module_str = utils.parse_flatbuffer_file(
                     model_path, at_pass="PRE-PIPELINE"
                 )
-                assert module_str is not None, "Failed to parse flatbuffer"
+
                 if module_str:
                     module = utils.parse_mlir_str(module_str)
+                elif module_str is None:
+                    raise Exception("Failed to parse flatbuffer")
             else:
                 with open(model_path, "r") as model_file:
                     module = utils.parse_mlir_str(model_file.read())
