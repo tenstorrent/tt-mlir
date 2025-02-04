@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.h"
-#include "llvm/Support/Error.h"
 #include <type_traits>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -19,7 +18,6 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/Error.h"
 
 #include <cstddef>
 #include <cstdint>

@@ -11,9 +11,7 @@
 
 #include "mlir/IR/Operation.h"
 
-#include "llvm/Support/Error.h"
 #include <cassert>
-#include <cstddef>
 #include <optional>
 #include <tuple>
 
