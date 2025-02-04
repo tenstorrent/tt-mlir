@@ -1811,44 +1811,6 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
 }
 
-def TTIR_IterIndexOp : TTIR_Op<"iter_index", [HasParent<"GenericOp">, Pure]> {
-    let summary = "Iter Index op.";
-    let description = [{
-      Return the index of the current element in the iteration for the given generic op dimension.
-    }];
-
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
-    let results = (outs Index:$result);
-}
-
-def TTIR_YieldOp : TTIR_Op<"yield", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
-    let summary = "Yield op.";
-    let description = [{
-      Yield operation, return control flow to another thread
-    }];
-
-    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$values);
-
-    let hasVerifier = 1;
-}
-
-def TTIR_AwaitOp : TTIR_Op<"await", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
-    let summary = "Await op.";
-    let description = [{
-      Await operation, return control flow to another thread
-    }];
-
-    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$values);
-
-    let hasVerifier = 1;
-}
-
-def TTIR_SynchronizeOp : TTIR_Op<"synchronize", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
-    let summary = "Synchronize op.";
-    let description = [{
-    }];
-}
-
 //===----------------------------------------------------------------------===//
 // TTIR ccl ops
 //===----------------------------------------------------------------------===//

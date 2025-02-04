@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Memref/IR/Memref.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -520,14 +521,15 @@ public:
     return allParallel ? SmallVector<IteratorType>() : mcastIterators;
   }
 
-  static std::pair<SmallVector<Value>, SmallVector<Value>>
-  calculateMcastArguments(OpBuilder blockBuilder, Location loc, GridAttr grid,
+  static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+  calculateMcastArguments(OpBuilder &blockBuilder, Location loc, GridAttr grid,
                           DeviceAttr device, AffineMap indexingMap,
                           ArrayAttr iteratorTypes) {
     SmallVector<IteratorType> mcastIterators =
         calculateMcastIterators(grid, device, indexingMap, iteratorTypes);
     if (mcastIterators.empty()) {
-      return std::make_pair(SmallVector<Value>(), SmallVector<Value>());
+      return std::make_tuple(SmallVector<Value>(), SmallVector<Value>(),
+                             SmallVector<Value>());
     }
 
     Value zero = blockBuilder.create<arith::ConstantOp>(
@@ -537,6 +539,7 @@ public:
 
     SmallVector<Value> mcastOffset;
     SmallVector<Value> mcastShape;
+    SmallVector<Value> conditions;
     mcastOffset.reserve(grid.getShape().size());
     mcastShape.reserve(grid.getShape().size());
 
@@ -544,62 +547,79 @@ public:
       Value gridDim = blockBuilder.create<arith::ConstantOp>(
           loc, blockBuilder.getIndexType(),
           blockBuilder.getIndexAttr(grid.getShape()[dim]));
+      Value gridIndex =
+          blockBuilder.create<GridIndexOp>(loc, blockBuilder.getIndexType(),
+                                           blockBuilder.getI64IntegerAttr(dim));
       if (iteratorType == IteratorType::Parallel) {
-        Value iter = blockBuilder.create<IterIndexOp>(
-            loc, blockBuilder.getIndexType(),
-            blockBuilder.getI64IntegerAttr(dim));
-        mcastOffset.push_back(Value(iter));
+        mcastOffset.push_back(Value(gridIndex));
         mcastShape.push_back(Value(one));
       } else {
+        assert(iteratorType == IteratorType::Reduction);
         mcastOffset.push_back(zero);
         mcastShape.push_back(gridDim);
+
+        Value iterIndex = blockBuilder.create<IterIndexOp>(
+            loc, blockBuilder.getIndexType(),
+            blockBuilder.getI64IntegerAttr(dim));
+        Value condition = blockBuilder.create<arith::CmpIOp>(
+            loc, blockBuilder.getI1Type(), mlir::arith::CmpIPredicate::eq,
+            gridIndex, iterIndex);
+        conditions.push_back(condition);
       }
     }
 
-    return std::make_pair(mcastOffset, mcastShape);
+    return std::make_tuple(mcastOffset, mcastShape, conditions);
+  }
+
+  static Value createDMA(OpBuilder &builder, Location loc, Value src, Value dst,
+                         SmallVector<Value> mcastOffset = {},
+                         SmallVector<Value> mcastShape = {}) {
+    MemRefType memrefType = mlir::cast<MemRefType>(dst.getType());
+    auto zero = builder.create<arith::ConstantOp>(
+        loc, builder.getIndexType(), builder.getIndexAttr(0));
+    SmallVector<Value> zeros(memrefType.getShape().size(), zero);
+    auto numElements = builder.create<arith::ConstantOp>(
+        loc, builder.getIndexType(),
+        builder.getIndexAttr(memrefType.getShape().size()));
+    return builder
+        .create<ttir::DMAOp>(loc, builder.getType<MemTxType>(), src, zeros,
+                             zeros, dst, zeros, zeros, numElements, mcastOffset,
+                             mcastShape)
+        .getResult();
   }
 
   static LogicalResult buildDatamovementBlock(
-      OpBuilder blockBuilder, Location loc, Value genericOperand,
+      OpBuilder &blockBuilder, Location loc, Value genericOperand,
       Value blockOperand, GridAttr grid, DeviceAttr device,
       AffineMap indexingMap, ArrayAttr iteratorTypes, bool isOutput) {
-    auto zero = blockBuilder.create<arith::ConstantOp>(
-        loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(0));
-    MemTxType memTxType = blockBuilder.getType<MemTxType>();
-
-    auto createDMA = [&](Value src, Value dst,
-                         SmallVector<Value> mcastOffset = {},
-                         SmallVector<Value> mcastShape = {}) {
-      MemRefType memrefType = mlir::cast<MemRefType>(dst.getType());
-      SmallVector<Value> zeros(memrefType.getShape().size(), zero);
-      auto numElements = blockBuilder.create<arith::ConstantOp>(
-          loc, blockBuilder.getIndexType(),
-          blockBuilder.getIndexAttr(memrefType.getShape().size()));
-      return blockBuilder
-          .create<ttir::DMAOp>(loc, memTxType, src, zeros, zeros, dst, zeros,
-                               zeros, numElements, mcastOffset, mcastShape)
-          .getResult();
-    };
 
     if (isOutput) {
       // Wait for compute
       blockBuilder.create<ttir::AwaitOp>(loc, ValueRange(blockOperand));
     }
 
-    Value memTx = isOutput ? createDMA(blockOperand, genericOperand)
-                           : createDMA(genericOperand, blockOperand);
+    Value memTx =
+        isOutput ? createDMA(blockBuilder, loc, blockOperand, genericOperand)
+                 : createDMA(blockBuilder, loc, genericOperand, blockOperand);
     blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
 
     // Multicast
-    auto [mcastOffset, mcastShape] = calculateMcastArguments(
+    SmallVector<Value> mcastOffset, mcastShape, conditions;
+    std::tie(mcastOffset, mcastShape, conditions) = calculateMcastArguments(
         blockBuilder, loc, grid, device, indexingMap, iteratorTypes);
     assert(mcastOffset.size() == mcastShape.size());
     if (!mcastOffset.empty()) {
-      blockBuilder.create<ttir::SynchronizeOp>(loc);
+      assert(conditions.size() == 1 && "Exactly one condition supported");
       Value mcastSrc = blockOperand;
       Value mcastDst = blockOperand;
-      Value mcastMemTx = createDMA(mcastSrc, mcastDst, mcastOffset, mcastShape);
-      blockBuilder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
+      blockBuilder.create<scf::IfOp>(
+          loc, conditions[0], [&](OpBuilder &builder, Location loc) {
+            Value mcastMemTx =
+                createDMA(builder, loc, mcastSrc, mcastDst, mcastOffset, mcastShape);
+            builder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
+            builder.create<scf::YieldOp>(loc);
+          });
+      blockBuilder.create<ttir::SynchronizeOp>(loc);
     }
 
     if (!isOutput) {
