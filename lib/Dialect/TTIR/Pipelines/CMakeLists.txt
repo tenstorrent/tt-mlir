@@ -16,4 +16,3 @@ add_mlir_dialect_library(MLIRTTIRPipelines
 
   LINK_LIBS PUBLIC
   ${link_libs}
-)
