@@ -551,7 +551,9 @@ jobs:
         pytest -ssv runtime/test/python/ttnn/test_runtime_api.py
 
   build-and-test-explorer:
-    needs: build-image
+    needs:
+      - build-image
+      - build-ttmlir
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -619,10 +621,22 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
 
+    - name: Download Tests
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: 'Untar build directory'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: tar xvf artifact.tar
+
     - name: Run tt-explorer tests
       shell: bash
       run: |
         source env/activate
+        export TT_EXPLORER_GENERATED_TEST_DIR=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
         pytest tools/explorer/test/run_tests.py
         # collect results
 
