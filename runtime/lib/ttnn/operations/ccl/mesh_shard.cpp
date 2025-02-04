@@ -21,10 +21,8 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
         input,
         *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
   } else {
-    DEBUG_ASSERT(
-        input.get_logical_shape().rank() > 1,
-        "Sharding requires higher than 2 dimensional tensor. Tensor rank=",
-        input.get_logical_shape().rank());
+    DEBUG_ASSERT(input.get_logical_shape().rank() > 1,
+                 "Sharding requires higher than one dimensional tensor.");
     ::ttnn::distributed::Shard2dConfig shard2dConfig{std::nullopt,
                                                      std::nullopt};
     if (shardDims[0] >= 0) {
@@ -95,6 +93,18 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   std::vector<int64_t> shardDims(fbShardDims->begin(), fbShardDims->end());
   DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(input.storage_type()),
                "Input of ttnn::mesh_shard should be host tensor");
+
+  // Regards manual sharding as no op assuming that the input tensor is
+  // pre-sharded by frontend. Thus, no sharding is required, but need to makes
+  // sure if the tensor is multi-device host tensor.
+  if (shardType == ::tt::target::ttnn::MeshShardType::Manual) {
+    LOG_ASSERT(
+        input.storage_type() == ::tt::tt_metal::StorageType::MULTI_DEVICE,
+        "Input of mesh_shard with manual sharding must be MULTIDEVICE. id:",
+        op->in()->global_id());
+    tensorPool.insert_or_assign(op->out()->global_id(), input);
+    return;
+  }
 
   if (shardDirection !=
           ::tt::target::ttnn::MeshShardDirection::FullToShardShape &&
