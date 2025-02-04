@@ -402,6 +402,11 @@ table UpsampleOp {
   out: tt.target.TensorRef;
 }
 
+table ConstantOp {
+  out: tt.target.TensorRef;
+  data: [ubyte];
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -440,6 +445,7 @@ union OpType {
   PermuteOp,
   RepeatOp,
   UpsampleOp,
+  ConstantOp,
 }
 
 table Operation {
