@@ -11,8 +11,6 @@
 #include "mlir/IR/AffineExpr.h"
 #include "gtest/gtest.h"
 
-#include <cstddef>
-#include <llvm/Support/Error.h>
 #include <optional>
 
 namespace mlir::tt::ttnn {

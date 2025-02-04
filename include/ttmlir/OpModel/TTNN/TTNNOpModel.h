@@ -5,10 +5,10 @@
 #ifndef TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
 #define TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/Support/Error.h"
 
 #include <tuple>
 

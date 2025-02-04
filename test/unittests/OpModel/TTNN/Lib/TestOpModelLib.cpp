@@ -10,7 +10,6 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "gtest/gtest.h"
-#include <llvm/Support/Error.h>
 #include <optional>
 
 namespace mlir::tt::op_model::ttnn {
