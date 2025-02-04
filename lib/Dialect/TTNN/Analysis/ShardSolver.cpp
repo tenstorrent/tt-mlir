@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include <llvm/Support/Error.h>
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <mlir/Support/LLVM.h>
 #include <unordered_set>
@@ -578,6 +579,8 @@ bool ShardSolver::checkShardCompatible(
                      << "\n";
         producerLayout.dump();
         consumerLayout.dump();
+      } else {
+        llvm::consumeError(l1UsageExp.takeError());
       }
       return false;
     }
