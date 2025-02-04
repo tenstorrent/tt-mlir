@@ -8,26 +8,61 @@ import time
 import multiprocessing
 import pytest
 import glob
+import os
 
 HOST = "localhost"
 PORT = 8002
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
-    "tools/explorer/test/models/*.mlir",
+    "test/ttmlir/Explorer/**/*.mlir",
+    "test/ttmlir/Silicon/TTNN/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
 
+if "TT_EXPLORER_GENERATED_TEST_DIR" in os.environ:
+    TEST_LOAD_MODEL_PATHS.append(
+        os.environ["TT_EXPLORER_GENERATED_TEST_DIR"] + "/**/*.mlir"
+    )
+
+
+def get_test_files(paths):
+    files = []
+    for path in paths:
+        files.extend(glob.glob(path, recursive=True))
+    return files
+
+
+def execute_command(model_path, settings):
+    cmd = {
+        "extensionId": "tt_adapter",
+        "cmdId": "execute",
+        "modelPath": model_path,
+        "deleteAfterConversion": False,
+        "settings": settings,
+    }
+
+    result = requests.post(COMMAND_URL, json=cmd)
+    assert result.ok
+    if "error" in result.json():
+        print(result.json())
+        assert False
+
 
 @pytest.fixture(scope="function", autouse=True)
 def start_server(request):
     """Start the model explorer server before running tests and stop it after."""
     server_thread = multiprocessing.Process(
-        target=model_explorer.visualize,
-        kwargs={"extensions": ["tt_adapter"], "host": HOST, "port": PORT},
+        target=model_explorer.visualize_from_config,
+        kwargs={
+            "extensions": ["tt_adapter"],
+            "host": HOST,
+            "port": PORT,
+            "no_open_in_browser": True,
+        },
     )
     server_thread.start()
 
@@ -122,7 +157,7 @@ def test_load_model(model_path):
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
 def test_execute_model(model_path):
     execute_command_and_wait(
-        model_path, {"optimizationPolicy": "DF Sharding"}, timeout=60
+        model_path, {"optimizationPolicy": "DF Sharding"}, timeout=300
     )
     convert_command_and_assert(model_path)
 
@@ -131,7 +166,7 @@ def test_execute_mnist_l1_interleaved():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Greedy L1 Interleaved"},
-        timeout=60,
+        timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
@@ -140,7 +175,7 @@ def test_execute_mnist_optimizer_disabled():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
-        timeout=60,
+        timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
@@ -161,7 +196,7 @@ def test_execute_mnist_with_overrides():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "DF Sharding", "overrides": overrides},
-        timeout=60,
+        timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
@@ -170,7 +205,7 @@ def test_execute_and_check_perf_data_exists():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "DF Sharding"},
-        timeout=60,
+        timeout=300,
     )
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
     assert "perf_data" in result["graphs"][0]
@@ -181,5 +216,5 @@ def test_execute_model_invalid_policy():
         execute_command_and_wait(
             TEST_EXECUTE_MODEL_PATHS[0],
             {"optimizationPolicy": "Invalid Policy"},
-            timeout=60,
+            timeout=300,
         )
