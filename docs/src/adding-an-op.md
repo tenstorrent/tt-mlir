@@ -162,7 +162,53 @@ Method to populate rewrite patterns can be found in `lib/Conversion/TTNNToEmitC/
 {{#include ../../../lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp:op_rewriter_pattern_set_emitc}}
 ```
 
-Conversion pattern for matmul op:
+Writing conversion patterns to EmitC is a little tricky at first. In general case, we will be converting an op that has operands (SSAs) and attributes (e.g. data type) as arguments. We want to flatten these arguments at call site.
+
+We'll use EmitC's `CallOpaqueOp` as the target op. Let's take a look at our matmul IR within TTNN dialect:
+```
+"ttnn.matmul"(%2, %4, %5) : (tensor<64x128xbf16, #ttnn_layout4>, tensor<128x96xbf16, #ttnn_layout6>, tensor<64x96xbf16, #ttnn_layout7>) -> tensor<64x96xbf16, #ttnn_layout7>
+```
+
+Now let's look at matmul's call signature in TTNN lib:
+```cpp
+    static Tensor invoke(
+        const Tensor& input_tensor_a,
+        const Tensor& input_tensor_b,
+        const bool transpose_a = false,
+        const bool transpose_b = false,
+        const std::optional<const MemoryConfig>& memory_config = std::nullopt,
+        const std::optional<const DataType> dtype = std::nullopt,
+        const std::optional<const MatmulProgramConfig>& program_config = std::nullopt,
+        const std::optional<const std::string>& activation = std::nullopt,
+        const std::optional<const DeviceComputeKernelConfig> compute_kernel_config = std::nullopt,
+        const std::optional<const CoreGrid> core_grid = std::nullopt,
+        const std::optional<const tt::tt_metal::Tile>& output_tile = std::nullopt,
+        std::optional<Tensor> optional_output_tensor = std::nullopt,
+        const std::optional<const DeviceGlobalCircularBuffer>& global_cb = std::nullopt);
+```
+
+If we look closely, we'll notice that the IR has way less arguments than can be seen in the actual signature of the op - as we're lowering to EmitC, which gets translated into actual C++ code, we need to correct for this (ideally the op would be perfectly modelled with all the arguments, but that is not the case today).
+
+We do this by filling in the gaps. EmitC's `CallOpaqueOp` takes in an array of attributes, and an array of operands, which need to be combined. The combining is done by extending the array of attributes with "pointers" into operands, like so:
+```cpp
+{{#include ../../../lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp:adding_an_op_matmul_ttnn_to_emitc_array_attrs}}
+```
+
+Pointers are denoted with `IndexType`s, wrapped into `IntegerAttr`s. Attributes are converted into EmitC's `OpaqueAttr` which can, for practical purposes, be treated as strings: a `BoolAttr` carrying "false" as value needs to be converted into an `OpaqueAttr` whose value is a string `"false"`, which is what the `convertBoolAttr` function does.
+
+This is our final converted EmitC `CallOpaqueOp`:
+
+```mlir
+emitc.call_opaque "ttnn::matmul"(%3, %6, %9) {args = [0 : index, 1 : index, #emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"std::nullopt">, #emitc.opaque<"std::nullopt">, #emitc.opaque<"std::nullopt">, #emitc.opaque<"std::nullopt">, #emitc.opaque<"std::nullopt">, #emitc.opaque<"std::nullopt">, #emitc.opaque<"std::nullopt">, 2 : index]} : (!emitc.opaque<"ttnn::Tensor">, !emitc.opaque<"ttnn::Tensor">, !emitc.opaque<"ttnn::Tensor">) -> !emitc.opaque<"ttnn::Tensor">
+```
+
+which, when translated to C++ code, looks like:
+
+```cpp
+ttnn::matmul(v6, v9, false, false, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, v12);
+```
+
+Full conversion pattern for matmul op:
 
 ```cpp
 {{#include ../../../lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp:adding_an_op_matmul_op_rewriter_emitc}}

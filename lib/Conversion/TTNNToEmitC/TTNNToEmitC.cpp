@@ -302,25 +302,33 @@ public:
   matchAndRewrite(ttnn::MatmulOp matmulOp, ttnn::MatmulOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    // ANCHOR: adding_an_op_matmul_ttnn_to_emitc_array_attrs
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this.
     //
     ArrayAttr arrayAttrs = rewriter.getArrayAttr({
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 1),
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               0), // points to operand 0
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               1), // points to operand 1
+        ttnn_to_emitc::utils::convertBoolAttr(
+            rewriter,
+            BoolAttr::get(
+                rewriter.getContext(),
+                false)), // bool attr denoting transposeA is set to false
         ttnn_to_emitc::utils::convertBoolAttr(
             rewriter, BoolAttr::get(rewriter.getContext(), false)),
-        ttnn_to_emitc::utils::convertBoolAttr(
-            rewriter, BoolAttr::get(rewriter.getContext(), false)),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter), // std::nullopt
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 2),
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               2), // points to operand 2
     });
+    // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         matmulOp, this->getTypeConverter()->convertType(matmulOp.getType()),
