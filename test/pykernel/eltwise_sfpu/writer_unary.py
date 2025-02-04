@@ -43,7 +43,7 @@ def writer_unary(cb_in: int, cb_out: int):
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    dst_addr = get_arg_val(int, 0)
+    dst_addr: int = get_arg_val(int, 0)
     bank_id = get_arg_val(int, 1)
     num_tiles = get_arg_val(int, 2)
 

@@ -62,6 +62,7 @@ def get_supported_nodes():
         ast.Pass,
         ast.Assign,
         ast.AugAssign,
+        ast.AnnAssign,
         # Function-and-class-definitions
         ast.Module,
         ast.FunctionDef,
@@ -282,17 +283,28 @@ class TTKernelCompiler(ast.NodeVisitor):
         value = self.visit(node.value)
         sym_table = self.symbol_tables[-1]
         var_name = node.targets[0].id
-        if value.type != IntegerType.get_signless(32):
-            # Assumption: if it doesn't return an I32, then it is a TTKernel type.
-            # TTKernel types will be SSA only unless there is a need to store them on stack.
-            sym_table[var_name] = value
-        else:
-            if not var:  # should check here if var is an array
-                var_type = value.type
-                memref_type = MemRefType.get([1], var_type)
-                var = memref.alloca(memref_type, [], [])
-                sym_table[var_name] = var
+        # print(var.type)
+        if hasattr(var, "type") and isinstance(var.type, MemRefType):
             memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
+        else:
+            sym_table[var_name] = value
+
+    def visit_AnnAssign(self, node):
+        # NOTE: TTKernel types can not be used with memrefs
+        var = self.visit(node.target)
+        value = self.visit(node.value)
+        sym_table = self.symbol_tables[-1]
+        var_name = node.target.id
+
+        if not var:
+            var_type = value.type
+            memref_type = MemRefType.get([1], var_type)
+            var = memref.alloca(memref_type, [], [])
+            sym_table[var_name] = var
+        else:
+            assert isinstance(var, MemRefType), "Can not AugAssign to non-memref types"
+
+        memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     def visit_AugAssign(self, node):
         raise NotImplementedError("AugAssign not supported yet")

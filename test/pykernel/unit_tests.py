@@ -9,30 +9,39 @@ from pykernel.pykernel_ast import *
 
 
 @ttkernel_compile
-def test_assign_constant_int():
+def test_assign():
     # CHECK: module {
     # CHECK: func.func @[[C:.*]]
+
+    # TEST: SSA assignment
+    # CHECK: {{.*}} = arith.constant 1 : i32
+    # CHECK: {{.*}} = arith.constant 2 : i32
+    a = 1
+    a = 2
+
+    # TEST: AugAssign with memref
     # CHECK: %[[CONST:.*]] = arith.constant{{.*}} : i32
     # CHECK: %[[ALLOCA:.*]] = memref.alloca() : memref<1xi32>
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
-    a = 1
-
+    b: int = 1
     # CHECK: %[[CONST:.*]] = arith.constant{{.*}} : i32
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
-    a = 2
+    b = 2
 
-    # CHECK: return[[RET:.*]]
-    return a
+    return
 
 
 @ttkernel_compile
 def test_ifstmt():
     # CHECK: module {
     # CHECK: func.func @[[C:.*]]
+
+    # TEST: if stmt scope stacks with memref and SSA
     # CHECK: %[[C1:.*]] = arith.constant{{.*}} : i32
     # CHECK: %[[A_a:.*]] = memref.alloca() : memref<1xi32>
     # CHECK: memref.store %[[C1]], %[[A_a]]{{.*}} : memref<1xi32>
-    a = 1
+    a: int = 1
+
     # CHECK: %[[L_a:.*]] = memref.load %[[A_a]]{{.*}} : memref<1xi32>
     # CHECK: %[[COND:.*]] = arith.cmpi eq, %[[L_a]]{{.*}}
     # CHECK: scf.if %[[COND]]{{.*}}
@@ -43,7 +52,7 @@ def test_ifstmt():
         # CHECK: %[[C3:.*]] = arith.constant{{.*}} : i32
         # CHECK: %[[A_b:.*]] = memref.alloca() : memref<1xi32>
         # CHECK: memref.store %[[C3]], %[[A_b]]{{.*}} : memref<1xi32>
-        b = 5
+        b: int = 5
     else:
         # CHECK: %[[C2:.*]] = arith.constant{{.*}} : i32
         # CHECK: memref.store %[[C2]], %[[A_a]]{{.*}} : memref<1xi32>
@@ -51,13 +60,11 @@ def test_ifstmt():
         # CHECK: %[[C3:.*]] = arith.constant{{.*}} : i32
         # CHECK: %[[A_c:.*]] = memref.alloca() : memref<1xi32>
         # CHECK: memref.store %[[C3]], %[[A_c]]{{.*}} : memref<1xi32>
-        c = 1
+        c: int = 1
 
     # CHECK: memref.store {{.*}}, %[[A_a]]{{.*}} : memref<1xi32>
-    # CHECK: %[[A_b:.*]] = memref.alloca() : memref<1xi32>
-    # CHECK: memref.store {{.*}}, %[[A_b]]{{.*}} : memref<1xi32>
-    # CHECK: %[[A_c:.*]] = memref.alloca() : memref<1xi32>
-    # CHECK: memref.store {{.*}}, %[[A_c]]{{.*}} : memref<1xi32>
+    # CHECK: {{.*}} = arith.constant{{.*}}
+    # CHECK: {{.*}} = arith.constant{{.*}}
     a = 1
     b = 2
     c = 3
@@ -68,20 +75,29 @@ def test_ifstmt():
 def test_for():
     # CHECK: module {
     # CHECK: func.func @[[C:.*]]
+
+    # TEST: simple for loop
     # CHECK: scf.for {{.*}} to {{.*}} step {{.*}}
     for i in range(0, 10, 1):
         a = 1
 
-    x = 0
-    y = 10
-    z = 1
-    for i in range(0, 10, 1):
+    # TEST: nested for loop with vars and accumulation with memref
+    a = 0
+    b = 10
+    c = 1
+    x: int = 0
+    y: int = 10
+    z: int = 1
+    d: int = 1
+    for i in range(a, b, c):
         # CHECK: %[[X:.*]] = memref.load{{.*}}
         # CHECK: %[[Y:.*]] = memref.load{{.*}}
         # CHECK: %[[Z:.*]] = memref.load{{.*}}
         # CHECK: scf.for {{.*}} = %[[X]] to %[[Y]] step %[[Z]] {{.*}}
         for j in range(x, y, z):
-            a = 1
+            # CHECK: {{.*}} = arith.addi{{.*}}
+            # CHECK: memref.store{{.*}}
+            d = d + 1
 
     return
 
@@ -129,7 +145,7 @@ def test_compare_expr():
     return
 
 
-test_assign_constant_int()
+test_assign()
 test_ifstmt()
 test_for()
 test_binops()
