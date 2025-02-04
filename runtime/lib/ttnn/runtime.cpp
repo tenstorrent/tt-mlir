@@ -443,6 +443,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     globalId = opContext.type_as_EmptyOp()->out()->global_id();
     break;
   }
+  case ::tt::target::ttnn::OpType::ZerosOp: {
+    globalId = opContext.type_as_ZerosOp()->out()->global_id();
+    break;
+  }
   case ::tt::target::ttnn::OpType::OnesOp: {
     globalId = opContext.type_as_OnesOp()->out()->global_id();
     break;
