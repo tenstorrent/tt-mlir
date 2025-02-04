@@ -632,6 +632,25 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroa
     }];
 }
 
+// TODO We need to add a broadcastable trait to this op.
+// See issue https://github.com/tenstorrent/tt-mlir/issues/2015
+def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
+    let summary = "Eltwise power OP.";
+    let description = [{
+      Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
+      result tensor. Tensors must be of same shape.
+
+      Example:
+      ```
+        %result = "ttir.power"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+
+        %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
+        %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
+        %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
+      ```
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
@@ -1420,6 +1439,23 @@ def TTIR_ArangeOp : TTIR_Op<"arange"> {
   let hasVerifier = 1;
 }
 
+def TTIR_ZerosOp : TTIR_Op<"zeros"> {
+  let summary = "Creates a tensor filled with zeros.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros.
+
+    Given a `shape`, produces a tensor with the shape, filled with zeros.
+
+    Example:
+      %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTIR_OnesOp : TTIR_Op<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
@@ -1592,6 +1628,36 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
+}
+
+def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
+    let summary = "Upsample 2D operation.";
+
+    let description = [{
+      Upsample 2D operation. Input tensor is assumed to be in NHWC format.
+
+      Attributes:
+      - `scale_factor` (si32 | array<i32>): The scale factor for upsampling in H and W dimensions respectively.
+      - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
+
+      Example:
+        %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
+        %output = tensor.empty() : () -> tensor<10x128x128x3xbf16>
+        %0 = "ttir.upsample2d"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128x3xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
+                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

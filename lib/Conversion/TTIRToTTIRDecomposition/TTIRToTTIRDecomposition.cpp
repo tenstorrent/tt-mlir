@@ -18,7 +18,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
-#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -35,6 +34,7 @@ namespace mlir::tt {
 // the input tensor. For dimensions other than the sliced dimension, default
 // values are used.
 //
+namespace {
 struct IndexToSliceConversionPattern
     : public OpConversionPattern<ttir::IndexOp> {
   using OpConversionPattern<ttir::IndexOp>::OpConversionPattern;
@@ -72,6 +72,7 @@ struct IndexToSliceConversionPattern
     return success();
   }
 };
+} // namespace
 // ANCHOR_END: decomposing_an_op_index_ttir_decompose_pattern
 
 //===----------------------------------------------------------------------===//
@@ -94,6 +95,7 @@ static PaddingMatrix<NDims> getPaddingMatrix(ArrayRef<int64_t> padding) {
   return paddingMatrix;
 }
 
+namespace {
 struct ConvolutionDecompositionPattern
     : public OpConversionPattern<ttir::ConvolutionOp> {
 public:
@@ -190,12 +192,14 @@ protected:
                                               ttnnConvolutionKernelLayout);
   }
 };
+} // namespace
 
 // A decomposition pattern that matches to a ttir.convolution op that does 1D
 // convolution. Since that is not supported in ttnn, we reshape the inputs and
 // the output to match a 2D ttir.convolution op. The expectation is that the new
 // ttir.convolution op will be picked up by the ConvolutionToConv2dPattern and
 // translated into ttir.conv2d op.
+namespace {
 struct Legalize1DConvolutionPattern : public ConvolutionDecompositionPattern {
 public:
   using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
@@ -342,7 +346,9 @@ private:
     return rewriter.getDenseBoolArrayAttr(newDenseArray);
   }
 };
+} // namespace
 
+namespace {
 struct ConvolutionToConv2dPattern : public ConvolutionDecompositionPattern {
 public:
   using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
@@ -452,11 +458,13 @@ public:
     return success();
   }
 };
+} // namespace
 
 //===----------------------------------------------------------------------===//
 // Gather Pattern Matching
 //===----------------------------------------------------------------------===//
 
+namespace {
 struct GatherToEmbeddingConversionPattern
     : public OpConversionPattern<ttir::GatherOp> {
   using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
@@ -615,6 +623,7 @@ struct GatherToEmbeddingConversionPattern
     return success();
   }
 };
+} // namespace
 
 //===----------------------------------------------------------------------===//
 /*
@@ -631,6 +640,7 @@ in both tensors. This allows DotGeneralOp to handle cases beyond the typical
 MatmulOp constraints, enabling more complex tensor operations.
 */
 
+namespace {
 struct DotGeneralToMatmulConversionPattern
     : public OpConversionPattern<ttir::DotGeneralOp> {
   using OpConversionPattern<ttir::DotGeneralOp>::OpConversionPattern;
@@ -851,7 +861,9 @@ private:
     return product;
   }
 };
+} // namespace
 
+namespace {
 struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
@@ -1071,6 +1083,7 @@ public:
                 std::to_string(numSpatialDims) + " spatial dimensions");
   }
 };
+} // namespace
 
 // SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
 // the sliced dimension is sliced multiple times. For example, if the input
@@ -1102,6 +1115,7 @@ public:
 // In this case 2 slices are created and concatenated to form the output tensor.
 // First slice has begins=[0, 0, 0], ends=[2, 2, 3], steps=[1, 1, 1], and the
 // second slice has begins=[0, 4, 0], ends=[2, 6, 3], steps=[1, 1, 1].
+namespace {
 struct SelectToSliceConversionPattern
     : public OpConversionPattern<ttir::SelectOp> {
 public:
@@ -1186,6 +1200,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 /*
  * This pattern rewrites ArangeOp by forcing the arange_dimension to be
@@ -1203,6 +1218,7 @@ public:
  * the TTIR dialect only and so this explication of the TMs implicit in ArangeOp
  * must be done in TTIR.
  */
+namespace {
 struct ArangeForceLastDimensionPattern
     : public OpConversionPattern<ttir::ArangeOp> {
 public:
@@ -1320,6 +1336,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // TTNN does not support reduction operation for logical and. So this reduction
 // is performed by decomposing/converting into reduction product (ttnn.prod op).

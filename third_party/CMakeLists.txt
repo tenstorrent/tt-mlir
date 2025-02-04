@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "3adec9c1702bd61f3015d3c659da802fe130be27")
+set(TT_METAL_VERSION "8d9efbfbab99a03f71ca69681606a6c3c05a67ea")
 
 if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
   set(ARCH_NAME "grayskull")
@@ -67,7 +67,7 @@ ExternalProject_Add(
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
   CMAKE_GENERATOR Ninja
   CMAKE_ARGS
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
     -DCMAKE_INSTALL_PREFIX=${METAL_INSTALL_PREFIX}
     -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
@@ -85,6 +85,48 @@ set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+# When installing, copy all needed files (for runtime) from `tt-metal` repo to the install directory.
+# EXCLUDE_FROM_ALL is used to avoid installing these files when installing the default component.
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+  REGEX "ttnn/ttnn" EXCLUDE
+)
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/runtime
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  USE_SOURCE_PERMISSIONS
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+)
+
+# `tt_metal` directory is installed with two commands, since we need special handling of `third_party` directory.
+# We only need `tt_llk_*" and `umd` files from `third_party` directory.
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+  PATTERN "third_party" EXCLUDE
+)
+
+# NOTE: For some reason, CMake creates all directories even for non-matched files, but those will be empty.
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+  FILES_MATCHING
+  REGEX "third_party/tt_llk_*"
+  REGEX "third_party/umd/"
+)
 
 list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH})

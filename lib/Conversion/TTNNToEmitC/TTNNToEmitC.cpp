@@ -37,8 +37,6 @@
 using namespace mlir;
 using namespace mlir::tt;
 
-namespace {
-
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
       "static_cast<::ttnn::IDevice *>(nullptr)");
@@ -46,6 +44,7 @@ emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
 
 // Base class for TTNN to EmitC OpConversionPattern.
 //
+namespace {
 template <typename SourceOp>
 class TTNNToEmitCBaseOpConversionPattern
     : public OpConversionPattern<SourceOp> {
@@ -71,9 +70,11 @@ public:
                               getPrefixSwapPattern());
   }
 };
+} // namespace
 
 // Default op conversion pattern, used to convert most ops.
 //
+namespace {
 template <typename SourceOp>
 class DefaultOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
@@ -109,12 +110,14 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Eltwise Unary op conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
 // modelled in the dialect (memcfg).
 //
+namespace {
 template <typename SourceOp>
 class EltwiseUnaryOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
@@ -144,6 +147,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // EltwiseUnaryWithFastAndApproximateModeOp conversion pattern
 //
@@ -217,6 +221,7 @@ public:
 // Currently, it has to insert nullopts for some parameters that are not
 // modelled in the dialect (output dtype, memcfg).
 //
+namespace {
 template <typename SourceOp>
 class EltwiseBinaryOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
@@ -249,6 +254,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Linear op conversion pattern
 //
@@ -283,6 +289,8 @@ public:
 
 // Matmul op conversion pattern
 //
+// ANCHOR: adding_an_op_matmul_op_rewriter_emitc
+namespace {
 class MatmulOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::MatmulOp> {
 
@@ -294,25 +302,33 @@ public:
   matchAndRewrite(ttnn::MatmulOp matmulOp, ttnn::MatmulOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    // ANCHOR: adding_an_op_matmul_ttnn_to_emitc_array_attrs
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this.
     //
     ArrayAttr arrayAttrs = rewriter.getArrayAttr({
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 1),
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               0), // points to operand 0
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               1), // points to operand 1
+        ttnn_to_emitc::utils::convertBoolAttr(
+            rewriter,
+            BoolAttr::get(
+                rewriter.getContext(),
+                false)), // bool attr denoting transposeA is set to false
         ttnn_to_emitc::utils::convertBoolAttr(
             rewriter, BoolAttr::get(rewriter.getContext(), false)),
-        ttnn_to_emitc::utils::convertBoolAttr(
-            rewriter, BoolAttr::get(rewriter.getContext(), false)),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter), // std::nullopt
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
         ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 2),
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               2), // points to operand 2
     });
+    // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         matmulOp, this->getTypeConverter()->convertType(matmulOp.getType()),
@@ -322,6 +338,8 @@ public:
     return success();
   }
 };
+} // namespace
+// ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
 
 // Softmax op conversion pattern
 //
@@ -563,8 +581,7 @@ public:
     // Create ttnn::Shape() call
     //
     emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
-        rewriter, repeatDims, repeatOp.getLoc(),
-        ttnn_to_emitc::utils::ShapeType::Shape);
+        rewriter, repeatDims, repeatOp.getLoc());
 
     // Create operands vector
     //
@@ -591,6 +608,7 @@ public:
 
 // GetDeviceOp conversion pattern
 //
+namespace {
 class GetDeviceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::GetDeviceOp> {
 
@@ -617,9 +635,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ToDeviceOp conversion pattern
 //
+namespace {
 class ToDeviceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToDeviceOp> {
 
@@ -672,9 +692,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // FromDeviceOp conversion pattern
 //
+namespace {
 class FromDeviceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::FromDeviceOp> {
 
@@ -693,9 +715,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // TypecastOp conversion pattern
 //
+namespace {
 class TypecastOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::TypecastOp> {
 
@@ -718,9 +742,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ToMemoryConfig conversion pattern
 //
+namespace {
 class ToMemoryConfigOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToMemoryConfigOp> {
 
@@ -765,9 +791,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ToLayoutOp conversion pattern
 //
+namespace {
 class ToLayoutOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToLayoutOp> {
 
@@ -796,9 +824,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // EmptyOp conversion pattern
 //
+namespace {
 class EmptyOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::EmptyOp> {
 
@@ -822,7 +852,7 @@ public:
           getDeviceOp = currGetDeviceOp;
         });
 
-    // Create ttnn::SimpleShape() call.
+    // Create ttnn::Shape() call.
     //
     emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, shapeAttr, srcOp.getLoc());
@@ -844,7 +874,7 @@ public:
     // Create ArrayAttr object holding attributes and pointers to operands.
     //
     ArrayAttr arrayAttr = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(0), // ttnn::SimpleShape
+        rewriter.getIndexAttr(0), // ttnn::Shape
         ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
         ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
         rewriter.getIndexAttr(1), // ttnn::Device
@@ -860,21 +890,22 @@ public:
     return success();
   }
 };
+} // namespace
 
-// OnesOp conversion pattern
+// ZerosOp conversion pattern
 //
-class OnesOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::OnesOp> {
+class ZerosOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ZerosOp> {
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      ttnn::OnesOp>::TTNNToEmitCBaseOpConversionPattern;
+      ttnn::ZerosOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttnn::OnesOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(ttnn::ZerosOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // ttnn:OnesOp has 5 input params:
+    // ttnn:ZerosOp has 5 input params:
     //
     // let arguments = (ins TTNN_ShapeAttr:$shape,
     //                      OptionalAttr<TT_DataTypeAttr>:$dtype,
@@ -943,8 +974,93 @@ public:
   }
 };
 
+// OnesOp conversion pattern
+//
+namespace {
+class OnesOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::OnesOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::OnesOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::OnesOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // ttnn:OnesOp has 5 input params:
+    //
+    // let arguments = (ins TTNN_ShapeAttr:$shape,
+    //                      OptionalAttr<TT_DataTypeAttr>:$dtype,
+    //                      OptionalAttr<TTNN_LayoutAttr>:$layout,
+    //                      Optional<TT_Device>:$device,
+    //                      OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    //
+    // Some of them are Attrs, some are Values. ShapeAttr is required, while
+    // others are optional. Additionally, in the context of C++, some of the
+    // Attrs (like shape) need to be instantiated into objects before being
+    // passed to the op. Therefore:
+    //
+    // We first create a ttnn::Shape object (SA) by calling
+    // createShapeOp() and add it to the operands vector, but also add an
+    // IndexAttr in ArrayAttr to reference it (this is an EmitC mechanism that
+    // allows for combining Attrs and Values when calling an OpaqueOp). All the
+    // other input params are optional, so we create them on-the-fly into the
+    // ArrayAttr, whether they are an actual Attr, or a Value pointed to by
+    // IndexAttr. If they are present, we create the object and pass it to the
+    // op. If not, we pass std::nullopt.
+
+    // Create ttnn::Shape() call
+    //
+    emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
+
+    llvm::SmallVector<Value, 3> operands{
+        shapeOp->getResult(0),
+    };
+
+    // Create ArrayAttr object holding attributes and pointers to operands
+    //
+    // Params that are Values are added to the operands vector on-the-fly, and
+    // a corresponding IndexAttr is added to the ArrayAttr to reference them.
+    //
+    size_t operandIndex = 0;
+    ArrayAttr arrayAttr = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(operandIndex++), // ttnn::Shape
+        srcOp.getDtype().has_value()
+            ? ttnn_to_emitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::DataType
+        srcOp.getLayout().has_value()
+            ? ttnn_to_emitc::utils::convertLayoutAttr(rewriter,
+                                                      srcOp.getLayoutAttr())
+            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Layout
+        adaptor.getDevice()
+            ? (operands.append(1, adaptor.getDevice()),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
+            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Device
+        srcOp.getMemoryConfig().has_value()
+            ? (operands.append(
+                   1, ttnn_to_emitc::utils::createMemoryConfigOp(
+                          rewriter, srcOp.getMemoryConfigAttr(), srcOp.getLoc())
+                          ->getResult(0)),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::MemoryConfig
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttr, nullptr, operands);
+
+    return success();
+  }
+};
+} // namespace
+
 // DeallocateOp conversion pattern
 //
+namespace {
 class DeallocateOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocateOp> {
 
@@ -968,9 +1084,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // arith::ConstantOp conversion pattern
 //
+namespace {
 class ArithConstantOpConversionPattern
     : public OpConversionPattern<arith::ConstantOp> {
 
@@ -991,7 +1109,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class GetTupleElementOpConversionPattern
     : public OpConversionPattern<tt::GetTupleElementOp> {
 
@@ -1027,7 +1147,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TupleOpConversionPattern : public OpConversionPattern<tt::TupleOp> {
 
 public:
@@ -1052,6 +1174,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Module Op conversion pattern
 //
@@ -1059,6 +1182,7 @@ public:
 // ttmlir-translate would complain when translating to C++ if there were any
 // attributes from "unregistered" dialects.
 //
+namespace {
 class ModuleOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::ModuleOp> {
 
@@ -1079,11 +1203,11 @@ public:
     return success();
   }
 };
-
 } // namespace
 
 namespace mlir::tt {
 
+// ANCHOR: op_rewriter_pattern_set_emitc
 void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  mlir::RewritePatternSet &patterns,
                                  TypeConverter &typeConverter) {
@@ -1106,6 +1230,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   // clang-format off
   patterns.add<EmptyOpConversionPattern,
+               ZerosOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<ttnn::FullOp>,
                DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
@@ -1161,8 +1286,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                EltwiseBinaryOpConversionPattern<ttnn::MinimumOp>,
                EltwiseBinaryOpConversionPattern<ttnn::DivOp>,
                EltwiseBinaryOpConversionPattern<ttnn::ScatterOp>,
-               EltwiseBinaryOpConversionPattern<ttnn::RemainderOp>>(
-      typeConverter, ctx);
+               EltwiseBinaryOpConversionPattern<ttnn::RemainderOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::PowerOp>>(typeConverter,
+                                                                ctx);
 
   // Tensor manipulation ops
   //
@@ -1228,5 +1354,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
 }
+// ANCHOR_END: op_rewriter_pattern_set_emitc
 
 } // namespace mlir::tt

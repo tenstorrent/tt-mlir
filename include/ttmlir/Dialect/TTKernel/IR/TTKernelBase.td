@@ -28,6 +28,7 @@ def TTKernel_Dialect : Dialect {
     }];
     let dependentDialects = [
       "::mlir::arith::ArithDialect",
+      "::mlir::memref::MemRefDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
       "::mlir::tt::TTDialect"

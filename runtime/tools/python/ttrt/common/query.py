@@ -60,6 +60,13 @@ class Query:
             help="suppress system desc from being printed",
         )
         Query.register_arg(
+            name="--disable-eth-dispatch",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable putting dispatch on ethernet cores - place it on worker cores instead",
+        )
+        Query.register_arg(
             name="--result-file",
             type=str,
             default="query_results.json",
@@ -121,11 +128,16 @@ class Query:
         import ttrt.runtime
 
         try:
+            dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
+
+            if self["--disable-eth-dispatch"]:
+                dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
+
             self.logging.debug(f"getting system descriptor")
             (
                 self.system_desc,
                 self.device_ids,
-            ) = ttrt.runtime.get_current_system_desc()
+            ) = ttrt.runtime.get_current_system_desc(dispatch_core_type)
 
             if not self["--quiet"]:
                 self.logging.info(self.system_desc.as_json())

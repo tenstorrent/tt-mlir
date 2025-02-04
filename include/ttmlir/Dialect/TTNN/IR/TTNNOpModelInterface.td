@@ -16,13 +16,16 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
     let methods = [
         InterfaceMethod<
             /*desc=*/[{
-                Returns the op kernel estimate in clock cycles.
+                Returns a tuple of three values:**
+                1. A boolean indicating if runtime measurement was successful.
+                2. If the measurement was successful, the estimated op runtime in nanoseconds.
+                3. If the measurement failed, a string describing the failure.
             }],
-            /*retTy=*/"size_t",
-            /*methodName=*/"getOpPerfCycles",
+            /*retTy=*/"std::tuple<bool, std::optional<size_t>, std::optional<std::string>>",
+            /*methodName=*/"getOpRuntime",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::numeric_limits<size_t>::max();"
+            /*defaultImplementation=*/"return std::make_tuple(false, 0, std::nullopt);"
         >,
         InterfaceMethod<
             /*desc=*/[{
@@ -38,7 +41,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             /*methodName=*/"getOpConstraints",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::make_tuple(true,std::make_tuple(0,0,0), std::nullopt);"
+            /*defaultImplementation=*/"return std::make_tuple(true, std::make_tuple(0,0,0), std::nullopt);"
         >,
         ];
 }

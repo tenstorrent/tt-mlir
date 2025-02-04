@@ -148,6 +148,13 @@ class Run:
             help="disable to_dtype on host workaround",
         )
         Run.register_arg(
+            name="--disable-default-stride-computation",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable runtime default stride computation workaround",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -197,6 +204,13 @@ class Run:
             help="check for memory leaks (use in conjunction with --memory)",
         )
         Run.register_arg(
+            name="--disable-eth-dispatch",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable putting dispatch on ethernet cores - place it on worker cores instead",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -232,7 +246,11 @@ class Run:
                 artifacts_folder_path=self["--artifact-dir"],
             )
         )
-        self.query = Query({"--quiet": True}, self.logger, self.artifacts)
+        self.query = Query(
+            {"--quiet": True, "--disable-eth-dispatch": self["--disable-eth-dispatch"]},
+            self.logger,
+            self.artifacts,
+        )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.results = Results(self.logger, self.file_manager)
@@ -385,15 +403,14 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            debug_env = ttrt.runtime.DebugEnv.get(
-                self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
-            )
+            debug_env = ttrt.runtime.DebugEnv.get(self["--load-kernels-from-disk"])
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-to-dtype-on-host"],
+                not self["--disable-default-stride-computation"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
@@ -401,7 +418,16 @@ class Run:
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
-            device = ttrt.runtime.open_device(self.query.device_ids)
+            dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
+
+            if self["--disable-eth-dispatch"]:
+                dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
+
+            device = ttrt.runtime.open_device(
+                self.query.device_ids,
+                dispatch_core_type=dispatch_core_type,
+                enable_async_ttnn=self["--enable-async-ttnn"],
+            )
 
             callback_runtime_config = CallbackRuntimeConfig(
                 device,

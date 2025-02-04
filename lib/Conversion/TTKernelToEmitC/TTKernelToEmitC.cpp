@@ -2,32 +2,39 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
+
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
-#include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
-#include "mlir/Conversion/SCFToEmitC/SCFToEmitC.h"
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/IRMapping.h"
-#include "mlir/IR/Location.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/Value.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Target/Cpp/CppEmitter.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
+#include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/LogicalResult.h>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/Conversion/ArithToEmitC/ArithToEmitC.h>
+#include <mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h>
+#include <mlir/Conversion/SCFToEmitC/SCFToEmitC.h>
+#include <mlir/Dialect/EmitC/IR/EmitC.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/IR/Builders.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/IRMapping.h>
+#include <mlir/IR/Location.h>
+#include <mlir/IR/Operation.h>
+#include <mlir/IR/Value.h>
+#include <mlir/Pass/PassManager.h>
+#include <mlir/Support/LLVM.h>
+#include <mlir/Target/Cpp/CppEmitter.h>
+#include <mlir/Transforms/DialectConversion.h>
+
+#include <cctype>
 #include <string>
+#include <unordered_map>
 
 using namespace mlir;
 using namespace tt;
@@ -38,6 +45,8 @@ namespace mlir::tt::ttkernel {
 #include "ttmlir/Conversion/Passes.h.inc"
 
 } // namespace mlir::tt::ttkernel
+
+// ............................................................................
 
 emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
   switch (port) {
@@ -110,7 +119,20 @@ emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
   return nullptr;
 }
 
-class TTKernelToEmitCTypeConverter : public TypeConverter {
+// A no-op type converter:
+// (note that the trivial T->T conversion is necessary)
+namespace {
+class NullTypeConverter : public TypeConverter {
+public:
+  NullTypeConverter() {
+    addConversion([](Type type) { return type; });
+  }
+};
+} // namespace
+
+// Type converter used for TTKernel/TTMetal conversions:
+namespace {
+class TTKernelToEmitCTypeConverter : public NullTypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
@@ -131,7 +153,9 @@ public:
         });
   }
 };
+} // namespace
 
+namespace {
 class TTKernelStoreToL1OpToEmitCOpRewriter
     : public OpConversionPattern<ttkernel::StoreToL1Op> {
 
@@ -163,7 +187,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTMetalToEmitCFuncArgsRewriter
     : public OpConversionPattern<func::FuncOp> {
 public:
@@ -206,7 +232,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTMetalToEmitCReturnRewriter
     : public OpConversionPattern<ttkernel::ReturnOp> {
 public:
@@ -224,7 +252,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTMetalToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -283,6 +313,13 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::GetNocAddrFromBankIDOp>) {
+      SmallVector<Attribute, 1> template_args;
+
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "true")); // default to DRAM
+      return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
   }
@@ -309,7 +346,9 @@ public:
 private:
   std::string opName;
 };
+} // namespace
 
+namespace {
 template <typename Op, typename Adaptor = typename Op::Adaptor>
 class TTKernelMacroOpToEmitCOpRewriter : public OpConversionPattern<Op> {
 public:
@@ -334,7 +373,87 @@ public:
     return success();
   }
 };
+} // namespace
 
+// Context used for the analysis step before 'ConvertNocTransactionsTableOp'
+namespace {
+struct GlobalArrayDefTable {
+  std::unordered_map<std::string,
+                     std::tuple<mlir::MemRefType, mlir::DenseI32ArrayAttr>>
+      defs;
+  std::int32_t unique = 0;
+};
+} // namespace
+
+namespace {
+struct ConvertNocTransactionsTableOp
+    : public OpConversionPattern<ttkernel::NocTransactionsTableOp> {
+
+  using Op = ttkernel::NocTransactionsTableOp;
+
+  ConvertNocTransactionsTableOp(const TypeConverter &typeConverter,
+                                MLIRContext *context,
+                                GlobalArrayDefTable &globalDefs,
+                                PatternBenefit benefit = 1)
+      : OpConversionPattern(typeConverter, context, benefit),
+        globalDefs(&globalDefs) {}
+
+  LogicalResult
+  matchAndRewrite(Op op, typename Op::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.getResult().getUses().empty()) {
+      rewriter.eraseOp(op);
+    } else {
+      mlir::MemRefType type = op.getResult().getType();
+      mlir::DenseI32ArrayAttr entries = op.getEntriesAttr();
+
+      std::string const globalName =
+          asValidCppId(generateGlobalName(op.getOperation()));
+
+      auto inserted =
+          globalDefs->defs.emplace(globalName, std::make_tuple(type, entries));
+      assert(inserted.second); // every visit generates a unique global name
+
+      auto cType =
+          emitc::ArrayType::get(type.getShape(), type.getElementType());
+      rewriter.replaceOpWithNewOp<emitc::GetGlobalOp>(op, cType, globalName);
+    }
+
+    return success();
+  }
+
+  // generate a conflict-free name by walking 'op' up to its first module parent
+  // and collecting func names along the way:
+  std::string generateGlobalName(Operation *op) const {
+    std::string name;
+    llvm::raw_string_ostream ss(name);
+    ss << "g_";
+    do {
+      auto fop = mlir::dyn_cast<func::FuncOp>(op);
+      ss << (fop ? fop.getSymName() : op->getName().getStringRef()) << '.';
+      op = op->getParentOp();
+    } while (op != nullptr && !mlir::isa<mlir::ModuleOp>(op));
+    ss << (globalDefs->unique++); // shared state mutation ok here, because we
+                                  // know it's nested under module root
+    return ss.str();
+  }
+
+  static std::string asValidCppId(std::string const &s) {
+    std::string r(s);
+    for (std::size_t i = 0; i < r.size(); ++i) {
+      if (!std::isalnum(r[i])) {
+        r[i] = '_';
+      }
+    }
+    return r;
+  }
+
+  GlobalArrayDefTable *globalDefs;
+
+}; // end of class
+} // namespace
+
+namespace {
 class ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
           ConvertTTKernelToEmitCPass> {
@@ -342,39 +461,90 @@ public:
   using ConvertTTKernelToEmitCBase<
       ConvertTTKernelToEmitCPass>::ConvertTTKernelToEmitCBase;
 
-  void runOnOperation() override {
-    auto funcOp = getOperation();
+  void runOnOperation() final {
+    auto wrapper = getOperation();
 
-    // Apply arith to emitc conversion first
+    assert(wrapper->getRegions().size() == 1);
+    auto &r = wrapper->getRegion(0);
+    assert(r.hasOneBlock());
+    auto &b = r.getBlocks().front();
+
+    OpBuilder builder = OpBuilder::atBlockEnd(&b);
+    // capture the insertion point before the first FuncOp, if any:
+    Block::iterator ip;
+
+    // collect all NocTransactionsTable definitions during the traversal:
+    GlobalArrayDefTable globals;
+
+    wrapper.walk([&, this](func::FuncOp funcOp) {
+      if (!ip.isValid()) {
+        OpBuilder::InsertionGuard ig(builder);
+
+        builder.setInsertionPoint(funcOp);
+        ip = builder.getInsertionPoint();
+      }
+
+      visit(funcOp, globals);
+    });
+
+    if (!globals.defs.empty()) {
+      assert(ip.isValid());
+      builder.setInsertionPoint(&b, ip);
+      ip = builder.getInsertionPoint();
+
+      for (auto const &[name, typeAndEntries] : globals.defs) {
+        mlir::MemRefType const &type = std::get<0>(typeAndEntries);
+        auto const &entries = std::get<1>(typeAndEntries);
+
+        auto cArrayType =
+            emitc::ArrayType::get(type.getShape(), type.getElementType());
+
+        auto shapedType =
+            mlir::RankedTensorType::get(type.getShape(), type.getElementType());
+        auto cInitAttr =
+            mlir::DenseIntElementsAttr::get(shapedType, entries.asArrayRef());
+
+        builder.create<emitc::GlobalOp>(
+            wrapper->getLoc(), StringAttr::get(builder.getContext(), name),
+            cArrayType, cInitAttr, false, true, true);
+      }
+    }
+  }
+
+  void visit(func::FuncOp funcOp, GlobalArrayDefTable &globals) {
+    // apply arith/scf/memref converters + replace NocTransactionsTableOp:
     {
       ConversionTarget target(*funcOp.getContext());
-      target.addLegalDialect<emitc::EmitCDialect>();
-      target.addIllegalDialect<arith::ArithDialect>();
-      RewritePatternSet arithPatterns(funcOp.getContext());
-      TypeConverter arithTypeConverter;
-      arithTypeConverter.addConversion([](Type type) { return type; });
-      populateArithToEmitCPatterns(arithTypeConverter, arithPatterns);
-      if (failed(applyPartialConversion(funcOp, target,
-                                        std::move(arithPatterns)))) {
+      {
+        target.addLegalDialect<emitc::EmitCDialect>();
+
+        target.addIllegalDialect<arith::ArithDialect>();
+        target.addIllegalDialect<scf::SCFDialect>();
+        target.addIllegalDialect<memref::MemRefDialect>();
+
+        target.addIllegalOp<ttkernel::NocTransactionsTableOp>();
+      }
+
+      NullTypeConverter typeConverter;
+      RewritePatternSet patterns(funcOp.getContext());
+      {
+        populateArithToEmitCPatterns(typeConverter, patterns);
+
+        populateSCFToEmitCConversionPatterns(patterns);
+
+        populateMemRefToEmitCTypeConversion(typeConverter);
+        populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
+
+        patterns.add<ConvertNocTransactionsTableOp>(
+            typeConverter, funcOp->getContext(), globals);
+      }
+
+      if (failed(applyPartialConversion(funcOp, target, std::move(patterns)))) {
         signalPassFailure();
         return;
       }
     }
-
-    // Apply scf to emitc conversion next
-    {
-      ConversionTarget target(*funcOp.getContext());
-      target.addLegalDialect<emitc::EmitCDialect>();
-      target.addIllegalDialect<scf::SCFDialect>();
-      RewritePatternSet scfPatterns(funcOp.getContext());
-      populateSCFToEmitCConversionPatterns(scfPatterns);
-      if (failed(
-              applyPartialConversion(funcOp, target, std::move(scfPatterns)))) {
-        signalPassFailure();
-        return;
-      }
-    }
-
+    // apply TTKernel/TTMetal converters:
     {
       TTKernelToEmitCTypeConverter typeConverter(funcOp.getContext());
       RewritePatternSet patterns(funcOp.getContext());
@@ -447,7 +617,11 @@ public:
           TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>>(
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>>(
           typeConverter, funcOp.getContext());
 
       patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(
@@ -463,6 +637,9 @@ public:
     }
   }
 };
+} // namespace
+
+// ............................................................................
 
 namespace mlir::tt {
 
@@ -470,8 +647,11 @@ std::unique_ptr<::mlir::Pass> createConvertTTKernelToEmitC() {
   return std::make_unique<ConvertTTKernelToEmitCPass>();
 }
 
+// ............................................................................
+
 // Class used to add includes and other boilerplate code to the generated
 // kernel.
+namespace {
 class ThreadConfigHelper {
 public:
   ThreadConfigHelper(OpBuilder *builder, Location loc,
@@ -541,27 +721,41 @@ private:
   Location loc;
   ttkernel::ThreadType threadType;
 };
+} // namespace
 
-LogicalResult
-convertTTKernelRegionToEmitC(OpBuilder &builder, Region *region,
+// ............................................................................
+
+inline FailureOr<mlir::ModuleOp>
+convertTTKernelRegionToEmitC(Region *region,
                              const ttkernel::ThreadType &threadType) {
-  ThreadConfigHelper threadConfigHelper(&builder, region->getLoc(), threadType);
+  auto loc = region->getLoc();
+  auto *ctx = region->getContext();
 
-  auto funcOp = builder.create<func::FuncOp>(
-      region->getLoc(), "kernel_main",
-      builder.getType<FunctionType>(region->getArgumentTypes(), TypeRange()));
+  OpBuilder builder(ctx);
 
-  IRMapping irMapper;
-  region->cloneInto(&funcOp.getBody(), irMapper);
+  // We will wrap everything in a module op so that we can run the
+  // translation.
+  auto moduleWrapper = builder.create<mlir::ModuleOp>(loc, "module_wrapper");
+  builder.setInsertionPointToStart(moduleWrapper.getBody());
+  {
+    ThreadConfigHelper threadConfigHelper(&builder, loc, threadType);
 
-  auto pm = PassManager::on<func::FuncOp>(region->getContext());
-  pm.addPass(createConvertTTKernelToEmitC());
+    // Clone 'region' into a new func op nested inside 'moduleWrapper':
+    auto funcOp = builder.create<func::FuncOp>(
+        loc, "kernel_main",
+        builder.getType<FunctionType>(region->getArgumentTypes(), TypeRange()));
 
-  if (pm.run(funcOp).failed()) {
-    return failure();
+    IRMapping irMapper;
+    region->cloneInto(&funcOp.getBody(), irMapper);
+
+    auto pm = PassManager::on<mlir::ModuleOp>(ctx);
+    pm.addPass(createConvertTTKernelToEmitC());
+
+    if (pm.run(moduleWrapper).failed()) {
+      return failure();
+    }
   }
-
-  return success();
+  return moduleWrapper;
 }
 
 LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
@@ -580,18 +774,13 @@ LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
   // load it here.
   region->getContext()->getOrLoadDialect<emitc::EmitCDialect>();
 
-  OpBuilder builder(region->getContext());
-  // We will wrap everything in a module op so that we can run the
-  // translation.
-  auto moduleWrapper =
-      builder.create<mlir::ModuleOp>(region->getLoc(), "module_wrapper");
-  builder.setInsertionPointToStart(moduleWrapper.getBody());
-
-  if (convertTTKernelRegionToEmitC(builder, region, threadType).failed()) {
+  FailureOr<mlir::ModuleOp> moduleOp =
+      convertTTKernelRegionToEmitC(region, threadType);
+  if (failed(moduleOp)) {
     return failure();
   }
 
-  if (emitc::translateToCpp(moduleWrapper, os).failed()) {
+  if (failed(emitc::translateToCpp(*moduleOp, os))) {
     return failure();
   }
 

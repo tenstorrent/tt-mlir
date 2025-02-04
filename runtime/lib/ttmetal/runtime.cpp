@@ -82,7 +82,8 @@ size_t getNumAvailableDevices() {
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
                   std::optional<size_t> l1SmallSize,
-                  std::optional<DispatchCoreType> dispatchCoreType) {
+                  std::optional<DispatchCoreType> dispatchCoreType,
+                  [[maybe_unused]] std::optional<bool> enableAsyncTTNN) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
 
   ::tt::tt_metal::DispatchCoreType type =
@@ -123,7 +124,7 @@ void deallocateBuffers(Device deviceHandle) {
           DeviceRuntime::TTMetal);
 
   for (::tt::tt_metal::IDevice *device : meshDevice.get_devices()) {
-    device->deallocate_buffers();
+    device->allocator()->deallocate_buffers();
   }
 }
 

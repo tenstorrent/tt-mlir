@@ -9,7 +9,13 @@
 
 namespace mlir::tt::op_model::ttnn {
 
-SingletonDeviceContext::SingletonDeviceContext() {
+// todo(arminaleTT): look into dynamically adjusting this
+// getOpRuntime() uses trace capture to run and measure the runtime of an op.
+// This requires the device to be opened with sufficient trace region size. This
+// number is currently set based on manual testing of supported ops
+static constexpr size_t opModelDefaultTraceRegionSize = 200000;
+
+SingletonDeviceContext::SingletonDeviceContext(const size_t traceRegionSize) {
 
   // todo: this replicates logic in runtime/include/tt/runtime/detail/common.h,
   // move to shared location
@@ -20,7 +26,7 @@ SingletonDeviceContext::SingletonDeviceContext() {
                                    : ::tt::tt_metal::DispatchCoreType::ETH;
   m_device = ::tt::tt_metal::CreateDevice(
       0, /* num_hw_cqs = */ 1, /* l1_small_size = */ DEFAULT_L1_SMALL_SIZE,
-      /* trace_region_size = */ DEFAULT_TRACE_REGION_SIZE, dispatchCoreType);
+      /* trace_region_size = */ traceRegionSize, dispatchCoreType);
 }
 
 SingletonDeviceContext::~SingletonDeviceContext() {
@@ -28,7 +34,8 @@ SingletonDeviceContext::~SingletonDeviceContext() {
 }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
-  static SingletonDeviceContext instance;
+  static SingletonDeviceContext instance =
+      SingletonDeviceContext(opModelDefaultTraceRegionSize);
   return instance;
 }
 
