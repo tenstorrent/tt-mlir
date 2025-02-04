@@ -135,16 +135,19 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
 template <typename T, typename TAttr>
 mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
                              ::llvm::ArrayRef<int64_t> shardShape,
-                             ::mlir::Type elementType, T memorySpace) {
+                             ::mlir::Type elementType, T memorySpace,
+                             mlir::tt::StreamLayoutAttr layout = {}) {
   ::llvm::SmallVector<int64_t> scalarShardShape(shardShape);
   if (mlir::isa<mlir::tt::TileType>(elementType)) {
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
   }
-  return mlir::MemRefType::get(
-      scalarShardShape, elementType,
-      mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
-      TAttr::get(context, memorySpace));
+  return layout ? mlir::MemRefType::get(scalarShardShape, elementType, layout,
+                                        TAttr::get(context, memorySpace))
+                : mlir::MemRefType::get(scalarShardShape, elementType,
+                                        mlir::AffineMap::getMultiDimIdentityMap(
+                                            shardShape.size(), context),
+                                        TAttr::get(context, memorySpace));
 }
 
 #endif

@@ -20,21 +20,33 @@ public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
                                 GridAttr deviceGrid) {
     addConversion([](Type type) { return type; });
-    addConversion(
-        [ctx, initMemorySpace, deviceGrid](RankedTensorType type) -> Type {
-          auto layout = type.getEncoding();
-          if (layout) {
-            return type;
-          }
-          std::int64_t deviceGridRank = deviceGrid.getShape().size();
-          // Default to single core grid
-          auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
-          // Default to initMemorySpace, the optimizer might decide otherwise
-          auto newLayout =
-              MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
-          return RankedTensorType::get(type.getShape(), type.getElementType(),
-                                       newLayout);
-        });
+    addConversion([ctx, initMemorySpace,
+                   deviceGrid](RankedTensorType type) -> Type {
+      if (type.getEncoding()) {
+        return type;
+      }
+      std::int64_t deviceGridRank = deviceGrid.getShape().size();
+      // Default to single core grid
+      auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
+
+      // Select stream layout defaults for 'initMemorySpace':
+      StreamMode streamMode;
+      uint32_t streamBuffers;
+      std::tie(streamMode, streamBuffers) =
+          StreamLayoutAttr::getDefaults(initMemorySpace);
+
+      auto streamAffineMap =
+          mlir::AffineMap::getMultiDimIdentityMap(type.getShape().size(), ctx);
+      auto streamLayout = StreamLayoutAttr::get(ctx, streamAffineMap,
+                                                streamMode, streamBuffers);
+
+      // Default to initMemorySpace, the optimizer might decide otherwise
+      auto newLayout =
+          MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid)
+              .withStreamLayout(ctx, streamLayout);
+      return RankedTensorType::get(type.getShape(), type.getElementType(),
+                                   newLayout);
+    });
   }
 };
 } // namespace

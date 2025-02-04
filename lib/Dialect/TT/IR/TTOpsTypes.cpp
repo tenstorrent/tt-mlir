@@ -693,6 +693,15 @@ MetalLayoutAttr::withShardShape(::mlir::MLIRContext *context,
       getMemLayout());
 }
 
+MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
+                                                  StreamLayoutAttr layout) {
+  return MetalLayoutAttr::get(
+      context, getLinear(), getOobVal(), getGrid(),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(
+          context, getShardShape(), getElementType(), getMemorySpace(), layout),
+      getMemLayout());
+}
+
 MemorySpace MetalLayoutAttr::getMemorySpace() const {
   return mlir::cast<mlir::tt::MemorySpaceAttr>(getMemref().getMemorySpace())
       .getValue();
