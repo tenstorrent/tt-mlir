@@ -37,7 +37,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             /*methodName=*/"getOpConstraints",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::make_tuple(0,0,0);"
+            /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
         ];
 }
