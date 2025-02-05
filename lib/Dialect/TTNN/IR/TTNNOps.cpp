@@ -242,6 +242,21 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// ToDTypeOp
+//===----------------------------------------------------------------------===//
+
+// ToDTypeOp folder
+::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
+
+  // If the input and output are same, fold to the input.
+  if (getType() == getInput().getType()) {
+    return getInput();
+  }
+
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 

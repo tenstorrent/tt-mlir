@@ -744,6 +744,33 @@ public:
 };
 } // namespace
 
+// ToDTypeOp conversion pattern
+//
+namespace {
+class ToDTypeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToDTypeOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::ToDTypeOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::ToDTypeOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
+        {mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
+         ttnn_to_emitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())});
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+} // namespace
+
 // ToMemoryConfig conversion pattern
 //
 namespace {
@@ -1220,6 +1247,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // clang-format off
   patterns.add<ToLayoutOpConversionPattern,
                ToMemoryConfigOpConversionPattern,
+               ToDTypeOpConversionPattern,
                TypecastOpConversionPattern,
                ToDeviceOpConversionPattern,
                FromDeviceOpConversionPattern,

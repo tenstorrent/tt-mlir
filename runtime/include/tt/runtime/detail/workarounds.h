@@ -17,13 +17,13 @@ struct Env {
 #endif
   get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
-      bool toDtypeOnHost = true, bool defaultStrideComputation = true,
+      bool defaultStrideComputation = true,
       bool toLayoutAPIAssumeSingleChip = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true, true);
+    return Env(true, true, true, true, true);
   }
 #endif
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
@@ -40,11 +40,6 @@ struct Env {
   // as a tensor with integer elements. For now, to get this op to work we need
   // to be able to pluck this update index from a runtime tensor.
   bool readUpdateIndexFromDeviceForKVCache;
-
-  // TODO(bug #1658): We're currently use ttnn::to_dtype operation to cast the
-  // data type of a tensor on host. Once we have improved the typecast operation
-  // to handle this, we should remove this workaround.
-  bool toDtypeOnHost;
 
   // TODO(bug #2045): Our current stride calculation is incorrect for tilized
   // tensors. The current solution is to remove stride entirely from the
@@ -64,13 +59,12 @@ struct Env {
 
 private:
   constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
-                bool readUpdateIndexFromDeviceForKVCache, bool toDtypeOnHost,
+                bool readUpdateIndexFromDeviceForKVCache,
                 bool defaultStrideComputation, bool toLayoutAPIAssumeSingleChip)
       : maxpool2dPreshard(maxpool2dPreshard),
         swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        toDtypeOnHost(toDtypeOnHost),
         defaultStrideComputation(defaultStrideComputation),
         toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip) {}
 };
@@ -84,8 +78,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "readUpdateIndexFromDeviceForKVCache: "
      << env.readUpdateIndexFromDeviceForKVCache << "\n";
-  os << "\t"
-     << "toDtypeOnHost: " << env.toDtypeOnHost << "\n";
   os << "\t"
      << "defaultStrideComputation: " << env.defaultStrideComputation << "\n";
   os << "\t"
