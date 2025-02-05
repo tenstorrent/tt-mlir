@@ -359,15 +359,19 @@ class Read:
             Exception: If preprocessing or constraint checks fail.
         """
 
-        self['binary'] = binary_path
+        self["binary"] = binary_path
         # Preprocess and load binaries into their rele
         self.preprocess()
         self.check_constraints()
 
     def _get_operating_binaries(self):
-        all_binaries = self.ttmetal_binaries + self.ttnn_binaries + self.system_desc_binaries
+        all_binaries = (
+            self.ttmetal_binaries + self.ttnn_binaries + self.system_desc_binaries
+        )
         if not all_binaries:
-            self.logging.info("No binaries to operate on, try supplying one to this Function")
+            self.logging.info(
+                "No binaries to operate on, try supplying one to this Function"
+            )
         return all_binaries
 
     def _operate_on_binary(self, binaries, process_func):
@@ -384,25 +388,34 @@ class Read:
                 if isinstance(res, dict):
                     msg = json.dumps(res, indent=2)
                 elif isinstance(res, list):
-                    msg = "\n\n".join(json.dumps(x, indent=2) if isinstance(x, dict) else x for x in res)
+                    msg = "\n\n".join(
+                        json.dumps(x, indent=2) if isinstance(x, dict) else x
+                        for x in res
+                    )
                 result.append(res)
                 self.logging.info(msg)
             except Exception as e:
-                raise Exception(f"failed to process read for binary={binary.file_path} with exception {str(e)}")
+                raise Exception(
+                    f"failed to process read for binary={binary.file_path} with exception {str(e)}"
+                )
         return result
 
     def all(self, *binaries):
         return self._operate_on_binary(binaries, lambda binary: binary.fbb.as_json())
 
     def version(self, *binaries):
-        return self._operate_on_binary(binaries, lambda binary: {
-            "version": binary.fbb.version,
-            "tt-mlir git hash": binary.fbb.ttmlir_git_hash,
-        })
+        return self._operate_on_binary(
+            binaries,
+            lambda binary: {
+                "version": binary.fbb.version,
+                "tt-mlir git hash": binary.fbb.ttmlir_git_hash,
+            },
+        )
 
     def system_desc(self, *binaries):
-        return self._operate_on_binary(binaries, lambda binary:
-            ttrt.binary.as_dict(binary.fbb)["system_desc"])
+        return self._operate_on_binary(
+            binaries, lambda binary: ttrt.binary.as_dict(binary.fbb)["system_desc"]
+        )
 
     def mlir(self, *binaries):
         def _get_mlir(binary):
@@ -410,11 +423,19 @@ class Read:
             results = []
             for program in bin_dict["programs"]:
                 if "debug_info" not in program:
-                    self.logging.info(f"no debug info found for program:{program['name']}")
+                    self.logging.info(
+                        f"no debug info found for program:{program['name']}"
+                    )
                     continue
-                results.append({program['debug_info']['mlir']['name']: program['debug_info']['mlir']['source']})
+                results.append(
+                    {
+                        program["debug_info"]["mlir"]["name"]: program["debug_info"][
+                            "mlir"
+                        ]["source"]
+                    }
+                )
             return results
-            
+
         return self._operate_on_binary(binaries, _get_mlir)
 
     def cpp(self, *binaries):
@@ -423,24 +444,37 @@ class Read:
             results = []
             for program in bin_dict["programs"]:
                 if "debug_info" not in program:
-                    self.logging.info(f"no debug_info found for program:{program['name']}")
+                    self.logging.info(
+                        f"no debug_info found for program:{program['name']}"
+                    )
                     continue
-                results.append({program['name']: program['debug_info']['cpp']})
+                results.append({program["name"]: program["debug_info"]["cpp"]})
             return results
-        
+
         return self._operate_on_binary(binaries, _get_cpp)
 
     def inputs(self, *binaries):
-        return self._operate_on_binary(binaries,
-            lambda binary: [{program['name']: program['inputs']} for program in ttrt.binary.as_dict(binary.fbb)["programs"]])
+        return self._operate_on_binary(
+            binaries,
+            lambda binary: [
+                {program["name"]: program["inputs"]}
+                for program in ttrt.binary.as_dict(binary.fbb)["programs"]
+            ],
+        )
 
     def outputs(self, *binaries):
-        return self._operate_on_binary(binaries,
-            lambda binary: [{program['name']: program['outputs']} for program in ttrt.binary.as_dict(binary.fbb)["programs"]])
+        return self._operate_on_binary(
+            binaries,
+            lambda binary: [
+                {program["name"]: program["outputs"]}
+                for program in ttrt.binary.as_dict(binary.fbb)["programs"]
+            ],
+        )
 
     def op_stats(self, *binaries):
-        return self._operate_on_binary(binaries,
-            lambda binary: ttrt.binary.stats.collect_op_stats(binary.fbb))
+        return self._operate_on_binary(
+            binaries, lambda binary: ttrt.binary.stats.collect_op_stats(binary.fbb)
+        )
 
     @staticmethod
     def register_arg(name, type, default, choices, help):
