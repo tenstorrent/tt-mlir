@@ -6,6 +6,7 @@
 #include "mlir/InitAllTranslations.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
@@ -215,6 +216,26 @@ void populatePassesModule(py::module &m) {
                                      filepath);
           }
         });
+
+  m.def(
+      "ttkernel_to_cpp_file",
+      [](MlirModule module, std::string &filepath, bool isComputeKernel) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        std::error_code fileError;
+        llvm::raw_fd_ostream file(filepath, fileError);
+        tt::ttkernel::ThreadType threadType =
+            isComputeKernel ? tt::ttkernel::ThreadType::Tensix
+                            : tt::ttkernel::ThreadType::Noc;
+        if (fileError) {
+          throw std::runtime_error("Failed to open file: " + filepath +
+                                   ". Error: " + fileError.message());
+        }
+        if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
+                moduleOp, file, threadType))) {
+          throw std::runtime_error("Failed to write cpp to file: " + filepath);
+        }
+      },
+      py::arg("module"), py::arg("filepath") = "", py::arg("isComputeKernel"));
 
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)

@@ -2,11 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.ir import *
-from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref
 import ast
 import inspect
 import functools
+from ttmlir.ir import *
+from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref
+from ttmlir.passes import ttkernel_to_cpp_file
+
+# ttmlir-translate --ttkernel-to-cpp-noc
 
 
 def get_supported_nodes():
@@ -440,16 +443,25 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
-def ttkernel_compile(f):
-    @functools.wraps(f)
-    def _wrapper(*args, **kwargs):
-        m = ast.parse(inspect.getsource(f))
-        b = TTKernelCompiler(f.__name__, args)
-        # print(ast.dump(m, indent=4) + "\n")
-        b.visit(m)
+def ttkernel_compile(kernel_type=None):
+    def _decorator(f):
+        @functools.wraps(f)
+        def _wrapper(*args, **kwargs):
+            m = ast.parse(inspect.getsource(f))
+            b = TTKernelCompiler(f.__name__, args)
+            # print(ast.dump(m, indent=4) + "\n")
+            b.visit(m)
 
-        # Check if generated IR is valid
-        print(b.module)
-        b.module.operation.verify()
+            # Check if generated IR is valid
+            print(b.module)
+            b.module.operation.verify()
 
-    return _wrapper
+            if kernel_type:
+                assert kernel_type in ["compute", "tensix"], "Invalid kernel type"
+                print(kernel_type)
+                is_compute_kernel = kernel_type == "compute"
+                ttkernel_to_cpp_file(b.module, f"{f.__name__}.cpp", is_compute_kernel)
+
+        return _wrapper
+
+    return _decorator
