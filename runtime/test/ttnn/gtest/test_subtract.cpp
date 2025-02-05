@@ -5,11 +5,11 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <numeric>
 #include <string>
 
 #include <gtest/gtest.h>
 
-#include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 
