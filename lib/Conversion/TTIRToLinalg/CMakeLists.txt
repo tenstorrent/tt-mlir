@@ -1,4 +1,4 @@
-add_mlir_library(TTMLIRTTIRToLinalg
+add_mlir_conversion_library(TTMLIRTTIRToLinalg
   TTIRToLinalg.cpp
   TTIRToLinalgPass.cpp
 

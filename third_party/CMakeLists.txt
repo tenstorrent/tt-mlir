@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "941b34cff33ce2953cf984ec8898af25dbfbfbb3")
+set(TT_METAL_VERSION "fc23dfa2015b76bd4903cffd906a1e518e05993c")
 
 if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
   set(ARCH_NAME "grayskull")
@@ -70,6 +70,7 @@ if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
   set(TTMETAL_DISABLE_PRECOMPILE_HEADERS ON)
 endif()
 
+if (TTMLIR_ENABLE_RUNTIME)
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
@@ -164,3 +165,9 @@ install(CODE
     )"
     COMPONENT SharedLib
 )
+else() # TTMLIR_ENABLE_RUNTIME
+  add_library(tt-metal INTERFACE)
+  add_library(TTNN_LIBRARY INTERFACE)
+  add_library(TTMETAL_LIBRARY INTERFACE)
+  add_library(DEVICE_LIBRARY INTERFACE)
+endif() # TTMLIR_ENABLE_RUNTIME
