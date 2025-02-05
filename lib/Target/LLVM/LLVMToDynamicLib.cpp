@@ -35,8 +35,8 @@
 namespace mlir::tt::llvm_to_cpu {
 
 // Flag to toggle whether we delete temp files after consuming them.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static llvm::cl::opt<bool>
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
     cleanupTempFiles("cleanup-dylib-temp-files",
                      llvm::cl::desc("Delete temporary files after translation"),
                      llvm::cl::init(true));
