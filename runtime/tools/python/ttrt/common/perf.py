@@ -99,6 +99,13 @@ class Perf:
             help="dump memory reports after every op execution",
         )
         Perf.register_arg(
+            name="--disable-eth-dispatch",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable putting dispatch on ethernet cores - place it on worker cores instead",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -134,7 +141,11 @@ class Perf:
                 artifacts_folder_path=self["--artifact-dir"],
             )
         )
-        self.query = Query({"--quiet": True}, self.logger, self.artifacts)
+        self.query = Query(
+            {"--quiet": True, "--disable-eth-dispatch": self["--disable-eth-dispatch"]},
+            self.logger,
+            self.artifacts,
+        )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.tracy_capture_tool_path = (
@@ -384,6 +395,9 @@ class Perf:
 
                     if self["--memory"]:
                         command_options += " --memory "
+
+                    if self["--disable-eth-dispatch"]:
+                        command_options += " --disable-eth-dispatch "
 
                     if self["--disable-golden"]:
                         command_options += " --disable-golden "

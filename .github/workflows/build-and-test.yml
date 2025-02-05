@@ -173,8 +173,11 @@ jobs:
           {runs-on: n150, enable_perf: OFF, enable_emitc: ON, enable_async: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          {runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: llmbox, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          #{runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          #{runs-on: tg, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.build_name }})"
 
