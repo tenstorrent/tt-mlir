@@ -718,12 +718,6 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputGradType = getInGradient().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  // inputType checks:
-  // 1. Last dimension must be divisible by TILE_WIDTH.
-  if (inputType.getShape().back() % TILE_WIDTH != 0) {
-    return emitOpError("Input's last dim must be divisible by TILE_WIDTH");
-  }
-
   // weightType must have rank of 2: (dictionary_size, embedding_size).
   if (weightType.getRank() != 2) {
     return emitOpError("Input must be a 2D tensor");
