@@ -54,6 +54,12 @@ WorkaroundResults applyWorkarounds(const TTNNOperandWorkarounds &workaround,
           : inputLayoutAttr.getMemLayoutOpt();
   results.tensorMemoryLayoutResult.previousValue =
       inputLayoutAttr.getMemLayoutOpt();
+  // TODO(#2103): This is a temporary fix to handle host tensors
+  // If the target buffer type is SystemMemory, set tensor memory layout to
+  // nullopt.
+  if (results.tensorBufferTypeResult.targetValue == BufferType::SystemMemory) {
+    results.tensorMemoryLayoutResult.targetValue = std::nullopt;
+  }
 
   results.tensorDataTypeResult.targetValue =
       workaround.tensorDataTypeWorkaround.value_or(
@@ -187,4 +193,26 @@ TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(
       .addOutputOperandWorkaround(typeWorkaround);
 }
 
+// Factory method to create a set of workarounds for full op output operand.
+// ttnn::FullOp does not support 1D tilized tensors
+// If the output of full is a 1D tensor and is tiled
+// we need to convert it to row major layout then tilize separately
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+}
+
+// Factory method to create a set of workarounds for mesh shard op input
+// operand. ttnn::MeshShardOp supports host tensors only
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds sysMemWorkaround;
+  sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(sysMemWorkaround)
+      .addOutputOperandWorkaround(sysMemWorkaround);
+}
 } // namespace mlir::tt::ttnn::wa

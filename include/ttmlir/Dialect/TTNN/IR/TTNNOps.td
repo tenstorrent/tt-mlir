@@ -1197,6 +1197,19 @@ def TTNN_FullOp : TTNN_Op<"full"> {
 
     let arguments = (ins TT_Device:$device, F32Attr:$fillValue);
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        mlir::tt::ttnn::FullOp op = mlir::cast<mlir::tt::ttnn::FullOp>(this->getOperation());
+        auto outputType = mlir::cast<RankedTensorType>(op.getType());
+        ttnn::TTNNLayoutAttr layoutAttr =
+            mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
+        if (outputType.getRank() > 1 || !layoutAttr.isTiled()) {
+          return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(this->getOperation());
+        }
+        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds();
+      }
+    }];
 }
 
 def TTNN_AllocOp : TTNN_Op<"alloc"> {
@@ -1292,6 +1305,12 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
                          TT_GridAttr:$shard_shape);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds();
+      }
+    }];
 
     let hasVerifier = 1;
 }

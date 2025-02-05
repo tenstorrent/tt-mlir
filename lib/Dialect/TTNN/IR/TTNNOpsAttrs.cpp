@@ -540,6 +540,11 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     TensorMemoryLayoutAttr memLayoutAttr,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
 
+  // TensorMemoryLayout for SystemMemory is always null
+  if (bufferType == BufferType::SystemMemory) {
+    memLayoutAttr = nullptr;
+  }
+
   // Construct a new affine map which will be used to map from logical
   // space to physical space.
   AffineMap linear = collapsedLinearAffineMap(

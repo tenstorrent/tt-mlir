@@ -224,6 +224,7 @@ public:
       // If schedule is set, apply order of operations to func.
       //
       if (opSchedule[func].size() > 1) {
+
         for (size_t i = 0; i < opSchedule[func].size() - 1; i++) {
           Operation *op = opSchedule[func][i];
 

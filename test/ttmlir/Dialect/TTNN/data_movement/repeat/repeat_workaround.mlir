@@ -4,7 +4,7 @@ module {
     // CHECK: %[[VAL0:[0-9]+]] = "ttnn.full"
     // CHECK-SAME: fillValue = 0.000000e+00 : f32
     // CHECK: %[[EMPTY:[0-9]+]] = "ttnn.empty"{{.*}}
-    // CHECK: %{{[0-9]+}} = "ttnn.add"(%{{[0-9]+}}, %[[VAL0]], %[[EMPTY]])
+    // CHECK: %{{[0-9]+}} = "ttnn.add"(%arg1, %[[VAL0]], %[[EMPTY]])
     // CHECK-NOT: "ttnn.repeat"
     %0 = tensor.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>

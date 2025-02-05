@@ -18,8 +18,7 @@ namespace tt::runtime::ttnn::operations::creation {
 void run(const ::tt::target::ttnn::ZerosOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Shape shape = ::ttnn::Shape(
-      ::tt::runtime::ttnn::utils::toShapeFromFBShape(*op->shape()));
+  const ::ttnn::Shape shape = ::ttnn::Shape(utils::toTTNNShape(*op->shape()));
 
   std::optional<::ttnn::DataType> dtype = std::optional<::ttnn::DataType>();
   std::optional<::ttnn::Layout> layout = std::optional<::ttnn::Layout>();

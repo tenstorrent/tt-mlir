@@ -17,12 +17,13 @@ struct Env {
 #endif
   get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
-      bool toDtypeOnHost = true, bool defaultStrideComputation = true)
+      bool toDtypeOnHost = true, bool defaultStrideComputation = true,
+      bool toLayoutAPIAssumeSingleChip = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true);
+    return Env(true, true, true, true, true, true);
   }
 #endif
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
@@ -52,16 +53,26 @@ struct Env {
   // sophisticated way for handling this, we can remove this workaround.
   bool defaultStrideComputation;
 
+  // TODO(bug #1778): We currently don't have device grid information (mesh
+  // shape, offset) in the flatbuffer TensorDesc nor in the mlir LayoutAttr. We
+  // need to add this information to the tensorDesc so that the runtime toLayout
+  // API can determine the correct devices. Enabling this workaround will assume
+  // that a device tensor will reside in the L1/Dram of the first device (device
+  // id 0) of the device grid. This should be removed once we add the device
+  // grid information to the tensorDesc.
+  bool toLayoutAPIAssumeSingleChip;
+
 private:
   constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache, bool toDtypeOnHost,
-                bool defaultStrideComputation)
+                bool defaultStrideComputation, bool toLayoutAPIAssumeSingleChip)
       : maxpool2dPreshard(maxpool2dPreshard),
         swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
         toDtypeOnHost(toDtypeOnHost),
-        defaultStrideComputation(defaultStrideComputation) {}
+        defaultStrideComputation(defaultStrideComputation),
+        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -77,6 +88,9 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "toDtypeOnHost: " << env.toDtypeOnHost << "\n";
   os << "\t"
      << "defaultStrideComputation: " << env.defaultStrideComputation << "\n";
+  os << "\t"
+     << "toLayoutAPIAssumeSingleChip: " << env.toLayoutAPIAssumeSingleChip
+     << "\n";
   os << "}";
   return os;
 }

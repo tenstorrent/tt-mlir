@@ -128,9 +128,9 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
 mlir::tt::SystemDescAttr
 mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Check if file exists
-  assert(!path.empty() && "cluster desc path must not be empty!");
+  assert(!path.empty() && "system desc path must not be empty!");
   std::ifstream fbb(path, std::ios::binary | std::ios::ate);
-  assert(fbb.good() && "cluster desc does not exist!");
+  assert(fbb.good() && "system desc does not exist!");
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
@@ -1181,11 +1181,14 @@ mlir::Type TileType::getElementType() const {
   case DataType::BFP_BFloat2:
     return FloatType::getBF16(getContext());
   case DataType::UInt32:
-    return IntegerType::get(getContext(), 32);
+    return IntegerType::get(getContext(), 32,
+                            IntegerType::SignednessSemantics::Unsigned);
   case DataType::UInt16:
-    return IntegerType::get(getContext(), 16);
+    return IntegerType::get(getContext(), 16,
+                            IntegerType::SignednessSemantics::Unsigned);
   case DataType::UInt8:
-    return IntegerType::get(getContext(), 8);
+    return IntegerType::get(getContext(), 8,
+                            IntegerType::SignednessSemantics::Unsigned);
   }
 }
 

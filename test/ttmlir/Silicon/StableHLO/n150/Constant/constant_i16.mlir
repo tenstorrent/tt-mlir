@@ -11,7 +11,7 @@ module @jit_constant attributes {} {
     // CHECK-LABEL: func.func public @test_int16_scalar
     // CHECK: ttnn.full
     // CHECK-SAME: fillValue = 3.000000e+00 : f32
-    // CHECK-SAME: -> tensor<1xi16
+    // CHECK-SAME: -> tensor<1xui16
     %0 = stablehlo.constant dense<3> : tensor<i16>
     return %0 : tensor<i16>
   }
@@ -19,7 +19,7 @@ module @jit_constant attributes {} {
   func.func public @test_int16_scalar_empty() -> tensor<i16> {
     // CHECK-LABEL: func.func public @test_int16_scalar_empty
     // CHECK: ttnn.full
-    // CHECK-SAME: -> tensor<1xi16
+    // CHECK-SAME: -> tensor<1xui16
     %0 = stablehlo.constant dense<0> : tensor<i16>
     return %0 : tensor<i16>
   }
@@ -27,7 +27,7 @@ module @jit_constant attributes {} {
   func.func public @test_int16_empty() -> tensor<64x128xi16> {
     // CHECK-LABEL: func.func public @test_int16_empty
     // CHECK: ttnn.full
-    // CHECK-SAME: -> tensor<64x128xi16
+    // CHECK-SAME: -> tensor<64x128xui16
     %0 = stablehlo.constant dense<0> : tensor<64x128xi16>
     return %0 : tensor<64x128xi16>
   }
@@ -36,7 +36,7 @@ module @jit_constant attributes {} {
     // CHECK-LABEL: func.func public @test_int16_splat
     // CHECK: ttnn.full
     // CHECK-SAME: fillValue = 3.000000e+00 : f32
-    // CHECK-SAME: -> tensor<64x128xi16
+    // CHECK-SAME: -> tensor<64x128xui16
     %0 = stablehlo.constant dense<3> : tensor<64x128xi16>
     return %0 : tensor<64x128xi16>
   }

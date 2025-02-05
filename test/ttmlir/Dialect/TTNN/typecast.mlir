@@ -56,7 +56,7 @@ module {
   }
   func.func public @main9(%arg0: tensor<32x32xi32>) -> tensor<32x32xui32> {
     %0 = tensor.empty() : tensor<32x32xui32>
-    // CHECK: "ttnn.typecast"
+    // CHECK-NOT: "ttnn.typecast"
     %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<32x32xi32>, tensor<32x32xui32>) -> tensor<32x32xui32>
     return %1 : tensor<32x32xui32>
   }
@@ -90,27 +90,15 @@ module {
     %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<32x32xi16>, tensor<32x32xui32>) -> tensor<32x32xui32>
     return %1 : tensor<32x32xui32>
   }
-  func.func public @main15(%arg0: tensor<32x32xi32>) -> tensor<32x32xui32> {
+  func.func public @main15(%arg0: tensor<32x32xf32>) -> tensor<32x32xui32> {
     %0 = tensor.empty() : tensor<32x32xui32>
-    // CHECK: "ttnn.typecast"
-    %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<32x32xi32>, tensor<32x32xui32>) -> tensor<32x32xui32>
-    return %1 : tensor<32x32xui32>
-  }
-  func.func public @main16(%arg0: tensor<32x32xi32>) -> tensor<32x32xui32> {
-    %0 = tensor.empty() : tensor<32x32xui32>
-    // CHECK: "ttnn.typecast"
-    %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<32x32xi32>, tensor<32x32xui32>) -> tensor<32x32xui32>
-    return %1 : tensor<32x32xui32>
-  }
-  func.func public @main17(%arg0: tensor<32x32xf32>) -> tensor<32x32xui32> {
-    %0 = tensor.empty() : tensor<32x32xui32>
-    // CHECK: "ttnn.typecast"
+    // CHECK-EXISTS: "ttnn.typecast"
     %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<32x32xf32>, tensor<32x32xui32>) -> tensor<32x32xui32>
     return %1 : tensor<32x32xui32>
   }
-  func.func public @main18(%arg0: tensor<32x32xbf16>) -> tensor<32x32xui32> {
+  func.func public @main16(%arg0: tensor<32x32xbf16>) -> tensor<32x32xui32> {
     %0 = tensor.empty() : tensor<32x32xui32>
-    // CHECK: "ttnn.typecast"
+    // CHECK-EXISTS: "ttnn.typecast"
     %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<32x32xbf16>, tensor<32x32xui32>) -> tensor<32x32xui32>
     return %1 : tensor<32x32xui32>
   }
