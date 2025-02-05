@@ -341,6 +341,7 @@ public:
     int32_t scatter_num = op.getScatterNum();
     Value deviceValue = op.getDevice();
     Location loc = op.getLoc();
+    uint32_t cluster_axis = 1; // todo: (tapspatel) hard-code to 1 to prevent any changing behaviour while all_reduce code is updated with new algorithm
 
     // TODO(wooseoklee): Once it supports two dimensional tensor
     // (https://github.com/tenstorrent/tt-metal/issues/15010), we can remove
@@ -387,7 +388,7 @@ public:
 
       ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
           loc, Type(reshapedOutputType), reduceScatterOp.getResult(),
-          deviceValue, scatter_dim);
+          deviceValue, scatter_dim, cluster_axis);
 
       ArrayAttr reshapedOutputShapeAttr = rewriter.getI32ArrayAttr(
           std::vector<int32_t>(outputTypeShape.begin(), outputTypeShape.end()));
@@ -410,7 +411,7 @@ public:
 
       rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
           op, op.getType(), reduceScatterOp.getResult(), deviceValue,
-          scatter_dim);
+          scatter_dim, cluster_axis);
     }
     return success();
   }

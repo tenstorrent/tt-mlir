@@ -1347,9 +1347,74 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    /*
+    We need to figure out what the cluster axis is based on replica_groups.
+    Replica groups define which device axis we are performing all_gather on. It
+    is a 2D vector. Each element in replica_groups contains a list of devices
+    that will perform all_gather with each other. Currently we only support 2D
+    meshes, but this algorithm can be expanded for ND (todo: tapspatel)
+    ex.
+    mesh = [2, 4]
+    replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
+    0 1 2 3
+    4 5 6 7
+    all_gather happens on (0, 1, 2, 3) and (4, 5, 6, 7) so cluster_axis = 1
+    (mesh[1])
+    mesh = [2, 4]
+    replica_groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
+    0 1 2 3
+    4 5 6 7
+    all_gather happens on (0, 4), (1, 5), (2, 6), (3, 7) so cluster_axis = 0
+    (mesh[0])
+    Algorithm:
+    Base case:
+      - if size of list of devices in replica_groups == 1
+        - if mesh[0] == 1 { cluster_axis = 0 }
+        - if mesh[1] == 1 { return failure() } we do not support any meshes with mesh[1] == 1
+      - else
+        - if list_devices[0] + 1 == list_devices[1] { cluster_axis = 1 }
+        - else { cluster_axis = 0 }
+    For ND meshes, we can employ the following variant
+    if (list_devices[0] + 1 == list_devices[1]) { cluster_axis = 0 }
+    if (list_devices[0] + mesh[0] * mesh[1] == list)devices[1]) { cluster_axis =
+    1 }
+    ...
+    */
+
+    uint32_t cluster_axis = 0;
+    auto replicaGroups = adaptor.getReplicaGroups();
+    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
+    auto meshShape = device.getMeshShape().value();
+
+    if (replicaGroupsShape.size() == 0) {
+      // Cannot have replicas of size 0, this means we are not performing the
+      // all_gather across any device
+      return failure();
+    }
+
+    // Case where we have single devices in each replica_group (ie perform
+    // all_gather against itself which should be optimized away)
+    if (replicaGroupsShape[1] == 1) {
+      if (meshShape.getX() == 1) {
+        cluster_axis = 0;
+      } else {
+        return failure();
+      }
+    } else {
+      auto firstElementIt = replicaGroups.begin();
+      auto secondElementIt = firstElementIt + 1;
+
+      if (((*firstElementIt) + 1) == *secondElementIt) {
+        cluster_axis = 1;
+      } else {
+        cluster_axis = 0;
+      }
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getDim());
+        adaptor.getInput(), device, adaptor.getAllGatherDim(), cluster_axis);
     return success();
   }
 };

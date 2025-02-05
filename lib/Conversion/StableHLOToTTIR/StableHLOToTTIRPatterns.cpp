@@ -1382,17 +1382,39 @@ public:
     ttirOperands.append(ValueRange(outputTensor));
 
     SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
-    SmallVector<NamedAttribute> ttirAttrs;
-    StringAttr dimAttrName = StringAttr::get(this->getContext(), "dim");
-    IntegerAttr allGatherDimAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(adaptor.getAllGatherDim()));
-    ttirAttrs.push_back({dimAttrName, allGatherDimAttr});
+    int32_t channel_handle = 0;
 
-    auto ttirAllGatherOp = rewriter.create<mlir::tt::ttir::AllGatherOp>(
-        srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
-        ttirAttrs);
-    rewriter.replaceOp(srcOp, ttirAllGatherOp);
-    return success();
+    for (auto srcAttr : srcAttrs) {
+      StringAttr srcName = srcAttr.getName();
+
+      if (srcName == "channel_handle") {
+        auto srcChannelHandleAttr =
+            dyn_cast<mlir::stablehlo::ChannelHandleAttr>(srcAttr.getValue());
+        if (!srcChannelHandleAttr) {
+          return failure();
+        }
+
+        auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
+        if (channelType != kChannelTypeDeviceToDevice) {
+          return failure();
+        }
+
+        channel_handle = static_cast<int32_t>(srcChannelHandleAttr.getHandle());
+        break;
+      }
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::AllGatherOp>(
+      srcOp,
+      outputType,
+      Value(adaptor.getOperands()[0]),
+      Value(outputTensor),
+      static_cast<int32_t>(adaptor.getAllGatherDim()),
+      rewriter.getSI32IntegerAttr(channel_handle),
+      adaptor.getUseGlobalDeviceIds(),
+      adaptor.getReplicaGroups());
+
+      return success();
   }
 
 private:
