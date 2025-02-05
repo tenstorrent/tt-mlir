@@ -1256,6 +1256,41 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     let hasFolder = 1;
 }
 
+def TTIR_PadOp: TTIR_Op<"pad"> {
+    let summary = "Pad op.";
+    let description = [{
+      Pad input tensor with tuple of padding values.
+
+      The `padding` attribute must be a sequence of integers that is twice the size as the rank of the input.
+      Each pair of integers in the padding attribute represents the amount of padding to add to the low and high of that dimension.
+      I.e: an input tensor of shape <1x30x30x64xf32> with padding attribute <0, 0, 1, 1, 1, 1, 0, 0> will return a tensor of shape <1x32x32x64xf32>,
+      and so will a padding attribute of <0, 0, 0, 2, 0, 2, 0, 0>.
+
+      Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // padding dimensions:
+      padding: (1, 0, 1, 1) // format: (dim0_low, dim0_high, dim1_low, dim1_high)
+
+      // padding value:
+      // value: 0
+
+      // padded output:
+      output: [[0, 0, 0, 0, 0],
+               [0, 1, 2, 3, 0],
+               [0, 4, 5, 6, 0]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI32ArrayAttr:$padding,
+                         F32Attr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
@@ -1437,6 +1472,23 @@ def TTIR_ArangeOp : TTIR_Op<"arange"> {
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
+}
+
+def TTIR_ZerosOp : TTIR_Op<"zeros"> {
+  let summary = "Creates a tensor filled with zeros.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros.
+
+    Given a `shape`, produces a tensor with the shape, filled with zeros.
+
+    Example:
+      %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_OnesOp : TTIR_Op<"ones"> {
@@ -1824,14 +1876,13 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
       AllReduce op.
     }];
 
-    let arguments = (ins
-      Variadic<AnyRankedTensor>:$inputs,
-      AnyRankedTensor:$output,
-      I64ElementsAttr:$replica_groups,
-      SI32Attr:$dim,
-      OptionalAttr<SI32Attr>:$channel_handle,
-      UnitAttr:$use_global_device_ids,
-      TT_ReduceTypeAttr:$reduce_type
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         AnyRankedTensor:$output,
+                         I64ElementsAttr:$replica_groups,
+                         SI32Attr:$dim,
+                         OptionalAttr<SI32Attr>:$channel_handle,
+                         UnitAttr:$use_global_device_ids,
+                         TT_ReduceTypeAttr:$reduce_type
     );
 
     let results = (outs Variadic<AnyRankedTensor>:$results);
@@ -1854,14 +1905,17 @@ def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
         manual: no sharding
         replicate: all devices have identical data
         maximal: only one device contains full data
-        devices: shard_shape determines sharded dimensions
+        devices: shard_shape/shard_dims determine particular sharding
+
+      shard_dims attribute determines row and column sharding dimension of input tensor
 
       For example, on 2x4 mesh hardware, following op shards arg0 to 8 slices, row divided by 2
       and col divided by 4.
 
         %1 = "ttir.mesh_shard"(%arg0, %0) <
           {... shard_direction = #tt.shard_direction<full_to_shard>,
-               shard_shape = #tt.grid<2x4>,
+               shard_shape = array<i64: 2, 4>,
+               shard_dims = array<i64: 0, 1>,
                shard_type = #tt.shard_type<devices>}> :  (tensor<8192x784xf32>, ...) -> tensor<4096x196xf32>
 
       On the other hand, this op concatnates %4 to single tensor by concatnating
@@ -1869,16 +1923,17 @@ def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
 
         %6 = "ttir.mesh_shard"(%4, %5) <
           {..., shard_direction = #tt.shard_direction<shard_to_full>,
-                shard_shape = #tt.grid<2x1>,
+                shard_shape = array<i64: 2, 1>,
+                shard_dims = arrray<i64: 1, -1>,
                 shard_type = #tt.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
     }];
 
-    let arguments = (ins
-      AnyRankedTensor:$input,
-      AnyRankedTensor:$output,
-      TT_MeshShardTypeAttr:$shard_type,
-      TT_MeshShardDirectionAttr:$shard_direction,
-      TT_GridAttr:$shard_shape
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_MeshShardTypeAttr:$shard_type,
+                         TT_MeshShardDirectionAttr:$shard_direction,
+                         DenseI64ArrayAttr:$shard_shape,
+                         DenseI64ArrayAttr:$shard_dims
     );
 
     let results = (outs AnyRankedTensor:$result);

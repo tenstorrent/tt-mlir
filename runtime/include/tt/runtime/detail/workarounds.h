@@ -17,12 +17,14 @@ struct Env {
 #endif
   get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
-      bool toDtypeOnHost = true, bool defaultStrideComputation = true)
+      bool defaultStrideComputation = true,
+      bool toLayoutAPIAssumeSingleChip = true,
+      bool usePaddingPairSignatureWithQueueId = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true);
+    return Env(true, true, true, true, true, true);
   }
 #endif
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
@@ -40,11 +42,6 @@ struct Env {
   // to be able to pluck this update index from a runtime tensor.
   bool readUpdateIndexFromDeviceForKVCache;
 
-  // TODO(bug #1658): We're currently use ttnn::to_dtype operation to cast the
-  // data type of a tensor on host. Once we have improved the typecast operation
-  // to handle this, we should remove this workaround.
-  bool toDtypeOnHost;
-
   // TODO(bug #2045): Our current stride calculation is incorrect for tilized
   // tensors. The current solution is to remove stride entirely from the
   // flatbuffer and calculate the stride in runtime assuming using the default
@@ -52,16 +49,37 @@ struct Env {
   // sophisticated way for handling this, we can remove this workaround.
   bool defaultStrideComputation;
 
+  // TODO(bug #1778): We currently don't have device grid information (mesh
+  // shape, offset) in the flatbuffer TensorDesc nor in the mlir LayoutAttr. We
+  // need to add this information to the tensorDesc so that the runtime toLayout
+  // API can determine the correct devices. Enabling this workaround will assume
+  // that a device tensor will reside in the L1/Dram of the first device (device
+  // id 0) of the device grid. This should be removed once we add the device
+  // grid information to the tensorDesc.
+  bool toLayoutAPIAssumeSingleChip;
+
+  // TODO(tt-metal issue #17388): We're currently using the signature of
+  // ttnn::pad which takes a sequence of padding pairs as input. We want to do
+  // this as it is more intuitive and matches stablehlo and even pytorch.
+  // However, we do not want to expose metal-specific details like queue_id in
+  // the runtime. The issue above is requesting they provide a signature for
+  // ttnn::padd which accepts padding pairs to define the padding, but does not
+  // require us to pass queue_id.
+  bool usePaddingPairSignatureWithQueueId;
+
 private:
   constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
-                bool readUpdateIndexFromDeviceForKVCache, bool toDtypeOnHost,
-                bool defaultStrideComputation)
+                bool readUpdateIndexFromDeviceForKVCache,
+                bool defaultStrideComputation, bool toLayoutAPIAssumeSingleChip,
+                bool usePaddingPairSignatureWithQueueId)
       : maxpool2dPreshard(maxpool2dPreshard),
         swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        toDtypeOnHost(toDtypeOnHost),
-        defaultStrideComputation(defaultStrideComputation) {}
+        defaultStrideComputation(defaultStrideComputation),
+        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip),
+        usePaddingPairSignatureWithQueueId(usePaddingPairSignatureWithQueueId) {
+  }
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -74,9 +92,13 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "readUpdateIndexFromDeviceForKVCache: "
      << env.readUpdateIndexFromDeviceForKVCache << "\n";
   os << "\t"
-     << "toDtypeOnHost: " << env.toDtypeOnHost << "\n";
-  os << "\t"
      << "defaultStrideComputation: " << env.defaultStrideComputation << "\n";
+  os << "\t"
+     << "toLayoutAPIAssumeSingleChip: " << env.toLayoutAPIAssumeSingleChip
+     << "\n";
+  os << "\t"
+     << "usePaddingPairSignatureWithQueueId: "
+     << env.usePaddingPairSignatureWithQueueId << "\n";
   os << "}";
   return os;
 }

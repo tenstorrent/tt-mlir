@@ -71,8 +71,8 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
       ttnn::utils::createRankedTensorTypeWithEncoding(
           ttnn::utils::createRankedTensorTypeWithElementType(
               inputToLayoutOpType,
-              utils::createRowMajorTypeFromDtype(rewriter.getContext(),
-                                                 targetTensorDataType)),
+              utils::dataTypeToElementType(rewriter.getContext(),
+                                           targetTensorDataType)),
           toLayoutOpResultEncoding);
 
   // Create the output memory config attribute.

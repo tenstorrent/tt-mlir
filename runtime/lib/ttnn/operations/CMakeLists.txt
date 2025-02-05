@@ -10,6 +10,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/zeros.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/ones.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
@@ -19,6 +20,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat_interleave.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deletion/deallocate.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary_composite.cpp
@@ -32,6 +34,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_dtype.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/typecast.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_memory_config.cpp
   # ANCHOR: adding_an_op_matmul_runtime_cmake

@@ -166,13 +166,13 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, enable_async: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn"},
-          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf"},
-          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, enable_async: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.build_name }})"
 
@@ -182,7 +182,7 @@ jobs:
 
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
-      options: --device /dev/tenstorrent/0
+      options: ${{ matrix.build.container-options }}
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
@@ -246,17 +246,22 @@ jobs:
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt-${{ env.version }}*.whl --force-reinstall
 
+    # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
       shell: bash
       run: |
         source env/activate
-        ttrt query --save-artifacts
+        if [ "${{ matrix.build.runs-on }}" == "tg" ]; then
+          ttrt query --save-artifacts --disable-eth-dispatch
+        else
+          ttrt query --save-artifacts
+        fi
 
     - name: Generate tests
       shell: bash
       run: |
         source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
@@ -266,7 +271,7 @@ jobs:
       if: matrix.build.enable_emitc == 'ON'
       run: |
         source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
@@ -290,7 +295,7 @@ jobs:
       if: matrix.build.enable_perf == 'ON'
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/${{ matrix.build.runs-on }}/perf
         # collect ops_perf_results.csv
         cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
 
@@ -423,7 +428,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
@@ -534,7 +539,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
@@ -546,7 +551,9 @@ jobs:
         pytest -ssv runtime/test/python/ttnn/test_runtime_api.py
 
   build-and-test-explorer:
-    needs: build-image
+    needs:
+      - build-image
+      - build-ttmlir
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -614,10 +621,22 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
 
+    - name: Download Tests
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: 'Untar build directory'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: tar xvf artifact.tar
+
     - name: Run tt-explorer tests
       shell: bash
       run: |
         source env/activate
+        export TT_EXPLORER_GENERATED_TEST_DIR=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
         pytest tools/explorer/test/run_tests.py
         # collect results
 

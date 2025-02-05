@@ -24,6 +24,12 @@ table ToLayoutOp {
   out: tt.target.TensorRef;
 }
 
+table ToDTypeOp {
+  in: tt.target.TensorRef;
+  dtype: tt.target.DataType;
+  out: tt.target.TensorRef;
+}
+
 table TypecastOp {
   in: tt.target.TensorRef;
   dtype: tt.target.DataType;
@@ -63,6 +69,15 @@ table EmptyOp {
   device: tt.target.DeviceRef;
   memcfg: tt.target.MemoryConfigDesc;
   strategy: tt.target.DistributionStrategy;
+  out: tt.target.TensorRef;
+}
+
+table ZerosOp {
+  shape: [int64];
+  dtype: DataType = null;
+  layout: TensorLayout = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
@@ -250,6 +265,15 @@ table RepeatOp {
   repeat_dims: [int64];
 }
 
+table PadOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  padding: [uint32];
+  value: float;
+  use_multicore: bool;
+  memcfg: MemoryConfigDesc;
+}
+
 table SliceOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -370,6 +394,7 @@ table MeshShardOp {
   shard_direction: tt.target.MeshShardDirection;
   shard_type: tt.target.MeshShardType;
   shard_shape: [int64];
+  shard_dims: [int64];
 }
 
 table UniformScale2D {
@@ -397,10 +422,12 @@ union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
   ToLayoutOp,
+  ToDTypeOp,
   TypecastOp,
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
+  ZerosOp,
   OnesOp,
   FullOp,
   EltwiseOp,
@@ -430,6 +457,7 @@ union OpType {
   PermuteOp,
   RepeatOp,
   UpsampleOp,
+  PadOp,
 }
 
 table Operation {

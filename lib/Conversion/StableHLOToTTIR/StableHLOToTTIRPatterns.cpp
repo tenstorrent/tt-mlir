@@ -13,6 +13,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 
+#include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -1446,14 +1447,10 @@ public:
     if (!shardingAttr) {
       return failure();
     }
-    StringRef shardingStr = shardingAttr.getValue();
-    if (!shardingStr.consume_front("{") || !shardingStr.consume_back("}")) {
-      return failure();
-    }
-    SmallVector<StringRef> shardingStrAttrs;
-    shardingStr.split(shardingStrAttrs, " ");
-    struct ShardAttrValue shardAttrValue;
-    if (failed(parseShardingAttr(rewriter, shardingStrAttrs, shardAttrValue))) {
+
+    mlir::tt::sharding_utils::MeshSharding meshSharding;
+    if (failed(mlir::tt::sharding_utils::parseGSPMDShardingAttr(
+            shardingAttr.getValue(), meshSharding))) {
       return failure();
     }
 
@@ -1489,13 +1486,13 @@ public:
         return failure();
       }
 
-      shardAttrValue.shardDirection = mlir::tt::MeshShardDirection::ShardToFull;
-      if (failed(createMeshShardOp(srcOp, adaptor, outputTensor, outputTypes,
-                                   shardAttrValue, rewriter))) {
-        return failure();
-      }
+      meshSharding.shardDirection = mlir::tt::MeshShardDirection::ShardToFull;
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
+          srcOp, outputTypes, srcOp.getInputs().front(), outputTensor,
+          meshSharding.shardType, meshSharding.shardDirection,
+          meshSharding.shardShape, meshSharding.shardDims);
     } else if (callTargetName == kShardingTarget) {
-      if (shardAttrValue.shardType == mlir::tt::MeshShardType::Manual) {
+      if (meshSharding.shardType == mlir::tt::MeshShardType::Manual) {
         // "manual" sharding indicates match between input/output tensor shape
         // and no sharding is required.
         srcOp.getResult(0).replaceAllUsesWith(srcOp->getOperand(0));
@@ -1521,138 +1518,17 @@ public:
           return failure();
         }
 
-        shardAttrValue.shardDirection =
-            mlir::tt::MeshShardDirection::FullToShard;
-        if (failed(createMeshShardOp(srcOp, adaptor, outputTensor, outputTypes,
-                                     shardAttrValue, rewriter))) {
-          return failure();
-        }
+        meshSharding.shardDirection = mlir::tt::MeshShardDirection::FullToShard;
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
+            srcOp, outputTypes, srcOp.getInputs().front(), outputTensor,
+            meshSharding.shardType, meshSharding.shardDirection,
+            meshSharding.shardShape, meshSharding.shardDims);
       }
     }
     return success();
   }
 
 private:
-  struct ShardAttrValue {
-    mlir::tt::MeshShardDirection shardDirection;
-    mlir::tt::MeshShardType shardType;
-    bool lastTileDimReplicate;
-    std::vector<int64_t> shardShape;
-  };
-
-  // OpenXLA has its own lexer, but we will use simple string-based parser here
-  // This parsing is mainly based on "Sharding Attribute" section in
-  // https://github.com/sdasgup3/stablehlo/blob/80082431d1af0933e6202ecc8a6f8801e039235b/docs/spec.md
-  LogicalResult parseShardingAttr(ConversionPatternRewriter &rewriter,
-                                  SmallVector<StringRef> shardingStrAttrs,
-                                  struct ShardAttrValue &shardAttrValue) const {
-    MeshShardType shardType = mlir::tt::MeshShardType::Manual;
-    bool lastTileDimReplicate = false;
-    for (auto str : shardingStrAttrs) {
-      if (str.contains("replicated")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // replicated: all devices have whole data
-        shardType = mlir::tt::MeshShardType::Replicate;
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("maximal")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // maximal: one device has whole data
-        shardType = mlir::tt::MeshShardType::Maximal;
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("device=")) {
-        // maximal should followed by "device" to put data on
-        assert(shardType == mlir::tt::MeshShardType::Maximal &&
-               "Fail to parse sharding info.");
-        int64_t d;
-        if (!str.consume_front("device=")) {
-          return failure();
-        }
-        if (str.getAsInteger<int64_t>(10, d)) {
-          return failure();
-        }
-        shardAttrValue.shardShape.push_back(d);
-      } else if (str.contains("manual")) {
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        // manual: already sharded, so no action is needed
-        assert(!lastTileDimReplicate &&
-               "last time dim duplicate option shouldn't be set here.");
-        shardAttrValue.shardShape.push_back(1);
-      } else if (str.contains("devices=")) {
-        // other: "devices" detail sharding plan
-        assert(shardType == mlir::tt::MeshShardType::Manual &&
-               "Fail to parse sharding info.");
-        shardType = mlir::tt::MeshShardType::Devices;
-        if (!str.consume_front("devices=")) {
-          return failure();
-        }
-        auto [devicesStr, restStr] = str.split("<=");
-        // parse devices ex. [4,2,1]
-        if (!devicesStr.consume_front("[") || !devicesStr.consume_back("]")) {
-          return failure();
-        }
-        SmallVector<StringRef> dimsStr;
-        devicesStr.split(dimsStr, ",");
-        for (auto dim : dimsStr) {
-          int64_t d;
-          if (dim.getAsInteger<int64_t>(10, d)) {
-            return failure();
-          }
-          shardAttrValue.shardShape.push_back(d);
-        }
-      } else if (str.contains("last_tile_dim_replicate")) {
-        assert(shardType == mlir::tt::MeshShardType::Devices &&
-               "Fail to parse sharding info.");
-        // other: replicate last tile dim
-        lastTileDimReplicate = true;
-      }
-    }
-    shardAttrValue.shardType = shardType;
-    shardAttrValue.lastTileDimReplicate = lastTileDimReplicate;
-    return success();
-  }
-
-  LogicalResult
-  createMeshShardOp(mlir::stablehlo::CustomCallOp &srcOp,
-                    mlir::stablehlo::CustomCallOp::Adaptor adaptor,
-                    tensor::EmptyOp &outputTensor,
-                    SmallVector<Type> &outputTypes,
-                    ShardAttrValue &shardAttrValue,
-                    ConversionPatternRewriter &rewriter) const {
-
-    auto meshShardOperands = srcOp.getInputsMutable();
-    meshShardOperands.append(ValueRange(outputTensor));
-    SmallVector<NamedAttribute> meshShardAttrs;
-
-    StringAttr shardTypeAttrName = rewriter.getStringAttr("shard_type");
-    Attribute shardTypeAttr =
-        rewriter.getAttr<MeshShardTypeAttr>(shardAttrValue.shardType);
-    meshShardAttrs.push_back({shardTypeAttrName, shardTypeAttr});
-
-    StringAttr shardDirectionAttrName =
-        rewriter.getStringAttr("shard_direction");
-    Attribute shardDirectionAttr =
-        rewriter.getAttr<MeshShardDirectionAttr>(shardAttrValue.shardDirection);
-    meshShardAttrs.push_back({shardDirectionAttrName, shardDirectionAttr});
-
-    StringAttr shardShapeAttrName = rewriter.getStringAttr("shard_shape");
-    if (shardAttrValue.lastTileDimReplicate) {
-      shardAttrValue.shardShape.pop_back();
-    }
-    GridAttr shardShape =
-        GridAttr::get(this->getContext(), shardAttrValue.shardShape);
-    meshShardAttrs.push_back({shardShapeAttrName, shardShape});
-
-    auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
-        srcOp.getLoc(), outputTypes,
-        ValueRange(meshShardOperands.getAsOperandRange()), meshShardAttrs);
-    rewriter.replaceOp(srcOp, meshShardOp);
-
-    return success();
-  }
-
   LogicalResult
   checkBasicLegality(mlir::stablehlo::CustomCallOp &srcOp,
                      mlir::stablehlo::CustomCallOp::Adaptor adaptor,
@@ -1989,6 +1865,94 @@ public:
   }
 };
 } // namespace
+namespace {
+class StableHLOToTTIROpPadOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::PadOp> {
+
+  using OpConversionPattern<mlir::stablehlo::PadOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::PadOp srcOp,
+                  mlir::stablehlo::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    SmallVector<int32_t> padDim;
+    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
+      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
+      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
+    }
+
+    ttir::ConstantOp valueDef =
+        getConstantValueDefiningOp(adaptor.getPaddingValue());
+
+    mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
+
+    float value =
+        paddingValueAttr.getElementType().isInteger()
+            ? static_cast<float>(paddingValueAttr.getSplatValue<int>())
+            : paddingValueAttr.getSplatValue<float>();
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
+        srcOp,
+        outputType,                            // result type
+        adaptor.getOperand(),                  // input
+        rewriter.getDenseI32ArrayAttr(padDim), // padding dimensions
+        rewriter.getF32FloatAttr(value)        // padding value
+    );
+
+    return success();
+  }
+
+private:
+  ttir::ConstantOp getConstantValueDefiningOp(Value value) const {
+    Operation *valueDef = value.getDefiningOp();
+
+    // equivalent to valueDef != nullptr && isa<...>(valueDef)
+    while (
+        isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::TypecastOp>(
+            valueDef)) {
+      valueDef = valueDef->getOperand(0).getDefiningOp();
+    }
+    return mlir::dyn_cast_or_null<ttir::ConstantOp>(valueDef);
+  }
+
+  LogicalResult checkBasicLegality(mlir::stablehlo::PadOp &srcOp,
+                                   mlir::stablehlo::PadOp::Adaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+
+    // Due to lack of support by device, we do not support interior padding,
+    // so verify if interior padding is requested and exit early with error.
+    for (int64_t eachVal : srcOp.getInteriorPadding()) {
+      if (eachVal != 0) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Unsupported Interior Padding, only "
+                                           "0 interior padding is supported.");
+      }
+    }
+
+    if (srcOp.getEdgePaddingLow().size() != srcOp.getEdgePaddingHigh().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Low and High padding dimensions should match.");
+    }
+
+    if (!getConstantValueDefiningOp(adaptor.getPaddingValue())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Padding value cannot be traced back to a constant value "
+                 "which has not been altered mathematically.");
+    }
+
+    return success();
+  }
+};
+} // namespace
 
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
@@ -2211,6 +2175,12 @@ static void addReverseOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpReverseOpConversionPattern>(typeConverter, ctx);
 }
 
+static void addPadOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -2238,6 +2208,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReturnOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
+  addPadOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

@@ -225,6 +225,18 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ToDTypeOp>
+createOp(FlatbufferObjectCache &cache, ToDTypeOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateToDTypeOp(*cache.fbb, input, dtype, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
 createOp(FlatbufferObjectCache &cache, TypecastOp op) {
   auto input =
@@ -382,6 +394,32 @@ createOp(FlatbufferObjectCache &cache, ArangeOp op) {
       static_cast<float>(op.getEnd()), static_cast<float>(op.getStep()),
       dtype /* optional */, device /* optional */,
       memoryConfigDesc /* optional */, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ZerosOp>
+createOp(FlatbufferObjectCache &cache, ZerosOp op) {
+  ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape =
+      cache.fbb->CreateVector<int64_t>(op.getShape().getShape());
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbufferOptional(cache, op.getDtype());
+
+  ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
+      toFlatbufferOptional(cache, op.getLayout());
+
+  flatbuffers::Offset<::tt::target::DeviceRef> device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+
+  auto memoryConfigDesc = op.getMemoryConfig().has_value()
+                              ? cache.getOrCreate(op.getMemoryConfig().value(),
+                                                  memoryConfigToFlatbuffer)
+                              : 0;
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateZerosOp(*cache.fbb, shape, dtype, layout,
+                                           device, memoryConfigDesc, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::OnesOp>
@@ -545,7 +583,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   const mlir::tt::MeshShardDirection shardDirection = op.getShardDirection();
   const mlir::tt::MeshShardType shardType = op.getShardType();
-  llvm::ArrayRef<int64_t> shardShape = op.getShardShape().getShape();
+  llvm::ArrayRef<int64_t> shardShape = op.getShardShape();
+  llvm::ArrayRef<int64_t> shardDims = op.getShardDims();
 
   ::tt::target::MeshShardDirection meshShardDirection;
   if (shardDirection == mlir::tt::MeshShardDirection::FullToShard) {
@@ -568,7 +607,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   return ::tt::target::ttnn::CreateMeshShardOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
       meshShardDirection, meshShardType,
-      cache.fbb->CreateVector<int64_t>(shardShape));
+      cache.fbb->CreateVector<int64_t>(shardShape),
+      cache.fbb->CreateVector<int64_t>(shardDims));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
@@ -949,6 +989,25 @@ createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
       *cache.fbb, in, out, cache.fbb->CreateVector<int64_t>(repeatDims));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PadOp>
+createPadOp(FlatbufferObjectCache &cache, PadOp op) {
+  flatbuffers::Offset<::tt::target::TensorRef> in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  std::vector<uint32_t> padding(op.getPadding().begin(), op.getPadding().end());
+  float value = op.getValue().convertToFloat();
+  flatbuffers::Offset<::tt::target::TensorRef> out =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedAddress, kHostAllocatedSize);
+
+  flatbuffers::Offset<::tt::target::MemoryConfigDesc> memoryConfigDesc =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
+  return ::tt::target::ttnn::CreatePadOp(
+      *cache.fbb, in, out, cache.fbb->CreateVector<uint32_t>(padding), value,
+      op.getUseMulticore(), memoryConfigDesc);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
   auto in =
@@ -1034,6 +1093,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,
                            locInfo);
   }
+  if (auto toDTypeOp = dyn_cast<ToDTypeOp>(op); toDTypeOp) {
+    return createOperation(cache, createOp(cache, toDTypeOp), debugString,
+                           locInfo);
+  }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
     return createOperation(cache, createOp(cache, typecastOp), debugString,
                            locInfo);
@@ -1056,6 +1119,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
     return createOperation(cache, createOp(cache, arangeOp), debugString,
+                           locInfo);
+  }
+  if (auto zerosOp = dyn_cast<ZerosOp>(op); zerosOp) {
+    return createOperation(cache, createOp(cache, zerosOp), debugString,
                            locInfo);
   }
   if (auto onesOp = dyn_cast<OnesOp>(op); onesOp) {
@@ -1309,6 +1376,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto repeatOp = dyn_cast<RepeatOp>(op); repeatOp) {
     return createOperation(cache, createRepeatOp(cache, repeatOp), debugString,
+                           locInfo);
+  }
+  if (auto padOp = dyn_cast<PadOp>(op); padOp) {
+    return createOperation(cache, createPadOp(cache, padOp), debugString,
                            locInfo);
   }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {

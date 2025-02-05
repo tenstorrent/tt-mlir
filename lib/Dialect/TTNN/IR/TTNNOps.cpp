@@ -12,6 +12,7 @@
 
 #include "mlir/Dialect/Traits.h"
 
+#include <llvm/ADT/ArrayRef.h>
 #include <numeric>
 #include <optional>
 
@@ -239,6 +240,21 @@ namespace mlir::tt::ttnn {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ToDTypeOp
+//===----------------------------------------------------------------------===//
+
+// ToDTypeOp folder
+::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
+
+  // If the input and output are same, fold to the input.
+  if (getType() == getInput().getType()) {
+    return getInput();
+  }
+
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -513,6 +529,42 @@ namespace mlir::tt::ttnn {
   if (has_negative && inputType.getNumElements() % known_dim_product != 0) {
     return emitOpError("Invalid shape: the dimensions do not multiply to the "
                        "total number of elements in the tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PadOp
+//===----------------------------------------------------------------------===//
+
+// PadOp verification
+::mlir::LogicalResult mlir::tt::ttnn::PadOp::verify() {
+
+  ::mlir::RankedTensorType inputType = getInput().getType();
+
+  // Check that size of padding is correct
+  if (static_cast<int64_t>(getPadding().size()) != 2 * inputType.getRank()) {
+    return emitOpError("Padding must have the same number of elements as twice "
+                       "the rank of the input tensor");
+  }
+
+  std::vector<int64_t> inferredShapeVec = inputType.getShape().vec();
+  llvm::ArrayRef<int32_t> padding = getPadding();
+  for (int64_t i = 0; i < inputType.getRank(); i++) {
+    inferredShapeVec[i] += padding[2 * i];
+    inferredShapeVec[i] += padding[2 * i + 1];
+  }
+  llvm::ArrayRef<int64_t> inferredShape = inferredShapeVec;
+
+  // Check that the output tensor shape is correct
+  ::mlir::RankedTensorType resultType = getResult().getType();
+  llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+  if (resultShape != inferredShape) {
+    return emitOpError("Output tensor shape (" +
+                       ttmlir::utils::join(resultShape, ",") +
+                       ") must match the inferred shape: (" +
+                       ttmlir::utils::join(inferredShape, ",") + ")");
   }
 
   return success();
@@ -1347,7 +1399,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult MeshShardOp::verify() {
   llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
-  llvm::ArrayRef<int64_t> shardShape = getShardShape().getShape();
+  llvm::ArrayRef<int64_t> shardShape = getShardShape();
   ::mlir::tt::MeshShardType shardType = getShardType();
 
   // Check sharding is one of replicate or devices.
@@ -1367,6 +1419,12 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
     if (shardShape.size() < 2) {
       return emitOpError(
           "Invalid shard_shape (<2) for mesh_shard op with devices partition.");
+    }
+
+    // Check if rank(shardShape) is eqaul to rank(input).
+    if (shardShape.size() != inputShape.size()) {
+      return emitOpError("Invalid rank(shard_shape) != rank(input) for "
+                         "mesh_shard op with devices partition.");
     }
 
     // Check if overall partition is eqaul to or greater than two.

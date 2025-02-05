@@ -21,16 +21,6 @@ from lit.llvm.subst import FindTool
 
 # Configuration file for the 'lit' test runner.
 
-
-def set_system_desc_features(system_desc):
-    config.available_features.add(system_desc["chip_descs"][0]["arch"])
-    if len(system_desc["chip_desc_indices"]) > 1:
-        config.available_features.add("multi-chip")
-    config.available_features.add(
-        "multi-chip-x" + str(len(system_desc["chip_desc_indices"]))
-    )
-
-
 # name: The name of this test suite.
 config.name = "TTMLIR"
 
@@ -56,6 +46,8 @@ config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
+# set features based on system
+system_desc = None
 if config.system_desc_path:
     try:
         import ttrt
@@ -63,12 +55,36 @@ if config.system_desc_path:
         system_desc = ttrt.binary.as_dict(
             ttrt.binary.load_system_desc_from_path(config.system_desc_path)
         )["system_desc"]
-        set_system_desc_features(system_desc)
+        config.available_features.add(system_desc["chip_descs"][0]["arch"])
     except ImportError:
         print(
             "ttrt not found. Please install ttrt to use have system desc driven test requirements set.",
             file=sys.stderr,
         )
+
+
+# set targets based on the system (default = n150)
+"""
+available_targets:
+- n150
+- n300
+- llmbox
+- tg
+"""
+config.targets = {"n150"}
+
+if system_desc != None:
+    if len(system_desc["chip_desc_indices"]) == 1:
+        config.targets = {"n150"}
+    elif len(system_desc["chip_desc_indices"]) == 2:
+        config.targets = {"n300"}
+    elif len(system_desc["chip_desc_indices"]) == 8:
+        config.targets = {"llmbox"}
+    elif len(system_desc["chip_desc_indices"]) == 32:
+        config.targets = {"tg"}
+
+for target in config.targets:
+    config.available_features.add(target)
 
 config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
@@ -89,6 +105,12 @@ config.ttmlir_tools_dir = os.path.join(config.ttmlir_obj_root, "bin")
 config.ttmlir_libs_dir = os.path.join(config.ttmlir_obj_root, "lib")
 
 config.substitutions.append(("%ttmlir_libs", config.ttmlir_libs_dir))
+
+config.test_root = os.path.join(config.ttmlir_source_dir, "test")
+config.scripts_root = os.path.join(config.ttmlir_source_dir, "tools/scripts")
+
+config.substitutions.append(("%ttmlir_test_root", config.test_root))
+config.substitutions.append(("%ttmlir_scripts_root", config.scripts_root))
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)

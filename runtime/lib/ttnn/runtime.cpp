@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
@@ -319,6 +320,9 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout) {
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   DeviceVariant targetDevice = getTargetDevice(meshDevice);
+  if (workaround::Env::get().toLayoutAPIAssumeSingleChip) {
+    targetDevice = std::ref(*(meshDevice.get_device_index(0)));
+  }
   LayoutConverter converter(inputLayoutDesc, outputLayoutDesc);
   std::shared_ptr<::ttnn::Tensor> out = std::make_shared<::ttnn::Tensor>(
       converter.convertTensorLayout(ttnnTensor, targetDevice));
@@ -441,6 +445,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     globalId = opContext.type_as_EmptyOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ZerosOp: {
+    globalId = opContext.type_as_ZerosOp()->out()->global_id();
     break;
   }
   case ::tt::target::ttnn::OpType::OnesOp: {

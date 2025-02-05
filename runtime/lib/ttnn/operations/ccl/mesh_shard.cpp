@@ -14,7 +14,8 @@ namespace tt::runtime::ttnn::operations::ccl {
 void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
                       ::ttnn::MeshDevice &meshDevice,
                       const ::tt::target::MeshShardType &shardType,
-                      const std::vector<int64_t> &shardShape) {
+                      const std::vector<int64_t> &shardShape,
+                      const std::vector<int64_t> &shardDims) {
   if (shardType == ::tt::target::MeshShardType::Replicate) {
     out = ::ttnn::distributed::distribute_tensor(
         input,
@@ -24,26 +25,14 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
         input.get_logical_shape().rank() > 1,
         "Sharding requires higher than 2 dimensional tensor. Tensor rank=",
         input.get_logical_shape().rank());
-    auto rowMesh = static_cast<size_t>(shardShape[0]);
-    auto colMesh = static_cast<size_t>(shardShape[1]);
-    int lastDim = input.get_logical_shape().rank() - 1;
-
-    ::ttnn::distributed::Shard2dConfig shard2dConfig;
-    // last tile replicate
-    if (colMesh == 1) {
-      if (rowMesh == meshDevice.num_rows()) {
-        shard2dConfig = ::ttnn::distributed::Shard2dConfig{
-            .row_dim = (lastDim - 1), .col_dim = std::nullopt};
-      } else {
-        // transpose
-        shard2dConfig = ::ttnn::distributed::Shard2dConfig{
-            .row_dim = std::nullopt, .col_dim = (lastDim - 1)};
-      }
-    } else {
-      shard2dConfig = ::ttnn::distributed::Shard2dConfig{
-          .row_dim = (lastDim - 1), .col_dim = lastDim};
+    ::ttnn::distributed::Shard2dConfig shard2dConfig{std::nullopt,
+                                                     std::nullopt};
+    if (shardDims[0] >= 0) {
+      shard2dConfig.row_dim = shardDims[0];
     }
-
+    if (shardDims[1] >= 0) {
+      shard2dConfig.col_dim = shardDims[1];
+    }
     out = ::ttnn::distributed::distribute_tensor(
         input, *::ttnn::distributed::shard_tensor_to_2d_mesh_mapper(
                    meshDevice, meshDevice.shape(), shard2dConfig));
@@ -53,42 +42,43 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
 void ShardToFullShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
                       ::ttnn::MeshDevice &meshDevice,
                       const ::tt::target::MeshShardType &shardType,
-                      const std::vector<int64_t> &shardShape) {
+                      const std::vector<int64_t> &shardShape,
+                      const std::vector<int64_t> &shardDims) {
   std::vector<::ttnn::Tensor> input_tensors =
       ::ttnn::distributed::get_tensors_from_multi_device_storage(input);
   if (shardType == ::tt::target::MeshShardType::Replicate) {
     out = input_tensors[0];
   } else {
-    auto rowMesh = static_cast<size_t>(shardShape[0]);
-    auto colMesh = static_cast<size_t>(shardShape[1]);
-    int lastDim = input.get_logical_shape().rank() - 1;
-    if ((rowMesh * colMesh) ==
-        (meshDevice.num_rows() * meshDevice.num_cols())) {
-      // Full multi-device storage concatenation
-      if (shardShape[0] == 1 || shardShape[1] == 1) {
-        out = ::ttnn::distributed::aggregate_tensor(
-            input, *::ttnn::distributed::concat_mesh_to_tensor_composer(
-                       (shardShape[1] == 1 ? (lastDim - 1) : lastDim)));
-      } else {
-        out = ::ttnn::distributed::aggregate_tensor(
-            input, *::ttnn::distributed::concat_2d_mesh_to_tensor_composer(
-                       meshDevice, ::ttnn::distributed::Concat2dConfig{
-                                       .row_dim = static_cast<int>(lastDim - 1),
-                                       .col_dim = static_cast<int>(lastDim)}));
-      }
+    bool bFullConcat = std::all_of(shardDims.begin(), shardDims.end(),
+                                   [](int n) { return n >= 0; });
+    if (bFullConcat) {
+      // Full multi-device storage concatenation.
+      ::ttnn::distributed::Concat2dConfig concat2dConfig{
+          static_cast<int>(shardDims[0]), static_cast<int>(shardDims[1])};
+      out = ::ttnn::distributed::aggregate_tensor(
+          input, *::ttnn::distributed::concat_2d_mesh_to_tensor_composer(
+                     meshDevice, concat2dConfig));
     } else {
-      // Partial multi-device storage concatenation
+      // Partial multi-device storage concatenation.
       // Current ttnn api does not support partial multi-device storage
       // concatenation. Thus, xtensor APIs are being called directly from here.
+      size_t stride = 0;
+      int targetDim = 0;
+      size_t iteration = 0;
+      if (shardDims[0] >= 0) {
+        targetDim = shardDims[0];
+        iteration = shardShape[targetDim];
+        stride = meshDevice.num_cols();
+      } else {
+        targetDim = shardDims[1];
+        iteration = shardShape[targetDim];
+        stride = 1;
+      }
       std::vector<::ttnn::Tensor> target_tensors;
-      bool transpose = (rowMesh != meshDevice.num_rows());
-      size_t iteration = (transpose) ? colMesh : rowMesh;
-      size_t stride =
-          (transpose) ? meshDevice.num_rows() : meshDevice.num_cols();
       for (size_t i = 0; i < iteration; ++i) {
         target_tensors.push_back(input_tensors[i * stride]);
       }
-      out = ::ttnn::experimental::xtensor::concat(target_tensors, lastDim - 1);
+      out = ::ttnn::experimental::xtensor::concat(target_tensors, targetDim);
     }
   }
 }
@@ -99,7 +89,9 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   const ::tt::target::MeshShardDirection shardDirection = op->shard_direction();
   const ::tt::target::MeshShardType shardType = op->shard_type();
   const auto *fbShardShape = op->shard_shape();
+  const auto *fbShardDims = op->shard_dims();
   std::vector<int64_t> shardShape(fbShardShape->begin(), fbShardShape->end());
+  std::vector<int64_t> shardDims(fbShardDims->begin(), fbShardDims->end());
   DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(input.storage_type()),
                "Input of ttnn::mesh_shard should be host tensor");
 
@@ -118,9 +110,9 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor out;
   if (shardDirection == ::tt::target::MeshShardDirection::FullToShardShape) {
-    FullToShardShape(input, out, meshDevice, shardType, shardShape);
+    FullToShardShape(input, out, meshDevice, shardType, shardShape, shardDims);
   } else {
-    ShardToFullShape(input, out, meshDevice, shardType, shardShape);
+    ShardToFullShape(input, out, meshDevice, shardType, shardShape, shardDims);
   }
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 

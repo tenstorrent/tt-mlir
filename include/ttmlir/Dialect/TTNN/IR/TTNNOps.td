@@ -78,6 +78,23 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
+    let summary = "ToDType op.";
+    let description = [{
+      This op converts the data type of the input tensor based on the given data type on the host.
+
+      Args:
+        - :attr:`input`: the ttnn.Tensor
+        - :attr:`dtype`: `ttnn` data type.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_DataTypeAttr:$dtype);
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
+}
+
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let summary = "ToDevice op.";
     let description = [{
@@ -893,6 +910,28 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PadOp: TTNN_Op<"pad"> {
+    let summary = "Pad op.";
+    let description = [{
+      Pad input tensor by padding the input_shape to output_shape using the provided value.
+
+      The `padding` attribute must be a sequence of integers that is twice the size as the rank of the input.
+      Each pair of integers in the padding attribute represents the amount of padding to add to the low and high of that dimension.
+      I.e: an input tensor of shape <1x30x30x64xf32> with padding attribute <0, 0, 1, 1, 1, 1, 0, 0> will return a tensor of shape <1x32x32x64xf32>,
+      and so will a padding attribute of <0, 0, 0, 2, 0, 2, 0, 0>.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI32ArrayAttr:$padding,
+                         F32Attr:$value,
+                         BoolAttr:$use_multicore,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
@@ -1147,6 +1186,27 @@ def TTNN_ArangeOp : TTNN_Op<"arange"> {
   let hasVerifier = 1;
 }
 
+def TTNN_ZerosOp : TTNN_Op<"zeros"> {
+  let summary = "Creates a tensor filled with zeros.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros.
+
+    Given a ShapeAttr `shape`, produces a tensor with the same shape, filled with zeros.
+
+    Example:
+      %0 = "ttnn.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TT_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_OnesOp : TTNN_Op<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
@@ -1176,6 +1236,19 @@ def TTNN_FullOp : TTNN_Op<"full"> {
 
     let arguments = (ins TT_Device:$device, F32Attr:$fillValue);
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        mlir::tt::ttnn::FullOp op = mlir::cast<mlir::tt::ttnn::FullOp>(this->getOperation());
+        auto outputType = mlir::cast<RankedTensorType>(op.getType());
+        ttnn::TTNNLayoutAttr layoutAttr =
+            mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
+        if (outputType.getRank() > 1 || !layoutAttr.isTiled()) {
+          return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(this->getOperation());
+        }
+        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds();
+      }
+    }];
 }
 
 def TTNN_AllocOp : TTNN_Op<"alloc"> {
@@ -1268,9 +1341,16 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
                          TT_Device:$device,
                          TT_MeshShardDirectionAttr:$shard_direction,
                          TT_MeshShardTypeAttr:$shard_type,
-                         TT_GridAttr:$shard_shape);
+                         DenseI64ArrayAttr:$shard_shape,
+                         DenseI64ArrayAttr:$shard_dims);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds();
+      }
+    }];
 
     let hasVerifier = 1;
 }

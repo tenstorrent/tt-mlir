@@ -20,6 +20,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/transforms/Passes.h"

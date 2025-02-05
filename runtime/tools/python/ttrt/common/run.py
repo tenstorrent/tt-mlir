@@ -141,18 +141,25 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
-            name="--disable-to-dtype-on-host",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable to_dtype on host workaround",
-        )
-        Run.register_arg(
             name="--disable-default-stride-computation",
             type=bool,
             default=False,
             choices=[True, False],
             help="disable runtime default stride computation workaround",
+        )
+        Run.register_arg(
+            name="--disable-to-layout-api-assume-single-chip",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable runtime to_layout api assume single chip workaround",
+        )
+        Run.register_arg(
+            name="--disable-pad-op-padding-pairs-signature",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable pad op padding pairs signature workaround",
         )
         Run.register_arg(
             name="--result-file",
@@ -246,7 +253,11 @@ class Run:
                 artifacts_folder_path=self["--artifact-dir"],
             )
         )
-        self.query = Query({"--quiet": True}, self.logger, self.artifacts)
+        self.query = Query(
+            {"--quiet": True, "--disable-eth-dispatch": self["--disable-eth-dispatch"]},
+            self.logger,
+            self.artifacts,
+        )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.results = Results(self.logger, self.file_manager)
@@ -395,6 +406,21 @@ class Run:
             import ttrt.runtime
             import torch
 
+            def convert_input_layouts(device, inputs, fbb, program_index):
+                import ttrt.runtime
+
+                inputs_converted = []
+                for input_index in range(len(inputs)):
+                    input_layout = ttrt.runtime.get_layout(
+                        fbb, program_index, input_index
+                    )
+                    inputs_converted.append(
+                        ttrt.runtime.to_layout(
+                            inputs[input_index], device, input_layout
+                        )
+                    )
+                return inputs_converted
+
             if len(binaries) == 0:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
@@ -405,8 +431,9 @@ class Run:
                 not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-to-dtype-on-host"],
                 not self["--disable-default-stride-computation"],
+                not self["--disable-to-layout-api-assume-single-chip"],
+                not self["--disable-pad-op-padding-pairs-signature"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
@@ -568,9 +595,12 @@ class Run:
                                     for i, runtime_output_tensor in enumerate(
                                         runtime_outputs
                                     ):
+                                        output_host = ttrt.runtime.to_host(
+                                            runtime_output_tensor, untilize=True
+                                        )
                                         ttrt.runtime.memcpy(
                                             total_outputs[loop][i],
-                                            runtime_output_tensor,
+                                            output_host,
                                         )
                                         ttrt.runtime.deallocate_tensor(
                                             runtime_output_tensor, force=True
@@ -588,15 +618,25 @@ class Run:
                                 # Create symbol string to read from dylib
                                 fwd_func_name = program.program["name"]
                                 fwd_func_name_len = len(fwd_func_name)
-                                fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v07IDeviceE"
+                                fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EE"
 
                                 for loop in range(self["--loops"]):
+                                    inputs_converted = convert_input_layouts(
+                                        device,
+                                        total_inputs[loop],
+                                        bin.fbb,
+                                        program_index,
+                                    )
                                     emitc_outs = ttrt.runtime.testing.run_so_program(
                                         emitc_dylib_handle,
                                         fwd_func_sym,
-                                        total_inputs[loop],
+                                        inputs_converted,
                                         device,
                                     )
+                                    emitc_outs = [
+                                        ttrt.runtime.to_host(emitc_out, untilize=True)
+                                        for emitc_out in emitc_outs
+                                    ]
                                     self.logging.debug(
                                         f"got emitc outputs for program_index={program_index}, loop={loop}"
                                     )

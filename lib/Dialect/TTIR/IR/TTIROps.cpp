@@ -502,6 +502,42 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// PadOp
+//===----------------------------------------------------------------------===//
+
+// PadOp verification
+::mlir::LogicalResult mlir::tt::ttir::PadOp::verify() {
+
+  ::mlir::RankedTensorType inputType = getInput().getType();
+
+  // Check that size of padding is correct
+  if (static_cast<int64_t>(getPadding().size()) != 2 * inputType.getRank()) {
+    return emitOpError("Padding must have the same number of elements as twice "
+                       "the rank of the input tensor");
+  }
+
+  std::vector<int64_t> inferredShapeVec = inputType.getShape().vec();
+  llvm::ArrayRef<int32_t> padding = getPadding();
+  for (int64_t i = 0; i < inputType.getRank(); i++) {
+    inferredShapeVec[i] += padding[2 * i];
+    inferredShapeVec[i] += padding[2 * i + 1];
+  }
+  llvm::ArrayRef<int64_t> inferredShape = inferredShapeVec;
+
+  // Check that the output tensor shape is correct
+  ::mlir::RankedTensorType resultType = getResult().getType();
+  llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+  if (resultShape != inferredShape) {
+    return emitOpError("Output tensor shape (" +
+                       ttmlir::utils::join(resultShape, ",") +
+                       ") must match the inferred shape: (" +
+                       ttmlir::utils::join(inferredShape, ",") + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ReshapeOp
 //===----------------------------------------------------------------------===//
 
@@ -1843,7 +1879,7 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 ::mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto shardType = getShardType();
 
-  // currently we are only supporting replicate or devices from StableHLO
+  // Currently, we are only supporting replicate or devices from StableHLO.
   if (shardType != mlir::tt::MeshShardType::Replicate &&
       shardType != mlir::tt::MeshShardType::Devices) {
     return emitOpError("Invalid shard_type for mesh_shard op.");
