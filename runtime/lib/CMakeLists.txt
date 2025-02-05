@@ -53,6 +53,8 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
   list(APPEND TTNN_LIBS TRACY_LIBRARY)
 endif()
 
+target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+
 target_link_libraries(TTMLIRRuntime
   PRIVATE
     TTBinary
@@ -62,6 +64,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeDebug
     TTRuntimeWorkarounds
     ${TTNN_LIBS}
+    flatbuffers
 )
 
 set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
