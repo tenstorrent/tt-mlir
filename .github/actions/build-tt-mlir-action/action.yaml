@@ -86,6 +86,7 @@ runs:
       run: |
         source env/activate
         cmake --install ${{ inputs.build-output-dir }} --component Test
+        cmake --install ${{ inputs.build-output-dir }} --component SharedLib
 
     - name: Run tt-mlir tests
       shell: bash

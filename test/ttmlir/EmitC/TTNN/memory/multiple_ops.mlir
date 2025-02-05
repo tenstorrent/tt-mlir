@@ -14,10 +14,7 @@
 
 func.func @multiple_ops(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
   %0 = tensor.empty() : tensor<32x32xbf16>
-  // CHECK: %{{[0-9]+}} = "ttnn.to_device"{{.*}}
-  // CHECK: %{{[0-9]+}} = "ttnn.to_layout"{{.*}}
-  // CHECK: "ttnn.deallocate"{{.*}}
+  // CHECK: "ttnn.add"{{.*}}
   %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-  // CHECK: %{{[0-9]+}} = "ttnn.from_device"{{.*}}
   return %1 : tensor<32x32xbf16>
 }

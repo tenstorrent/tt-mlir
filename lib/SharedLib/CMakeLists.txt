@@ -16,6 +16,7 @@ set(TTMLIR_LIBS
     MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTKernelDialect
+    MLIRLLVMTransforms
     TTMLIRTTIRToTTIRDecomposition
     TTMLIRTTIRToTTNN
     TTMLIRTTIRToTTMetal
@@ -25,19 +26,63 @@ set(TTMLIR_LIBS
     MLIRTTNNAnalysis
     MLIRTTNNPipelines
     MLIRTTMetalPipelines
+    TTMLIRConversions
     TTMLIRTTNNToEmitC
+    TTMLIRStatic
+    TTMLIRTTNNUtils
 )
 
-# We supply empty.cpp because CMake does not allow creating a library without sources.
-add_library(TTMLIR SHARED empty.cpp)
+if (TTMLIR_ENABLE_STABLEHLO)
+# list(APPEND TTMLIR_LIBS StablehloRegister SdyRegister)
+list(APPEND TTMLIR_LIBS
+    StablehloBase
+    StablehloReferenceIndex
+    StablehloReferenceErrors
+    StablehloReferenceElement
+    StablehloReferenceAxes
+    StablehloReferenceValue
+    StablehloReferenceTypes
+    StablehloReferenceToken
+    StablehloReferenceTensor
+    StablehloReferenceScope
+    StablehloReferenceProcessGrid
+    StablehloReferenceProcess
+    StablehloReferenceOps
+    StablehloPasses
+    ChloOps
+    VhloOps
+    VhloTypes
+    StablehloOps
+    StablehloRegister
+    StablehloLinalgTransforms
+    StablehloSerialization
+    InterpreterOps
+    StablehloPortableApi
+    StablehloAssemblyFormat
+    StablehloBroadcastUtils
+    StablehloTypeInference
+    StablehloReferenceNumPy
+    SdyDialect
+    SdyRegister
+)
+endif()
 
-add_dependencies(TTMLIR
+# We supply empty.cpp because CMake does not allow creating a library without sources.
+
+add_library(TTMLIRRuntime SHARED empty.cpp)
+add_library(TTMLIRCompiler SHARED empty.cpp)
+
+add_dependencies(TTMLIRCompiler
     ${TTMLIR_LIBS}
+)
+
+add_dependencies(TTMLIRRuntime
+    TTMLIRCompiler
     ${TTNN_RUNTIME_LIBS}
     ${TTNN_LIBS}
 )
 
-target_link_libraries(TTMLIR PRIVATE
+target_link_libraries(TTMLIRCompiler PRIVATE
     LLVM
     MLIR
 
@@ -45,6 +90,16 @@ target_link_libraries(TTMLIR PRIVATE
     # This is necessary because the JIT will not be able to find the symbols otherwise
     -Wl,--whole-archive
     ${TTMLIR_LIBS}
+    -Wl,--no-whole-archive
+
+    flatbuffers
+)
+
+target_link_libraries(TTMLIRRuntime PRIVATE
+
+    # Forces the inclusion of all symbols in the shared object
+    # This is necessary because the JIT will not be able to find the symbols otherwise
+    -Wl,--whole-archive
     ${TTNN_RUNTIME_LIBS}
     -Wl,--no-whole-archive
 
@@ -53,11 +108,15 @@ target_link_libraries(TTMLIR PRIVATE
     flatbuffers
 )
 
-target_link_directories(TTMLIR PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 
-set_target_properties(TTMLIR PROPERTIES INSTALL_RPATH "$ORIGIN")
+target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 
-install(TARGETS TTMLIR DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
+set_target_properties(TTMLIRCompiler PROPERTIES INSTALL_RPATH "$ORIGIN")
+set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
+
+install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
+install(TARGETS TTMLIRRuntime DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 
 set(TTMLIR_RUNTIME_LIB_DEPS ${TTMLIR_TOOLCHAIN_DIR}/lib/libLLVM.so ${TTMLIR_TOOLCHAIN_DIR}/lib/libMLIR.so)
 install(CODE

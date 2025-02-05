@@ -225,6 +225,18 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ToDTypeOp>
+createOp(FlatbufferObjectCache &cache, ToDTypeOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateToDTypeOp(*cache.fbb, input, dtype, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
 createOp(FlatbufferObjectCache &cache, TypecastOp op) {
   auto input =
@@ -571,7 +583,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   const mlir::tt::MeshShardDirection shardDirection = op.getShardDirection();
   const mlir::tt::MeshShardType shardType = op.getShardType();
-  llvm::ArrayRef<int64_t> shardShape = op.getShardShape().getShape();
+  llvm::ArrayRef<int64_t> shardShape = op.getShardShape();
+  llvm::ArrayRef<int64_t> shardDims = op.getShardDims();
 
   ::tt::target::MeshShardDirection meshShardDirection;
   if (shardDirection == mlir::tt::MeshShardDirection::FullToShard) {
@@ -594,7 +607,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   return ::tt::target::ttnn::CreateMeshShardOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
       meshShardDirection, meshShardType,
-      cache.fbb->CreateVector<int64_t>(shardShape));
+      cache.fbb->CreateVector<int64_t>(shardShape),
+      cache.fbb->CreateVector<int64_t>(shardDims));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
@@ -1058,6 +1072,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,
+                           locInfo);
+  }
+  if (auto toDTypeOp = dyn_cast<ToDTypeOp>(op); toDTypeOp) {
+    return createOperation(cache, createOp(cache, toDTypeOp), debugString,
                            locInfo);
   }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {

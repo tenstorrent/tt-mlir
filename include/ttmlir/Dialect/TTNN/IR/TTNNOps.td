@@ -78,6 +78,23 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
+    let summary = "ToDType op.";
+    let description = [{
+      This op converts the data type of the input tensor based on the given data type on the host.
+
+      Args:
+        - :attr:`input`: the ttnn.Tensor
+        - :attr:`dtype`: `ttnn` data type.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_DataTypeAttr:$dtype);
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
+}
+
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let summary = "ToDevice op.";
     let description = [{
@@ -1197,6 +1214,19 @@ def TTNN_FullOp : TTNN_Op<"full"> {
 
     let arguments = (ins TT_Device:$device, F32Attr:$fillValue);
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        mlir::tt::ttnn::FullOp op = mlir::cast<mlir::tt::ttnn::FullOp>(this->getOperation());
+        auto outputType = mlir::cast<RankedTensorType>(op.getType());
+        ttnn::TTNNLayoutAttr layoutAttr =
+            mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
+        if (outputType.getRank() > 1 || !layoutAttr.isTiled()) {
+          return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(this->getOperation());
+        }
+        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds();
+      }
+    }];
 }
 
 def TTNN_AllocOp : TTNN_Op<"alloc"> {
@@ -1289,9 +1319,16 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
                          TT_Device:$device,
                          TT_MeshShardDirectionAttr:$shard_direction,
                          TT_MeshShardTypeAttr:$shard_type,
-                         TT_GridAttr:$shard_shape);
+                         DenseI64ArrayAttr:$shard_shape,
+                         DenseI64ArrayAttr:$shard_dims);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds();
+      }
+    }];
 
     let hasVerifier = 1;
 }

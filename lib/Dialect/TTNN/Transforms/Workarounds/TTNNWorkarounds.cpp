@@ -173,7 +173,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       ttnn::utils::createRankedTensorTypeWithEncoding(
           ttnn::utils::createRankedTensorTypeWithElementType(
               opResultType,
-              ttnn::utils::createRowMajorTypeFromDtype(
+              ttnn::utils::dataTypeToElementType(
                   rewriter.getContext(),
                   outputWorkaroundResults.tensorDataTypeResult.targetValue)),
           newOutputLayoutAttr);

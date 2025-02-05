@@ -15,21 +15,21 @@ namespace mlir::tt::scheduler {
 // TTNN op is scheduleable if it is not an EmptyOp and has at least one result.
 bool isTTNNScheduleableOp(mlir::Operation *op) {
   return isa<ttnn::TTNNDialect>(op->getDialect()) && op->getNumResults() > 0 &&
-         !llvm::isa<ttnn::EmptyOp>(op);
+         !llvm::isa<ttnn::EmptyOp>(op) && !llvm::isa<ttnn::GetDeviceOp>(op);
 }
 
 bool isTTIROp(mlir::Operation *op) {
   return isa<ttir::TTIRDialect>(op->getDialect());
 }
 
-bool Scheduler::isTTShedulableOp(mlir::Operation *op) {
+bool Scheduler::isTTSchedulableOp(mlir::Operation *op) {
   return isTTNNScheduleableOp(op) || isTTIROp(op);
 }
 
 // Init the dependencies map of all ops which are TTIR ops
 Scheduler::Scheduler(func::FuncOp *func) {
   for (auto &op : func->getOps()) {
-    if (isTTShedulableOp(&op)) {
+    if (isTTSchedulableOp(&op)) {
       dependencies[&op] = {};
       unscheduledOps.insert(&op);
     }
@@ -38,7 +38,7 @@ Scheduler::Scheduler(func::FuncOp *func) {
   for (auto &op : func->getOps()) {
     // Skip non TTIR operations
     // Skip operations which do not implement DestinationStyleOpInterface
-    if (!isTTShedulableOp(&op)) {
+    if (!isTTSchedulableOp(&op)) {
       continue;
     }
 
@@ -47,7 +47,7 @@ Scheduler::Scheduler(func::FuncOp *func) {
     for (mlir::Operation *use : result.getUsers()) {
       // Skip non TTIR operations
       // Skip operations which set the result
-      if (isTTShedulableOp(use) && use->getResult(0) != result) {
+      if (isTTSchedulableOp(use) && use->getResult(0) != result) {
         dependencies[use].push_back(&op);
       }
     }

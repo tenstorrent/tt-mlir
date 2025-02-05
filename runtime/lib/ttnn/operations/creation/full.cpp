@@ -20,13 +20,12 @@ struct FullTensorConfig {
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
 
   FullTensorConfig(const ::tt::target::ttnn::FullOp *op)
-      : shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
+      : shape(::tt::runtime::ttnn::operations::utils::toTTNNShape(
             *op->out()->desc()->shape())),
         dtype(::tt::runtime::ttnn::operations::utils::getDataType(op->out())),
+        layout(::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out())),
         fillValue(op->fill_value()), numShards(op->num_shards()),
         strategy(op->strategy()) {
-
-    layout = ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
 
     if (!utils::inSystemMemory(op->out())) {
       memoryConfig = ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());

@@ -12,8 +12,13 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 LogicalResult
 TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
                                              PatternRewriter &rewriter) const {
-  Value device =
-      ttnn::utils::getOrInsertDevice(rewriter, op.getOperand().getDefiningOp());
+  Value device;
+  if (op.getOperand().getDefiningOp()) {
+    device = ttnn::utils::getOrInsertDevice(rewriter,
+                                            op.getOperand().getDefiningOp());
+  } else {
+    device = ttnn::utils::getOrInsertDevice(rewriter, op);
+  }
   float fillValue = 0;
   ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
 

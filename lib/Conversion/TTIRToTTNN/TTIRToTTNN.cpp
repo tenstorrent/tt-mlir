@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
-
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -14,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -241,6 +241,9 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
+    assert(mlir::isa<mlir::RankedTensorType>(adaptor.getInput().getType()) &&
+           "Expected RankedTensorType for ToLayoutOp input");
+
     auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
@@ -257,32 +260,6 @@ public:
     bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
 
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType());
-    if (!isOutputOnHost) {
-      // TODO(bug #665):
-      // Binary ops fail with row major layout in ttnn, defaulting to and
-      // assuming tile layout for all device tensors...
-      // Note: mlir doesn't know about this, so tensors may still appear as row
-      // major in the generated mlir
-      // TODO(bug #875):
-      // Remove the following code block once constraints modelling is
-      // implemented on dialect level
-      //
-      // Default to Tile layout unless op supports only RowMajor layout
-      //
-      ttnn::Layout newOutputLayoutEnum =
-          shouldForceRowMajor(op) ? ttnn::Layout::RowMajor : ttnn::Layout::Tile;
-
-      // If the layout of the output tensor changed as a result of forcing the
-      // layout update the tensor type
-      if (outputLayoutEnum != newOutputLayoutEnum) {
-        result =
-            getLayoutForcedResultTensor(rewriter, result, newOutputLayoutEnum);
-        op.getResult().setType(result);
-        outputLayoutAttr =
-            mlir::cast<ttnn::TTNNLayoutAttr>(result.getEncoding());
-        outputLayoutEnum = newOutputLayoutEnum;
-      }
-    }
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
@@ -305,65 +282,6 @@ public:
             : mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op)));
 
     return success();
-  }
-
-private:
-  bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
-    // Check if the output tensor is used by an op that only supports row major.
-    for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  RankedTensorType
-  getLayoutForcedResultTensor(ConversionPatternRewriter &rewriter,
-                              RankedTensorType oldOutput,
-                              ttnn::Layout newOutputLayoutEnum) const {
-    auto oldOutputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(oldOutput.getEncoding());
-    DataType outputDtype = oldOutputLayoutAttr.getDataType();
-    SmallVector<std::int64_t> oldShardShape =
-        oldOutputLayoutAttr.getShardShape();
-    size_t shardShapeSize = oldShardShape.size();
-    assert(shardShapeSize >= 2 && "expected at least 2D shape");
-
-    if (newOutputLayoutEnum == ttnn::Layout::RowMajor) {
-      // Set shard shape to match convention of row major layout
-      auto tileType =
-          mlir::cast<TileType>(oldOutputLayoutAttr.getElementType());
-      llvm::SmallVector<int64_t> newShardShape(oldShardShape.begin(),
-                                               oldShardShape.end());
-      newShardShape[shardShapeSize - 2] =
-          oldShardShape[shardShapeSize - 2] * tileType.getHeight();
-      newShardShape[shardShapeSize - 1] =
-          oldShardShape[shardShapeSize - 1] * tileType.getWidth();
-      Type newElementType = ttnn::utils::createRowMajorTypeFromDtype(
-          rewriter.getContext(), outputDtype);
-      RankedTensorType result = RankedTensorType::get(
-          oldOutput.getShape(), oldOutput.getElementType(),
-          oldOutputLayoutAttr
-              .withElementType(rewriter.getContext(), newElementType,
-                               oldOutput.getShape())
-              .withShardShape(rewriter.getContext(), newShardShape));
-      return result;
-    }
-
-    if (newOutputLayoutEnum == ttnn::Layout::Tile) {
-      TileType tileType =
-          TileType::get(rewriter.getContext(),
-                        {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, outputDtype);
-      RankedTensorType result = RankedTensorType::get(
-          oldOutput.getShape(), oldOutput.getElementType(),
-          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType,
-                                              oldOutput.getShape()));
-      return result;
-    }
-
-    llvm_unreachable("Unreachable code path. Unexpected output layout enum");
   }
 };
 } // namespace
@@ -1376,7 +1294,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), device, adaptor.getShardDirection(),
-        adaptor.getShardType(), adaptor.getShardShape());
+        adaptor.getShardType(), adaptor.getShardShape(),
+        adaptor.getShardDims());
 
     return success();
   }
