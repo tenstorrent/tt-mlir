@@ -24,7 +24,7 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
     DEBUG_ASSERT(
         input.get_logical_shape().rank() > 1,
         "Sharding requires higher than 2 dimensional tensor. Tensor rank=",
-        input.get_shape().rank());
+        input.get_logical_shape().rank());
     ::ttnn::distributed::Shard2dConfig shard2dConfig{std::nullopt,
                                                      std::nullopt};
     if (shardDims[0] >= 0) {
