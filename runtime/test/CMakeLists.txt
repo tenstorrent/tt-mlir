@@ -23,8 +23,8 @@ else()
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
   )
   target_include_directories(TTRuntimeTTNNTestHelpers SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-  add_dependencies(TTRuntimeTTNNTestHelpers TTRuntime tt-metal FBS_GENERATION)
-  target_link_libraries(TTRuntimeTTNNTestHelpers PUBLIC TTRuntime TTNN_LIBRARY)
+  add_dependencies(TTRuntimeTTNNTestHelpers TTMLIRRuntime tt-metal FBS_GENERATION)
+  target_link_libraries(TTRuntimeTTNNTestHelpers PUBLIC TTMLIRRuntime TTNN_LIBRARY)
 endif()
 
 enable_testing()
@@ -53,7 +53,7 @@ if (NOT FLATBUFFERS_LIB)
 endif()
 
 add_library(TTRuntimeTEST INTERFACE)
-add_dependencies(TTRuntimeTEST TTRuntimeTTNN TTRuntimeTTMetal TTRuntime TTRuntimeDebug TTRuntimeWorkarounds TTMETAL_LIBRARY)
+add_dependencies(TTRuntimeTEST TTRuntimeTTNN TTRuntimeTTMetal TTMLIRRuntime TTRuntimeDebug TTRuntimeWorkarounds TTMETAL_LIBRARY)
 target_include_directories(TTRuntimeTEST INTERFACE
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
@@ -64,7 +64,7 @@ target_link_libraries(TTRuntimeTEST INTERFACE
     TTMETAL_LIBRARY
     DEVICE_LIBRARY
     TTBinary
-    TTRuntime
+    TTMLIRRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
     TTRuntimeDebug

@@ -238,7 +238,7 @@ if enable_runtime:
                 f"{ttmlir_build_dir}/include",
                 f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
             ],
-            libraries=["TTRuntime"] + linklibs + ["flatbuffers"],
+            libraries=["TTMLIRRuntime"] + linklibs + ["flatbuffers"],
             library_dirs=[
                 f"{ttmlir_build_dir}/runtime/lib",
                 f"{ttmlir_build_dir}/runtime/lib/common",
