@@ -137,8 +137,8 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 
   // Emit object code to the file.
   llvm::legacy::PassManager passManager;
-  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
   passManager.add(
+      // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
       new llvm::TargetLibraryInfoWrapperPass(targetMachine->getTargetTriple()));
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CodeGenFileType::ObjectFile)) {
