@@ -34,10 +34,11 @@
 # REQUIRES: pykernel
 
 from pykernel.pykernel_ast import *
+from pykernel.types import *
 
 
 @ttkernel_compile
-def writer_unary(cb_in: int, cb_out: int):
+def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%[[arg0:.*]]: !ttkernel.cb<{{.*}}>, %[[arg1:.*]]: !ttkernel.cb<{{.*}}>) {
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
@@ -50,8 +51,6 @@ def writer_unary(cb_in: int, cb_out: int):
     # CHECK: {{.*}}"ttkernel.get_tile_size"{{.*}}
     ublock_size_bytes = get_tile_size(cb_out)
     ublock_size_tiles = 1
-
-    cb_id_out0 = 16
 
     for i in range(0, num_tiles, ublock_size_tiles):
         # CHECK: %[[DST_NOC_ADDR:.*]] = "ttkernel.get_noc_addr_from_bank_id"{{.*}}
@@ -74,4 +73,6 @@ def writer_unary(cb_in: int, cb_out: int):
     return
 
 
-writer_unary(0, 16)
+cb_in = CircularBuffer(0)
+cb_out = CircularBuffer(16)
+writer_unary(cb_in, cb_out)

@@ -36,10 +36,11 @@
 # REQUIRES: pykernel
 
 from pykernel.pykernel_ast import *
+from pykernel.types import *
 
 
 @ttkernel_compile
-def reader_unary(cb_in: int, cb_out: int):
+def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%[[arg0:.*]]: !ttkernel.cb<{{.*}}>, %[[arg1:.*]]: !ttkernel.cb<{{.*}}>) {
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
@@ -75,4 +76,6 @@ def reader_unary(cb_in: int, cb_out: int):
     return
 
 
-reader_unary(0, 16)
+cb_in = CircularBuffer(0)
+cb_out = CircularBuffer(16)
+reader_unary(cb_in, cb_out)

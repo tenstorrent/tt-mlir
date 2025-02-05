@@ -106,11 +106,11 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
         self.func_entry = None
-        self.initial_cbs = args
         self.symbol_tables = []
         self.supported_nodes = get_supported_nodes()
-
         ttkernel.register_dialect(self.ctx)
+
+        self.cb_args = args
 
     def var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
@@ -127,28 +127,26 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         # TODO: add alloca args name into symbol table
-        if self.func_entry:
-            raise IndexError("Cannot declare function within a function")
+        assert not self.func_entry, "Cannot declare function within a function"
+        assert len(node.args.args) == 2, "Function must have two arguments"
 
         arg_types = []
         for i in range(len(node.args.args)):
             arg = node.args.args[i]
             if not arg.annotation:
                 raise ValueError("Function arguments must have type annotations")
-            if arg.annotation.id == "int":
-                tile_type = tt.ir.TileType.get(self.ctx, 32, 32, tt.DataType.UInt32)
-            elif arg.annotation.id == "float":
-                tile_type = tt.ir.TileType.get(self.ctx, 32, 32, tt.DataType.Float32)
-            else:
-                raise ValueError(f"cannot pass {arg.annotation.id} to a pykernel")
+            elif not arg.annotation.id == "CircularBuffer":
+                raise TypeError(f"cannot pass {arg.annotation.id} to a pykernel")
 
-            # TODO: investigate if this is the only type we can pass into functions
+            tile_type = tt.ir.TileType.get(
+                self.ctx, 32, 32, getattr(tt.DataType, self.cb_args[i].dtype)
+            )
             cb_type = ttkernel.ir.CBType.get(
                 self.ctx,  # mlir context
                 0,  # address
-                self.initial_cbs[i],
+                self.cb_args[i].cb_id,
                 MemRefType.get(
-                    [8, 4, 4], tile_type
+                    self.cb_args[i].tilized_shape, tile_type
                 ),  # hardcoded dimensions for now - this is usually lowered from tensors?
             )
             arg_types.append(cb_type)
