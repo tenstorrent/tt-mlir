@@ -35,10 +35,11 @@
 namespace mlir::tt::llvm_to_cpu {
 
 // Flag to toggle whether we delete temp files after consuming them.
-static llvm::cl::opt<bool> cleanupTempFiles(
-    "cleanup-dylib-temp-files", // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-    llvm::cl::desc("Delete temporary files after translation"),
-    llvm::cl::init(true));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static llvm::cl::opt<bool>
+    cleanupTempFiles("cleanup-dylib-temp-files",
+                     llvm::cl::desc("Delete temporary files after translation"),
+                     llvm::cl::init(true));
 
 // Create randomized tempDir to store our temp files.
 llvm::SmallString<128> createTempDir() {
@@ -136,9 +137,9 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 
   // Emit object code to the file.
   llvm::legacy::PassManager passManager;
-  passManager.add(new llvm::TargetLibraryInfoWrapperPass(
-      targetMachine
-          ->getTargetTriple())); // NOLINT(cppcoreguidelines-owning-memory)
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+  passManager.add(
+      new llvm::TargetLibraryInfoWrapperPass(targetMachine->getTargetTriple()));
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CodeGenFileType::ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
