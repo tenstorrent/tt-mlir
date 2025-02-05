@@ -75,6 +75,8 @@ def get_supported_nodes():
 class TTKernelCompiler(ast.NodeVisitor):
     ttkernel_fn_map = {
         "unary_op_init_common": ttkernel.unary_op_init_common,
+        "binary_op_init_common": ttkernel.binary_op_init_common,
+        "add_tiles_init": ttkernel.add_tiles_init,
         "get_arg_val": ttkernel.get_arg_val,
         "cb_wait_front": ttkernel.cb_wait_front,
         "cb_reserve_back": ttkernel.cb_reserve_back,
@@ -82,12 +84,15 @@ class TTKernelCompiler(ast.NodeVisitor):
         "cb_pop_front": ttkernel.cb_pop_front,
         "tile_regs_acquire": ttkernel.tile_regs_acquire,
         "tile_regs_release": ttkernel.tile_regs_release,
+        "tile_regs_commit": ttkernel.tile_regs_commit,
+        "tile_regs_wait": ttkernel.tile_regs_wait,
         "pack": ttkernel.pack,
         "pack_tile": ttkernel.pack_tile,
         "copy_tile": ttkernel.copy_tile,
         "unpack_a": ttkernel.unpack_a,
         "unpack_ab": ttkernel.unpack_ab,
         "add": ttkernel.add,
+        "add_tiles": ttkernel.add_tiles,
         "get_compile_time_arg_val": ttkernel.get_compile_time_arg_val,
         "get_write_ptr": ttkernel.get_write_ptr,
         "get_read_ptr": ttkernel.get_read_ptr,
@@ -128,7 +133,6 @@ class TTKernelCompiler(ast.NodeVisitor):
     def visit_FunctionDef(self, node):
         # TODO: add alloca args name into symbol table
         assert not self.func_entry, "Cannot declare function within a function"
-        assert len(node.args.args) == 2, "Function must have two arguments"
 
         arg_types = []
         for i in range(len(node.args.args)):
@@ -318,7 +322,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         for arg in node.args:
             func_arg = self.visit(arg)
             if not func_arg:
-                raise ValueError("Function argument not found")
+                raise ValueError(f"Function argument not found for {node.func.id}")
 
             if hasattr(func_arg, "type") and isinstance(
                 func_arg.type, memref.MemRefType
