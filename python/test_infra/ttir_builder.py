@@ -605,6 +605,21 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
+    def concat(self, ins: List[Operand], dim: int = 0) -> OpView:
+        kwargs = {"dim": dim}
+        return self.op_proxy(
+            torch.concat,
+            ttir.ConcatOp,
+            ins,
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            # special handling is needed here to get around arg expansion; `torch.concat` takes a tuple of tensors on input
+            organize_golden_args=lambda i: (
+                tuple([self._get_golden_tensor(i_i) for i_i in i]),
+            ),
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i, o),
+        )
+
     def matmul(
         self, in0: Operand, in1: Operand, bias: Optional[Operand] = None
     ) -> OpView:
