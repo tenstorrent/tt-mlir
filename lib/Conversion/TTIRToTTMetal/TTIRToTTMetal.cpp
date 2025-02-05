@@ -2,50 +2,43 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
+#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 
-#include "mlir/Analysis/Liveness.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Math/IR/Math.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/Block.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Location.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Types.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstdint>
-#include <utility>
-
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Utils.h"
+
+#include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/MapVector.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/ErrorHandling.h>
+#include <llvm/Support/LogicalResult.h>
+#include <mlir/Analysis/Liveness.h>
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/Math/IR/Math.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/IR/Block.h>
+#include <mlir/IR/Builders.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Location.h>
+#include <mlir/IR/PatternMatch.h>
+#include <mlir/IR/Types.h>
+#include <mlir/IR/Value.h>
+#include <mlir/IR/ValueRange.h>
+#include <mlir/Pass/PassManager.h>
+#include <mlir/Support/LogicalResult.h>
+#include <mlir/Transforms/DialectConversion.h>
+
+#include <cstdint>
+#include <utility>
 
 namespace mlir::tt::ttmetal {
 
@@ -90,6 +83,7 @@ static uint64_t lookupAddress(Value value) {
   return allocOp.getAddress();
 }
 
+namespace {
 class TTIRToTTMetalLayoutRewriter : public OpRewritePattern<ttir::ToLayoutOp> {
 public:
   using OpRewritePattern<ttir::ToLayoutOp>::OpRewritePattern;
@@ -159,41 +153,6 @@ public:
         });
 
     return txMap;
-  }
-
-  static void
-  buildNocAsyncTx(mlir::Location loc, std::int64_t inputBaseAddress,
-                  std::int64_t outputBaseAddress, std::int64_t addressAlignment,
-                  NocTx nocTx,
-                  PhysicalCoreCoordMapping const &physicalCoordMapping,
-                  mlir::OpBuilder &nocBuilder) {
-    assert(nocTx.srcOffset % addressAlignment == 0);
-    assert(nocTx.dstOffset % addressAlignment == 0);
-    assert(nocTx.size % addressAlignment == 0);
-    auto [yPhys, xPhys] = physicalCoordMapping[nocTx.coreCoord];
-    auto y = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(yPhys));
-    auto x = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(xPhys));
-    auto srcLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(),
-        nocBuilder.getI32IntegerAttr(inputBaseAddress + nocTx.srcOffset));
-    auto dstLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(),
-        nocBuilder.getI32IntegerAttr(outputBaseAddress + nocTx.dstOffset));
-    auto size = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(nocTx.size));
-    if (nocTx.type == NocTx::Type::Read) {
-      auto srcRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrXYOp>(
-          loc, x, y, srcLocalL1Addr);
-      nocBuilder.create<ttkernel::NocAsyncReadOp>(loc, srcRemoteNocAddr,
-                                                  dstLocalL1Addr, size);
-    } else {
-      auto dstRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrXYOp>(
-          loc, x, y, dstLocalL1Addr);
-      nocBuilder.create<ttkernel::NocAsyncWriteOp>(loc, srcLocalL1Addr,
-                                                   dstRemoteNocAddr, size);
-    }
   }
 
   LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
@@ -311,31 +270,130 @@ public:
     assert(outputBaseAddress % addressAlignment == 0);
     OpBuilder nocBuilder = OpBuilder::atBlockEnd(block);
     NocTx::Type type = transactions.front().type;
-    for (auto tx : transactions) {
+
+    // each 'entry' is {I32:$dst, I32:$src, I32:$size, I32:<$y,$x>,
+    // (I32:$numElements if have inputCB)}:
+    int32_t const entrySize = 4 + (inputCB != nullptr);
+
+    // convert 'transactions' into compile time 'NocTransactionsTableOp'
+    // parameters:
+
+    llvm::SmallVector<int32_t, 48> entries;
+    for (auto const &tx : transactions) {
+      // all transactions are of the same read/write type:
       assert(tx.type == type);
-      if (inputCB) {
-        auto numElementsConst = nocBuilder.create<arith::ConstantOp>(
-            loc, nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(tx.numElements));
-        nocBuilder.create<ttkernel::CBReserveBackOp>(loc, *inputCB,
-                                                     numElementsConst);
-      }
-      buildNocAsyncTx(loc, inputBaseAddress, outputBaseAddress,
-                      addressAlignment, tx, physicalCoordMapping, nocBuilder);
-      if (inputCB) {
-        auto numElementsConst = nocBuilder.create<arith::ConstantOp>(
-            loc, nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(tx.numElements));
-        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
-        nocBuilder.create<ttkernel::CBPushBackOp>(loc, *inputCB,
-                                                  numElementsConst);
+
+      assert(tx.srcOffset % addressAlignment == 0);
+      assert(tx.dstOffset % addressAlignment == 0);
+      assert(tx.size % addressAlignment == 0);
+
+      entries.emplace_back(outputBaseAddress + tx.dstOffset);
+      entries.emplace_back(inputBaseAddress + tx.srcOffset);
+      entries.emplace_back(tx.size);
+
+      auto const [yPhys, xPhys] = physicalCoordMapping[tx.coreCoord];
+      entries.emplace_back((yPhys << 16) | xPhys); // x:lo, y:hi
+
+      if (inputCB != nullptr) {
+        entries.emplace_back(tx.numElements);
       }
     }
-    if (!inputCB) {
-      if (type == NocTx::Type::Read) {
-        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+
+    mlir::IntegerType i32Type = nocBuilder.getI32Type();   // for 'scf' ops
+    mlir::IndexType indexType = nocBuilder.getIndexType(); // for 'memref' ops
+
+    auto entriesAttr = nocBuilder.getDenseI32ArrayAttr(entries);
+    auto tableType = MemRefType::get(
+        {static_cast<int32_t>(entries.size() / entrySize), entrySize}, i32Type,
+        AffineMap::getMultiDimIdentityMap(2, nocBuilder.getContext()));
+    auto tableOp = nocBuilder.create<ttkernel::NocTransactionsTableOp>(
+        loc, tableType, entriesAttr);
+
+    auto i32 = [&](int32_t value) {
+      return nocBuilder.create<arith::ConstantOp>(
+          loc, nocBuilder.getI32IntegerAttr(value));
+    };
+
+    auto index = [&](int64_t value) {
+      return nocBuilder.create<arith::ConstantOp>(
+          loc, nocBuilder.getIndexAttr(value));
+    };
+
+    auto coordWidth = i32(16);
+    auto coordMask = i32(0xFFFF);
+
+    auto loop = nocBuilder.create<scf::ForOp>(loc, i32(0),
+                                              i32(transactions.size()), i32(1));
+    nocBuilder.setInsertionPointToStart(loop.getBody());
+    {
+      // memref.load/store requires 'index'-typed indexing, but 'scf.for' can't
+      // use that, so make use of arith index casting:
+
+      auto entry = nocBuilder.create<arith::IndexCastOp>(
+          loc, indexType, loop.getInductionVar());
+
+      int32_t slot = 0;
+
+      std::array<Value, 2> vs{entry, index(slot++)};
+      auto dst = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+      vs[1] = index(slot++);
+      auto src = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+
+      vs[1] = index(slot++);
+      auto size = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+
+      vs[1] = index(slot++);
+      auto xy =
+          nocBuilder.create<memref::LoadOp>(loc, tableOp, vs)->getResult(0);
+
+      // split 'xy' into an <x,y> pair:
+
+      auto x = nocBuilder.create<arith::AndIOp>(loc, xy, coordMask);
+      auto y = nocBuilder.create<arith::ShRUIOp>(loc, xy, coordWidth);
+
+      // emit read/write op, bracketed by CB ops if needed:
+
+      auto rw = [&] {
+        switch (type) {
+        case NocTx::Type::Read: {
+          auto srcRemote =
+              nocBuilder.create<ttkernel::GetNocAddrXYOp>(loc, x, y, src)
+                  .getResult();
+          nocBuilder.create<ttkernel::NocAsyncReadOp>(loc, srcRemote, dst,
+                                                      size);
+        } break;
+        case NocTx::Type::Write: {
+          auto dstRemote =
+              nocBuilder.create<ttkernel::GetNocAddrXYOp>(loc, x, y, dst)
+                  .getResult();
+          nocBuilder.create<ttkernel::NocAsyncWriteOp>(loc, src, dstRemote,
+                                                       size);
+        } break;
+        }
+      };
+
+      if (!inputCB) {
+        rw();
       } else {
+        vs[1] = index(slot++);
+        auto numElements = nocBuilder.create<memref::LoadOp>(loc, tableOp, vs);
+        nocBuilder.create<ttkernel::CBReserveBackOp>(loc, *inputCB,
+                                                     numElements);
+        rw();
+        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+        nocBuilder.create<ttkernel::CBPushBackOp>(loc, *inputCB, numElements);
+      }
+    }
+    nocBuilder.setInsertionPointAfter(loop);
+
+    if (!inputCB) {
+      switch (type) {
+      case NocTx::Type::Read: {
+        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+      } break;
+      case NocTx::Type::Write: {
         nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+      } break;
       }
     }
   }
@@ -487,24 +545,9 @@ public:
     return failure();
   }
 };
+} // namespace
 
-class TTIRToTTMetalKernelRewriter : public OpRewritePattern<ttir::KernelOp> {
-public:
-  using OpRewritePattern<ttir::KernelOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::KernelOp op,
-                                PatternRewriter &rewriter) const final {
-    if (not op->use_empty()) {
-      return failure();
-    }
-    rewriter.create<ttkernel::BuiltinOp>(op.getLoc(), op.getOpAttr(),
-                                         op.getKindAttr(), op.getOperands());
-    op->dropAllUses();
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
+namespace {
 class TTIRToTTMetalEnqueueProgramRewriter
     : public OpRewritePattern<ttir::GenericOp> {
 public:
@@ -1810,8 +1853,10 @@ public:
 
     return success();
   }
-}; // namespace mlir::tt::ttmetal
+};
+} // namespace
 
+namespace {
 class TTIRToTTMetalAllocRewriter : public OpRewritePattern<ttir::AllocOp> {
 public:
   using OpRewritePattern<ttir::AllocOp>::OpRewritePattern;
@@ -1823,7 +1868,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTIRToTTMetalDeallocRewriter : public OpRewritePattern<ttir::DeallocOp> {
 public:
   using OpRewritePattern<ttir::DeallocOp>::OpRewritePattern;
@@ -1835,7 +1882,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTIRToTTMetalFillRewriter : public OpRewritePattern<ttir::FillOp> {
 public:
   using OpRewritePattern<ttir::FillOp>::OpRewritePattern;
@@ -1847,6 +1896,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttmetal
 

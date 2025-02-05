@@ -224,6 +224,7 @@ public:
       // If schedule is set, apply order of operations to func.
       //
       if (opSchedule[func].size() > 1) {
+
         for (size_t i = 0; i < opSchedule[func].size() - 1; i++) {
           Operation *op = opSchedule[func][i];
 
@@ -448,7 +449,8 @@ private:
           producerOpTensorShape, producerOpTensorType.getElementType(),
           producerOpLayout
               .withElementType(consumerOp->getContext(),
-                               consumerOpOutputLayout.getElementType())
+                               consumerOpOutputLayout.getElementType(),
+                               producerOpTensorShape)
               .withBufferType(consumerOp->getContext(),
                               consumerOpOutputLayout.getBufferType())
               .withMemoryLayout(consumerOp->getContext(),

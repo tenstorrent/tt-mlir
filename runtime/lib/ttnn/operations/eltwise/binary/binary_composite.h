@@ -16,6 +16,7 @@ inline bool isBinaryCompositeOp(const ::tt::target::ttnn::EltwiseOp *op) {
   case ::tt::target::ttnn::EltwiseOpType::Minimum:
   case ::tt::target::ttnn::EltwiseOpType::Remainder:
   case ::tt::target::ttnn::EltwiseOpType::Scatter:
+  case ::tt::target::ttnn::EltwiseOpType::Power:
     return true;
   default:
     return false;

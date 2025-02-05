@@ -11,6 +11,7 @@
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
+#include "operations/creation/zeros.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/permute.h"
 #include "operations/data_movement/repeat.h"
@@ -30,12 +31,15 @@
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
+#include "operations/layout/to_dtype.h"
 #include "operations/layout/to_layout.h"
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
+#include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
+#include "operations/pool/upsample.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
@@ -161,6 +165,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), context);
   }
+  case ::tt::target::ttnn::OpType::ToDTypeOp: {
+    return operations::layout::run(op->type_as_ToDTypeOp(), context);
+  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     return operations::layout::run(op->type_as_TypecastOp(), context);
   }
@@ -172,6 +179,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return operations::creation::run(op->type_as_EmptyOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ZerosOp: {
+    return operations::creation::run(op->type_as_ZerosOp(), context);
   }
   case ::tt::target::ttnn::OpType::OnesOp: {
     return operations::creation::run(op->type_as_OnesOp(), context);
@@ -190,6 +200,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
+  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
+    return operations::moreh::run(op->type_as_MorehCumSumOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ReductionProdOp: {
     return operations::reduction::run(op->type_as_ReductionProdOp(), context);
   }
@@ -257,6 +270,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     return operations::kv_cache::run(op->type_as_FillCacheOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    return operations::pool::run(op->type_as_UpsampleOp(), context);
   }
   default: {
     LOG_FATAL("Unsupported operation type");

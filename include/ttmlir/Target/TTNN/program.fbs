@@ -24,6 +24,12 @@ table ToLayoutOp {
   out: tt.target.TensorRef;
 }
 
+table ToDTypeOp {
+  in: tt.target.TensorRef;
+  dtype: tt.target.DataType;
+  out: tt.target.TensorRef;
+}
+
 table TypecastOp {
   in: tt.target.TensorRef;
   dtype: tt.target.DataType;
@@ -63,6 +69,15 @@ table EmptyOp {
   device: tt.target.DeviceRef;
   memcfg: tt.target.MemoryConfigDesc;
   strategy: tt.target.DistributionStrategy;
+  out: tt.target.TensorRef;
+}
+
+table ZerosOp {
+  shape: [int64];
+  dtype: DataType = null;
+  layout: TensorLayout = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
@@ -140,7 +155,8 @@ enum EltwiseOpType: uint32 {
   LeakyRelu,
   Scatter,
   Tan,
-  Tanh
+  Tanh,
+  Power
 }
 
 table ClampOpParams {
@@ -162,6 +178,13 @@ table EltwiseOp {
   ins: [tt.target.TensorRef];
   out: tt.target.TensorRef;
   params: EltwiseOpParams;
+}
+
+table MorehCumSumOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim: int64;
+  memcfg: tt.target.MemoryConfigDesc;
 }
 
 enum ReductionOpType: uint32 {
@@ -239,7 +262,7 @@ table ReshapeOp {
 table RepeatOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
-  shape: [uint32];
+  repeat_dims: [int64];
 }
 
 table SliceOp {
@@ -364,19 +387,43 @@ table MeshShardOp {
   shard_shape: [int64];
 }
 
+table UniformScale2D {
+  scale: int32;
+}
+
+table NonUniformScale2D {
+  scale: [int32];
+}
+
+union Scale2D {
+  UniformScale2D,
+  NonUniformScale2D,
+}
+
+table UpsampleOp {
+  in: tt.target.TensorRef;
+  scale_factor: Scale2D;
+  mode: string;
+  memory_config: MemoryConfigDesc;
+  out: tt.target.TensorRef;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
   ToLayoutOp,
+  ToDTypeOp,
   TypecastOp,
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
+  ZerosOp,
   OnesOp,
   FullOp,
   EltwiseOp,
   LinearOp,
   MatmulOp,
+  MorehCumSumOp,
   ReductionOp,
   ReductionProdOp,
   EmbeddingOp,
@@ -399,6 +446,7 @@ union OpType {
   FillCacheOp,
   PermuteOp,
   RepeatOp,
+  UpsampleOp,
 }
 
 table Operation {

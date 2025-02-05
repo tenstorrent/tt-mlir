@@ -83,7 +83,7 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unknown MemorySpace");
 }
 
-Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
+Type dataTypeToElementType(::mlir::MLIRContext *context, DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
     return FloatType::getF32(context);
@@ -104,11 +104,14 @@ Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
   case DataType::BFP_BFloat2:
     return FloatType::getBF16(context);
   case DataType::UInt32:
-    return IntegerType::get(context, 32);
+    return IntegerType::get(context, 32,
+                            IntegerType::SignednessSemantics::Unsigned);
   case DataType::UInt16:
-    return IntegerType::get(context, 16);
+    return IntegerType::get(context, 16,
+                            IntegerType::SignednessSemantics::Unsigned);
   case DataType::UInt8:
-    return IntegerType::get(context, 8);
+    return IntegerType::get(context, 8,
+                            IntegerType::SignednessSemantics::Unsigned);
   }
 }
 
@@ -124,10 +127,40 @@ createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
 RankedTensorType
 createRankedTensorTypeWithElementType(RankedTensorType tensorType,
                                       Type elementType) {
-  return RankedTensorType::get(tensorType.getShape(), elementType,
-                               tensorType.getEncoding());
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding = oldEncoding.withElementType(
+      tensorType.getContext(), elementType, tensorType.getShape());
+  Type newElementType = elementType;
+  if (TileType tileType = dyn_cast<TileType>(elementType)) {
+    newElementType = tileType.getElementType();
+  }
+  return RankedTensorType::get(tensorType.getShape(), newElementType,
+                               newEncoding);
 }
 
+// Helper method to create a RankedTensorType with the given buffer type.
+RankedTensorType
+createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
+                                     ttnn::BufferType bufferType) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding =
+      oldEncoding.withBufferType(tensorType.getContext(), bufferType);
+  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+}
+
+// Helper method to create a RankedTensorType with the given memory layout.
+RankedTensorType
+createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
+                                       ttnn::TensorMemoryLayout memoryLayout) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding =
+      oldEncoding.withMemoryLayout(tensorType.getContext(), memoryLayout);
+  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+}
+
+// Return the L1 memory usage of the output tensor of the given op.
+// Used within L1 interleaved policies.
+//
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
   // In case the opLayout is not in L1 memory space, L1 memory usage is 0.
   //
@@ -139,9 +172,8 @@ uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
 }
 
 // Helper method to get the tensor layout attribute from the value.
-TTNNLayoutAttr
-getLayoutAttrFromTensor(mlir::TypedValue<RankedTensorType> tensorValue) {
-  return mlir::cast<TTNNLayoutAttr>(tensorValue.getType().getEncoding());
+TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType) {
+  return mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 }
 
 // Helper method to get the element type for the given tensor layout and data.
@@ -150,7 +182,7 @@ Type getElementType(MLIRContext *context, Layout tensorLayout,
   return tensorLayout == Layout::Tile
              ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
                              dataType)
-             : ttnn::utils::createRowMajorTypeFromDtype(context, dataType);
+             : ttnn::utils::dataTypeToElementType(context, dataType);
 }
 
 } // namespace mlir::tt::ttnn::utils

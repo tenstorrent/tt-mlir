@@ -3,19 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
+
+#include "mlir/Dialect/Traits.h"
 
 #include <numeric>
 #include <optional>
-
-#include "mlir/Dialect/Traits.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "llvm/ADT/ArrayRef.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
@@ -244,6 +242,21 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// ToDTypeOp
+//===----------------------------------------------------------------------===//
+
+// ToDTypeOp folder
+::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
+
+  // If the input and output are same, fold to the input.
+  if (getType() == getInput().getType()) {
+    return getInput();
+  }
+
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 
@@ -412,19 +425,41 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::RepeatOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
+  llvm::ArrayRef<int64_t> repeatDims = getRepeatDims().getShape();
 
-  auto shape = getShape();
+  // Verify that the input tensor and repeat_dims argument have same rank.
+  if (inputType.getRank() != static_cast<int64_t>(repeatDims.size())) {
+    return emitOpError() << "Input tensor rank " << inputType.getRank()
+                         << " doesn't match the number of repeat dimensions "
+                         << repeatDims.size() << ".";
+  }
+
+  // Verify that the input and output tensor have same rank.
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError() << "Input tensor rank " << inputType.getRank()
+                         << " doesn't match the output tensor rank "
+                         << outputType.getRank() << ".";
+  }
+
+  // Verify expected output shape.
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
 
-  for (size_t i = 0; i < shape.size(); i++) {
-    uint32_t dimValue = mlir::cast<IntegerAttr>(shape[i]).getInt();
+  for (size_t i = 0; i < repeatDims.size(); i++) {
+    // Verify that the repeat dimension is greater than 0.
+    if (repeatDims[i] <= 0) {
+      return emitOpError() << "Repeat dimension at index " << i
+                           << " must be greater than 0.";
+    }
+
+    int64_t dimValue = repeatDims[i];
     if (inputShape[i] * dimValue != outputShape[i]) {
       return emitOpError() << "Input tensor shape ("
-                           << ttmlir::utils::join(inputShape, ",") << ") index "
-                           << i << " does not repeat to output ("
+                           << ttmlir::utils::join(inputShape, ",")
+                           << ") at index " << i
+                           << " does not repeat to output ("
                            << ttmlir::utils::join(outputShape, ",")
-                           << ") using repeat value " << dimValue;
+                           << ") using repeat value " << dimValue << ".";
     }
   }
 
@@ -936,7 +971,6 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
                                             broadcastedShape)) {
-
       return emitOpError("Batch dimensions of input A(" +
                          ttmlir::utils::join(inputABatchDims, ",") +
                          ") and B(" +
@@ -1526,13 +1560,84 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 }
 
 //===----------------------------------------------------------------------===//
+// UpsampleOp
+//===----------------------------------------------------------------------===//
+
+// UpsampleOp verification
+::mlir::LogicalResult UpsampleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+
+  // Input tensor is assumed to be 4D tensor.
+  if (inputType.getRank() != 4) {
+    return emitOpError("Expected rank of input tensor is 4, got rank " +
+                       std::to_string(inputType.getRank()));
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("Expected rank of output tensor is 4, got rank " +
+                       std::to_string(outputType.getRank()));
+  }
+
+  auto scaleFactor = ttmlir::utils::getPairOfInteger<int32_t>(getScaleFactor());
+  if (auto error = scaleFactor.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+  int32_t scaleH = scaleFactor->first;
+  int32_t scaleW = scaleFactor->second;
+
+  if (scaleH <= 0 || scaleW <= 0) {
+    return emitOpError("Scale factors H = ")
+           << scaleH << " and W = " << scaleW << " must be positive integers";
+  }
+
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  // Input tensor is assumed to be in NHWC format.
+  enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
+  if (inputShape[DIM_H] * scaleH != outputShape[DIM_H]) {
+    return emitOpError("Expected output H dimension to be input H dimension * "
+                       "scaleH = ")
+           << (inputShape[DIM_H] * scaleH) << ", got " << outputShape[DIM_H];
+  }
+  if (inputShape[DIM_W] * scaleW != outputShape[DIM_W]) {
+    return emitOpError("Expected output W dimension to be input W dimension * "
+                       "scaleW = ")
+           << (inputShape[DIM_W] * scaleW) << ", got " << outputShape[DIM_W];
+  }
+  if (inputShape[DIM_N] != outputShape[DIM_N]) {
+    return emitOpError("Expected output N dimension to be ")
+           << inputShape[DIM_N] << ", got " << outputShape[DIM_N];
+  }
+  if (inputShape[DIM_C] != outputShape[DIM_C]) {
+    return emitOpError("Expected output C dimension to be ")
+           << inputShape[DIM_C] << ", got " << outputShape[DIM_C];
+  }
+
+  // Verify that the mode attribute is one of the legal modes. These two modes
+  // are currently only supported modes in TTNN.
+  llvm::SmallVector<llvm::StringRef> legalModes = {"nearest", "bilinear"};
+  if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
+      legalModes.end()) {
+    return emitOpError("Expected modes are (")
+           << llvm::join(legalModes, ", ") << "), got \"" << getMode() << "\"";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Reduction ops
 //===----------------------------------------------------------------------===//
 
 // Common verifier for all Reduction ops.
 static mlir::LogicalResult
 verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
-               const std::optional<mlir::ArrayAttr> &reduceDims) {
+               const std::optional<mlir::ArrayAttr> &reduceDims, bool keepDim,
+               ::llvm::ArrayRef<int64_t> specifiedOutputShape) {
+  if (!reduceDims) {
+    return mlir::success();
+  }
+
   int64_t inputTensorRank = inputType.getRank();
 
   // TODO(mrakita): Only last two dimensions can be reduced, check for that
@@ -1541,6 +1646,42 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
       static_cast<int64_t>(reduceDims->size()) != inputTensorRank) {
     return reduceOp->emitOpError("Reduce on more than two dimensions is not "
                                  "currently supported by TTNN");
+  }
+
+  // Calculate output shape for given args.
+  //
+  llvm::SmallVector<int64_t> calculatedOutputShape;
+  for (int64_t i = 0; i < inputType.getRank(); ++i) {
+    bool isDimInReduceDims =
+        llvm::any_of(*reduceDims, [i, inputTensorRank](mlir::Attribute attr) {
+          int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(attr).getInt();
+          // Check for match even if negative dim is used.
+          //
+          return reduceDim == i || (reduceDim + inputTensorRank) == i;
+        });
+
+    // If dim is being reduced on, the dim will have size of 1 if keepDim==true,
+    // otherwise the dim is erased.
+    //
+    if (!isDimInReduceDims) {
+      calculatedOutputShape.push_back(inputType.getDimSize(i));
+    } else if (keepDim) {
+      calculatedOutputShape.push_back(1);
+    }
+  }
+
+  // Cover edge case where all dims are reduced, and keepDim==false.
+  if (calculatedOutputShape.size() == 0 && keepDim == false) {
+    calculatedOutputShape.push_back(1);
+  }
+
+  // Finally, compare shapes.
+  //
+  if (!llvm::equal(specifiedOutputShape, calculatedOutputShape)) {
+    return reduceOp->emitOpError(
+        "Expected output shape (" +
+        ttmlir::utils::join(specifiedOutputShape, ", ") + "), got (" +
+        ttmlir::utils::join(calculatedOutputShape, ", ") + ")");
   }
 
   return mlir::success();
@@ -1574,7 +1715,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MaxOp verification.
 ::mlir::LogicalResult MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
+                        getKeepDim(), getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1583,7 +1725,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MeanOp verification.
 ::mlir::LogicalResult MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
+                        getKeepDim(), getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1592,7 +1735,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // SumOp verification.
 ::mlir::LogicalResult SumOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
+                        getKeepDim(), getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1601,7 +1745,8 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MinOp verification.
 ::mlir::LogicalResult MinOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
+                        getKeepDim(), getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//

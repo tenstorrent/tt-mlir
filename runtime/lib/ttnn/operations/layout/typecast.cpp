@@ -18,13 +18,7 @@ void run(const ::tt::target::ttnn::TypecastOp *op, ProgramContext &context) {
   ::ttnn::DataType targetDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
 
-  ::ttnn::Tensor out;
-  if (workaround::Env::get().toDtypeOnHost &&
-      ::tt::runtime::ttnn::utils::isOnHost(inputTensor.storage_type())) {
-    out = ::ttnn::to_dtype(inputTensor, targetDataType);
-  } else {
-    out = ::ttnn::typecast(inputTensor, targetDataType);
-  }
+  ::ttnn::Tensor out = ::ttnn::typecast(inputTensor, targetDataType);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

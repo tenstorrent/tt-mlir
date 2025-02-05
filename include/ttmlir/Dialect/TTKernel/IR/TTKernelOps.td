@@ -479,6 +479,16 @@ def TTKernel_GetNocAddrXYOp : TTKernel_Op<"get_noc_addr_xy"> {
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
+def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
+    let summary = "GetNocAddrFromBankID";
+    let description = [{
+      GetNocAddrFromBankID api
+    }];
+
+    let arguments = (ins I32:$bank_id, I32:$bankAddressOffset);
+    let results = (outs TTKernel_NocAddr:$nocAddr);
+}
+
 def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
     let summary = "GetNocAddr";
     let description = [{
@@ -647,6 +657,23 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
                          BoolAttr:$multicast_path_reserve);
 }
 
+def TTKernel_NocTransactionsTableOp : TTKernel_Op<"noc_transactions_table"> {
+    let summary = [{define an array of parameter entries for a sequence of NOC
+     read/write operations
+    }];
+    let description = [{
+      Encapsulates parameters for a group of NOC read/write operations as
+      an array of (dst, src, size, dst_x, dst_y, numElements) entries, with
+      each entry slot of type int32_t.
+      An entry defines an src->dst data movement operation and as either
+      a read (remote src, local dst) or a write (local src, remote dst) by
+      the calling core.
+    }];
+
+    let arguments = (ins DenseI32ArrayAttr:$entries);
+    let results = (outs AnyStaticShapeMemRef:$table);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
@@ -655,6 +682,17 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     let summary = "Get runtime arg value.";
     let description = [{
       Get runtime argument value at specified index.
+    }];
+
+    let arguments = (ins I32:$arg_index);
+
+    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+}
+
+def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
+    let summary = "Get compile-time arg value.";
+    let description = [{
+      Get compile-time argument value at specified index.
     }];
 
     let arguments = (ins I32:$arg_index);
@@ -752,19 +790,6 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
 // TTKernel Misc operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_BuiltinOp : TTKernel_Op<"builtin"> {
-    let summary = "Builtin call.";
-    let description = [{
-      Kernel operation
-    }];
-
-    let arguments = (ins FlatSymbolRefAttr:$op,
-                         FlatSymbolRefAttr:$kind,
-                         Variadic<AnyMemRefOrCB>:$args);
-
-    let hasVerifier = 1;
-}
-
 def TTKernel_ReturnOp : TTKernel_Op<"return", [Pure, ReturnLike, Terminator]> {
     let summary = "Return op.";
     let description = [{
@@ -808,5 +833,25 @@ def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
     let arguments = (ins TTKernel_CB:$cb);
     let results = (outs I32:$writePtr);
 }
+
+def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
+    let summary = "GetReadPtr";
+    let description = [{
+      GetReadPtr operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs I32:$readPtr);
+}
+
+def TTKernel_GetTileSizeOp : TTKernel_Op<"get_tile_size"> {
+    let summary = "Get the tile size in bytes of a given CB";
+    let description = [{
+      get_tile_size operation
+    }];
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs I32:$tileSizeBytes);
+}
+
 
 #endif

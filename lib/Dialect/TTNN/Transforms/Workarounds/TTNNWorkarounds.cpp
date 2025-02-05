@@ -8,7 +8,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -78,7 +80,8 @@ static bool workaroundInputOperand(
   // input operand.
   auto inputValue =
       mlir::cast<mlir::TypedValue<RankedTensorType>>(inputOperand.get());
-  TTNNLayoutAttr inputLayoutAttr = utils::getLayoutAttrFromTensor(inputValue);
+  TTNNLayoutAttr inputLayoutAttr =
+      utils::getLayoutAttrFromTensor(inputValue.getType());
 
   // Apply the workarounds on the input operand workaround arguments
   wa::WorkaroundResults inputWorkaroundResults =
@@ -124,7 +127,8 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
                         wa::TTNNWorkaroundInterface op) {
   // Get the current output tensor layout, buffer type and memory layout from
   // the input operand.
-  TTNNLayoutAttr opResultLayoutAttr = utils::getLayoutAttrFromTensor(opResult);
+  TTNNLayoutAttr opResultLayoutAttr =
+      utils::getLayoutAttrFromTensor(opResult.getType());
 
   // Apply the workarounds on the output result workaround arguments
   wa::WorkaroundResults outputWorkaroundResults =
@@ -156,7 +160,9 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   // Create the new output layout attribute with the updated tensor layout,
   // buffer type, memory layout and data type.
   TTNNLayoutAttr newOutputLayoutAttr =
-      opResultLayoutAttr.withElementType(rewriter.getContext(), elementType)
+      opResultLayoutAttr
+          .withElementType(rewriter.getContext(), elementType,
+                           opResultType.getShape())
           .withBufferType(
               rewriter.getContext(),
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
@@ -167,7 +173,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       ttnn::utils::createRankedTensorTypeWithEncoding(
           ttnn::utils::createRankedTensorTypeWithElementType(
               opResultType,
-              ttnn::utils::createRowMajorTypeFromDtype(
+              ttnn::utils::dataTypeToElementType(
                   rewriter.getContext(),
                   outputWorkaroundResults.tensorDataTypeResult.targetValue)),
           newOutputLayoutAttr);
@@ -434,10 +440,18 @@ public:
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
                        ttnn::MeanOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
-                       ttnn::MinOp>>(&getContext());
+                       ttnn::MinOp>,
+                   workarounds::decomposition::CumSumOpRewritePattern>(
+          &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
+    }
+    if (repeatFoldingWorkaroundEnabled) {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<workarounds::decomposition::TTNNRepeatFoldingWorkaround>(
+          &getContext());
+      runRewritePatterns(std::move(patterns), GreedyRewriteConfig::kNoLimit);
     }
     if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());

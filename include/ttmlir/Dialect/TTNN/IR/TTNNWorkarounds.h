@@ -11,6 +11,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <mlir/IR/BuiltinTypes.h>
 #include <optional>
 
 namespace mlir::tt::ttnn::wa {
@@ -221,6 +222,18 @@ public:
 
   // Create workarounds for embedding backward op operands.
   static TTNNOperandsWorkarounds createEmbeddingBackwardOpOperandsWorkarounds();
+
+  // Create workarounds for upsample op operands.
+  static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
+
+  static TTNNOperandsWorkarounds
+  createCumSumOpOperandsWorkarounds(RankedTensorType inputType);
+
+  // Create workarounds for full op operands.
+  static TTNNOperandsWorkarounds createFullOpOperandsWorkarounds();
+
+  // Create workarounds for mesh shard op operands.
+  static TTNNOperandsWorkarounds createMeshShardOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

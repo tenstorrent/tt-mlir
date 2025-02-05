@@ -415,14 +415,15 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
 //
 // param context The MLIR context.
 // param elementType The new element type.
+// param tensorShape The shape of the tensor.
+// param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
 // return The new TTNNLayoutAttr with the given element type.
-TTNNLayoutAttr TTNNLayoutAttr::withElementType(::mlir::MLIRContext *context,
-                                               Type elementType) {
-  return TTNNLayoutAttr::get(
-      context, getLinear(), getGrid(),
-      buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
-                                              elementType, getBufferType()),
-      getMemLayout());
+TTNNLayoutAttr TTNNLayoutAttr::withElementType(
+    ::mlir::MLIRContext *context, Type elementType,
+    ArrayRef<int64_t> tensorShape,
+    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+  return TTNNLayoutAttr::get(context, tensorShape, elementType, getBufferType(),
+                             getGrid(), getMemLayout(), collapseIntervals);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -435,11 +436,20 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(::mlir::MLIRContext *context,
 // return The new TTNNLayoutAttr with the given memory space.
 TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
                                               BufferType memorySpace) {
+  TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
+  tt::GridAttr grid = getGrid();
+
+  // For SystemMemory we need to clear memory layout attribute
+  if (memorySpace == BufferType::SystemMemory) {
+    memLayoutAttr = TensorMemoryLayoutAttr{};
+    grid = tt::GridAttr::get(context, grid.getShape().size());
+  }
+
   return TTNNLayoutAttr::get(
-      context, getLinear(), getGrid(),
+      context, getLinear(), grid,
       buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
                                               getElementType(), memorySpace),
-      getMemLayout());
+      memLayoutAttr);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -529,6 +539,11 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     Type elementType, BufferType bufferType, GridAttr grid,
     TensorMemoryLayoutAttr memLayoutAttr,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+
+  // TensorMemoryLayout for SystemMemory is always null
+  if (bufferType == BufferType::SystemMemory) {
+    memLayoutAttr = nullptr;
+  }
 
   // Construct a new affine map which will be used to map from logical
   // space to physical space.

@@ -10,8 +10,8 @@
 /include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 /include/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
 /include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
-/include/ttmlir/Dialect/TTKernel/ @nsmithtt @rjakovljevicTT
-/include/ttmlir/Dialect/TTMetal/ @nsmithtt
+/include/ttmlir/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
+/include/ttmlir/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
 /include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 /include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /include/ttmlir/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
@@ -19,8 +19,8 @@
 /lib/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 /lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
 /lib/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
-/lib/Dialect/TTKernel/ @nsmithtt @rjakovljevicTT
-/lib/Dialect/TTMetal/ @nsmithtt
+/lib/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
+/lib/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
 /lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
 /lib/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /lib/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT

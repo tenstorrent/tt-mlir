@@ -117,8 +117,8 @@ bool LegalLayoutAnalysis::applyOverrides() {
   // Create element type for the new layout.
   Type elementType = layout.getScalarElementType();
   if (layoutOverride.dataType.has_value()) {
-    elementType = utils::createRowMajorTypeFromDtype(
-        op->getContext(), layoutOverride.dataType.value());
+    elementType = utils::dataTypeToElementType(op->getContext(),
+                                               layoutOverride.dataType.value());
   }
 
   if (layoutOverride.memoryLayout == Layout::Tile) {
@@ -201,7 +201,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
         overrideIt != analysisInput.outputLayoutOverrides->end()) {
       override = overrideIt->getValue();
       if (override->dataType.has_value()) {
-        scalarElementType = {utils::createRowMajorTypeFromDtype(
+        scalarElementType = {utils::dataTypeToElementType(
             op->getContext(), override->dataType.value())};
       }
     }
@@ -244,7 +244,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
         layout.withBufferType(op->getContext(), BufferType::L1)
             .withMemoryLayout(op->getContext(),
                               TensorMemoryLayout::BlockSharded)
-            .withElementType(op->getContext(), elementType);
+            .withElementType(op->getContext(), elementType, tensorShape);
 
     assert(analysisInput.maxGrid.getShape().size() == 2 &&
            "Max device grid is expected to be 2D.");

@@ -22,7 +22,7 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
     // CHECK-SAME: dtype = #tt.supportedDataTypes<u32>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <<32x32>>, <interleaved>>
-    // CHECK-SAME: -> tensor<32x32xi32
+    // CHECK-SAME: -> tensor<32x32xui32
     // Check that the data type of the weight operand is transformed in bf16.
     // CHECK-NEXT: %[[TO_LAYOUT_WEIGHTS:.*]] = "ttnn.to_layout"
     // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>

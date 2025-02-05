@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
-
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -14,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -35,7 +35,6 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-
 class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
 public:
@@ -90,7 +89,75 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
+class ZerosOpConversionPattern : public OpConversionPattern<ttir::ZerosOp> {
+public:
+  using OpConversionPattern<ttir::ZerosOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ZerosOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get ttnn::TTNNLayoutAttr of the result type
+    //
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+
+    // Get the shape of tensor
+    //
+    // TODO(svuckovic): (#1435) ShapeAttr accepts int64_t, when it should be
+    // uint32_t
+    //
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), llvm::SmallVector<int64_t, 4>(
+                                   op.getShape().begin(), op.getShape().end()));
+
+    // Get memref
+    //
+    mlir::MemRefType memref = layoutAttr.getMemref();
+
+    // Get data type, tensor layout, device and memory config
+    //
+    DataTypeAttr dTypeAttr =
+        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+    ttnn::BufferType bufferType = layoutAttr.getBufferType();
+    ttnn::Layout ttnnLayoutEnum = llvm::isa<TileType>(memref.getElementType())
+                                      ? ttnn::Layout::Tile
+                                      : ttnn::Layout::RowMajor;
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
+
+    // Device only exists if memLayout is *not* null
+    //
+    auto device =
+        memLayout ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+                  : nullptr;
+
+    // MemoryConfigAttr only exists if memLayout is *not* null
+    //
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        memLayout
+            ? ttnn::MemoryConfigAttr::get(
+                  op.getContext(),
+                  ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+                  ttnn::ShardSpecAttr::get(
+                      op.getContext(),
+                      ttnn::ShapeAttr::get(op.getContext(), memref.getShape())),
+                  memLayout)
+            : nullptr;
+
+    rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class OnesOpConversionPattern : public OpConversionPattern<ttir::OnesOp> {
 public:
   using OpConversionPattern<ttir::OnesOp>::OpConversionPattern;
@@ -154,7 +221,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
 public:
@@ -172,6 +241,9 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
+    assert(mlir::isa<mlir::RankedTensorType>(adaptor.getInput().getType()) &&
+           "Expected RankedTensorType for ToLayoutOp input");
+
     auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
@@ -188,32 +260,6 @@ public:
     bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
 
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType());
-    if (!isOutputOnHost) {
-      // TODO(bug #665):
-      // Binary ops fail with row major layout in ttnn, defaulting to and
-      // assuming tile layout for all device tensors...
-      // Note: mlir doesn't know about this, so tensors may still appear as row
-      // major in the generated mlir
-      // TODO(bug #875):
-      // Remove the following code block once constraints modelling is
-      // implemented on dialect level
-      //
-      // Default to Tile layout unless op supports only RowMajor layout
-      //
-      ttnn::Layout newOutputLayoutEnum =
-          shouldForceRowMajor(op) ? ttnn::Layout::RowMajor : ttnn::Layout::Tile;
-
-      // If the layout of the output tensor changed as a result of forcing the
-      // layout update the tensor type
-      if (outputLayoutEnum != newOutputLayoutEnum) {
-        result =
-            getLayoutForcedResultTensor(rewriter, result, newOutputLayoutEnum);
-        op.getResult().setType(result);
-        outputLayoutAttr =
-            mlir::cast<ttnn::TTNNLayoutAttr>(result.getEncoding());
-        outputLayoutEnum = newOutputLayoutEnum;
-      }
-    }
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
@@ -237,65 +283,10 @@ public:
 
     return success();
   }
-
-private:
-  bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
-    // Check if the output tensor is used by an op that only supports row major.
-    for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  RankedTensorType
-  getLayoutForcedResultTensor(ConversionPatternRewriter &rewriter,
-                              RankedTensorType oldOutput,
-                              ttnn::Layout newOutputLayoutEnum) const {
-    auto oldOutputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(oldOutput.getEncoding());
-    DataType outputDtype = oldOutputLayoutAttr.getDataType();
-    SmallVector<std::int64_t> oldShardShape =
-        oldOutputLayoutAttr.getShardShape();
-    size_t shardShapeSize = oldShardShape.size();
-    assert(shardShapeSize >= 2 && "expected at least 2D shape");
-
-    if (newOutputLayoutEnum == ttnn::Layout::RowMajor) {
-      // Set shard shape to match convention of row major layout
-      auto tileType =
-          mlir::cast<TileType>(oldOutputLayoutAttr.getElementType());
-      llvm::SmallVector<int64_t> newShardShape(oldShardShape.begin(),
-                                               oldShardShape.end());
-      newShardShape[shardShapeSize - 2] =
-          oldShardShape[shardShapeSize - 2] * tileType.getHeight();
-      newShardShape[shardShapeSize - 1] =
-          oldShardShape[shardShapeSize - 1] * tileType.getWidth();
-      Type newElementType = ttnn::utils::createRowMajorTypeFromDtype(
-          rewriter.getContext(), outputDtype);
-      RankedTensorType result = RankedTensorType::get(
-          oldOutput.getShape(), oldOutput.getElementType(),
-          oldOutputLayoutAttr
-              .withElementType(rewriter.getContext(), newElementType)
-              .withShardShape(rewriter.getContext(), newShardShape));
-      return result;
-    }
-
-    if (newOutputLayoutEnum == ttnn::Layout::Tile) {
-      TileType tileType =
-          TileType::get(rewriter.getContext(),
-                        {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, outputDtype);
-      RankedTensorType result = RankedTensorType::get(
-          oldOutput.getShape(), oldOutput.getElementType(),
-          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType));
-      return result;
-    }
-
-    llvm_unreachable("Unreachable code path. Unexpected output layout enum");
-  }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -316,7 +307,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ReductionOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -333,7 +326,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ReductionProdOpConversionPattern
     : public OpConversionPattern<ttir::ProdOp> {
 public:
@@ -367,7 +362,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class EmbeddingOpConversionPattern
     : public OpConversionPattern<ttir::EmbeddingOp> {
 public:
@@ -383,7 +380,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class EmbeddingBackwardOpConversionPattern
     : public OpConversionPattern<ttir::EmbeddingBackwardOp> {
 public:
@@ -436,7 +435,25 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
+class CumSumOpConversionPattern : public OpConversionPattern<ttir::CumSumOp> {
+public:
+  using OpConversionPattern<ttir::CumSumOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumSumOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::MorehCumSumOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getDim(), adaptor.getOutput(), nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class RepeatInterleaveOpConversionPattern
     : public OpConversionPattern<ttir::RepeatInterleaveOp> {
 public:
@@ -452,7 +469,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SoftmaxOpConversionPattern : public OpConversionPattern<ttir::SoftmaxOp> {
 public:
   using OpConversionPattern<ttir::SoftmaxOp>::OpConversionPattern;
@@ -466,7 +485,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TransposeOpConversionPattern
     : public OpConversionPattern<ttir::TransposeOp> {
 public:
@@ -481,7 +502,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ClampOpConversionPattern : public OpConversionPattern<ttir::ClampOp> {
 public:
   using OpConversionPattern<ttir::ClampOp>::OpConversionPattern;
@@ -495,7 +518,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class UpdateCacheOpConversionPattern
     : public OpConversionPattern<ttir::UpdateCacheOp> {
 public:
@@ -531,7 +556,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class FillCacheOpConversionPattern
     : public OpConversionPattern<ttir::FillCacheOp> {
 public:
@@ -567,7 +594,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseUnaryWithFloatParameterOpConversionPattern
@@ -584,7 +613,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConcatOpConversionPattern : public OpConversionPattern<ttir::ConcatOp> {
 public:
   using OpConversionPattern<ttir::ConcatOp>::OpConversionPattern;
@@ -603,7 +634,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ReshapeOpConversionPattern : public OpConversionPattern<ttir::ReshapeOp> {
 public:
   using OpConversionPattern<ttir::ReshapeOp>::OpConversionPattern;
@@ -617,7 +650,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
 public:
   using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
@@ -632,7 +667,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SqueezeOpConversionPattern : public OpConversionPattern<ttir::SqueezeOp> {
 public:
   using OpConversionPattern<ttir::SqueezeOp>::OpConversionPattern;
@@ -674,7 +711,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class BroadcastOpConversionPattern
     : public OpConversionPattern<ttir::BroadcastOp> {
   using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
@@ -684,16 +723,37 @@ public:
   matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto shapeAttr = adaptor.getBroadcastDimensionsAttr();
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), op.getBroadcastDimensions());
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), rewriter.getI32ArrayAttr(shapeAttr));
+        adaptor.getInput(), shapeAttr);
 
     return success();
   }
 };
 
+class RepeatOpConversionPattern : public OpConversionPattern<ttir::RepeatOp> {
+  using OpConversionPattern<ttir::RepeatOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::RepeatOp op, ttir::RepeatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn::ShapeAttr repeatDimensionsAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), op.getRepeatDimensions());
+
+    rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), repeatDimensionsAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class UnsqueezeOpConversionPattern
     : public OpConversionPattern<ttir::UnsqueezeOp> {
 public:
@@ -741,7 +801,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConstantOpConversionPattern
     : public OpConversionPattern<ttir::ConstantOp> {
 public:
@@ -818,7 +880,9 @@ private:
     assert(false && "Unsupported integer type.");
   }
 };
+} // namespace
 
+namespace {
 class LinearOpConversionPattern : public OpConversionPattern<ttir::LinearOp> {
 public:
   using OpConversionPattern<ttir::LinearOp>::OpConversionPattern;
@@ -832,8 +896,10 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
+namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
 public:
   using OpConversionPattern<ttir::MatmulOp>::OpConversionPattern;
@@ -847,8 +913,10 @@ public:
     return success();
   }
 };
+} // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
+namespace {
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -941,7 +1009,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ConvTranspose2dOpConversionPattern
     : public OpConversionPattern<ttir::ConvTranspose2dOp> {
 public:
@@ -1040,7 +1110,9 @@ private:
     return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
   }
 };
+} // namespace
 
+namespace {
 class MaxPool2dOpConversionPattern
     : public OpConversionPattern<ttir::MaxPool2dOp> {
 public:
@@ -1109,7 +1181,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TypecastOpConversionPattern
     : public OpConversionPattern<ttir::TypecastOp> {
   using OpConversionPattern<ttir::TypecastOp>::OpConversionPattern;
@@ -1135,7 +1209,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class SubtractOpConversionPattern
     : public OpConversionPattern<ttir::SubtractOp> {
   using OpConversionPattern<ttir::SubtractOp>::OpConversionPattern;
@@ -1175,7 +1251,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class AllReduceOpConversionPattern
     : public OpConversionPattern<ttir::AllReduceOp> {
 public:
@@ -1200,7 +1278,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class MeshShardOpConversionPattern
     : public OpConversionPattern<ttir::MeshShardOp> {
 public:
@@ -1219,7 +1299,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class AllGatherOpConversionPattern
     : public OpConversionPattern<ttir::AllGatherOp> {
 public:
@@ -1236,7 +1318,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ArangeOpConversionPattern : public OpConversionPattern<ttir::ArangeOp> {
 public:
   using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
@@ -1275,7 +1359,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
 public:
   using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
@@ -1291,7 +1377,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
 public:
   using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
@@ -1307,7 +1395,25 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
+class UpsampleOpConversionPattern
+    : public OpConversionPattern<ttir::Upsample2dOp> {
+public:
+  using OpConversionPattern<ttir::Upsample2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Upsample2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::UpsampleOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getScaleFactor(), adaptor.getMode(),
+        ttnn::MemoryConfigAttr());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -1318,6 +1424,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // ANCHOR: op_rewriter_pattern_set
   patterns
       .add<TensorEmptyConversionPattern,
+           ZerosOpConversionPattern,
            OnesOpConversionPattern,
            ToLayoutOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
@@ -1362,6 +1469,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::WhereOp, ttnn::WhereOp>,
            ElementwiseOpConversionPattern<ttir::TanOp, ttnn::TanOp>,
            ElementwiseOpConversionPattern<ttir::TanhOp, ttnn::TanhOp>,
+           ElementwiseOpConversionPattern<ttir::PowerOp, ttnn::PowerOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
@@ -1371,6 +1479,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
+           RepeatOpConversionPattern,
+           CumSumOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
@@ -1395,7 +1505,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
-           PermuteOpConversionPattern
+           PermuteOpConversionPattern,
+           UpsampleOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

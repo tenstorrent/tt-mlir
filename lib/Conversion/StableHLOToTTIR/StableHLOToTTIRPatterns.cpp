@@ -34,7 +34,6 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
 class StableHLOToTTIROpDefaultConversionPattern
@@ -58,7 +57,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReduceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceOp> {
 
@@ -92,6 +93,10 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::ProdOp>(srcOp, adaptor,
                                                              rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
+          srcOp, adaptor, rewriter);
+    }
 
     return failure();
   }
@@ -110,6 +115,20 @@ private:
       return rewriter.notifyMatchFailure(
           srcOp,
           "Expecting StableHLO Reduce OP to have a body operation defined.");
+    }
+
+    mlir::Operation &innerOp = srcOp.getBody().front().front();
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+      bool allOperandsAreBoolean = std::all_of(
+          srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
+            return mlir::cast<RankedTensorType>(operand.getType())
+                       .getElementTypeBitWidth() == 1;
+          });
+      if (!allOperandsAreBoolean) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "stablehlo.reduce for stablehlo.and operator is only "
+                   "supported for logical and.");
+      }
     }
 
     return success();
@@ -136,7 +155,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRDotGeneralOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
   using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
@@ -161,7 +182,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRTransposeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::TransposeOp> {
   using OpConversionPattern<mlir::stablehlo::TransposeOp>::OpConversionPattern;
@@ -182,7 +205,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReshapeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReshapeOp> {
   using OpConversionPattern<mlir::stablehlo::ReshapeOp>::OpConversionPattern;
@@ -208,7 +233,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRGetDimensionSizeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::GetDimensionSizeOp> {
 
@@ -232,7 +259,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRConstantOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConstantOp> {
 
@@ -374,7 +403,9 @@ private:
     return mlir::DenseElementsAttr::get(valueType, IntegerValue);
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRConvolutionOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConvolutionOp> {
   using OpConversionPattern<
@@ -443,7 +474,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReduceWindowOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceWindowOp> {
   using OpConversionPattern<
@@ -535,14 +568,16 @@ public:
                        SmallVector<int64_t>(windowDimensions.size() * 2, 0));
 
     mlir::tt::ttir::PoolingMethod poolingMethod;
+    int64_t dimension = -1;
     if (isMaxPool(srcOp)) {
       poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
+    } else if (isCumSum(srcOp, adaptor, dimension)) {
+      rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
+          srcOp, outputType, adaptor.getInputs()[0],
+          rewriter.getI64IntegerAttr(dimension), outputs[0]);
+      return success();
     } else {
       return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
-    }
-
-    for (Value initValue : adaptor.getInitValues()) {
-      eraseInitValueSubgraph(rewriter, initValue.getDefiningOp());
     }
 
     rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
@@ -554,32 +589,206 @@ public:
   }
 
 private:
-  void eraseInitValueSubgraph(ConversionPatternRewriter &rewriter,
-                              Operation *op) const {
+  // This function verify all the required conditions to convert stablehlo
+  // reduce_window op to TTIR cumsum op and also determine the dimension
+  // attribute along which the cumulative sum will be computed.
+  // The reduce_window op must satisfy the following conditions.
+  // 1. One input / one output, one block in body and two ops with in block.
+  // 2. Ops in the block must be 'add' and 'return'.
+  // 3. InitValue must be zero.
+  // 4. There are no strides or dilations for window-related attributes.
+  // 5. The size of padding attribute is equal to two times input tensor rank.
+  // 6. Padding value must be zero in case of splat vector. Window dimension
+  //    attribute must have all elements equal to one in this case.
+  // 7. Padding attribute have one non-zero element in case of non-splat vector
+  //    and this non-zero element must be equal to size of specified dimension
+  //    minus one.
+  // The dimension attribute is determined in following two ways.
+  // 1. (If padding is splat vector): First dimension in the input tensor shape,
+  //    whose size is 1, is the required dimension.
+  // 2. (If padding is non-splat vector): Window dimension attribute must have
+  //    all elements equal to 1 except one; whose location is the required
+  //    dimension and value must be qual to size of the required dimension.
+  bool isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
+                mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+                int64_t &dimension) const {
 
-    std::vector<Operation *> opsToErase;
-    opsToErase.push_back(op);
+    // Check basic structure of the ReduceWindowOp
+    if (!hasValidOpStructure(srcOp)) {
+      return false;
+    }
 
-    bool addedOps = true;
-    while (addedOps) {
-      addedOps = false;
-      Operation *currentOp = opsToErase.back();
+    // Verify operations in the block
+    if (!hasValidOperationsInBlock(srcOp)) {
+      return false;
+    }
 
-      for (auto &operand : currentOp->getOpOperands()) {
-        Operation *definingOp = operand.get().getDefiningOp();
-        if (definingOp->hasOneUse() || definingOp->use_empty()) {
-          addedOps = true;
-          opsToErase.push_back(definingOp);
+    // Check init values
+    if (!hasValidInitValues(srcOp)) {
+      return false;
+    }
+
+    // Verify window-related attributes (strides, dilations)
+    if (!hasValidWindowAttributes(adaptor)) {
+      return false;
+    }
+
+    // Check input tensor type and padding
+    if (!hasValidInputAndPadding(srcOp, adaptor, dimension)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // validate basic structure of the ReduceWindowOp.
+  bool hasValidOpStructure(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    if (srcOp.getBody().getBlocks().size() != 1 ||
+        srcOp.getBody().getBlocks().begin()->getOperations().size() != 2) {
+      return false;
+    }
+    if (srcOp.getInputs().size() != 1 || srcOp->getResults().size() != 1) {
+      return false;
+    }
+    return true;
+  }
+
+  // Check init values (must be constant and zero).
+  bool hasValidInitValues(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    for (auto initValue : srcOp.getInitValues()) {
+      auto *defOp = initValue.getDefiningOp();
+      while (defOp->getOpOperands().size() == 1) {
+        defOp = defOp->getOpOperand(0).get().getDefiningOp();
+      }
+      if (!isa<stablehlo::ConstantOp>(defOp)) {
+        return false;
+      }
+      stablehlo::ConstantOp initValueOp =
+          mlir::cast<stablehlo::ConstantOp>(defOp);
+      if (!checkInitValue(initValueOp, TypicalInitReductionValue::ZERO)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Verify operations inside the block (AddOp followed by ReturnOp).
+  bool hasValidOperationsInBlock(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+    Block &block = *srcOp.getBody().getBlocks().begin();
+    auto &operations = block.getOperations();
+    if (!isa<mlir::stablehlo::AddOp>(operations.front())) {
+      return false;
+    }
+    if (!isa<mlir::stablehlo::ReturnOp>(operations.back())) {
+      return false;
+    }
+    return true;
+  }
+
+  // Verify that window attributes (strides, dilations) are all set to 1.
+  bool hasValidWindowAttributes(
+      mlir::stablehlo::ReduceWindowOp::Adaptor adaptor) const {
+    auto verifyAttributes = [](mlir::DenseI64ArrayAttr arrAttr) -> bool {
+      if (!arrAttr) {
+        return true;
+      }
+      return std::all_of(arrAttr.asArrayRef().begin(),
+                         arrAttr.asArrayRef().end(),
+                         [](int value) { return value == 1; });
+    };
+    return verifyAttributes(adaptor.getWindowStridesAttr()) &&
+           verifyAttributes(adaptor.getBaseDilationsAttr()) &&
+           verifyAttributes(adaptor.getWindowDilationsAttr());
+  }
+
+  // Check input tensor type and validate padding.
+  bool hasValidInputAndPadding(mlir::stablehlo::ReduceWindowOp &srcOp,
+                               mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+                               int64_t &dimension) const {
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getInputs()[0].getType()));
+    int64_t inputRank = inputType.getRank();
+    llvm::ArrayRef<int64_t> windowDimensions =
+        adaptor.getWindowDimensionsAttr().asArrayRef();
+    mlir::DenseIntElementsAttr padding = adaptor.getPaddingAttr();
+
+    // Validate padding size
+    if (padding.size() != (inputRank * 2)) {
+      return false;
+    }
+
+    // Check for splat padding (all zeroes expected).
+    if (padding.isSplat()) {
+      if (padding.getSplatValue<int64_t>() != 0) {
+        return false;
+      }
+      if (!std::all_of(windowDimensions.begin(), windowDimensions.end(),
+                       [](int value) { return value == 1; })) {
+        return false;
+      }
+      // Determine the dimension using input tensor shape.
+      return findDimensionWithShape(inputType, dimension);
+    }
+
+    // Check non-splat padding and ensure the window dimensions and padding are
+    // consistent and determine the dimension attribute.
+    return validateNonSplatPadding(windowDimensions, padding, inputType,
+                                   dimension);
+  }
+
+  // Find the dimension using input tensor shape.
+  bool findDimensionWithShape(RankedTensorType inputType,
+                              int64_t &dimension) const {
+    dimension = -1;
+    for (int64_t size : inputType.getShape()) {
+      ++dimension;
+      if (size == 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Determine and validate dimension attribute for non-splat padding attribute.
+  bool validateNonSplatPadding(llvm::ArrayRef<int64_t> windowDimensions,
+                               mlir::DenseIntElementsAttr padding,
+                               RankedTensorType inputType,
+                               int64_t &dimension) const {
+    int64_t dimArgValue = -1;
+    int64_t idx = -1;
+    auto padding_values = padding.getValues<int64_t>();
+
+    // Determine dimension attribute.
+    for (int64_t windowDim : windowDimensions) {
+      ++idx;
+      if (windowDim == 1) {
+        continue;
+      }
+      if (dimArgValue != -1) {
+        return false; // Ensure only one non-1 element.
+      }
+      dimArgValue = windowDim;
+      dimension = idx;
+    }
+
+    // Validate dimension attribute.
+    if (dimArgValue != inputType.getShape()[dimension] || dimArgValue <= 1) {
+      return false;
+    }
+
+    for (int64_t i = 0; i < padding.size(); ++i) {
+      if (i == (dimension * 2)) {
+        if (padding_values[i] != (dimArgValue - 1)) {
+          return false;
         }
+      } else if (padding_values[i] != 0) {
+        return false;
       }
     }
 
-    for (auto &op : opsToErase) {
-      rewriter.eraseOp(op);
-    }
+    return true;
   }
 
-  // Just to make the code more readable
   enum TypicalInitReductionValue {
     NEG_INF, // used for max pooling
     ZERO,    // used for sum pooling
@@ -615,7 +824,7 @@ private:
     }
 
     // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we acually have I must compare the raw
+    // since bfloat16 is not a type we actually have I must compare the raw
     // bits
     if (initValueOp.getResult().getType().getElementType().isBF16()) {
       // Collect the values into a vector
@@ -657,7 +866,9 @@ private:
     return true;
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRBroadcastInDimOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
   using OpConversionPattern<
@@ -688,8 +899,8 @@ public:
       ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
@@ -733,8 +944,8 @@ public:
       ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
@@ -766,7 +977,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRCompareOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompareOp> {
   using OpConversionPattern<mlir::stablehlo::CompareOp>::OpConversionPattern;
@@ -837,7 +1050,9 @@ private:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRConcatOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConcatenateOp> {
 
@@ -902,6 +1117,7 @@ private:
     return success();
   }
 };
+} // namespace
 
 // Class implementing conversion from StableHLO to TTIR logical and bitwise ops.
 // StableHLO has AND, OR, XOR and NOT ops defined in such a way that they do two
@@ -910,6 +1126,7 @@ private:
 // version of the op. We made a decision to make those two cases completely
 // distinct ops in TTIR. Thus, a StableHLO `SrcOp` is rewritten to one of
 // `DestOp`s based on operand types.
+namespace {
 template <typename SrcOp, typename LogicalDestOp, typename BitwiseDestOp,
           typename Adaptor = typename SrcOp::Adaptor>
 class StableHLOToTTIRLogicalAndBitwiseOpConversionPattern
@@ -966,6 +1183,7 @@ private:
         adaptor.getOperands(), ValueRange(outputTensor));
   }
 };
+} // namespace
 
 template <typename SrcOpTy>
 LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
@@ -1010,6 +1228,7 @@ enum StableHLOChannelType {
   kChannelTypeHostToDevice = 3,
 };
 
+namespace {
 class StableHLOToTTIRAllReduceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::AllReduceOp> {
 
@@ -1125,8 +1344,72 @@ private:
 
     return success();
   }
-}; // namespace
+};
+} // namespace
 
+namespace {
+class StableHLOToTTIRAllGatherOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::AllGatherOp> {
+  using OpConversionPattern<mlir::stablehlo::AllGatherOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::AllGatherOp srcOp,
+                  mlir::stablehlo::AllGatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the operation
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (failed(err)) {
+      return err;
+    }
+
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    SmallVector<Type> ttirTypes;
+    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
+                                                      ttirTypes))) {
+      return failure();
+    }
+
+    auto ttirOperands = srcOp.getOperandsMutable();
+    ttirOperands.append(ValueRange(outputTensor));
+
+    SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
+    SmallVector<NamedAttribute> ttirAttrs;
+    StringAttr dimAttrName = StringAttr::get(this->getContext(), "dim");
+    IntegerAttr allGatherDimAttr = rewriter.getSI32IntegerAttr(
+        static_cast<int32_t>(adaptor.getAllGatherDim()));
+    ttirAttrs.push_back({dimAttrName, allGatherDimAttr});
+
+    auto ttirAllGatherOp = rewriter.create<mlir::tt::ttir::AllGatherOp>(
+        srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
+        ttirAttrs);
+    rewriter.replaceOp(srcOp, ttirAllGatherOp);
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkBasicLegality(mlir::stablehlo::AllGatherOp &srcOp,
+                     mlir::stablehlo::AllGatherOp::Adaptor adaptor,
+                     ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllGatherOp must have one input/output for now.");
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRCustomCallOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
@@ -1382,8 +1665,10 @@ private:
 
     return success();
   }
-}; // namespace
+};
+} // namespace
 
+namespace {
 class StableHLOToTTIRSliceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::SliceOp> {
 
@@ -1421,7 +1706,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIROpClampOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ClampOp> {
 
@@ -1477,7 +1764,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRGatherOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::GatherOp> {
   using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
@@ -1507,7 +1796,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 template <typename SrcIotaOp, typename Adaptor = typename SrcIotaOp::Adaptor>
 class StableHLOToTTIROpIotaOpConversionPattern
     : public OpConversionPattern<SrcIotaOp> {
@@ -1526,8 +1817,8 @@ public:
         1, adaptor.getIotaDimension());
 
     // Dynamic Iota has an output_shape attribute but the output shape is
-    // already known by the result type This is to remove the operand that will
-    // become dead code
+    // already known by the result type This is to remove the operand that
+    // will become dead code
     for (auto operand : adaptor.getOperands()) {
       if (operand.getDefiningOp()) {
         rewriter.eraseOp(operand.getDefiningOp());
@@ -1537,7 +1828,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRScatterOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ScatterOp> {
 
@@ -1646,7 +1939,9 @@ private:
     }
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIRReturnOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReturnOp> {
 
@@ -1664,7 +1959,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class StableHLOToTTIROpReverseOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReverseOp> {
 
@@ -1691,10 +1988,12 @@ public:
     return success();
   }
 };
+} // namespace
 
-void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
-                                              RewritePatternSet &patterns,
-                                              TypeConverter &typeConverter) {
+static void
+addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
 
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::AbsOp, mlir::tt::ttir::AbsOp>>(typeConverter, ctx);
@@ -1739,9 +2038,10 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
 }
 
-void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
-                                               RewritePatternSet &patterns,
-                                               TypeConverter &typeConverter) {
+static void
+addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
 
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::AddOp, mlir::tt::ttir::AddOp>>(typeConverter, ctx);
@@ -1760,89 +2060,97 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::RemOp, mlir::tt::ttir::RemainderOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::PowOp, mlir::tt::ttir::PowerOp>>(typeConverter, ctx);
 }
 
-void addReduceOpsConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+static void addReduceOpsConversionPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
 }
 
-void addDotGeneralOpConversionPatterns(MLIRContext *ctx,
-                                       RewritePatternSet &patterns,
-                                       TypeConverter &typeConverter) {
+static void addDotGeneralOpConversionPatterns(MLIRContext *ctx,
+                                              RewritePatternSet &patterns,
+                                              TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(typeConverter,
                                                              ctx);
 }
 
-void addGetDimensionSizeOpsConversionPatterns(MLIRContext *ctx,
-                                              RewritePatternSet &patterns,
-                                              TypeConverter &typeConverter) {
+static void
+addGetDimensionSizeOpsConversionPatterns(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRGetDimensionSizeOpConversionPattern>(
       typeConverter, ctx);
 }
 
-void addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
-                                            RewritePatternSet &patterns,
-                                            TypeConverter &typeConverter) {
+static void
+addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRConstantOpConversionPattern>(typeConverter, ctx);
 }
 
-void addBroadcastOpConversionPattern(MLIRContext *ctx,
-                                     RewritePatternSet &patterns,
-                                     TypeConverter &typeConverter) {
+static void addBroadcastOpConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
 
   patterns.add<StableHLOToTTIRBroadcastInDimOpConversionPattern>(typeConverter,
                                                                  ctx);
 }
 
-void addConv2dOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter) {
+static void addConv2dOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRConvolutionOpConversionPattern>(typeConverter,
                                                               ctx);
 }
 
-void addReduceWindowOpConversionPattern(MLIRContext *ctx,
-                                        RewritePatternSet &patterns,
-                                        TypeConverter &typeConverter) {
+static void addReduceWindowOpConversionPattern(MLIRContext *ctx,
+                                               RewritePatternSet &patterns,
+                                               TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReduceWindowOpConversionPattern>(typeConverter,
                                                                ctx);
 }
 
-void addCompareOpsConversionPatterns(MLIRContext *ctx,
-                                     RewritePatternSet &patterns,
-                                     TypeConverter &typeConverter) {
+static void addCompareOpsConversionPatterns(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRCompareOpConversionPattern>(typeConverter, ctx);
 }
 
-void addConcatOpsConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+static void addConcatOpsConversionPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRConcatOpConversionPattern>(typeConverter, ctx);
 }
 
-void addTransposeOpConversionPattern(MLIRContext *ctx,
-                                     RewritePatternSet &patterns,
-                                     TypeConverter &typeConverter) {
+static void addTransposeOpConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
 }
 
-void addReshapeOpConversionPattern(MLIRContext *ctx,
-                                   RewritePatternSet &patterns,
-                                   TypeConverter &typeConverter) {
+static void addReshapeOpConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
 }
 
-void addCCLOpsConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                TypeConverter &typeConverter) {
+static void addCCLOpsConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRAllReduceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRAllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }
 
-void addLogicalAndBitwiseOpsConversionPatterns(MLIRContext *ctx,
-                                               RewritePatternSet &patterns,
-                                               TypeConverter &typeConverter) {
+static void
+addLogicalAndBitwiseOpsConversionPatterns(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRLogicalAndBitwiseOpConversionPattern<
       mlir::stablehlo::AndOp, mlir::tt::ttir::LogicalAndOp,
       mlir::tt::ttir::BitwiseAndOp>>(typeConverter, ctx);
@@ -1857,23 +2165,27 @@ void addLogicalAndBitwiseOpsConversionPatterns(MLIRContext *ctx,
       mlir::tt::ttir::BitwiseNotOp>>(typeConverter, ctx);
 }
 
-void addSliceOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                 TypeConverter &typeConverter) {
+static void addSliceOpConversionPattern(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRSliceOpConversionPattern>(typeConverter, ctx);
 }
 
-void addClampOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                 TypeConverter &typeConverter) {
+static void addClampOpConversionPattern(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIROpClampOpConversionPattern>(typeConverter, ctx);
 }
 
-void addGatherOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter) {
+static void addGatherOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRGatherOpConversionPattern>(typeConverter, ctx);
 }
 
-void addIotaOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                TypeConverter &typeConverter) {
+static void addIotaOpConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::IotaOp>>(
       typeConverter, ctx);
   patterns
@@ -1881,25 +2193,23 @@ void addIotaOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
           typeConverter, ctx);
 }
 
-void addScatterOpConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+static void addScatterOpConversionPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
 }
 
-void addReturnOpConversionPatterns(MLIRContext *ctx,
-                                   RewritePatternSet &patterns,
-                                   TypeConverter &typeConverter) {
+static void addReturnOpConversionPatterns(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRReturnOpConversionPattern>(typeConverter, ctx);
 }
 
-void addReverseOpConversionPattern(MLIRContext *ctx,
-                                   RewritePatternSet &patterns,
-                                   TypeConverter &typeConverter) {
+static void addReverseOpConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIROpReverseOpConversionPattern>(typeConverter, ctx);
 }
-
-} // namespace
 
 namespace mlir::tt {
 

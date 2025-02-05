@@ -632,6 +632,25 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroa
     }];
 }
 
+// TODO We need to add a broadcastable trait to this op.
+// See issue https://github.com/tenstorrent/tt-mlir/issues/2015
+def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
+    let summary = "Eltwise power OP.";
+    let description = [{
+      Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
+      result tensor. Tensors must be of same shape.
+
+      Example:
+      ```
+        %result = "ttir.power"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+
+        %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
+        %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
+        %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
+      ```
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
@@ -725,6 +744,28 @@ def TTIR_MinOp : TTIR_ReductionOp<"min"> {
   }];
 }
 
+def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
+    let summary = "And reduction op.";
+    let description = [{
+      Reduces a given tensor using logical and operator along the given dimension(s).
+
+      Example:
+        input: [[True,  False, True, False],
+                [True,  True,  True, True],
+                [False, False, True, True],
+                [False, True,  True, False]]
+
+        // Reduction along dim 0
+        output: [False, False, True, False]
+
+        // Reduction along dim 1
+        output: [False, True, False, False]
+
+        // Reduction for both dimensions (entire tensor)
+        output: [False]
+    }];
+}
+
 def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
   let summary = "Product reduction op.";
   let description = [{
@@ -785,6 +826,37 @@ def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
     let hasVerifier = 1;
 }
 
+def TTIR_CumSumOp : TTIR_DPSOp<"cumsum"> {
+  let summary = "Cummulative sum op.";
+  let description = [{
+    Computes the cumulative sum of elements of a tensor along specified dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Cumulative sum along dim=0:
+      output: [[1, 2, 3],
+               [5, 7, 9]]
+
+      // Cumulative sum along dim=1:
+      output: [[1, 3, 6],
+               [4, 9, 15]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let summary = "Softmax operation.";
     let description = [{
@@ -843,6 +915,41 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
+  let summary = "Repeat operation.";
+  let description = [{
+    The `repeat` operation creates a new tensor by replicating the input tensor's elements
+    along specified dimensions. The number of repetitions for each dimension is defined by
+    the `repeats` attribute, which must have the same rank as the input tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of times to repeat this tensor along each dimension.
+
+    ### Example IR Usage:
+    ```mlir
+    // Input tensor of shape (2, 3)
+    %input = ... : tensor<2x3xf32>
+
+    // Repeat each dimension twice
+    %empty = tensor.empty() : tensor<4x6xf32>
+    %repeated = "repeat"(%input, %empty) {repeat_dimensions = array<i64: 2, 2>} : (tensor<2x3xf32>, tensor<4x6xf32>) -> tensor<4x6xf32>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       DenseI64ArrayAttr:$repeat_dimensions);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
@@ -920,11 +1027,14 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
       // %arg0: tensor<1x1x32xf32>
       %0 = tensor.empty() : tensor<1x16x32xf32>
       %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+
+      Note: Currently, when generating a TTNN executable, the broadcast and repeat operations share the same semantics due to the lack of tensor view support in TTNN.
+      As a result, the broadcast operation is lowered to a repeat operation in the TTNN compilation pipeline.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         DenseI32ArrayAttr:$broadcast_dimensions);
+                         DenseI64ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1329,6 +1439,23 @@ def TTIR_ArangeOp : TTIR_Op<"arange"> {
   let hasVerifier = 1;
 }
 
+def TTIR_ZerosOp : TTIR_Op<"zeros"> {
+  let summary = "Creates a tensor filled with zeros.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros.
+
+    Given a `shape`, produces a tensor with the shape, filled with zeros.
+
+    Example:
+      %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTIR_OnesOp : TTIR_Op<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
@@ -1501,6 +1628,36 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
+}
+
+def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
+    let summary = "Upsample 2D operation.";
+
+    let description = [{
+      Upsample 2D operation. Input tensor is assumed to be in NHWC format.
+
+      Attributes:
+      - `scale_factor` (si32 | array<i32>): The scale factor for upsampling in H and W dimensions respectively.
+      - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
+
+      Example:
+        %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
+        %output = tensor.empty() : () -> tensor<10x128x128x3xbf16>
+        %0 = "ttir.upsample2d"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128x3xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
+                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

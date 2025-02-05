@@ -19,7 +19,8 @@
 
 namespace tt::runtime::ttmetal {
 
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
+    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
 
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
@@ -38,7 +39,8 @@ size_t getNumAvailableDevices();
 Device
 openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
            std::optional<size_t> l1SmallSize = std::nullopt,
-           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
+           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
+           [[maybe_unused]] std::optional<bool> enableAsyncTTNN = std::nullopt);
 
 void closeDevice(Device device);
 
@@ -119,16 +121,20 @@ createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
   std::array<uint32_t, 2> pageShape = {static_cast<uint32_t>(tile_shape->y()),
                                        shardShape[1]};
 
-  auto tensorRank = layout->stride()->size();
-  auto innerDim = layout->stride()->Get(tensorRank - 2);
-  assert(layout->stride()->size() >= 2);
-  assert((layout->stride()->Get(0) * tensorDesc->shape()->Get(0)) %
-             (pageShape[0] * innerDim) ==
-         0);
+  auto tensorRank = tensorDesc->shape()->size();
+  auto innerDim = tensorDesc->shape()->Get(tensorRank - 1);
+  assert(tensorDesc->shape()->size() >= 2);
+
+  uint32_t outerElements = 1;
+  for (size_t i = 0; i < tensorRank - 1; i++) {
+    outerElements *= tensorDesc->shape()->Get(i);
+  }
+
+  assert(outerElements % pageShape[0] == 0);
   assert(innerDim % pageShape[1] == 0);
+
   std::array<uint32_t, 2> tensorShape = {
-      (layout->stride()->Get(0) * tensorDesc->shape()->Get(0)) /
-          (pageShape[0] * innerDim),
+      outerElements / pageShape[0],
       innerDim / pageShape[1],
   };
 
