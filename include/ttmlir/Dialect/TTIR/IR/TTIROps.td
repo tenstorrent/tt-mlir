@@ -1876,7 +1876,11 @@ def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dim);
+                         SI32Attr:$all_gather_dim,
+                         OptionalAttr<SI32Attr>:$channel_handle,
+                         UnitAttr:$use_global_device_ids,
+                         I64ElementsAttr:$replica_groups,
+                         SI32Attr:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$result);
 
