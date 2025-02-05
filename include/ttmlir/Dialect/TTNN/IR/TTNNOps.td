@@ -1341,8 +1341,9 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         SI32Attr:$dim,
-                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+                         SI32Attr:$all_gather_dim,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 

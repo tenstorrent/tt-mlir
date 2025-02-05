@@ -10,8 +10,8 @@ module attributes {} {
   }
 }
 // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
-// CHECK: %[[C:.*]] = "ttnn.reduce_scatter"[[C:.*]]
-// CHECK: %[[C:.*]] = "ttnn.all_gather"[[C:.*]]
+// CHECK: "ttnn.reduce_scatter"
+// CHECK: "ttnn.all_gather"
 // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
 
 // -----
@@ -25,6 +25,6 @@ module attributes {} {
   }
 }
 // CHECK-NOT: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
-// CHECK: %[[C:.*]] = "ttnn.reduce_scatter"[[C:.*]]
-// CHECK: %[[C:.*]] = "ttnn.all_gather"[[C:.*]]
+// CHECK: "ttnn.reduce_scatter"
+// CHECK: "ttnn.all_gather"
 // CHECK-NOT: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
