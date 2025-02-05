@@ -566,18 +566,20 @@ bool ShardSolver::checkShardCompatible(
       }
     }
 
-    auto [legal, l1Usage, errorMsg] =
-        backend.getOpConstraints(inputLayouts, consumerLayout);
+    auto l1UsageExp = backend.getOpConstraints(inputLayouts, consumerLayout);
 
     constexpr bool debug = false;
-    if (false == legal) {
+    if (!l1UsageExp) {
       // early exit
       if (debug) {
         llvm::errs() << "OpModel constraints failed: ";
         llvm::errs() << producerOp->getName() << "->" << consumerOp->getName()
-                     << " :: " << errorMsg.value() << "\n";
+                     << " :: " << llvm::toString(l1UsageExp.takeError())
+                     << "\n";
         producerLayout.dump();
         consumerLayout.dump();
+      } else {
+        llvm::consumeError(l1UsageExp.takeError());
       }
       return false;
     }

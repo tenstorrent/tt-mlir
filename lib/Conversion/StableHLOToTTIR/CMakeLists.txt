@@ -9,6 +9,7 @@ add_mlir_library(TTMLIRStableHLOToTTIR
   StableHLOToTTIRPatterns.cpp
   StableHLOToTTIRPass.cpp
   ArithToStableHLOPass.cpp
+  ShardingUtils.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/StableHLOToTTIR

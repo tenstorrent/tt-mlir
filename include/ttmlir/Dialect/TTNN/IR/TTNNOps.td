@@ -1319,7 +1319,8 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
                          TT_Device:$device,
                          TT_MeshShardDirectionAttr:$shard_direction,
                          TT_MeshShardTypeAttr:$shard_type,
-                         TT_GridAttr:$shard_shape);
+                         DenseI64ArrayAttr:$shard_shape,
+                         DenseI64ArrayAttr:$shard_dims);
 
     let results = (outs AnyRankedTensor:$result);
 
