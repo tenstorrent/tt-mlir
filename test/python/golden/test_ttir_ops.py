@@ -354,6 +354,17 @@ def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.minimum(in0, in1)
 
 
+@compile_to_flatbuffer(
+    [
+        (32, 64),
+        (64, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.matmul(in0, in1)
+
+
 # @compile_to_flatbuffer(
 #   [
 #       (64, 64),
