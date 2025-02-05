@@ -17,6 +17,7 @@ namespace mlir::tt::op_model::ttnn {
 class OpModelTest : public OpModelFixture {};
 
 namespace detail {
+namespace {
 struct TestTensor {
   llvm::SmallVector<int64_t> shape;
   mlir::tt::ttnn::TensorMemoryLayout layout;
@@ -30,6 +31,7 @@ struct ExpectedResult {
   size_t expectedPeakSize = 0;
   size_t expectedOutputSize = 0;
 };
+} // namespace
 
 const TestTensor interleavedN300X1024Dram = {
     {OpModelFixture::workerCoresN300, 1024},
