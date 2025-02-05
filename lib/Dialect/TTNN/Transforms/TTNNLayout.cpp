@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -90,7 +91,7 @@ public:
 
       TTNNLayoutAttr newLayout = createLayoutAttr(ctx, deviceGrid, type);
       // Convert mlir data types to tt data types
-      Type elementType = utils::dataTypeToElementType(
+      Type elementType = mlir::tt::ttnn::utils::dataTypeToElementType(
           ctx, elementTypeToDataType(type.getElementType()));
       return RankedTensorType::get(type.getShape(), elementType, newLayout);
     });
