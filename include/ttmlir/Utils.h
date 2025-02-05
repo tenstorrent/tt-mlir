@@ -250,6 +250,43 @@ getPairOfInteger(mlir::Attribute attr) {
   return std::make_pair(x, y);
 }
 
+/// Extracts a tuple of four integers from an mlir::Attribute.
+/// - If `attr` is an IntegerAttr, it is interpreted as (value(attr),
+/// value(attr), value(attr), value(attr))
+/// - If `attr` is a DenseArrayAttr of size 2, it expands to (attr[0], attr[1],
+/// attr[0], attr[1])
+/// - If `attr` is a DenseArrayAttr of size 4, it is returned as (attr[0],
+/// attr[1], attr[2], attr[3])
+/// - Otherwise, returns an error.
+template <typename ScalarTy, typename VectorElementTy = ScalarTy,
+          typename ReturnTy = ScalarTy>
+inline llvm::Expected<std::tuple<ReturnTy, ReturnTy, ReturnTy, ReturnTy>>
+getQuadrupleOfInteger(mlir::Attribute attr) {
+  // If attr is IntegerAttr, interpret it as (attr, attr, attr, attr)
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    ReturnTy v = integerAs<ScalarTy>(intAttr.getValue());
+    return std::make_tuple(v, v, v, v);
+  }
+
+  auto tuple =
+      mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<VectorElementTy>>(attr);
+  if (!tuple) {
+    return llvm::createStringError("Unexpected attribute type");
+  }
+
+  // If attr is DenseArrayAttr, handle based on its size
+  switch (tuple.size()) {
+  case 2:
+    return std::make_tuple(tuple[0], tuple[1], tuple[0], tuple[1]);
+  case 4:
+    return std::make_tuple(tuple[0], tuple[1], tuple[2], tuple[3]);
+  default:
+    return llvm::createStringError(
+        "Expected integer, pair, or tuple of size 4, but got tuple of size %lu",
+        tuple.size());
+  }
+}
+
 // It's assumed that operand is convertible to mlir::Value or mlir::ValueRange.
 // The only exception being tt::DeviceType, which is convertible to mlir::Value
 // but should not be considered an operand.

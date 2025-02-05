@@ -1040,23 +1040,56 @@ def TTNN_ConvTranspose2dOp : TTNN_NamedDPSOp<"conv_transpose2d"> {
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
 
       Inputs:
-      - `input` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
-      - `weight` AnyRankedTensor: OIHW format (output_channels x input_channels x height x width)
-      - `bias` Optional<AnyRankedTensor>: (1 x 1 x 1 x output_channels)
-      - `output` AnyRankedTensor: (1 x 1 x (batch_size * height * width) x channels)
+        - `input` AnyRankedTensor: expected in the following format (N, H_in, W_in, C) where:
+          - N is the batch size
+          - H_in is the height of the input planes
+          - W_in is the width of the input planes
+          - C is the number of channels
+
+        - `weight` AnyRankedTensor: expected in the following format (C, O/G, K_H, K_W).
+        - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O) where:
+          - C is the number of input channels
+          - O is the number of output channels
+          - G is the number of groups
+          - K_H is the height of the kernel
+          - K_W is the width of the kernel
+
+        - `output` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
+          - H_out = (H_in - 1) * stride[0] - 2 * padding[0] + dilation[0] * (K_H - 1) + output_padding[0] + 1
+          - W_out = (W_in - 1) * stride[1] - 2 * padding[1] + dilation[1] * (K_W - 1) + output_padding[1] + 1
 
       Attributes:
-      - `in_channels` i32: The number of input channels.
-      - `out_channels` i32: The number of output channels.
-      - `batch_size` i32: The batch size.
-      - `input_height` i32: The input height.
-      - `input_width` i32: The input width.
-      - `kernel_size` array<i32>: The kernel size.
-      - `stride` array<i32>: Controls the stride for the cross-correlation.
-      - `padding` array<i32>: Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
-      - `output_padding` array<i32>: Controls the additional size added to one side of the output shape.
-      - `dilation` array<i32>: Controls the spacing between the kernel points
-      - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+        - `in_channels` i32: The number of input channels.
+        - `out_channels` i32: The number of output channels.
+        - `batch_size` i32: The batch size.
+        - `input_height` i32: The input height.
+        - `input_width` i32: The input width.
+        - `kernel_size` array<2xi32>: The kernel size.
+        - `stride` array<2xi32>: Controls the stride for the cross-correlation.
+        - `padding` array<2xi32>: Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
+        - `output_padding` array<2xi32>: Controls the additional size added to one side of the output shape.
+        - `dilation` array<2xi32>: Controls the spacing between the kernel points
+        - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+
+      Example:
+        // %input: tensor<3x8x8x256xbf16>
+        // %weight: tensor<256x256x3x3xbf16>
+        // %bias: tensor<1x1x1x256xbf16>
+        // %output: tensor<3x10x10x256xbf16>
+        %0 = "ttnn.conv_transpose2d"(%input, %weight, %bias, %output, %device)
+          <{
+            batch_size = 3: i32,
+            dilation = array<i32: 1, 1>,
+            groups = 1: i32,
+            in_channels = 256: i32,
+            input_height = 8: i32,
+            input_width = 8: i32,
+            kernel_size = array<i32: 3, 3>,
+            out_channels = 256: i32,
+            output_padding = array<i32: 0, 0>,
+            padding = array<i32: 0, 0>,
+            stride = array<i32: 1, 1>
+          > : (tensor<3x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<3x10x10x256xbf16>) -> tensor<3x10x10x256xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

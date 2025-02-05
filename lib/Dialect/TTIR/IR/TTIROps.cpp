@@ -230,13 +230,18 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
     return emitOpError("Stride values must be greater than 0");
   }
 
-  auto padding = ttmlir::utils::getPairOfInteger<int32_t>(getPadding());
+  auto padding = ttmlir::utils::getQuadrupleOfInteger<int32_t>(getPadding());
   if (auto error = padding.takeError()) {
     return emitOpError() << llvm::toString(std::move(error)) << " for padding";
   }
-  if (padding->first < 0 || padding->second < 0) {
+
+  auto [paddingTop, paddingLeft, paddingBottom, paddingRight] = *padding;
+  if (paddingTop < 0 || paddingBottom < 0 || paddingLeft < 0 ||
+      paddingRight < 0) {
     return emitOpError("Padding values must be greater or equal than 0");
   }
+  int32_t verticalPadding = paddingTop + paddingBottom;
+  int32_t horizontalPadding = paddingLeft + paddingRight;
 
   auto outputPadding =
       ttmlir::utils::getPairOfInteger<int32_t>(getOutputPadding());
@@ -308,10 +313,10 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   int32_t Hin = inputType.getDimSize(inputType.getRank() - 3);
   int32_t Win = inputType.getDimSize(inputType.getRank() - 2);
 
-  int32_t expectedHOut = (Hin - 1) * stride->first - 2 * padding->first +
+  int32_t expectedHOut = (Hin - 1) * stride->first - verticalPadding +
                          dilation->first * (kernelHeight - 1) +
                          outputPadding->first + 1;
-  int32_t expectedWOut = (Win - 1) * stride->second - 2 * padding->second +
+  int32_t expectedWOut = (Win - 1) * stride->second - horizontalPadding +
                          dilation->second * (kernelWidth - 1) +
                          outputPadding->second + 1;
   if (expectedHOut < 0 || expectedWOut < 0) {
