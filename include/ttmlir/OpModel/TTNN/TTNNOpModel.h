@@ -19,7 +19,7 @@ namespace mlir::tt::op_model::ttnn {
 //===----------------------------------------------------------------------===//
 
 namespace Device {
-llvm::Expected<bool> getDeviceConstraints(const mlir::tt::GridAttr &workerGrid);
+llvm::Expected<bool> getDeviceConstraints(mlir::tt::GridAttr workerGrid);
 }; // namespace Device
 
 //===----------------------------------------------------------------------===//

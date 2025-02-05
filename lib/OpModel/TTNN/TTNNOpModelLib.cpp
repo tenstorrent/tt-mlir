@@ -138,7 +138,7 @@ void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
  * grid size.
  */
 void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
-               const mlir::tt::GridAttr &workerGrid) {
+               mlir::tt::GridAttr workerGrid) {
   // metal CoreCoord holds x,y
   // GridAttr holds shape {y,x}
   if ((static_cast<size_t>(workerGrid.getShape()[1]) != computeGridSize.x) ||
@@ -182,7 +182,7 @@ auto convertToTensorSpec(::tt::tt_metal::v0::IDevice *device, Args... args) {
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<bool>
-Device::getDeviceConstraints(const mlir::tt::GridAttr &workerGrid) {
+Device::getDeviceConstraints(mlir::tt::GridAttr workerGrid) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   try {
     detail::checkGrid(SingletonDeviceContext::getInstance()
