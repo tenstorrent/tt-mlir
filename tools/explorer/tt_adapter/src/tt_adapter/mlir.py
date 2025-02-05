@@ -474,6 +474,7 @@ def parse_ttnn_ttnn_layout(attr):
 class OpHandler:
     # Help create unique ids for ops with the same location name.
     name_dict = defaultdict(int)
+    schedule = 0
 
     def __init__(self, op):
         self.op = op
@@ -544,6 +545,13 @@ class OpHandler:
                         )
                     )
             result.extend(output_attrs)
+
+        # Add schedule as an attribute
+        result.append(
+            graph_builder.KeyValue(key="schedule", value=str(OpHandler.schedule))
+        )
+        OpHandler.schedule += 1
+
         return result
 
     def make_graph_node(self):
@@ -713,4 +721,5 @@ def build_graph(module, perf_trace=None):
         )
 
     graph.groupNodeAttributes = group_node_attrs
+    OpHandler.schedule = 0
     return graph, overlay_data
