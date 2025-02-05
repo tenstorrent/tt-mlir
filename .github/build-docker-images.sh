@@ -45,8 +45,8 @@ build_and_push() {
         if [ "$on_main" = "true" ]; then
             if ! diff <(docker manifest inspect $image_name:latest | jq -S .) <(docker manifest inspect $image_name:$DOCKER_TAG | jq -S .); then
                 echo "Image content changed, updating latest tag"
-                docker tag $image_name:$DOCKER_TAG $image_name:latest
-                docker push $image_name:latest
+                docker manifest create $image_name:latest --amend $image_name:$DOCKER_TAG
+                docker manifest push $image_name:latest
             else
                 echo "Image content unchanged, skipping latest tag"
             fi
