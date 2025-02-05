@@ -145,7 +145,6 @@ def compile_shared_object(cpp_file_path, output_dir):
         destination_path = os.path.join(output_dir, output_file_name)
         shutil.copy2(compiled_so_path, destination_path)
         print(f"  Successfully copied compiled file to {destination_path}.")
-        os.remove(source_cpp_path)
     except subprocess.CalledProcessError as e:
         print(f"  Error during build process: {e}")
         print(e.stderr)
