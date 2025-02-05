@@ -149,6 +149,48 @@ SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// MeanOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  auto check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  const auto dimArg =
+      mlir::cast<std::optional<llvm::ArrayRef<int32_t>>>(getDimArg());
+  return op_model::ttnn::MeanOpInterface::getOpConstraints(
+      inputShape, inputs[0], dimArg, getKeepDim(), outputShape, output);
+}
+
+llvm::Expected<size_t>
+MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  const auto dimArg =
+      mlir::cast<std::optional<llvm::ArrayRef<int32_t>>>(getDimArg());
+  return op_model::ttnn::MeanOpInterface::getOpRuntime(
+      inputShape, inputs[0], dimArg,getKeepDim(), outputShape, output);
+}
+
+//===----------------------------------------------------------------------===//
 // MatmulOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
