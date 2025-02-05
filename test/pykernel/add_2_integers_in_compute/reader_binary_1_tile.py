@@ -19,14 +19,12 @@ def reader_binary_1_tile(cb_in0: CircularBuffer, cb_in1: CircularBuffer):
     src0_noc_addr = get_noc_addr_from_bank_id(src0_bank_id, src0_addr)
     src1_noc_addr = get_noc_addr_from_bank_id(src1_bank_id, src1_addr)
 
-    # single-tile ublocks
     ublock_size_bytes_0 = get_tile_size(cb_in0)
     ublock_size_bytes_1 = get_tile_size(cb_in1)
 
     l1_write_addr_in0 = get_write_ptr(cb_in0)
     l1_write_addr_in1 = get_write_ptr(cb_in1)
 
-    # read ublocks from src0/src1 to CB0/CB1, then push ublocks to compute (unpacker)
     cb_reserve_back(cb_in0, 1)
     noc_async_read(src0_noc_addr, l1_write_addr_in0, ublock_size_bytes_0)
     noc_async_read_barrier()
