@@ -25,11 +25,12 @@ TEST_EXECUTE_MODEL_PATHS = [
 
 if "TT_EXPLORER_GENERATED_MLIR_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_MLIR_TEST_DIRS"].split(","):
-        TEST_LOAD_MODEL_PATHS.append(os.path.join(path, "/**/*.mlir"))
+        TEST_LOAD_MODEL_PATHS.append(path + "/**/*.mlir")
 
 if "TT_EXPLORER_GENERATED_TTNN_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_TTNN_TEST_DIRS"].split(","):
-        TEST_LOAD_MODEL_PATHS.append(os.path.join(path, "/**/*.ttnn"))
+        TEST_LOAD_MODEL_PATHS.append(path + "/**/*.ttnn")
+        TEST_EXECUTE_MODEL_PATHS.append(path + "/**/*.ttnn")
 
 
 def get_test_files(paths):
@@ -37,22 +38,6 @@ def get_test_files(paths):
     for path in paths:
         files.extend(glob.glob(path, recursive=True))
     return files
-
-
-def execute_command(model_path, settings):
-    cmd = {
-        "extensionId": "tt_adapter",
-        "cmdId": "execute",
-        "modelPath": model_path,
-        "deleteAfterConversion": False,
-        "settings": settings,
-    }
-
-    result = requests.post(COMMAND_URL, json=cmd)
-    assert result.ok
-    if "error" in result.json():
-        print(result.json())
-        assert False
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -89,13 +74,6 @@ def start_server(request):
         server_thread.join()
 
     request.addfinalizer(server_shutdown)
-
-
-def get_test_files(paths):
-    files = []
-    for path in paths:
-        files.extend(glob.glob(path))
-    return files
 
 
 def send_command(command, model_path, settings={}):
