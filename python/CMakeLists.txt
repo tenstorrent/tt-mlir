@@ -106,9 +106,12 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRCAPITransforms
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
-    LLVM
-    MLIR
-    TTMLIRCompiler
+    LLVMSupport
+    ${dialect_libs}
+    ${conversion_libs}
+    ${translation_libs}
+    TTMLIRStatic
+    ${extension_libs}
 )
 
 set(TTMLIR_PYTHON_SOURCES

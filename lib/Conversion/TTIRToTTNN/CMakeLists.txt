@@ -10,6 +10,7 @@ add_mlir_library(TTMLIRTTIRToTTNN
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRIR
+  MLIRPass
   TTMLIRTTNNUtils
 )

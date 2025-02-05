@@ -150,15 +150,4 @@ foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_dependencies(${lib_name} tt-metal)
 endforeach()
 
-install(CODE
-    "
-    MESSAGE(STATUS \"Installing tt-metal shared lib dependencies (${library_paths}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
-    file(
-        INSTALL
-        ${library_paths}
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        TYPE SHARED_LIBRARY
-        FOLLOW_SYMLINK_CHAIN
-    )"
-    COMPONENT SharedLib
-)
+install(FILES ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
