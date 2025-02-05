@@ -910,6 +910,28 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PadOp: TTNN_Op<"pad"> {
+    let summary = "Pad op.";
+    let description = [{
+      Pad input tensor by padding the input_shape to output_shape using the provided value.
+
+      The `padding` attribute must be a sequence of integers that is twice the size as the rank of the input.
+      Each pair of integers in the padding attribute represents the amount of padding to add to the low and high of that dimension.
+      I.e: an input tensor of shape <1x30x30x64xf32> with padding attribute <0, 0, 1, 1, 1, 1, 0, 0> will return a tensor of shape <1x32x32x64xf32>,
+      and so will a padding attribute of <0, 0, 0, 2, 0, 2, 0, 0>.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI32ArrayAttr:$padding,
+                         F32Attr:$value,
+                         BoolAttr:$use_multicore,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{

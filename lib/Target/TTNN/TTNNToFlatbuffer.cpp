@@ -989,6 +989,25 @@ createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
       *cache.fbb, in, out, cache.fbb->CreateVector<int64_t>(repeatDims));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PadOp>
+createPadOp(FlatbufferObjectCache &cache, PadOp op) {
+  flatbuffers::Offset<::tt::target::TensorRef> in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  std::vector<uint32_t> padding(op.getPadding().begin(), op.getPadding().end());
+  float value = op.getValue().convertToFloat();
+  flatbuffers::Offset<::tt::target::TensorRef> out =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedAddress, kHostAllocatedSize);
+
+  flatbuffers::Offset<::tt::target::MemoryConfigDesc> memoryConfigDesc =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
+  return ::tt::target::ttnn::CreatePadOp(
+      *cache.fbb, in, out, cache.fbb->CreateVector<uint32_t>(padding), value,
+      op.getUseMulticore(), memoryConfigDesc);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
   auto in =
@@ -1357,6 +1376,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto repeatOp = dyn_cast<RepeatOp>(op); repeatOp) {
     return createOperation(cache, createRepeatOp(cache, repeatOp), debugString,
+                           locInfo);
+  }
+  if (auto padOp = dyn_cast<PadOp>(op); padOp) {
+    return createOperation(cache, createPadOp(cache, padOp), debugString,
                            locInfo);
   }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
