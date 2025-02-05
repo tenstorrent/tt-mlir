@@ -60,6 +60,8 @@ target_link_libraries(TTMLIRRuntime
     TTBinary
     TTRuntimeSysDesc
     TTRuntimeTTNN
+    TTRuntimeTTNNOps
+    TTRuntimeTTNNHelpers
     TTRuntimeTTMetal
     TTRuntimeDebug
     TTRuntimeWorkarounds
