@@ -34,19 +34,17 @@ namespace operation {
  * and callable.
  *
  * This function attempts to query operation constraints using the provided
- * callable and arguments. It returns a tuple containing a boolean indicating
- * success or failure, an optional tuple with resource usage details (if
- * successful), and an optional error message (if failed).
+ * callable and arguments. If successful, it returns a tuple with resource usage
+ * details. Otherwise, an error message.
  *
  * @param name The name of the operation to query constraints for.
  * @param callable A callable object that performs the query.
  * @param args Additional arguments to be forwarded to the callable.
- * @return A tuple containing query results.
+ * @return A tuple containing query results or a string error.
  */
 template <class Callable>
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
-getOpConstraints(const std::string_view &name, Callable &callable,
-                 auto &&...args) {
+getOpConstraints(std::string_view name, Callable &callable, auto &&...args) {
   ::ttnn::graph::ConstraintQueryResponse query;
   try {
     query = callable(std::forward<decltype(args)>(args)...);
@@ -67,8 +65,8 @@ getOpConstraints(const std::string_view &name, Callable &callable,
 }
 
 template <class Callable>
-llvm::Expected<size_t> getOpRuntime(const std::string_view &name,
-                                    Callable &callable, auto &&...args) {
+llvm::Expected<size_t> getOpRuntime(std::string_view name, Callable &callable,
+                                    auto &&...args) {
   ::ttnn::graph::RuntimeQueryResponse query;
   try {
     query = callable(std::forward<decltype(args)>(args)...);
