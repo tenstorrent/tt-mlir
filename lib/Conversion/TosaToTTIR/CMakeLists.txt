@@ -1,4 +1,4 @@
-add_mlir_library(TTMLIRTosaToTTIR
+add_mlir_conversion_library(TTMLIRTosaToTTIR
   TosaToTTIRPass.cpp
   TosaToTTIRPatterns.cpp
 
@@ -9,5 +9,7 @@ add_mlir_library(TTMLIRTosaToTTIR
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRIR
+  MLIRPass
+  MLIRTosaDialect
 )

@@ -8,61 +8,27 @@ add_subdirectory(Dialect)
 add_subdirectory(Target)
 add_subdirectory(Scheduler)
 
-set(link_libs
-MLIRTTDialect
-MLIRTTTransforms
-MLIRTTIRDialect
-MLIRTTIRTransforms
-TTMLIRConversions
-MLIRTTNNAnalysis
-MLIRTTNNDialect
-MLIRTTNNTransforms
-MLIRTTKernelDialect
-MLIRTTMetalDialect
-MLIRTTIRPipelines
-MLIRTTNNPipelines
-MLIRTTMetalPipelines
+get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
+get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
+
+set(TTMLIR_LIBS "${dialect_libs};${conversion_libs};${extension_libs};${translation_libs}")
+
+#
+# Static Target for tools like opt/translate/lspserver
+#
+add_mlir_library(TTMLIRCompilerStatic
+  RegisterAll.cpp
+
+  LINK_LIBS PUBLIC
+  ${TTMLIR_LIBS}
 )
 
-if (TTMLIR_ENABLE_STABLEHLO)
-list(APPEND TTMLIR_LIBS
-    StablehloBase
-    StablehloReferenceIndex
-    StablehloReferenceErrors
-    StablehloReferenceElement
-    StablehloReferenceAxes
-    StablehloReferenceValue
-    StablehloReferenceTypes
-    StablehloReferenceToken
-    StablehloReferenceTensor
-    StablehloReferenceScope
-    StablehloReferenceProcessGrid
-    StablehloReferenceProcess
-    StablehloReferenceOps
-    StablehloPasses
-    ChloOps
-    VhloOps
-    VhloTypes
-    StablehloOps
-    StablehloRegister
-    StablehloLinalgTransforms
-    StablehloSerialization
-    InterpreterOps
-    StablehloPortableApi
-    StablehloAssemblyFormat
-    StablehloBroadcastUtils
-    StablehloTypeInference
-    StablehloReferenceNumPy
-    SdyDialect
-    SdyRegister
-)
-endif()
-
+#
+# Shared Target for compiler frontends
+#
 add_library(TTMLIRCompiler SHARED RegisterAll.cpp)
-
-add_dependencies(TTMLIRCompiler
-    ${TTMLIR_LIBS}
-)
 
 # Forces the inclusion of all symbols in the shared object
 # This is necessary because the JIT will not be able to find the symbols otherwise
@@ -73,10 +39,8 @@ else()
 endif()
 
 target_link_libraries(TTMLIRCompiler PRIVATE
-    LLVM
-    MLIR
-    flatbuffers
     ${REEXPORT_TTMLIR_LIBS}
+    flatbuffers
 )
 
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
@@ -85,7 +49,6 @@ set_target_properties(TTMLIRCompiler PROPERTIES INSTALL_RPATH "$ORIGIN")
 
 install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 
-set(TTMLIR_COMPILER_DEPS ${TTMLIR_TOOLCHAIN_DIR}/lib/libLLVM.so ${TTMLIR_TOOLCHAIN_DIR}/lib/libMLIR.so)
 install(CODE
     "
     MESSAGE(STATUS \"Installing tt-mlir runtime shared lib dependencies (${TTMLIR_COMPILER_DEPS}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
