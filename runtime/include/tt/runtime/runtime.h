@@ -130,7 +130,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex, std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs);
 
-Tensor mergeTensors(Tensor& a, Tensor& b);
+//Tensor mergeTensors(Tensor& a, Tensor& b);
 
 } // namespace tt::runtime
 

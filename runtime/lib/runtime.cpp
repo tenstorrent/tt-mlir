@@ -472,7 +472,7 @@ std::vector<float> getTensorData(Tensor tensor) {
   LOG_FATAL("runtime is not enabled");
 }
 
-Tensor mergeTensors(Tensor& a, Tensor& b)
+/*Tensor mergeTensors(Tensor& a, Tensor& b)
 {
     ::ttnn::Tensor tensor1 = a.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
     ::ttnn::Tensor tensor2 = b.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
@@ -518,7 +518,7 @@ Tensor mergeTensors(Tensor& a, Tensor& b)
     // Create the new tensor
     std::vector<std::uint32_t> stride = {outputShape[1],1};
     return createTensor(outputData, outputShape, stride, 4, ::tt::target::DataType::Float32, true);
-}
+}*/
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
