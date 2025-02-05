@@ -9,5 +9,6 @@ add_mlir_library(TTMLIRTTIRToTTIRDecomposition
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRIR
+  MLIRPass
 )
