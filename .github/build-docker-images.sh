@@ -39,12 +39,12 @@ build_and_push() {
 
         echo "Pushing image $image_name:$DOCKER_TAG"
         docker push $image_name:$DOCKER_TAG
+    fi
 
-        # If we are on main branch also push the latest tag
-        if [ "$on_main" = "true" ]; then
-            echo "Pushing image $image_name:latest"
-            docker push $image_name:latest
-        fi
+    # If we are on main branch also push the latest tag
+    if [ "$on_main" = "true" ]; then
+        echo "Pushing image $image_name:latest"
+        docker push $image_name:latest
     fi
 }
 
