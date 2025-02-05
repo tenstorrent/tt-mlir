@@ -42,10 +42,15 @@ build_and_push() {
     fi
 
     # If we are on main branch also push the latest tag
-    if [ "$on_main" = "true" ]; then
-        echo "Pushing image $image_name:latest"
-        docker push $image_name:latest
-    fi
+        if [ "$on_main" = "true" ]; then
+            if ! diff <(docker manifest inspect $image_name:latest | jq -S .) <(docker manifest inspect $image_name:$DOCKER_TAG | jq -S .); then
+                echo "Image content changed, updating latest tag"
+                docker tag $image_name:$DOCKER_TAG $image_name:latest
+                docker push $image_name:latest
+            else
+                echo "Image content unchanged, skipping latest tag"
+            fi
+        fi
 }
 
 build_and_push $BASE_IMAGE_NAME .github/Dockerfile.base $ON_MAIN
