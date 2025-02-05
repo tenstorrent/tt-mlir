@@ -11,6 +11,8 @@ import shutil
 
 import torch
 
+from ttrt.runtime._C import DataType
+
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -19,7 +21,7 @@ if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
 
-def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
+def ttrt_datatype_to_torch_dtype(dtype: DataType) -> torch.dtype:
 
     """Converts a PyBound `::tt::target::DataType` into a `torch.dtype`.
 
@@ -43,18 +45,19 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
     A `ValueError` if `dtype` is not one of `Float32`, `UInt32`, `UInt16`, or `UInt8`
 
     """
-    from ttrt.runtime._C import DataType
-
-    if dtype == DataType.Float32:
-        return torch.float32
-    elif dtype == DataType.UInt32:
-        return torch.uint32
-    elif dtype == DataType.UInt16:
-        return torch.uint16
-    elif dtype == DataType.UInt8:
-        return torch.uint8
-    else:
-        raise ValueError("Only F32 and unsigned integers are supported in the runtime")
+    match dtype:
+        case DataType.Float32:
+            return torch.float32
+        case DataType.UInt32:
+            return torch.uint32
+        case DataType.UInt16:
+            return torch.uint16
+        case DataType.UInt8:
+            return torch.uint8
+        case _:
+            raise ValueError(
+                "Only F32 and unsigned integers are supported in the runtime"
+            )
 
 
 def get_ttrt_metal_home_path():
