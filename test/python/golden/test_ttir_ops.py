@@ -7,7 +7,7 @@
 import inspect
 import torch
 
-from ttmlir.test_utils import compile_to_flatbuffer
+from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute
 
 
@@ -410,6 +410,21 @@ def test_mnist(
 
 
 if __name__ == "__main__":
+    import argparse, os
+
+    parser = argparse.ArgumentParser(description="Run TTIR tests")
+    parser.add_argument(
+        "--path",
+        type=str,
+        help="Optional output path for the flatbuffer. Creates path if supplied path doesn't exist",
+    )
+    args = parser.parse_args()
+
+    if args.path and os.path.exists(args.path):
+        if not os.path.exists(args.path):
+            os.makedirs(args.path)
+        set_output_path(args.path)
+
     test_functions = inspect.getmembers(
         inspect.getmodule(inspect.currentframe()), inspect.isfunction
     )
