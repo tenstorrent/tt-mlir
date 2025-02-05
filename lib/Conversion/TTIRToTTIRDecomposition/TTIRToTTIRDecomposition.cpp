@@ -1251,8 +1251,7 @@ public:
         mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
 
     SmallVector<int64_t> broadcastShape =
-        ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
-                                                        outputShape);
+        ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape, outputShape);
 
     assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
                outputType.getShape() &&
@@ -1277,13 +1276,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
-    tensor::EmptyOp reduceOutputTensor = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), reduceOutputType.getShape(),
-        reduceOutputType.getElementType());
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ProdOp>(
-        op, reduceOutputType, op.getInput(), reduceOutputTensor,
-        op.getKeepDim(), op.getDimArgAttr());
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ProdOp>(
+        rewriter, op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
+        op.getDimArgAttr());
 
     return success();
   }
