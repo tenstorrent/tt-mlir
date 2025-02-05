@@ -81,7 +81,7 @@ convertToLLVMModule(mlir::ModuleOp cpuModule, llvm::LLVMContext &llvmContext) {
 std::unique_ptr<llvm::TargetMachine>
 createTargetMachine(llvm::StringRef targetTriple) {
   std::string errorMessage;
-  auto llvmTarget =
+  const auto *llvmTarget =
       llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
   if (!llvmTarget) {
     llvm::errs() << "target lookup failed for " << targetTriple
@@ -197,7 +197,8 @@ linkDynamicLibrary(llvm::StringRef libraryName,
 
 // Verify that all operations in given module are in LLVM Dialect.
 llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
-  auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
+  auto *llvmDialect =
+      module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
   bool isAllLLVM = true;
 
   module.walk([&](Operation *op) {
