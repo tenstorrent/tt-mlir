@@ -1294,7 +1294,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), device, adaptor.getShardDirection(),
-        adaptor.getShardType(), adaptor.getShardShape());
+        adaptor.getShardType(), adaptor.getShardShape(),
+        adaptor.getShardDims());
 
     return success();
   }

@@ -1362,7 +1362,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult MeshShardOp::verify() {
   llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
-  llvm::ArrayRef<int64_t> shardShape = getShardShape().getShape();
+  llvm::ArrayRef<int64_t> shardShape = getShardShape();
   ::mlir::tt::MeshShardType shardType = getShardType();
 
   // Check sharding is one of replicate or devices.
@@ -1382,6 +1382,12 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
     if (shardShape.size() < 2) {
       return emitOpError(
           "Invalid shard_shape (<2) for mesh_shard op with devices partition.");
+    }
+
+    // Check if rank(shardShape) is eqaul to rank(input).
+    if (shardShape.size() != inputShape.size()) {
+      return emitOpError("Invalid rank(shard_shape) != rank(input) for "
+                         "mesh_shard op with devices partition.");
     }
 
     // Check if overall partition is eqaul to or greater than two.
