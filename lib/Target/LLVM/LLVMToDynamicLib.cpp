@@ -136,8 +136,9 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 
   // Emit object code to the file.
   llvm::legacy::PassManager passManager;
-  passManager.add(std::make_unique<llvm::TargetLibraryInfoWrapperPass>(
-      targetMachine->getTargetTriple()));
+  passManager.add(new llvm::TargetLibraryInfoWrapperPass(
+      targetMachine
+          ->getTargetTriple())); // NOLINT(cppcoreguidelines-owning-memory)
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CodeGenFileType::ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
