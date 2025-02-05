@@ -7,15 +7,6 @@ add_mlir_translation_library(TTLLVMToDynamicLib
     ${LLVM_INCLUDE_DIRS}
 
     LINK_LIBS PUBLIC
-    LLVMCore
-    LLVMSupport
-    LLVMMC
-    LLVMMCParser
-    LLVMLinker
-    LLVMBinaryFormat
-    MLIRBytecodeWriter
-    MLIRIR
-    MLIRParser
-    MLIRPass
-    MLIRSupport
+    LLVM
+    MLIR
 )
