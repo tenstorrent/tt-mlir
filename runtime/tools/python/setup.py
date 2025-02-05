@@ -91,6 +91,11 @@ if enable_perf:
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
 
+    shutil.copy(
+        f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
+    )
+
     for dylib in runlibs:
         shutil.copy(
             f"{metaldir}/lib/{dylib}",
@@ -262,6 +267,7 @@ if enable_runtime:
         )
     )
 
+dylibs += ["libTTMLIRRuntime.so"]
 dylibs += runlibs
 dylibs += perflibs
 dylibs += metallibs
