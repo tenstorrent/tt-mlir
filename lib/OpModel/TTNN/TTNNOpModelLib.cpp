@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.h"
+#include "ttnn/tensor/shape/small_vector.hpp"
 #include <type_traits>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -406,6 +407,83 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
   return operation::getOpRuntime("SoftmaxOpInterface", softmaxOpQuery,
                                  inputShape, inputLayout, dimArg, outputShape,
+                                 outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// MeanOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                  std::optional<llvm::ArrayRef<int32_t>> dimArg,
+                                  bool keepDim,
+                                  llvm::ArrayRef<int64_t> outputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto meanOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                        std::optional<llvm::ArrayRef<int32_t>> dimArg,
+                        bool keepDim,
+                        llvm::ArrayRef<int64_t> outputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout),
+        std::make_tuple(outputShape, outputLayout));
+
+    // run op constraint query
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::mean, device, inputSpec, dimArg, keepDim, outputSpec,
+        outputSpec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpConstraints("MeanOpInterface", meanOpQuery, inputShape,
+                                     inputLayout, dimArg, outputShape,
+                                     outputLayout);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                              std::optional<llvm::ArrayRef<int32_t>> dimArg,
+                              bool keepDim,
+                              llvm::ArrayRef<int64_t> outputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto meanOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                        std::optional<llvm::ArrayRef<int32_t>> dimArg,
+                        bool keepDim,
+                        llvm::ArrayRef<int64_t> outputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout),
+        std::make_tuple(outputShape, outputLayout));
+
+    // run op constraint query
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::mean, device, inputSpec, dimArg, keepDim, outputSpec,
+        outputSpec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpRuntime("MeanOpInterface", meanOpQuery, inputShape,
+                                 inputLayout, dimArg, outputShape,
                                  outputLayout);
 #else
   return llvm::createStringError("Not Implemented");
