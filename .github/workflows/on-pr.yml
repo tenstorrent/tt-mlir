@@ -29,9 +29,10 @@ jobs:
               - docs/**
       - name: check
         shell: bash
+        env:
+          changed_files_json: ${{ toJson(steps.changed-files.outputs) }}
         id: skip
         run: |
-          changed_files_json="$( echo '${{ toJson(steps.changed-files.outputs)  }}' | jq -c .)"
           echo "bool=$(.github/scripts/pr-skip-check.sh \
             ${{ github.event.pull_request.draft }} $changed_files_json)"  >> "$GITHUB_OUTPUT"
 

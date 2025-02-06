@@ -7,7 +7,8 @@ set -ex
 
 function main() {
     local draft=$1
-    local doc_only_changed=$(echo $2 | jq -r '.doc_only_changed')
+    # See github action log for json shape
+    local doc_only_changed=$(echo $changed_files_json | jq -r '.doc_only_changed' )
 
     if $draft == false; then
         echo "false"
@@ -21,4 +22,4 @@ function main() {
 
 printenv
 
-main $1 "$2"
+main $1 
