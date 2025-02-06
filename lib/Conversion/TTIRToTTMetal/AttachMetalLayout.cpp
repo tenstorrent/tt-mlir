@@ -44,6 +44,10 @@ public:
         std::tie(streamMode, streamBuffers) =
             StreamLayoutAttr::getDefaults(initMemorySpace);
 
+        // TODO(vroubtsovTT): the streamAffineMap calc below is not correct, it
+        // needs to derive the map from what's set on 'layout' plus some
+        // assumptions about "outer" indexing (e.g '1x1x...layoutxf12')
+
         auto streamAffineMap = mlir::AffineMap::getMultiDimIdentityMap(
             type.getShape().size(), ctx);
         auto streamLayout = StreamLayoutAttr::get(ctx, streamAffineMap,
