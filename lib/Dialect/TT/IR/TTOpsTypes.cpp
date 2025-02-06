@@ -1212,23 +1212,23 @@ uint64_t TileType::getSizeBytes() const {
 mlir::Type TileType::getElementType() const {
   switch (getDataType()) {
   case DataType::Float32:
-    return FloatType::getF32(getContext());
+    return Float32Type::get(getContext());
   case DataType::Float16:
-    return FloatType::getF16(getContext());
+    return Float16Type::get(getContext());
   case DataType::BFloat16:
-    return FloatType::getBF16(getContext());
+    return BFloat16Type::get(getContext());
   case DataType::BFP_Float8:
-    return FloatType::getF16(getContext());
+    return Float16Type::get(getContext());
   case DataType::BFP_BFloat8:
-    return FloatType::getBF16(getContext());
+    return BFloat16Type::get(getContext());
   case DataType::BFP_Float4:
-    return FloatType::getF16(getContext());
+    return Float16Type::get(getContext());
   case DataType::BFP_BFloat4:
-    return FloatType::getBF16(getContext());
+    return BFloat16Type::get(getContext());
   case DataType::BFP_Float2:
-    return FloatType::getF16(getContext());
+    return Float16Type::get(getContext());
   case DataType::BFP_BFloat2:
-    return FloatType::getBF16(getContext());
+    return BFloat16Type::get(getContext());
   case DataType::UInt32:
     return IntegerType::get(getContext(), 32,
                             IntegerType::SignednessSemantics::Unsigned);
