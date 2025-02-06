@@ -488,17 +488,16 @@ private:
 
   bool rewriteInput(mlir::func::FuncOp funcOp,
                     PatternRewriter &rewriter) const {
-    bool modified = false;
-    SmallVector<Type> inputTypes;
-    SmallVector<Type> outputTypes(funcOp.getResultTypes());
     // Func declarations are always CPU-hoisted funcs, which means all inputs
-    // should be in system_memory.
+    // should stay in system  memory.
     if (funcOp.isDeclaration()) {
       return false;
     }
-
+    bool modified = false;
     Block &entryBlock = funcOp.getBody().front();
 
+    SmallVector<Type> inputTypes;
+    SmallVector<Type> outputTypes(funcOp.getResultTypes());
     for (BlockArgument &arg : entryBlock.getArguments()) {
       if (!mlir::isa<RankedTensorType>(arg.getType()) ||
           !shouldForceInputSystemMemory(arg)) {
@@ -510,17 +509,15 @@ private:
 
       inputTypes.push_back(newType);
       modified = arg.getType() != newType;
-      // Ensure entryBlock's arg types match func's arg types.
-      if (modified) {
-        for (uint32_t i = 0; i < entryBlock.getNumArguments(); i++) {
-          entryBlock.getArgument(i).setType(inputTypes[i]);
-        }
-      }
     }
+
     if (modified) {
       FunctionType newFuncType =
           rewriter.getFunctionType(inputTypes, outputTypes);
       funcOp.setFunctionType(newFuncType);
+      for (uint32_t i = 0; i < entryBlock.getNumArguments(); i++) {
+        entryBlock.getArgument(i).setType(inputTypes[i]);
+      }
     }
     return modified;
   }
