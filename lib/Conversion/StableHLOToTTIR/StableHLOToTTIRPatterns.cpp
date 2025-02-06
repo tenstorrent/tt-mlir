@@ -1405,16 +1405,12 @@ public:
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::AllGatherOp>(
-      srcOp,
-      outputType,
-      Value(adaptor.getOperands()[0]),
-      Value(outputTensor),
-      static_cast<int32_t>(adaptor.getAllGatherDim()),
-      rewriter.getSI32IntegerAttr(channel_handle),
-      adaptor.getUseGlobalDeviceIds(),
-      adaptor.getReplicaGroups());
+        srcOp, outputType, Value(adaptor.getOperands()[0]), Value(outputTensor),
+        static_cast<int32_t>(adaptor.getAllGatherDim()),
+        rewriter.getSI32IntegerAttr(channel_handle),
+        adaptor.getUseGlobalDeviceIds(), adaptor.getReplicaGroups());
 
-      return success();
+    return success();
   }
 
 private:

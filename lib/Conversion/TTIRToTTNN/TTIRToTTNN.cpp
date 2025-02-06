@@ -1371,7 +1371,8 @@ public:
     Base case:
       - if size of list of devices in replica_groups == 1
         - if mesh[0] == 1 { cluster_axis = 0 }
-        - if mesh[1] == 1 { return failure() } we do not support any meshes with mesh[1] == 1
+        - if mesh[1] == 1 { return failure() } we do not support any meshes with
+    mesh[1] == 1
       - else
         - if list_devices[0] + 1 == list_devices[1] { cluster_axis = 1 }
         - else { cluster_axis = 0 }
@@ -1385,7 +1386,7 @@ public:
     uint32_t cluster_axis = 0;
     auto replicaGroups = adaptor.getReplicaGroups();
     auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    auto meshShape = device.getMeshShape().value();
+    // auto meshShape = device.getMeshShape().value();
 
     if (replicaGroupsShape.size() == 0) {
       // Cannot have replicas of size 0, this means we are not performing the
@@ -1395,12 +1396,10 @@ public:
 
     // Case where we have single devices in each replica_group (ie perform
     // all_gather against itself which should be optimized away)
+    // We also assume we are only using our constrained mesh types (ie 1x8, 1x32
+    // etc) and cannot have (32x1, 8x1)
     if (replicaGroupsShape[1] == 1) {
-      if (meshShape.getX() == 1) {
-        cluster_axis = 0;
-      } else {
-        return failure();
-      }
+      cluster_axis = 0;
     } else {
       auto firstElementIt = replicaGroups.begin();
       auto secondElementIt = firstElementIt + 1;

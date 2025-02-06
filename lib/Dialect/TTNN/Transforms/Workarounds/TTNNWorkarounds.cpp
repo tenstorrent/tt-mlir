@@ -341,7 +341,9 @@ public:
     int32_t scatter_num = op.getScatterNum();
     Value deviceValue = op.getDevice();
     Location loc = op.getLoc();
-    uint32_t cluster_axis = 1; // todo: (tapspatel) hard-code to 1 to prevent any changing behaviour while all_reduce code is updated with new algorithm
+    uint32_t cluster_axis =
+        1; // todo: (tapspatel) hard-code to 1 to prevent any changing behaviour
+           // while all_reduce code is updated with new algorithm
 
     // TODO(wooseoklee): Once it supports two dimensional tensor
     // (https://github.com/tenstorrent/tt-metal/issues/15010), we can remove

@@ -23,7 +23,8 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::MeshDevice &meshDevice =
       context.getSubMesh(op->device()->global_id());
-  ::ttnn::Tensor out = ::ttnn::all_gather(input, allGatherDim, clusterAxis, meshDevice, numLinks,
+  ::ttnn::Tensor out =
+      ::ttnn::all_gather(input, allGatherDim, clusterAxis, meshDevice, numLinks,
                          outputMemoryConfig, std::nullopt, std::nullopt,
                          ::ttnn::ccl::Topology::Linear);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
