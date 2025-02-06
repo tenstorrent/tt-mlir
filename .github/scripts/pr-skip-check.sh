@@ -6,17 +6,17 @@
 set -ex
 
 function main() {
-    local is_draft=$1
-    local is_docs=$2
+    local draft=$1
+    local doc_only_changed=$2
 
-    if $is_draft == true; then
-        echo "true"
+    if $draft == true; then
+        echo "false"
         exit 0
-    elif $is_docs == 'true'; then
-        echo "true"
+    elif $doc_only_changed == true; then
+        echo "false"
         exit 0
     fi
-    echo "false"
+    echo "true"
 }
 
 main $1 $2
