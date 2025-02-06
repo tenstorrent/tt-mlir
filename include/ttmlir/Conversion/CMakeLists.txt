@@ -3,11 +3,8 @@ include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
 include_directories(${TTMLIR_SOURCE_DIR}/include)
 
 set(LLVM_TARGET_DEFINITIONS Passes.td)
-if (TTMLIR_ENABLE_STABLEHLO)
-mlir_tablegen(Passes.h.inc -gen-pass-decls -name TTMLIRConversion -DTTMLIR_ENABLE_STABLEHLO)
-add_dependencies(mlir-headers PassesIncGen)
-else()
 mlir_tablegen(Passes.h.inc -gen-pass-decls -name TTMLIRConversion)
-endif()
+add_dependencies(mlir-headers PassesIncGen)
+
 add_public_tablegen_target(TTMLIRConversionPassIncGen)
 add_dependencies(mlir-headers TTMLIRConversionPassIncGen)

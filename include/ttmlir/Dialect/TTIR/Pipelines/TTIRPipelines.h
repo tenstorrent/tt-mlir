@@ -9,7 +9,6 @@
 
 namespace mlir::tt::ttir {
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct StableHLOToTTIRPipelineOptions
@@ -32,7 +31,6 @@ struct StableHLOToTTIRPipelineOptions
       // that the TTIR inliner pass may inline the ops.
       llvm::cl::init(true)};
 };
-#endif
 
 struct LinalgToLLVMPipelineOptions
     : public PassPipelineOptions<LinalgToLLVMPipelineOptions> {
@@ -45,10 +43,8 @@ struct LinalgToLLVMPipelineOptions
       llvm::cl::init(true)};
 };
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options);
-#endif
 
 void createLinalgToLLVMPipeline(OpPassManager &pm,
                                 const LinalgToLLVMPipelineOptions &options);

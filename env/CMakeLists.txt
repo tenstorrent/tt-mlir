@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "e813750354bbc08551cf23ff559a54b4a9ea1f29")
-set(STABLEHLO_VERSION "d40285ef3db0687e3f1e2bb0d716d748485a9739")
+set(LLVM_PROJECT_VERSION "5d6d982df61d16b6d498e6d59dd91c059679d3d8")
+set(STABLEHLO_VERSION "b62dc66da9946b4c400c0d99c9d5bb8e04edaee6")
 set(SHARDY_VERSION "55f44c23b766be38bccb0b2394b0e8dfba45694e")
 
 include(ExternalProject)
@@ -70,13 +70,18 @@ ExternalProject_Add(
     DEPENDS python-venv
 )
 
-ExternalProject_Add(stablehlo
-   PREFIX ${TTMLIR_TOOLCHAIN_DIR}
-   GIT_REPOSITORY https://github.com/openxla/stablehlo.git
-   GIT_TAG ${STABLEHLO_VERSION}
-   CONFIGURE_COMMAND ""
-   BUILD_COMMAND ""
-   INSTALL_COMMAND ""
+ExternalProject_Add(
+    stablehlo
+    PREFIX ${TTMLIR_TOOLCHAIN_DIR}
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
+        -DLLVM_DIR=${TTMLIR_TOOLCHAIN_DIR}/lib/cmake/llvm
+        -DMLIR_DIR=${TTMLIR_TOOLCHAIN_DIR}/lib/cmake/mlir
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DCMAKE_C_FLAGS=-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+    GIT_REPOSITORY https://github.com/openxla/stablehlo.git
+    GIT_TAG ${STABLEHLO_VERSION}
+    DEPENDS llvm-project
 )
 
 ExternalProject_Add(shardy

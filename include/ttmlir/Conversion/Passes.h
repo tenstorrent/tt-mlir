@@ -5,10 +5,8 @@
 #ifndef TTMLIR_CONVERSION_PASSES_H
 #define TTMLIR_CONVERSION_PASSES_H
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
-#endif
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"

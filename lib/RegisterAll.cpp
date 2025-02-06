@@ -29,10 +29,8 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 
-#if TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/ir/register.h"
 #include "stablehlo/dialect/Register.h"
-#endif
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<
@@ -46,10 +44,8 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
       mlir::LLVM::LLVMDialect>();
 
-#if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
   mlir::sdy::registerAllDialects(registry);
-#endif
   // Registering BufferizableOpInterface for each dialect (including
   // intermediate dialects) is required to convert types to memrefs during
   // lowering.

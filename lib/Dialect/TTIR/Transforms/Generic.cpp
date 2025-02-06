@@ -78,7 +78,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRGenericRegionRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
     }
   }
@@ -280,7 +280,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRGenericOpCBsRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
     }
   }

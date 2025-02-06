@@ -33,7 +33,6 @@ set(TTMLIR_LIBS
     TTMLIRTTNNUtils
 )
 
-if (TTMLIR_ENABLE_STABLEHLO)
 # list(APPEND TTMLIR_LIBS StablehloRegister SdyRegister)
 list(APPEND TTMLIR_LIBS
     StablehloBase
@@ -66,7 +65,6 @@ list(APPEND TTMLIR_LIBS
     SdyDialect
     SdyRegister
 )
-endif()
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
 
@@ -119,7 +117,7 @@ set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
 install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 install(TARGETS TTMLIRRuntime DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 
-set(TTMLIR_RUNTIME_LIB_DEPS ${TTMLIR_TOOLCHAIN_DIR}/lib/libLLVM.so ${TTMLIR_TOOLCHAIN_DIR}/lib/libMLIR.so)
+set(TTMLIR_RUNTIME_LIB_DEPS ${TTMLIR_TOOLCHAIN_DIR}/lib/libLLVM.so ${TTMLIR_TOOLCHAIN_DIR}/lib/libMLIR.so ${TTMLIR_TOOLCHAIN_DIR}/lib/libStablehlo.so)
 install(CODE
     "
     MESSAGE(STATUS \"Installing tt-mlir runtime shared lib dependencies (${TTMLIR_RUNTIME_LIB_DEPS}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")

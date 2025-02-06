@@ -22,16 +22,13 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/transforms/Passes.h"
-#endif
 
 namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options) {
   if (options.arithDialectConversionsEnabled) {
@@ -45,7 +42,6 @@ void createStableHLOToTTIRPipeline(
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
 }
-#endif
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,
                                 const LinalgToLLVMPipelineOptions &options) {
@@ -102,12 +98,10 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 //===----------------------------------------------------------------------===//
 
 void registerTTIRPipelines() {
-#ifdef TTMLIR_ENABLE_STABLEHLO
   mlir::PassPipelineRegistration<StableHLOToTTIRPipelineOptions>(
       "stablehlo-to-ttir-pipeline",
       "Pipeline lowering stablehlo to ttir dialect.",
       mlir::tt::ttir::createStableHLOToTTIRPipeline);
-#endif
   mlir::PassPipelineRegistration<LinalgToLLVMPipelineOptions>(
       "linalg-to-llvm-pipeline", "Pipeline lowering linalg to llvm dialect.",
       mlir::tt::ttir::createLinalgToLLVMPipeline);

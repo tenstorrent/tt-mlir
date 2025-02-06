@@ -8,9 +8,7 @@ add_subdirectory(TTIRToTTNN)
 add_subdirectory(TTIRToTTMetal)
 add_subdirectory(TTKernelToEmitC)
 
-if (TTMLIR_ENABLE_STABLEHLO)
 add_subdirectory(StableHLOToTTIR)
-endif()
 
 include_directories(${TTMLIR_SOURCE_DIR}/include)
 
@@ -24,9 +22,7 @@ TTMLIRTTKernelToEmitC
 TTMLIRTTIRToLinalg
 )
 
-if (TTMLIR_ENABLE_STABLEHLO)
 list(APPEND link_libs TTMLIRStableHLOToTTIR)
-endif()
 
 target_link_libraries(TTMLIRConversions INTERFACE
 ${link_libs}

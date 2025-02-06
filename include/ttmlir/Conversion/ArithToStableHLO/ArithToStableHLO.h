@@ -10,9 +10,7 @@
 
 namespace mlir::tt {
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
 std::unique_ptr<OperationPass<ModuleOp>> createConvertArithToStableHLOPass();
-#endif
 
 } // namespace mlir::tt
 

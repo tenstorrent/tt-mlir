@@ -10,7 +10,6 @@
 
 namespace mlir::tt::sharding_utils {
 
-#if TTMLIR_ENABLE_STABLEHLO
 struct MeshSharding {
   mlir::tt::MeshShardDirection shardDirection;
   mlir::tt::MeshShardType shardType;
@@ -22,7 +21,6 @@ struct MeshSharding {
 
 LogicalResult parseGSPMDShardingAttr(StringRef shardingStr,
                                      MeshSharding &meshSharding);
-#endif
 
 } // namespace mlir::tt::sharding_utils
 
