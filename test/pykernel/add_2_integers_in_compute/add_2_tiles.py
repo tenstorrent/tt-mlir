@@ -9,7 +9,7 @@ from pykernel.pykernel_ast import *
 from pykernel.types import *
 
 
-@ttkernel_compile
+@ttkernel_tensix_compile()
 def add_2_tiles(cb_in0: CircularBuffer, cb_in1: CircularBuffer, cb_out: CircularBuffer):
     binary_op_init_common(cb_in0, cb_in1, cb_out)
     add_tiles_init(cb_in0, cb_in1)
