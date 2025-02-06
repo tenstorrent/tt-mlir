@@ -589,6 +589,28 @@ class TTIRBuilder:
             ttir_kwargs=ttir_kwargs,
         )
 
+    def squeeze(self, in0: Operand, dim: Optional[int] = 0) -> OpView:
+        kwargs = {"dim": dim}
+        return self.op_proxy(
+            torch.squeeze,
+            ttir.SqueezeOp,
+            [in0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def unsqueeze(self, in0: Operand, dim: Optional[int] = 0) -> OpView:
+        kwargs = {"dim": dim}
+        return self.op_proxy(
+            torch.unsqueeze,
+            ttir.UnsqueezeOp,
+            [in0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
     def clamp(
         self,
         in0: Operand,
