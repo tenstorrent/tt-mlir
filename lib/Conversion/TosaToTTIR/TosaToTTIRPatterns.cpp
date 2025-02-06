@@ -14,6 +14,7 @@
 #include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -39,13 +40,12 @@ public:
       return legalityResult;
     }
 
-    RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        ValueRange(outputTensor));
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                                 adaptor.getOperands());
+
     return success();
   }
 
@@ -88,15 +88,13 @@ public:
   LogicalResult
   matchAndRewrite(tosa::ClampOp srcOp, tosa::ClampOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
+        rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getMinFp(),
+        adaptor.getMaxFp());
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ClampOp>(
-        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands()[0],
-        outputTensor, adaptor.getMinFp(), adaptor.getMaxFp());
     return success();
   }
 };
@@ -111,15 +109,12 @@ public:
   LogicalResult
   matchAndRewrite(tosa::ConcatOp srcOp, tosa::ConcatOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands(), adaptor.getAxis());
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
-        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        Value(outputTensor), adaptor.getAxis());
     return success();
   }
 };
@@ -140,15 +135,13 @@ public:
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
-    RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    ValueRange operands = adaptor.getOperands();
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
-        srcOp, TypeRange(outputTensor.getType()), operands[0], operands[1],
-        outputTensor);
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::MatmulOp>(
+        rewriter, srcOp, outputType, adaptor.getA(), adaptor.getB());
+
     return success();
   }
 
@@ -175,16 +168,13 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp, outputTensor.getType(), adaptor.getInput(), outputTensor,
-        true /*keepdim*/,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(1, adaptor.getAxisAttr())));
+    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(
+        rewriter, srcOp, outputType, adaptor.getInput(), /*keep_dim=*/true,
+        rewriter.getI32ArrayAttr(adaptor.getAxis()));
+
     return success();
   }
 };
@@ -200,18 +190,18 @@ public:
   LogicalResult
   matchAndRewrite(tosa::MaxPool2dOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    auto outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    auto dims = srcOp.getKernel();
+    auto strides = srcOp.getStride();
+    auto pad = srcOp.getPad();
 
-    auto dims = srcOp.getKernelAttr();
-    auto strides = srcOp.getStrideAttr();
-    auto pad = srcOp.getPadAttr();
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MaxPool2dOp>(
-        srcOp, TypeRange(outputTensor.getType()), adaptor.getInput(),
-        outputTensor, dims[0], dims[1], strides[0], strides[1], 1, 1, false,
-        pad[2], pad[3], pad[0], pad[1]);
+    // TODO (azecevic) Add comment about the parameters.
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::MaxPool2dOp>(
+        rewriter, srcOp, outputType, adaptor.getInput(), dims[0], dims[1],
+        strides[0], strides[1], 1, 1, false, pad[2], pad[3], pad[0], pad[1]);
+
     return success();
   }
 };
