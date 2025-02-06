@@ -18,10 +18,10 @@ namespace {
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
-                                GridAttr deviceGrid) {
+                                bool useStreamLayout, GridAttr deviceGrid) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx, initMemorySpace,
-                   deviceGrid](RankedTensorType type) -> Type {
+    addConversion([ctx, useStreamLayout, deviceGrid,
+                   initMemorySpace](RankedTensorType type) -> Type {
       if (type.getEncoding()) {
         return type;
       }
@@ -29,21 +29,29 @@ public:
       // Default to single core grid
       auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
 
-      // Select stream layout defaults for 'initMemorySpace':
-      StreamMode streamMode;
-      uint32_t streamBuffers;
-      std::tie(streamMode, streamBuffers) =
-          StreamLayoutAttr::getDefaults(initMemorySpace);
+      // Default to initMemorySpace, the optimizer might decide otherwise;
+      // select layout for the memory space:
 
-      auto streamAffineMap =
-          mlir::AffineMap::getMultiDimIdentityMap(type.getShape().size(), ctx);
-      auto streamLayout = StreamLayoutAttr::get(ctx, streamAffineMap,
-                                                streamMode, streamBuffers);
+      MetalLayoutAttr newLayout = [&]() {
+        auto layout =
+            MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
+        if (!useStreamLayout) {
+          return layout;
+        }
 
-      // Default to initMemorySpace, the optimizer might decide otherwise
-      auto newLayout =
-          MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid)
-              .withStreamLayout(ctx, streamLayout);
+        StreamMode streamMode;
+        uint32_t streamBuffers;
+        std::tie(streamMode, streamBuffers) =
+            StreamLayoutAttr::getDefaults(initMemorySpace);
+
+        auto streamAffineMap = mlir::AffineMap::getMultiDimIdentityMap(
+            type.getShape().size(), ctx);
+        auto streamLayout = StreamLayoutAttr::get(ctx, streamAffineMap,
+                                                  streamMode, streamBuffers);
+
+        return layout.withStreamLayout(ctx, streamLayout);
+      }();
+
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -132,6 +140,7 @@ class TTIRAttachMetalLayout
     auto device = getCurrentScopeDevice(getOperation());
     assert(device && "Device not found");
     TTIRLayoutTensorTypeConverter typeConverter(&getContext(), initMemorySpace,
+                                                useStreamLayout,
                                                 device.getWorkerGrid());
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());

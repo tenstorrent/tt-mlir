@@ -146,7 +146,7 @@ mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
                                         TAttr::get(context, memorySpace))
                 : mlir::MemRefType::get(scalarShardShape, elementType,
                                         mlir::AffineMap::getMultiDimIdentityMap(
-                                            shardShape.size(), context),
+                                            scalarShardShape.size(), context),
                                         TAttr::get(context, memorySpace));
 }
 
