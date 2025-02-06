@@ -9,10 +9,10 @@ function main() {
     local is_draft=$1
     local is_docs=$2
 
-    if "$is_draft" == "true"; then
+    if $is_draft == true; then
         echo "true"
         exit 0
-    elif "$is_docs" == "true"; then
+    elif $is_docs == 'true'; then
         echo "true"
         exit 0
     fi
