@@ -17,14 +17,13 @@ struct Env {
 #endif
   get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
-      bool defaultStrideComputation = true,
       bool toLayoutAPIAssumeSingleChip = true,
       bool usePaddingPairSignatureWithQueueId = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true, true);
+    return Env(true, true, true, true, true);
   }
 #endif
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
@@ -41,13 +40,6 @@ struct Env {
   // as a tensor with integer elements. For now, to get this op to work we need
   // to be able to pluck this update index from a runtime tensor.
   bool readUpdateIndexFromDeviceForKVCache;
-
-  // TODO(bug #2045): Our current stride calculation is incorrect for tilized
-  // tensors. The current solution is to remove stride entirely from the
-  // flatbuffer and calculate the stride in runtime assuming using the default
-  // method ignoring details like grid, layout etc. Once we have a more
-  // sophisticated way for handling this, we can remove this workaround.
-  bool defaultStrideComputation;
 
   // TODO(bug #1778): We currently don't have device grid information (mesh
   // shape, offset) in the flatbuffer TensorDesc nor in the mlir LayoutAttr. We
@@ -70,13 +62,12 @@ struct Env {
 private:
   constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool defaultStrideComputation, bool toLayoutAPIAssumeSingleChip,
+                bool toLayoutAPIAssumeSingleChip,
                 bool usePaddingPairSignatureWithQueueId)
       : maxpool2dPreshard(maxpool2dPreshard),
         swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        defaultStrideComputation(defaultStrideComputation),
         toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip),
         usePaddingPairSignatureWithQueueId(usePaddingPairSignatureWithQueueId) {
   }
@@ -91,8 +82,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "readUpdateIndexFromDeviceForKVCache: "
      << env.readUpdateIndexFromDeviceForKVCache << "\n";
-  os << "\t"
-     << "defaultStrideComputation: " << env.defaultStrideComputation << "\n";
   os << "\t"
      << "toLayoutAPIAssumeSingleChip: " << env.toLayoutAPIAssumeSingleChip
      << "\n";
