@@ -21,6 +21,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: tj-actions/changed-files@v45
+        id: changed-files
         with:
           files_yaml: |
             doc:
@@ -32,7 +33,7 @@ jobs:
         run: |
           "bool=$(.github/scripts/pr-skip-check.sh \
             ${{ github.event.pull_request.draft }} \
-            ${{ needs.changed-files.outputs.doc_only_changed }})"  >> "$GITHUB_OUTPUT"
+            ${{ steps.changed-files.outputs.doc_only_changed }})"  >> "$GITHUB_OUTPUT"
 
   pre-commit:
     uses: ./.github/workflows/pre-commit.yml
