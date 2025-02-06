@@ -580,6 +580,13 @@ private:
       if (mlir::isa<ttir::MeshShardOp>(user)) {
         return true;
       }
+      // For the weight input of the conv2d op, it specifically needs to be on
+      // host (issue https://github.com/tenstorrent/tt-mlir/issues/1528).
+      if ((mlir::isa<ttir::Conv2dOp>(user) ||
+           mlir::isa<ttir::ConvTranspose2dOp>(user)) &&
+          user->getOperand(1) == arg) {
+        return true;
+      }
     }
     return false;
   }

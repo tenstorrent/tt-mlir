@@ -7,7 +7,6 @@
 #include "flatbuffers/idl.h"
 
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
@@ -39,10 +38,11 @@ static std::string asJson(void const *fbb, uint8_t const *binarySchema,
 
 static std::vector<uint32_t>
 calculateStride(std::vector<uint32_t> const &shape) {
-  LOG_ASSERT(
-      workaround::Env::get().defaultStrideComputation,
-      "Stride currently removed from flatbuffer thus defaultStrideComputation"
-      "workaround must be enabled");
+  // TODO(bug #2045): Our current stride calculation is incorrect for tilized
+  // tensors. The current solution is to remove stride entirely from the
+  // flatbuffer and calculate the stride in runtime assuming using the default
+  // method ignoring details like grid, layout etc. Once we have a more
+  // sophisticated way for handling this, we can remove this workaround.
   LOG_ASSERT(!shape.empty());
   std::vector<uint32_t> stride(shape.size(), 1);
   for (size_t i = shape.size() - 1; i > 0; i--) {
