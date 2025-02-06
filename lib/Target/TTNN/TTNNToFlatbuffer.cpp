@@ -1472,8 +1472,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   for (const auto &element : goldenMap) {
     auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
         fbb, element.second.name.c_str(), &element.second.shape,
-        &element.second.strides, element.second.dtype,
-        element.second.data.get());
+        &element.second.strides, element.second.dtype, &element.second.data);
     auto goldenKV = ::tt::target::CreateGoldenKVDirect(
         fbb, element.first.c_str(), goldenTensor);
     goldenKVList.push_back(goldenKV);

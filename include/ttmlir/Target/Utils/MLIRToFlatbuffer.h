@@ -33,11 +33,11 @@ struct GoldenTensor {
   std::vector<int64_t> shape;
   std::vector<int64_t> strides;
   ::tt::target::DataType dtype;
-  std::unique_ptr<std::vector<std::uint8_t>> data;
+  std::vector<std::uint8_t> data;
 
   GoldenTensor(std::string name, std::vector<int64_t> shape,
                std::vector<int64_t> strides, ::tt::target::DataType dtype,
-               std::unique_ptr<std::vector<std::uint8_t>> _data)
+               std::vector<std::uint8_t> _data)
       : name(name), shape(shape), strides(strides), dtype(dtype),
         data(std::move(_data)) {}
 };
