@@ -11,6 +11,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  skip-checks:
+    runs-on: ubuntu-latest
+    name: Test changed-files
+    outputs:
+      bool: ${{ steps.skip.outputs.bool }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: tj-actions/changed-files@v45
+        with:
+          files_yaml: |
+            doc:
+              - '**.md'
+              - docs/**
+      - name: ifskip
+        shell: bash
+        id: skip
+        run: |
+          "bool=$(.github/scripts/pr-skip-check.sh \
+            {{ github.event.pull_request.draft }} \
+            {{ needs.changed-files.outputs.doc_only_changed }})"  >> "$GITHUB_OUTPUT"
+
   pre-commit:
     uses: ./.github/workflows/pre-commit.yml
     secrets: inherit
@@ -18,7 +41,7 @@ jobs:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
   build-and-test:
-    if: github.event.pull_request.draft == false
+    if: needs.skip-checks.outputs.bool
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
 
