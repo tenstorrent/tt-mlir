@@ -250,6 +250,51 @@ getPairOfInteger(mlir::Attribute attr) {
   return std::make_pair(x, y);
 }
 
+/// For a given mlir::Attribute attr, returns a tuple of four integers of type
+/// ReturnTy. If attr is an IntegerAttr, it's interpreted as a
+/// (value(attr), value(attr), value(attr), value(attr)) tuple, where
+/// value(attr) is of type ScalarTy. If attr is a
+/// DenseArrayAttr<VectorElementTy> of size 2, it's interpreted as a (attr[0],
+/// attr[1], attr[0], attr[1]) tuple. If attr is a
+/// DenseArrayAttr<VectorElementTy> of size 4, it is returned directly as
+/// (attr[0], attr[1], attr[2], attr[3]). Otherwise, returns an error message.
+template <typename ScalarTy, typename VectorElementTy = ScalarTy,
+          typename ReturnTy = ScalarTy>
+inline llvm::Expected<std::tuple<ReturnTy, ReturnTy, ReturnTy, ReturnTy>>
+getQuadrupleOfInteger(mlir::Attribute attr) {
+  ReturnTy x{}, y{}, z{}, w{};
+
+  // If attr is IntegerAttr, interpret it as (attr, attr, attr, attr)
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    x = y = z = w = integerAs<ScalarTy>(value.getValue());
+  }
+  // If attr is DenseArrayAttr, handle based on its size
+  else if (auto tuple = mlir::dyn_cast<
+               ::mlir::detail::DenseArrayAttrImpl<VectorElementTy>>(attr)) {
+    if (tuple.size() == 2) {
+      x = tuple[0];
+      y = tuple[1];
+      z = tuple[0];
+      w = tuple[1];
+    } else if (tuple.size() == 4) {
+      x = tuple[0];
+      y = tuple[1];
+      z = tuple[2];
+      w = tuple[3];
+    } else {
+      return llvm::createStringError("Expected integer, pair, or tuple of size "
+                                     "4, but got tuple of size %lu",
+                                     tuple.size());
+    }
+  }
+  // If attr is of an unsupported type
+  else {
+    return llvm::createStringError("Unexpected attribute type");
+  }
+
+  return std::make_tuple(x, y, z, w);
+}
+
 // It's assumed that operand is convertible to mlir::Value or mlir::ValueRange.
 // The only exception being tt::DeviceType, which is convertible to mlir::Value
 // but should not be considered an operand.

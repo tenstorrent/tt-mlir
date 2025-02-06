@@ -40,5 +40,8 @@ inline ::ttnn::Shape toTTNNShape(const flatbuffers::Vector<T> &vec) {
   return ::ttnn::Shape(rawShape);
 }
 
+::ttnn::operations::conv::conv2d::Conv2dConfig
+createConv2dConfig(const ::tt::target::Conv2dConfigDesc *memcfg);
+
 } // namespace tt::runtime::ttnn::operations::utils
 #endif
