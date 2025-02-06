@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -285,7 +285,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         value = self.visit(node.value)
         sym_table = self.symbol_tables[-1]
         var_name = node.targets[0].id
-        # print(var.type)
+
         if hasattr(var, "type") and isinstance(var.type, MemRefType):
             memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
         else:
@@ -313,7 +313,6 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Function calls
     def visit_Call(self, node):
-        # print(f"visit_Call")
         assert (
             node.func.id in self.ttkernel_fn_map
         ), f"Function {node.func.id} not supported"
@@ -448,9 +447,9 @@ def ttkernel_compile(f):
         b = TTKernelCompiler(f.__name__, args)
         # print(ast.dump(m, indent=4) + "\n")
         b.visit(m)
-        print(b.module)
 
         # Check if generated IR is valid
+        print(b.module)
         b.module.operation.verify()
 
     return _wrapper
