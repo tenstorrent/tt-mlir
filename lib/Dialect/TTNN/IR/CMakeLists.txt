@@ -14,13 +14,12 @@ add_mlir_dialect_library(MLIRTTNNDialect
         MLIRTTNNOpsIncGen
         MLIRTTOpsIncGen
         MLIRTTNNWorkaroundInterfaceIncGen
-        TTNNOpModelLib
 
         LINK_LIBS PUBLIC
         TTMLIRTTNNUtils
+        TTNNOpModelLib
         MLIRSCFToEmitC
         MLIRLinalgDialect
         MLIRBufferizationDialect
         MLIRMLProgramDialect
-        TTNNOpModelLib
         )
