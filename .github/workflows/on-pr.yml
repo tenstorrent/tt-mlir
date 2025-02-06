@@ -27,10 +27,11 @@ jobs:
             doc:
               - '**.md'
               - docs/**
-      - name: ifskip
+      - name: check
         shell: bash
         id: skip
         run: |
+          echo "All changed doc files ${{ steps.changed-files.outputs.doc_all_changed_files }}"
           echo "bool=$(.github/scripts/pr-skip-check.sh \
             ${{ github.event.pull_request.draft }} \
             ${{ steps.changed-files.outputs.doc_only_changed }})"  >> "$GITHUB_OUTPUT"
