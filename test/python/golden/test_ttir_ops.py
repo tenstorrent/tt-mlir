@@ -387,6 +387,16 @@ def test_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.matmul(in0, in1)
 
 
+@compile_to_flatbuffer(
+    [
+        (128, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_mean(in0: Operand, builder: TTIRBuilder):
+    return builder.mean(in0)
+
+
 # @compile_to_flatbuffer(
 #   [
 #       (64, 64),
