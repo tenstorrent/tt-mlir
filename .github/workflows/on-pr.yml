@@ -31,6 +31,9 @@ jobs:
         shell: bash
         id: skip
         run: |
+          test="$( echo '${{ toJson(steps.changed-files.outputs)  }}' | jq -c .)"
+          echo $test
+          
           echo "bool=$(.github/scripts/pr-skip-check.sh \
             ${{ github.event.pull_request.draft }} $( echo '${{ toJson(steps.changed-files.outputs)  }}' | jq -c .))"  >> "$GITHUB_OUTPUT"
 
