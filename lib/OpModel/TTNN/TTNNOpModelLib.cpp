@@ -34,20 +34,17 @@ namespace operation {
  * and callable.
  *
  * This function attempts to query operation constraints using the provided
- * callable and arguments. It returns a tuple containing a boolean indicating
- * success or failure, an optional tuple with resource usage details (if
- * successful), and an optional error message (if failed).
+ * callable and arguments. If successful, it returns a tuple with resource usage
+ * details. Otherwise, an error message.
  *
  * @param name The name of the operation to query constraints for.
  * @param callable A callable object that performs the query.
  * @param args Additional arguments to be forwarded to the callable.
- * @return A tuple containing query results.
+ * @return A tuple containing query results or a string error.
  */
 template <class Callable>
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
-getOpConstraints(const std::string_view &name, Callable &callable,
-                 auto &&...args) {
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(std::string_view name, Callable &callable, auto &&...args) {
   ::ttnn::graph::ConstraintQueryResponse query;
   try {
     query = callable(std::forward<decltype(args)>(args)...);
@@ -58,22 +55,18 @@ getOpConstraints(const std::string_view &name, Callable &callable,
 
   // check if query was successful
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
-    return std::make_tuple(
-        false, std::nullopt,
+    return llvm::createStringError(
         query.error_message.value_or("<error message not set>"));
   }
 
-  return std::make_tuple(
-      true,
-      std::make_tuple(query.resource_usage.cb_peak_size_per_core,
-                      query.resource_usage.l1_buffers_peak_per_core,
-                      query.resource_usage.l1_output_buffer_per_core),
-      std::nullopt);
+  return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
+                         query.resource_usage.l1_buffers_peak_per_core,
+                         query.resource_usage.l1_output_buffer_per_core);
 }
 
 template <class Callable>
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
-getOpRuntime(const std::string_view &name, Callable &callable, auto &&...args) {
+llvm::Expected<size_t> getOpRuntime(std::string_view name, Callable &callable,
+                                    auto &&...args) {
   ::ttnn::graph::RuntimeQueryResponse query;
   try {
     query = callable(std::forward<decltype(args)>(args)...);
@@ -84,12 +77,11 @@ getOpRuntime(const std::string_view &name, Callable &callable, auto &&...args) {
 
   // check if query was successful
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
-    return std::make_tuple(
-        false, std::nullopt,
+    return llvm::createStringError(
         query.error_message.value_or("<error message not set>"));
   }
 
-  return std::make_tuple(true, query.runtime, std::nullopt);
+  return query.runtime;
 }
 
 } // namespace operation
@@ -144,7 +136,7 @@ void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
  * grid size.
  */
 void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
-               const mlir::tt::GridAttr &workerGrid) {
+               mlir::tt::GridAttr workerGrid) {
   // metal CoreCoord holds x,y
   // GridAttr holds shape {y,x}
   if ((static_cast<size_t>(workerGrid.getShape()[1]) != computeGridSize.x) ||
@@ -187,26 +179,26 @@ auto convertToTensorSpec(::tt::tt_metal::v0::IDevice *device, Args... args) {
 // Device
 //===----------------------------------------------------------------------===//
 
-std::tuple<bool, std::optional<std::string>>
-Device::getDeviceConstraints(const mlir::tt::GridAttr &workerGrid) {
+llvm::Expected<bool>
+Device::getDeviceConstraints(mlir::tt::GridAttr workerGrid) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   try {
     detail::checkGrid(SingletonDeviceContext::getInstance()
                           .getDevice()
                           ->compute_with_storage_grid_size(),
                       workerGrid);
+    return true;
   } catch (const std::exception &e) {
-    return std::make_tuple(false, e.what());
+    return llvm::createStringError(e.what());
   }
 #endif
-  return std::make_tuple(true, std::nullopt);
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
 // ReluOp
 //===----------------------------------------------------------------------===//
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                   llvm::ArrayRef<int64_t> outputShape,
@@ -234,11 +226,11 @@ ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
   return operation::getOpConstraints("ReluOpInterface", reluOpQuery, inputShape,
                                      inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                               llvm::ArrayRef<int64_t> outputShape,
@@ -265,15 +257,14 @@ ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   return operation::getOpRuntime("ReluOpInterface", reluOpQuery, inputShape,
                                  inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(false, 0, std::nullopt);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
 //===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 AddOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                                  llvm::ArrayRef<int64_t> inputShapeB,
@@ -307,11 +298,11 @@ AddOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                      inputLayoutA, inputShapeB, inputLayoutB,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                              mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                              llvm::ArrayRef<int64_t> inputShapeB,
@@ -345,15 +336,14 @@ AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                                  inputLayoutA, inputShapeB, inputLayoutB,
                                  outputShape, outputLayout);
 #else
-  return std::make_tuple(false, 0, std::nullopt);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 SoftmaxOpInterface::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dimArg,
@@ -384,11 +374,11 @@ SoftmaxOpInterface::getOpConstraints(
                                      inputShape, inputLayout, dimArg,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                  const int dimArg,
@@ -418,15 +408,14 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                  inputShape, inputLayout, dimArg, outputShape,
                                  outputLayout);
 #else
-  return std::make_tuple(false, 0, std::nullopt);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                                     llvm::ArrayRef<int64_t> inputShapeB,
@@ -464,11 +453,11 @@ MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                      inputLayoutB, outputShape, outputLayout,
                                      transposeA, transposeB);
 #else
-  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-std::tuple<bool, std::optional<size_t>, std::optional<std::string>>
+llvm::Expected<size_t>
 MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                                 llvm::ArrayRef<int64_t> inputShapeB,
@@ -505,7 +494,7 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                                  inputLayoutB, outputShape, outputLayout,
                                  transposeA, transposeB);
 #else
-  return std::make_tuple(false, 0, std::nullopt);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 

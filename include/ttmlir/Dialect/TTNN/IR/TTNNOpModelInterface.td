@@ -16,32 +16,28 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
     let methods = [
         InterfaceMethod<
             /*desc=*/[{
-                Returns a tuple of three values:**
-                1. A boolean indicating if runtime measurement was successful.
-                2. If the measurement was successful, the estimated op runtime in nanoseconds.
-                3. If the measurement failed, a string describing the failure.
+                Measures and returns the runtime of the op in nanoseconds by running it on the device.
+                If the op is illegal or execution fails, returns an Error with a string describing the failure.
             }],
-            /*retTy=*/"std::tuple<bool, std::optional<size_t>, std::optional<std::string>>",
+            /*retTy=*/"llvm::Expected<size_t>",
             /*methodName=*/"getOpRuntime",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::make_tuple(false, 0, std::nullopt);"
+            /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
         InterfaceMethod<
             /*desc=*/[{
-                Returns a tuple of three values:**
-                1. A boolean indicating if the op is legal for the given input/output layouts.
-                2. If the op is legal, a tuple of three values representing the op memory L1 usage estimate in bytes.
+                Checks if the op is legal for the given input/output layout. If it is, returns a tuple of three values:**
                    - The first value is the CB L1 peak allocation in bytes.
                    - The second value is the Tensor L1 peak allocation in bytes.
                    - The third value is the Output L1 buffer allocation in bytes.
-                3. If the op is illegal, a string describing the failure.
+                If the op is illegal, returns an Error with a string describing the failure.
             }],
-            /*retTy=*/"std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>, std::optional<std::string>>",
+            /*retTy=*/"llvm::Expected<std::tuple<size_t, size_t, size_t>>",
             /*methodName=*/"getOpConstraints",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::make_tuple(true, std::make_tuple(0,0,0), std::nullopt);"
+            /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
         ];
 }

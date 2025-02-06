@@ -480,6 +480,10 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
       [{
         build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
+      }]>,
+      OpBuilder<(ins "Type":$outputType, "Value": $lhs, "Value": $rhs, "Value": $out),
+      [{
+        build($_builder, $_state, {outputType}, {lhs, rhs}, out);
       }]>
     ];
 }
@@ -1256,6 +1260,41 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     let hasFolder = 1;
 }
 
+def TTIR_PadOp: TTIR_Op<"pad"> {
+    let summary = "Pad op.";
+    let description = [{
+      Pad input tensor with tuple of padding values.
+
+      The `padding` attribute must be a sequence of integers that is twice the size as the rank of the input.
+      Each pair of integers in the padding attribute represents the amount of padding to add to the low and high of that dimension.
+      I.e: an input tensor of shape <1x30x30x64xf32> with padding attribute <0, 0, 1, 1, 1, 1, 0, 0> will return a tensor of shape <1x32x32x64xf32>,
+      and so will a padding attribute of <0, 0, 0, 2, 0, 2, 0, 0>.
+
+      Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // padding dimensions:
+      padding: (1, 0, 1, 1) // format: (dim0_low, dim0_high, dim1_low, dim1_high)
+
+      // padding value:
+      // value: 0
+
+      // padded output:
+      output: [[0, 0, 0, 0, 0],
+               [0, 1, 2, 3, 0],
+               [0, 4, 5, 6, 0]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI32ArrayAttr:$padding,
+                         F32Attr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
@@ -1763,6 +1802,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$scatter_indices,
                        AnyRankedTensor:$update,
+                       AnyRankedTensor:$output,
                        DenseI32ArrayAttr:$update_window_dims,
                        DenseI32ArrayAttr:$inserted_window_dims,
                        DenseI32ArrayAttr:$input_batching_dims,
@@ -1770,8 +1810,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
                        DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
                        I32Attr:$index_vector_dim,
                        BoolAttr:$indices_are_sorted,
-                       BoolAttr:$unique_indices,
-                       AnyRankedTensor:$output);
+                       BoolAttr:$unique_indices);
 
   let regions = (region SizedRegion<1>:$update_computation);
 

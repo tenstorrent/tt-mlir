@@ -18,12 +18,13 @@ struct Env {
   get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
       bool defaultStrideComputation = true,
-      bool toLayoutAPIAssumeSingleChip = true)
+      bool toLayoutAPIAssumeSingleChip = true,
+      bool usePaddingPairSignatureWithQueueId = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true);
+    return Env(true, true, true, true, true, true);
   }
 #endif
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
@@ -57,16 +58,28 @@ struct Env {
   // grid information to the tensorDesc.
   bool toLayoutAPIAssumeSingleChip;
 
+  // TODO(tt-metal issue #17388): We're currently using the signature of
+  // ttnn::pad which takes a sequence of padding pairs as input. We want to do
+  // this as it is more intuitive and matches stablehlo and even pytorch.
+  // However, we do not want to expose metal-specific details like queue_id in
+  // the runtime. The issue above is requesting they provide a signature for
+  // ttnn::padd which accepts padding pairs to define the padding, but does not
+  // require us to pass queue_id.
+  bool usePaddingPairSignatureWithQueueId;
+
 private:
   constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool defaultStrideComputation, bool toLayoutAPIAssumeSingleChip)
+                bool defaultStrideComputation, bool toLayoutAPIAssumeSingleChip,
+                bool usePaddingPairSignatureWithQueueId)
       : maxpool2dPreshard(maxpool2dPreshard),
         swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
         defaultStrideComputation(defaultStrideComputation),
-        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip) {}
+        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip),
+        usePaddingPairSignatureWithQueueId(usePaddingPairSignatureWithQueueId) {
+  }
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -83,6 +96,9 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "toLayoutAPIAssumeSingleChip: " << env.toLayoutAPIAssumeSingleChip
      << "\n";
+  os << "\t"
+     << "usePaddingPairSignatureWithQueueId: "
+     << env.usePaddingPairSignatureWithQueueId << "\n";
   os << "}";
   return os;
 }

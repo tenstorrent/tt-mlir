@@ -141,6 +141,18 @@ def test_is_finite(in0: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer(
     [
         (64, 128),
+        (32, 128),
+        (16, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.concat([in0, in1, in2])
+
+
+@compile_to_flatbuffer(
+    [
+        (64, 128),
         (64, 128),
     ],
 )
@@ -352,6 +364,17 @@ def test_maximum(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.minimum(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (32, 64),
+        (64, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.matmul(in0, in1)
 
 
 # @compile_to_flatbuffer(

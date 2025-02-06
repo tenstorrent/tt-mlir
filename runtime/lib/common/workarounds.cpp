@@ -9,11 +9,12 @@ namespace tt::runtime::workaround {
 const Env &Env::get(bool maxpool2dPreshard, bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
                     bool defaultStrideComputation,
-                    bool toLayoutAPIAssumeSingleChip) {
+                    bool toLayoutAPIAssumeSingleChip,
+                    bool usePaddingPairSignatureWithQueueId) {
   static const Env config(maxpool2dPreshard, swapBinaryOperands,
                           readUpdateIndexFromDeviceForKVCache,
-                          defaultStrideComputation,
-                          toLayoutAPIAssumeSingleChip);
+                          defaultStrideComputation, toLayoutAPIAssumeSingleChip,
+                          usePaddingPairSignatureWithQueueId);
   return config;
 }
 #endif
