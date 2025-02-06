@@ -1241,22 +1241,31 @@ public:
     }
 
     // Must broadcast the rest of the dimensions.
+    SmallVector<Attribute> broadcastDims;
     for (uint32_t i = 0; i < outputShape.size(); i++) {
-      if (i != arangeDimension) {
+      if (i != arangeDimension && outputShape[i] != outputType.getShape()[i]) {
         outputShape[i] = outputType.getShape()[i];
+        broadcastDims.push_back(rewriter.getI64IntegerAttr(i));
       }
     }
+    if (!broadcastDims.empty()) {
+      RankedTensorType broadcastType = RankedTensorType::get(
+          outputShape, outputType.getElementType(), outputType.getEncoding());
 
-    auto inputShape =
-        mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
+      auto inputShape =
+          mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
 
-    SmallVector<int64_t> broadcastShape =
-        ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape, outputShape);
+      SmallVector<int64_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
+                                                         outputShape);
 
-    assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
-               outputType.getShape() &&
-           "Output shape must match the shape of the input tensor");
+      output = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+          rewriter, op.getLoc(), broadcastType, output, broadcastShape);
 
+      assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
+                 outputType.getShape() &&
+             "Output shape must match the shape of the input tensor");
+    }
     rewriter.replaceOp(op, output);
     return success();
   }
