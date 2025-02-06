@@ -8,7 +8,7 @@
 from pykernel.pykernel_ast import *
 
 
-@ttkernel_compile
+@ttkernel_compile()
 def test_assign():
     # CHECK: module {
     # CHECK: func.func @[[C:.*]]
@@ -31,7 +31,7 @@ def test_assign():
     return
 
 
-@ttkernel_compile
+@ttkernel_compile()
 def test_ifstmt():
     # CHECK: module {
     # CHECK: func.func @[[C:.*]]
@@ -71,7 +71,7 @@ def test_ifstmt():
     return
 
 
-@ttkernel_compile
+@ttkernel_compile()
 def test_for():
     # CHECK: module {
     # CHECK: func.func @[[C:.*]]
@@ -102,7 +102,7 @@ def test_for():
     return
 
 
-@ttkernel_compile
+@ttkernel_compile()
 def test_binops():
     # CHECK: module {
     # CHECK: func.func @[[C:.*]]
@@ -124,7 +124,7 @@ def test_binops():
     return
 
 
-@ttkernel_compile
+@ttkernel_compile()
 def test_compare_expr():
     # CHECK: module {
     # CHECK: func.func @[[C:.*]]

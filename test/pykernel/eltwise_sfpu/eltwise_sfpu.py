@@ -9,7 +9,7 @@ from pykernel.pykernel_ast import *
 from pykernel.types import *
 
 
-@ttkernel_compile
+@ttkernel_tensix_compile()
 def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
@@ -18,7 +18,7 @@ def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer):
     per_core_block_cnt = get_compile_time_arg_val(int, 0)
     per_core_block_dim = get_compile_time_arg_val(int, 1)
 
-    # CHECK: "ttkernel.unary_op_init_common"(%[[arg0]], %[[arg1]]){{.*}}
+    # CHECK: "ttkernel.unary_op_init_common"(%arg0, %arg1){{.*}}
     unary_op_init_common(cb_in, cb_out)
 
     for i in range(0, per_core_block_cnt, 1):

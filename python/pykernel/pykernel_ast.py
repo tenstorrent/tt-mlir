@@ -448,7 +448,7 @@ def ttkernel_compile(kernel_type=None):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
             m = ast.parse(inspect.getsource(f))
-            b = TTKernelCompiler(f.__name__, *args)
+            b = TTKernelCompiler(f.__name__, args)
             # print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
