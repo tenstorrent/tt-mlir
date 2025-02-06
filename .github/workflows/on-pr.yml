@@ -33,7 +33,7 @@ jobs:
         run: |
           echo "bool=$(.github/scripts/pr-skip-check.sh \
             ${{ github.event.pull_request.draft }} \
-            "${{ toJson(steps.changed-files.outputs) }}")"  >> "$GITHUB_OUTPUT"
+            '${{ toJson(steps.changed-files.outputs) }}')"  >> "$GITHUB_OUTPUT"
 
   pre-commit:
     uses: ./.github/workflows/pre-commit.yml

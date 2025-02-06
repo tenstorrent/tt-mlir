@@ -193,7 +193,7 @@ error: process exited with status -1 (attach failed (Not allowed to attach to pr
 he attach permission will likely have logged an informative message about why it was denied.))
 ```
 
-Tgr prnsted macOS binaries you must manually codesign with debug entitlements.
+Tgr prnsted macOS binaries you mst manually codesign with debug entitlements.
 
 Create file `debuggee-entitlement.xml`:
 ```xml

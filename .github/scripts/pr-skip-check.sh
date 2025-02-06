@@ -21,4 +21,4 @@ function main() {
 
 printenv
 
-main $1 $2
+main $1 "$2"
