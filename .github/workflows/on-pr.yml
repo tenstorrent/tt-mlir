@@ -31,9 +31,9 @@ jobs:
         shell: bash
         id: skip
         run: |
-          changed_files_json="$( jq -c . << '${{ toJson(steps.changed-files.outputs) }}')"
+          changed_files_json="$( echo '${{ toJson(steps.changed-files.outputs)  }}' | jq -c .)"
           echo "bool=$(.github/scripts/pr-skip-check.sh \
-            ${{ github.event.pull_request.draft }} $changed_files_json)" >> "$GITHUB_OUTPUT"
+            ${{ github.event.pull_request.draft }} $changed_files_json)"  >> "$GITHUB_OUTPUT"
 
   pre-commit:
     uses: ./.github/workflows/pre-commit.yml
