@@ -1468,11 +1468,11 @@ ttnnToFlatbuffer(Operation *op,
   std::vector<::flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
   goldenKVList.reserve(goldenMap.size());
 
-  for (auto element : goldenMap) {
-    std::vector<std::uint8_t> dataTensor = element.second.convertDataToVector();
+  for (const auto &element : goldenMap) {
     auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
         fbb, element.second.name.c_str(), &element.second.shape,
-        &element.second.strides, element.second.dtype, &dataTensor);
+        &element.second.strides, element.second.dtype,
+        element.second.data.get());
     auto goldenKV = ::tt::target::CreateGoldenKVDirect(
         fbb, element.first.c_str(), goldenTensor);
     goldenKVList.push_back(goldenKV);

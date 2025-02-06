@@ -33,23 +33,13 @@ struct GoldenTensor {
   std::vector<int64_t> shape;
   std::vector<int64_t> strides;
   ::tt::target::DataType dtype;
-  std::uint8_t *data;
+  std::unique_ptr<std::vector<std::uint8_t>> data;
 
   GoldenTensor(std::string name, std::vector<int64_t> shape,
                std::vector<int64_t> strides, ::tt::target::DataType dtype,
-               std::uint8_t *data)
-      : name(name), shape(shape), strides(strides), dtype(dtype), data(data) {}
-
-  std::vector<std::uint8_t> convertDataToVector() {
-    int totalDataSize = std::accumulate(this->shape.begin(), this->shape.end(),
-                                        1, std::multiplies<int64_t>()) *
-                        sizeof(float);
-
-    std::vector<std::uint8_t> dataVec(totalDataSize);
-    std::memcpy(dataVec.data(), this->data, totalDataSize);
-
-    return dataVec;
-  }
+               std::unique_ptr<std::vector<std::uint8_t>> _data)
+      : name(name), shape(shape), strides(strides), dtype(dtype),
+        data(std::move(_data)) {}
 };
 
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,

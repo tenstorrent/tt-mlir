@@ -207,20 +207,26 @@ void populatePassesModule(py::module &m) {
 
   py::class_<mlir::tt::GoldenTensor>(m, "GoldenTensor")
       .def(py::init<std::string, std::vector<int64_t>, std::vector<int64_t>,
-                    ::tt::target::DataType, std::uint8_t *>())
+                    ::tt::target::DataType, std::vector<std::uint8_t>>())
       .def_readwrite("name", &mlir::tt::GoldenTensor::name)
       .def_readwrite("shape", &mlir::tt::GoldenTensor::shape)
       .def_readwrite("strides", &mlir::tt::GoldenTensor::strides)
       .def_readwrite("dtype", &mlir::tt::GoldenTensor::dtype)
       .def_readwrite("data", &mlir::tt::GoldenTensor::data);
 
-  m.def("create_golden_tensor",
-        [](std::string name, std::vector<int64_t> shape,
-           std::vector<int64_t> strides, ::tt::target::DataType dtype,
-           std::uintptr_t ptr) {
-          return mlir::tt::GoldenTensor(name, shape, strides, dtype,
-                                        reinterpret_cast<std::uint8_t *>(ptr));
-        });
+  m.def("create_golden_tensor", [](std::string name, std::vector<int64_t> shape,
+                                   std::vector<int64_t> strides,
+                                   ::tt::target::DataType dtype,
+                                   std::uintptr_t ptr, size_t dataSize) {
+    // Instead of just passing the pointer, create a copy of the data and keep
+    // it alive as a part of the GoldenTensor Create UniquePtr to hold Data
+    // Vector
+    auto dataVector = std::make_unique<std::vector<std::uint8_t>>(dataSize);
+    std::memcpy(dataVector->data(), reinterpret_cast<std::uint8_t *>(ptr),
+                dataSize);
+
+    return mlir::tt::GoldenTensor(name, shape, strides, dtype, dataVector);
+  });
 }
 
 } // namespace mlir::ttmlir::python
