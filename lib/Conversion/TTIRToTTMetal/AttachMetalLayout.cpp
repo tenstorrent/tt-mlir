@@ -26,34 +26,29 @@ public:
         return type;
       }
       std::int64_t deviceGridRank = deviceGrid.getShape().size();
+      std::int64_t collapsedTensorRank = deviceGridRank;
+
       // Default to single core grid
       auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
 
-      // Default to initMemorySpace, the optimizer might decide otherwise;
-      // select layout for the memory space:
-
       MetalLayoutAttr newLayout = [&]() {
+        // Default to initMemorySpace, the optimizer might decide otherwise:
         auto layout =
             MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
         if (!useStreamLayout) {
           return layout;
         }
 
+        // Default to '1x1x...' for outer scaling:
+        llvm::SmallVector<int64_t> outerScale(collapsedTensorRank, 1);
+
+        // Select some stream layout defaults for the given memory space:
         StreamMode streamMode;
-        uint32_t streamBuffers;
-        std::tie(streamMode, streamBuffers) =
+        uint32_t numBuffers;
+        std::tie(streamMode, numBuffers) =
             StreamLayoutAttr::getDefaults(initMemorySpace);
 
-        // TODO(vroubtsovTT): the streamAffineMap calc below is not correct, it
-        // needs to derive the map from what's set on 'layout' plus some
-        // assumptions about "outer" indexing (e.g '1x1x...layoutxf12')
-
-        auto streamAffineMap = mlir::AffineMap::getMultiDimIdentityMap(
-            type.getShape().size(), ctx);
-        auto streamLayout = StreamLayoutAttr::get(ctx, streamAffineMap,
-                                                  streamMode, streamBuffers);
-
-        return layout.withStreamLayout(ctx, streamLayout);
+        return layout.withOuterScale(ctx, outerScale, streamMode, numBuffers);
       }();
 
       return RankedTensorType::get(type.getShape(), type.getElementType(),

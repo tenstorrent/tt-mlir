@@ -708,6 +708,7 @@ MetalLayoutAttr::withShardShape(::mlir::MLIRContext *context,
       getMemLayout());
 }
 
+// TODO(vroubtsovTT): remove this, it's difficult/unsafe to use
 MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
                                                   StreamLayoutAttr layout) {
   return MetalLayoutAttr::get(
@@ -715,6 +716,30 @@ MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
       buildMemRef<MemorySpace, MemorySpaceAttr>(
           context, getShardShape(), getElementType(), getMemorySpace(), layout),
       getMemLayout());
+}
+
+MetalLayoutAttr MetalLayoutAttr::withOuterScale(
+    ::mlir::MLIRContext *context, llvm::ArrayRef<int64_t> outerScale,
+    StreamMode streamMode, std::uint32_t numBuffers) {
+
+  auto innerShape = getShardShape();
+  std::size_t innerShapeSize = innerShape.size();
+
+  llvm::SmallVector<int64_t> fullShape(2 * innerShapeSize); // rank doubles
+  for (std::size_t d = 0; d < innerShapeSize; ++d) {
+    fullShape[d] = 1;
+    fullShape[innerShapeSize + d] = innerShape[d];
+  }
+
+  auto fullAffineMap =
+      mlir::AffineMap::getMultiDimIdentityMap(fullShape.size(), context);
+  auto fullLayout =
+      StreamLayoutAttr::get(context, fullAffineMap, streamMode, numBuffers);
+  auto fullMemRef = buildMemRef<MemorySpace, MemorySpaceAttr>(
+      context, fullShape, getElementType(), getMemorySpace(), fullLayout);
+
+  return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
+                              fullMemRef, getMemLayout());
 }
 
 MemorySpace MetalLayoutAttr::getMemorySpace() const {

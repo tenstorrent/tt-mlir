@@ -356,6 +356,10 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       MetalLayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
       MetalLayoutAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
       MetalLayoutAttr withStreamLayout(::mlir::MLIRContext *context, StreamLayoutAttr stream);
+      MetalLayoutAttr withOuterScale(::mlir::MLIRContext *context,
+                          llvm::ArrayRef<int64_t> outerScale,
+                          StreamMode streamMode,
+                          std::uint32_t numBuffers);
 
 
       uint64_t getMemrefSizeBytes() const;
