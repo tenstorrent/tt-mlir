@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -572,9 +574,9 @@ public:
 
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-      std::optional<Value> updatedLayout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), desiredBufferType,
-          nullptr /* desiredMemLayoutAttr */, false /* tiled */);
+      std::optional<Value> updatedLayout =
+          createToLayoutOp(rewriter, newLoc, operand.get(), desiredBufferType,
+                           desiredMemLayoutAttr, isTiled);
       if (updatedLayout.has_value()) {
         rewriter.modifyOpInPlace(op, [&]() {
           op.setOperand(operand.getOperandNumber(), *updatedLayout);
