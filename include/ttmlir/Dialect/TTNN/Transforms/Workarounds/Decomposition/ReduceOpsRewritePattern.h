@@ -32,15 +32,20 @@ calculateNewReduceShape(RankedTensorType inputType,
 //
 // TODO(mrakita): Remove this workaround once these Metal issues are fixed
 // (tracked by https://github.com/tenstorrent/tt-mlir/issues/1624).
-//
-template <typename ReduceOp>
+
+// Metal TTNN implementation of Reduce ops doesn't yet support keepDim=false
+// for every case. As a workaround, we convert Reduce ops to combination of
+// Reduce op with keepDim=true + Reshape op to remove the reduce dims for
+// unsupported use cases, so that the rest of the graph is not affected.
+
+template <typename ReduceOp, bool keepDimUnsupported>
 class ReduceOpsKeepDimRewritePattern : public OpRewritePattern<ReduceOp> {
 public:
   using OpRewritePattern<ReduceOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ReduceOp srcOp,
                                 PatternRewriter &rewriter) const override {
-    if (srcOp.getKeepDim()) {
+    if (!isWorkaroundRequired(srcOp)) {
       return failure();
     }
 
@@ -50,12 +55,11 @@ public:
     ReduceOp newReduceOp =
         createReduceOpWithKeepDim(srcOp, rewriter, inputType, outputType);
 
-    // Metal TTNN implementation of Reduce ops doesn't yet support
-    // keepDim=false. As a workaround, we convert Reduce ops to combination of
-    // Reduce op with keepDim=true + Reshape op to remove the reduce dims so
-    // that the rest of the graph is not affected. In case when this is not
-    // needed (for example because type converters already promoted rank of the
-    // op result) then we avoid adding unnecessary Reshape op.
+    // In case when the output tensor has the same rank as the input tensor, we
+    // avoid creating unnecessary Reshape op. This can happen when we are
+    // reducing 1D tensor to scalar, since TTIR doesn't support scalars we
+    // promote them to 1D tensors, so then we end up reducing 1D tensor to 1D
+    // tensor and the reshape is not necessary.
     if (outputType.getShape().size() < inputType.getShape().size()) {
       replaceOpWithReshapeOp(srcOp, newReduceOp, rewriter, outputType);
     } else {
@@ -92,6 +96,31 @@ private:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
         srcOp, outputType, newReduceOp, shapeAttr);
+  }
+
+  // Determine if the workaround is required.
+  bool isWorkaroundRequired(ReduceOp srcOp) const {
+    // Workaround is necessary only for keepDim==false.
+    if (srcOp.getKeepDim()) {
+      return false;
+    }
+
+    // If ttnn reduce op doesn't support the 'keepDim' parameter then it keeps
+    // the reduced dimension, so we have to apply the workaround.
+    if (keepDimUnsupported) {
+      return true;
+    }
+
+    // Otherwise we have to apply the workaround only in case of full tensor
+    // reduction, because metal still has a bug with keepDim==false when all
+    // dimensions are being reduced.
+    if (!srcOp.getDimArg() || srcOp.getDimArg()->empty() ||
+        srcOp.getDimArg()->size() ==
+            srcOp.getInput().getType().getShape().size()) {
+      return true;
+    }
+
+    return false;
   }
 };
 

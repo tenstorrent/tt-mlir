@@ -2,14 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/Passes.h"
 #include "mlir/InitAllTranslations.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
+#include <pybind11/stl_bind.h>
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
 
 namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer();
@@ -164,25 +167,37 @@ void populatePassesModule(py::module &m) {
     // NOLINTEND
   });
 
-  m.def("ttnn_to_flatbuffer_file",
-        [](MlirModule module, std::string &filepath,
-           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
-          mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+  // This binds the vector into an interfaceable object in python and also an
+  // opaquely passed one into other functions.
+  py::bind_vector<std::vector<std::pair<std::string, std::string>>>(
+      m, "ModuleLog");
 
-          std::error_code fileError;
-          llvm::raw_fd_ostream file(filepath, fileError);
+  m.def(
+      "ttnn_to_flatbuffer_file",
+      [](MlirModule module, std::string &filepath,
+         const std::unordered_map<std::string, mlir::tt::GoldenTensor>
+             &goldenMap = {},
+         const std::vector<std::pair<std::string, std::string>> &moduleCache =
+             {}) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
-          if (fileError) {
-            throw std::runtime_error("Failed to open file: " + filepath +
-                                     ". Error: " + fileError.message());
-          }
+        std::error_code fileError;
+        llvm::raw_fd_ostream file(filepath, fileError);
 
-          if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
-                  moduleOp, file, goldenMap))) {
-            throw std::runtime_error("Failed to write flatbuffer to file: " +
-                                     filepath);
-          }
-        });
+        if (fileError) {
+          throw std::runtime_error("Failed to open file: " + filepath +
+                                   ". Error: " + fileError.message());
+        }
+
+        if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
+                moduleOp, file, goldenMap, moduleCache))) {
+          throw std::runtime_error("Failed to write flatbuffer to file: " +
+                                   filepath);
+        }
+      },
+      py::arg("module"), py::arg("filepath"), py::arg("goldenMap") = py::dict(),
+      py::arg("moduleCache") =
+          std::vector<std::pair<std::string, std::string>>());
 
   m.def("ttmetal_to_flatbuffer_file",
         [](MlirModule module, std::string &filepath,
@@ -205,6 +220,21 @@ void populatePassesModule(py::module &m) {
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16);
 
+  m.def("lookup_dtype", [](std::string enumName) {
+    // Function to return the enum value based on the name.
+    const uint16_t minI = static_cast<uint16_t>(::tt::target::DataType::MIN),
+                   maxI = static_cast<uint16_t>(::tt::target::DataType::MAX);
+    for (int i = minI; i <= maxI; i++) {
+      auto dtype = static_cast<::tt::target::DataType>(i);
+      std::string currEnumName = EnumNameDataType(dtype);
+      if (currEnumName == enumName) {
+        return dtype;
+      }
+    }
+    // Not found so return the MIN value (Float32) by Default
+    return ::tt::target::DataType::MIN;
+  });
+
   py::class_<mlir::tt::GoldenTensor>(m, "GoldenTensor")
       .def(py::init<std::string, std::vector<int64_t>, std::vector<int64_t>,
                     ::tt::target::DataType, std::vector<std::uint8_t>>())
@@ -214,19 +244,27 @@ void populatePassesModule(py::module &m) {
       .def_readwrite("dtype", &mlir::tt::GoldenTensor::dtype)
       .def_readwrite("data", &mlir::tt::GoldenTensor::data);
 
-  m.def("create_golden_tensor", [](std::string name, std::vector<int64_t> shape,
-                                   std::vector<int64_t> strides,
-                                   ::tt::target::DataType dtype,
-                                   std::uintptr_t ptr, size_t dataSize) {
-    // Instead of just passing the pointer, create a copy of the data and keep
-    // it alive as a part of the GoldenTensor Create UniquePtr to hold Data
-    // Vector
-    auto dataVector = std::make_unique<std::vector<std::uint8_t>>(dataSize);
-    std::memcpy(dataVector->data(), reinterpret_cast<std::uint8_t *>(ptr),
-                dataSize);
+  m.def("create_golden_tensor",
+        [](std::string name, std::vector<int64_t> shape,
+           std::vector<int64_t> strides, ::tt::target::DataType dtype,
+           std::uintptr_t ptr) {
+          return mlir::tt::GoldenTensor(name, shape, strides, dtype,
+                                        reinterpret_cast<std::uint8_t *>(ptr));
+        });
 
-    return mlir::tt::GoldenTensor(name, shape, strides, dtype, dataVector);
-  });
+  py::class_<mlir::tt::MLIRModuleLogger,
+             std::shared_ptr<mlir::tt::MLIRModuleLogger>>(m, "MLIRModuleLogger")
+      .def(py::init<>())
+      .def(
+          "attach_context",
+          [](std::shared_ptr<mlir::tt::MLIRModuleLogger> &self, MlirContext ctx,
+             std::vector<std::string> &passnames_to_cache) {
+            self->attachContext(unwrap(ctx), passnames_to_cache);
+          },
+          py::arg("ctx"), py::arg("passnames_to_cache") = py::list())
+      .def_property_readonly(
+          "module_log", [](std::shared_ptr<mlir::tt::MLIRModuleLogger> &self) {
+            return self->moduleCache;
+          });
 }
-
 } // namespace mlir::ttmlir::python

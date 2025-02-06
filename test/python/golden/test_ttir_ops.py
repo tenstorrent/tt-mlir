@@ -397,6 +397,16 @@ def test_mean(in0: Operand, builder: TTIRBuilder):
     return builder.mean(in0)
 
 
+@compile_to_flatbuffer(
+    [
+        (32, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_reshape(in0: Operand, builder: TTIRBuilder):
+    return builder.reshape(in0, [2048])
+
+
 # @compile_to_flatbuffer(
 #   [
 #       (64, 64),
