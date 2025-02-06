@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -62,6 +62,7 @@ def get_supported_nodes():
         ast.Pass,
         ast.Assign,
         ast.AugAssign,
+        ast.AnnAssign,
         # Function-and-class-definitions
         ast.Module,
         ast.FunctionDef,
@@ -72,7 +73,38 @@ def get_supported_nodes():
 
 
 class TTKernelCompiler(ast.NodeVisitor):
-    def __init__(self, name):
+    ttkernel_fn_map = {
+        "unary_op_init_common": ttkernel.unary_op_init_common,
+        "binary_op_init_common": ttkernel.binary_op_init_common,
+        "add_tiles_init": ttkernel.add_tiles_init,
+        "get_arg_val": ttkernel.get_arg_val,
+        "cb_wait_front": ttkernel.cb_wait_front,
+        "cb_reserve_back": ttkernel.cb_reserve_back,
+        "cb_push_back": ttkernel.cb_push_back,
+        "cb_pop_front": ttkernel.cb_pop_front,
+        "tile_regs_acquire": ttkernel.tile_regs_acquire,
+        "tile_regs_release": ttkernel.tile_regs_release,
+        "tile_regs_commit": ttkernel.tile_regs_commit,
+        "tile_regs_wait": ttkernel.tile_regs_wait,
+        "pack": ttkernel.pack,
+        "pack_tile": ttkernel.pack_tile,
+        "copy_tile": ttkernel.copy_tile,
+        "unpack_a": ttkernel.unpack_a,
+        "unpack_ab": ttkernel.unpack_ab,
+        "add": ttkernel.add,
+        "add_tiles": ttkernel.add_tiles,
+        "get_compile_time_arg_val": ttkernel.get_compile_time_arg_val,
+        "get_write_ptr": ttkernel.get_write_ptr,
+        "get_read_ptr": ttkernel.get_read_ptr,
+        "get_tile_size": ttkernel.get_tile_size,
+        "get_noc_addr_from_bank_id": ttkernel.get_noc_addr_from_bank_id,
+        "noc_async_read": ttkernel.noc_async_read,
+        "noc_async_write": ttkernel.noc_async_write,
+        "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
+        "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
+    }
+
+    def __init__(self, name, args):
         self.name = name
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
@@ -81,8 +113,9 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.supported_nodes = get_supported_nodes()
-
         ttkernel.register_dialect(self.ctx)
+
+        self.cb_args = args
 
     def var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
@@ -99,28 +132,44 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         # TODO: add alloca args name into symbol table
-        if self.func_entry:
-            raise IndexError("Cannot declare function within a function")
+        assert not self.func_entry, "Cannot declare function within a function"
 
-        self.symbol_tables.append({})
         arg_types = []
-        for arg in node.args.args:
-            if arg.annotation.id == "int":
-                arg_types.append(IntegerType.get_signless(32, self.ctx))
-            else:
-                raise NotImplementedError(
-                    f"function arg type {arg.annotation.id} not implemented"
-                )
+        for i in range(len(node.args.args)):
+            arg = node.args.args[i]
+            if not arg.annotation:
+                raise ValueError("Function arguments must have type annotations")
+            elif not arg.annotation.id == "CircularBuffer":
+                raise TypeError(f"cannot pass {arg.annotation.id} to a pykernel")
 
+            tile_type = tt.ir.TileType.get(
+                self.ctx, 32, 32, getattr(tt.DataType, self.cb_args[i].dtype)
+            )
+            cb_type = ttkernel.ir.CBType.get(
+                self.ctx,  # mlir context
+                0,  # address
+                self.cb_args[i].cb_id,
+                MemRefType.get(
+                    self.cb_args[i].tilized_shape, tile_type
+                ),  # hardcoded dimensions for now - this is usually lowered from tensors?
+            )
+            arg_types.append(cb_type)
+
+        func_sym_table = {}
         self.func_entry = func.FuncOp(name=node.name, type=(arg_types, []))
         func_bb = self.func_entry.add_entry_block()
+        for i in range(len(func_bb.arguments)):
+            func_sym_table[node.args.args[i].arg] = func_bb.arguments[i]
 
         # update basic block
+        self.symbol_tables.append(func_sym_table)
         with InsertionPoint(func_bb), Location.unknown():
             for target in node.body:
                 self.visit(target)
 
             # TODO: Check for a return/terminator insert one if not present
+
+        self.symbol_tables.pop()
 
     # Function/Class definitions
     def visit_Return(self, node):
@@ -135,7 +184,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         # NOTE: else-if blocks are not supported in SCF dialect
         # NOTE: Only handling Compare for if statements right now
         # TODO: if cond can be: Name, Expr, Compare, Call, UnaryOp, BoolOp
-        print((node.test))
         assert isinstance(
             node.test, ast.Compare
         ), "Only Compare supported in if statements"
@@ -167,6 +215,18 @@ class TTKernelCompiler(ast.NodeVisitor):
         lower_bound = self.visit(node.iter.args[0])
         upper_bound = self.visit(node.iter.args[1])
         step = self.visit(node.iter.args[2])
+
+        if isinstance(lower_bound.type, memref.MemRefType):
+            lower_bound = memref.LoadOp(
+                lower_bound, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            )
+        if isinstance(upper_bound.type, memref.MemRefType):
+            upper_bound = memref.LoadOp(
+                upper_bound, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            )
+        if isinstance(step.type, memref.MemRefType):
+            step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0))
+
         for_op = scf.ForOp(lower_bound, upper_bound, step)
         with (InsertionPoint(for_op.body)), Location.unknown():
             self.symbol_tables.append({})
@@ -208,6 +268,11 @@ class TTKernelCompiler(ast.NodeVisitor):
     # Statements
     def visit_Name(self, node):
         var_name = node.id
+
+        # NOTE: some kernelops require passing return type as arg
+        if var_name == "int":
+            return IntegerType.get_signless(32, self.ctx)
+
         existing_var_table = self.var_exists(var_name)
         if existing_var_table:
             return existing_var_table[var_name]
@@ -215,30 +280,61 @@ class TTKernelCompiler(ast.NodeVisitor):
         return None
 
     def visit_Assign(self, node):
-        # print(f"visit_Assign")
         assert len(node.targets) == 1, "Only single assignments supported"
         var = self.visit(node.targets[0])
         value = self.visit(node.value)
+        sym_table = self.symbol_tables[-1]
+        var_name = node.targets[0].id
+
+        if hasattr(var, "type") and isinstance(var.type, MemRefType):
+            memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
+        else:
+            sym_table[var_name] = value
+
+    def visit_AnnAssign(self, node):
+        # NOTE: TTKernel types can not be used with memrefs
+        var = self.visit(node.target)
+        value = self.visit(node.value)
+        sym_table = self.symbol_tables[-1]
+        var_name = node.target.id
 
         if not var:
-            sym_table = self.symbol_tables[-1]
-            var_name = node.targets[0].id
             var_type = value.type
             memref_type = MemRefType.get([1], var_type)
             var = memref.alloca(memref_type, [], [])
             sym_table[var_name] = var
+        else:
+            assert isinstance(var, MemRefType), "Can not AugAssign to non-memref types"
 
-        # TODO: need to handle arrays and other types
         memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     def visit_AugAssign(self, node):
         raise NotImplementedError("AugAssign not supported yet")
 
-    # Expressions
+    # Function calls
     def visit_Call(self, node):
-        # print(f"visit_Call")
-        return None
+        assert (
+            node.func.id in self.ttkernel_fn_map
+        ), f"Function {node.func.id} not supported"
+        func = self.ttkernel_fn_map[node.func.id]
+        func_args = []
+        for arg in node.args:
+            func_arg = self.visit(arg)
+            if not func_arg:
+                raise ValueError(f"Function argument not found for {node.func.id}")
 
+            if hasattr(func_arg, "type") and isinstance(
+                func_arg.type, memref.MemRefType
+            ):
+                func_arg = memref.LoadOp(
+                    func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                )
+
+            func_args.append(func_arg)
+
+        return func(*func_args)  # how do i make sure the types are correct?
+
+    # Expressions
     def visit_Expr(self, node):
         # NOTE: will catch function calls and expressions where return values not used.
         return self.visit(node.value)
@@ -348,12 +444,12 @@ def ttkernel_compile(f):
     @functools.wraps(f)
     def _wrapper(*args, **kwargs):
         m = ast.parse(inspect.getsource(f))
-        b = TTKernelCompiler(f.__name__)
+        b = TTKernelCompiler(f.__name__, args)
         # print(ast.dump(m, indent=4) + "\n")
         b.visit(m)
-        print(b.module)
 
         # Check if generated IR is valid
+        print(b.module)
         b.module.operation.verify()
 
     return _wrapper
