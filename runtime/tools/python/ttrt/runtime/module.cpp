@@ -65,6 +65,9 @@ PYBIND11_MODULE(_C, m) {
       .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
       .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
+  py::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
+      .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
+      .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
   m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
         "Get the backend device runtime type");
   m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
@@ -119,6 +122,8 @@ PYBIND11_MODULE(_C, m) {
   m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
         py::arg("num_hw_cqs") = size_t{1},
         py::arg("l1_small_size") = py::none(),
+        py::arg("dispatch_core_type") = py::none(),
+        py::arg("enable_async_ttnn") = py::none(),
         "Open a mesh of devices for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),

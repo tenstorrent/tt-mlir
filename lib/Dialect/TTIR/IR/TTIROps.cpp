@@ -502,6 +502,42 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// PadOp
+//===----------------------------------------------------------------------===//
+
+// PadOp verification
+::mlir::LogicalResult mlir::tt::ttir::PadOp::verify() {
+
+  ::mlir::RankedTensorType inputType = getInput().getType();
+
+  // Check that size of padding is correct
+  if (static_cast<int64_t>(getPadding().size()) != 2 * inputType.getRank()) {
+    return emitOpError("Padding must have the same number of elements as twice "
+                       "the rank of the input tensor");
+  }
+
+  std::vector<int64_t> inferredShapeVec = inputType.getShape().vec();
+  llvm::ArrayRef<int32_t> padding = getPadding();
+  for (int64_t i = 0; i < inputType.getRank(); i++) {
+    inferredShapeVec[i] += padding[2 * i];
+    inferredShapeVec[i] += padding[2 * i + 1];
+  }
+  llvm::ArrayRef<int64_t> inferredShape = inferredShapeVec;
+
+  // Check that the output tensor shape is correct
+  ::mlir::RankedTensorType resultType = getResult().getType();
+  llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+  if (resultShape != inferredShape) {
+    return emitOpError("Output tensor shape (" +
+                       ttmlir::utils::join(resultShape, ",") +
+                       ") must match the inferred shape: (" +
+                       ttmlir::utils::join(inferredShape, ",") + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ReshapeOp
 //===----------------------------------------------------------------------===//
 
@@ -1577,6 +1613,72 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
 //===----------------------------------------------------------------------===//
+// UpsampleOp
+//===----------------------------------------------------------------------===//
+
+// UpsampleOp verification
+::mlir::LogicalResult mlir::tt::ttir::Upsample2dOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Input tensor is assumed to be 4D tensor.
+  if (inputType.getRank() != 4) {
+    return emitOpError("Expected rank of input tensor is 4, got rank " +
+                       std::to_string(inputType.getRank()));
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("Expected rank of output tensor is 4, got rank " +
+                       std::to_string(outputType.getRank()));
+  }
+
+  auto scaleFactor = ttmlir::utils::getPairOfInteger<int32_t>(getScaleFactor());
+  if (auto error = scaleFactor.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+  int32_t scaleH = scaleFactor->first;
+  int32_t scaleW = scaleFactor->second;
+
+  if (scaleH <= 0 || scaleW <= 0) {
+    return emitOpError("Scale factors H = ")
+           << scaleH << " and W = " << scaleW << " must be positive integers";
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  // Input tensor is assumed to be in NHWC format.
+  enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
+  if (inputShape[DIM_H] * scaleH != outputShape[DIM_H]) {
+    return emitOpError("Expected output H dimension to be input H dimension * "
+                       "scaleH = ")
+           << (inputShape[DIM_H] * scaleH) << ", got " << outputShape[DIM_H];
+  }
+  if (inputShape[DIM_W] * scaleW != outputShape[DIM_W]) {
+    return emitOpError("Expected output W dimension to be input W dimension * "
+                       "scaleW = ")
+           << (inputShape[DIM_W] * scaleW) << ", got " << outputShape[DIM_W];
+  }
+  if (inputShape[DIM_N] != outputShape[DIM_N]) {
+    return emitOpError("Expected output N dimension to be ")
+           << inputShape[DIM_N] << ", got " << outputShape[DIM_N];
+  }
+  if (inputShape[DIM_C] != outputShape[DIM_C]) {
+    return emitOpError("Expected output C dimension to be ")
+           << inputShape[DIM_C] << ", got " << outputShape[DIM_C];
+  }
+
+  // Verify that the mode attribute is one of the legal modes. These two modes
+  // are currently only supported modes in TTNN.
+  llvm::SmallVector<llvm::StringRef> legalModes = {"nearest", "bilinear"};
+  if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
+      legalModes.end()) {
+    return emitOpError("Expected modes are (")
+           << llvm::join(legalModes, ", ") << "), got \"" << getMode() << "\"";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 
@@ -1609,6 +1711,56 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
     return emitOpError(
         "Allocating from a device memory space must have address "
         "set to a non-zero value, device addresses are statically allocated");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// RepeatOp
+//===----------------------------------------------------------------------===//
+
+// RepeatOp verification.
+::mlir::LogicalResult mlir::tt::ttir::RepeatOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  llvm::ArrayRef<int64_t> repeatDimensions = getRepeatDimensions();
+
+  // Input tensor and repeat dimension argument must have same rank.
+  if (inputType.getRank() != static_cast<int64_t>(repeatDimensions.size())) {
+    return emitOpError() << "Input tensor rank " << inputType.getRank()
+                         << " doesn't match the number of repeat dimensions "
+                         << repeatDimensions.size() << ".";
+  }
+
+  // Input and output tensors must have the same rank.
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError() << "Input tensor rank " << inputType.getRank()
+                         << " doesn't match the output tensor rank "
+                         << outputType.getRank() << ".";
+  }
+
+  // Verify output shape based on input shape and repeat dimension argument.
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  for (size_t i = 0; i < inputShape.size(); i++) {
+    // Verify that the repeat dimension is greater than 0.
+    if (repeatDimensions[i] <= 0) {
+      return emitOpError() << "Repeat dimension at index " << i
+                           << " must be greater than 0.";
+    }
+
+    int64_t expectedDimValue = inputShape[i] * repeatDimensions[i];
+    if (expectedDimValue != outputShape[i]) {
+      return emitOpError() << "Input tensor shape ("
+                           << ttmlir::utils::join(inputShape, ",")
+                           << ") at index " << i
+                           << " does not repeat to output ("
+                           << ttmlir::utils::join(outputShape, ",")
+                           << ") using repeat value " << repeatDimensions[i]
+                           << ".";
+    }
   }
 
   return success();
@@ -1727,7 +1879,7 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 ::mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto shardType = getShardType();
 
-  // currently we are only supporting replicate or devices from StableHLO
+  // Currently, we are only supporting replicate or devices from StableHLO.
   if (shardType != mlir::tt::MeshShardType::Replicate &&
       shardType != mlir::tt::MeshShardType::Devices) {
     return emitOpError("Invalid shard_type for mesh_shard op.");
@@ -2259,4 +2411,67 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // SumOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// Reduce MinOp
+//===----------------------------------------------------------------------===//
+
+// MinOp kernel builder.
+void mlir::tt::ttir::MinOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "min");
+}
+
+// MinOp verification.
+::mlir::LogicalResult mlir::tt::ttir::MinOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// Reduce ProdOp
+//===----------------------------------------------------------------------===//
+
+// ProdOp kernel builder.
+void mlir::tt::ttir::ProdOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "prod");
+}
+
+// ProdOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ProdOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// ReduceAndOp
+//===----------------------------------------------------------------------===//
+
+// ReduceAndOp kernel builder.
+void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
+    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "and");
+}
+
+// ReduceAndOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ReduceAndOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// CumSumOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::CumSumOp::verify() {
+  int64_t dim = getDim();
+  int64_t inputRank = getInput().getType().getRank();
+  if (dim < 0 || dim >= inputRank) {
+    return emitOpError() << "specified dimension should be between 0 and "
+                         << (inputRank - 1) << ", but got: " << dim << ".";
+  }
+
+  return success();
 }

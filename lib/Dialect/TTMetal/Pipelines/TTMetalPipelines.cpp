@@ -17,18 +17,31 @@ namespace mlir::tt::ttmetal {
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
-  systemDescOptions.path = options.systemDescPath;
+  { systemDescOptions.path = options.systemDescPath; }
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
-  implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
-      options.meshShape.begin(), options.meshShape.end());
+  {
+    implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
+        options.meshShape.begin(), options.meshShape.end());
+  }
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
   pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
+  ttir::TTIRAttachMetalLayoutOptions attachMetalLayoutOptions;
+  {
+    // TODO(vroubtsovTT): 'options.version' is WIP until once StreamLayout is ok
+    // to use end-to-end
+    attachMetalLayoutOptions.useStreamLayout = options.version > 0;
+  }
+  pm.addPass(
+      mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
-  layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-  layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-  layoutOptions.defaultDeviceMemoryLayout = mlir::tt::TensorMemoryLayout::None;
+  {
+    layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
+    layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
+    layoutOptions.defaultDeviceMemoryLayout =
+        mlir::tt::TensorMemoryLayout::None;
+  }
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
   pm.addPass(mlir::tt::ttir::createTTIRGenericOpCBs());
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());

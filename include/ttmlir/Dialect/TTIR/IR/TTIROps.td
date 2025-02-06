@@ -480,6 +480,10 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
       [{
         build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
+      }]>,
+      OpBuilder<(ins "Type":$outputType, "Value": $lhs, "Value": $rhs, "Value": $out),
+      [{
+        build($_builder, $_state, {outputType}, {lhs, rhs}, out);
       }]>
     ];
 }
@@ -632,6 +636,25 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroa
     }];
 }
 
+// TODO We need to add a broadcastable trait to this op.
+// See issue https://github.com/tenstorrent/tt-mlir/issues/2015
+def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
+    let summary = "Eltwise power OP.";
+    let description = [{
+      Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
+      result tensor. Tensors must be of same shape.
+
+      Example:
+      ```
+        %result = "ttir.power"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+
+        %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
+        %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
+        %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
+      ```
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
@@ -704,6 +727,70 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
   }];
 }
 
+def TTIR_MinOp : TTIR_ReductionOp<"min"> {
+  let summary = "Min reduction op.";
+  let description = [{
+    This op computes the minimum of all elements of the tensor or along
+    specified dimension.
+
+    Example:
+      input: [[1, 5, 3],
+              [4, 2, 6]]
+
+      // Computing along dim 0
+      output: [1, 2, 3]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 1
+  }];
+}
+
+def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
+    let summary = "And reduction op.";
+    let description = [{
+      Reduces a given tensor using logical and operator along the given dimension(s).
+
+      Example:
+        input: [[True,  False, True, False],
+                [True,  True,  True, True],
+                [False, False, True, True],
+                [False, True,  True, False]]
+
+        // Reduction along dim 0
+        output: [False, False, True, False]
+
+        // Reduction along dim 1
+        output: [False, True, False, False]
+
+        // Reduction for both dimensions (entire tensor)
+        output: [False]
+    }];
+}
+
+def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
+  let summary = "Product reduction op.";
+  let description = [{
+    This op computes the product of all elements of the tensor (full product)
+    or along a specific dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Computing along dim 0
+      output: [4, 10, 18]
+
+      // Computing along dim 1
+      output: [6, 120]
+
+      // Computing full product
+      output: 720
+  }];
+}
+
 def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
@@ -741,6 +828,37 @@ def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTIR_CumSumOp : TTIR_DPSOp<"cumsum"> {
+  let summary = "Cummulative sum op.";
+  let description = [{
+    Computes the cumulative sum of elements of a tensor along specified dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Cumulative sum along dim=0:
+      output: [[1, 2, 3],
+               [5, 7, 9]]
+
+      // Cumulative sum along dim=1:
+      output: [[1, 3, 6],
+               [4, 9, 15]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
@@ -801,6 +919,41 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
+  let summary = "Repeat operation.";
+  let description = [{
+    The `repeat` operation creates a new tensor by replicating the input tensor's elements
+    along specified dimensions. The number of repetitions for each dimension is defined by
+    the `repeats` attribute, which must have the same rank as the input tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of times to repeat this tensor along each dimension.
+
+    ### Example IR Usage:
+    ```mlir
+    // Input tensor of shape (2, 3)
+    %input = ... : tensor<2x3xf32>
+
+    // Repeat each dimension twice
+    %empty = tensor.empty() : tensor<4x6xf32>
+    %repeated = "repeat"(%input, %empty) {repeat_dimensions = array<i64: 2, 2>} : (tensor<2x3xf32>, tensor<4x6xf32>) -> tensor<4x6xf32>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       DenseI64ArrayAttr:$repeat_dimensions);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
@@ -878,11 +1031,14 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
       // %arg0: tensor<1x1x32xf32>
       %0 = tensor.empty() : tensor<1x16x32xf32>
       %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+
+      Note: Currently, when generating a TTNN executable, the broadcast and repeat operations share the same semantics due to the lack of tensor view support in TTNN.
+      As a result, the broadcast operation is lowered to a repeat operation in the TTNN compilation pipeline.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         DenseI32ArrayAttr:$broadcast_dimensions);
+                         DenseI64ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1104,6 +1260,41 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     let hasFolder = 1;
 }
 
+def TTIR_PadOp: TTIR_Op<"pad"> {
+    let summary = "Pad op.";
+    let description = [{
+      Pad input tensor with tuple of padding values.
+
+      The `padding` attribute must be a sequence of integers that is twice the size as the rank of the input.
+      Each pair of integers in the padding attribute represents the amount of padding to add to the low and high of that dimension.
+      I.e: an input tensor of shape <1x30x30x64xf32> with padding attribute <0, 0, 1, 1, 1, 1, 0, 0> will return a tensor of shape <1x32x32x64xf32>,
+      and so will a padding attribute of <0, 0, 0, 2, 0, 2, 0, 0>.
+
+      Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // padding dimensions:
+      padding: (1, 0, 1, 1) // format: (dim0_low, dim0_high, dim1_low, dim1_high)
+
+      // padding value:
+      // value: 0
+
+      // padded output:
+      output: [[0, 0, 0, 0, 0],
+               [0, 1, 2, 3, 0],
+               [0, 4, 5, 6, 0]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI32ArrayAttr:$padding,
+                         F32Attr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
@@ -1287,6 +1478,23 @@ def TTIR_ArangeOp : TTIR_Op<"arange"> {
   let hasVerifier = 1;
 }
 
+def TTIR_ZerosOp : TTIR_Op<"zeros"> {
+  let summary = "Creates a tensor filled with zeros.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros.
+
+    Given a `shape`, produces a tensor with the shape, filled with zeros.
+
+    Example:
+      %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTIR_OnesOp : TTIR_Op<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
@@ -1461,6 +1669,36 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
     let hasCanonicalizer = 1;
 }
 
+def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
+    let summary = "Upsample 2D operation.";
+
+    let description = [{
+      Upsample 2D operation. Input tensor is assumed to be in NHWC format.
+
+      Attributes:
+      - `scale_factor` (si32 | array<i32>): The scale factor for upsampling in H and W dimensions respectively.
+      - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
+
+      Example:
+        %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
+        %output = tensor.empty() : () -> tensor<10x128x128x3xbf16>
+        %0 = "ttir.upsample2d"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128x3xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
+                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level generic ops
 //===----------------------------------------------------------------------===//
@@ -1525,7 +1763,7 @@ def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable
     }];
 }
 
-def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_FullyBroadcastable]> {
+def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
@@ -1539,7 +1777,7 @@ def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcast
     }];
 }
 
-def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum", [TTIR_PartiallyBroadcastable]> {
+def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
     let summary = "Eltwise maximum.";
     let description = [{
       Calculates maximum of input tensors' values element-wise and stores result in output tensor.
@@ -1564,6 +1802,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$scatter_indices,
                        AnyRankedTensor:$update,
+                       AnyRankedTensor:$output,
                        DenseI32ArrayAttr:$update_window_dims,
                        DenseI32ArrayAttr:$inserted_window_dims,
                        DenseI32ArrayAttr:$input_batching_dims,
@@ -1571,8 +1810,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
                        DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
                        I32Attr:$index_vector_dim,
                        BoolAttr:$indices_are_sorted,
-                       BoolAttr:$unique_indices,
-                       AnyRankedTensor:$output);
+                       BoolAttr:$unique_indices);
 
   let regions = (region SizedRegion<1>:$update_computation);
 
@@ -1642,14 +1880,13 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
       AllReduce op.
     }];
 
-    let arguments = (ins
-      Variadic<AnyRankedTensor>:$inputs,
-      AnyRankedTensor:$output,
-      I64ElementsAttr:$replica_groups,
-      SI32Attr:$dim,
-      OptionalAttr<SI32Attr>:$channel_handle,
-      UnitAttr:$use_global_device_ids,
-      TT_ReduceTypeAttr:$reduce_type
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         AnyRankedTensor:$output,
+                         I64ElementsAttr:$replica_groups,
+                         SI32Attr:$dim,
+                         OptionalAttr<SI32Attr>:$channel_handle,
+                         UnitAttr:$use_global_device_ids,
+                         TT_ReduceTypeAttr:$reduce_type
     );
 
     let results = (outs Variadic<AnyRankedTensor>:$results);
@@ -1672,14 +1909,17 @@ def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
         manual: no sharding
         replicate: all devices have identical data
         maximal: only one device contains full data
-        devices: shard_shape determines sharded dimensions
+        devices: shard_shape/shard_dims determine particular sharding
+
+      shard_dims attribute determines row and column sharding dimension of input tensor
 
       For example, on 2x4 mesh hardware, following op shards arg0 to 8 slices, row divided by 2
       and col divided by 4.
 
         %1 = "ttir.mesh_shard"(%arg0, %0) <
           {... shard_direction = #tt.shard_direction<full_to_shard>,
-               shard_shape = #tt.grid<2x4>,
+               shard_shape = array<i64: 2, 4>,
+               shard_dims = array<i64: 0, 1>,
                shard_type = #tt.shard_type<devices>}> :  (tensor<8192x784xf32>, ...) -> tensor<4096x196xf32>
 
       On the other hand, this op concatnates %4 to single tensor by concatnating
@@ -1687,16 +1927,17 @@ def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
 
         %6 = "ttir.mesh_shard"(%4, %5) <
           {..., shard_direction = #tt.shard_direction<shard_to_full>,
-                shard_shape = #tt.grid<2x1>,
+                shard_shape = array<i64: 2, 1>,
+                shard_dims = arrray<i64: 1, -1>,
                 shard_type = #tt.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
     }];
 
-    let arguments = (ins
-      AnyRankedTensor:$input,
-      AnyRankedTensor:$output,
-      TT_MeshShardTypeAttr:$shard_type,
-      TT_MeshShardDirectionAttr:$shard_direction,
-      TT_GridAttr:$shard_shape
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_MeshShardTypeAttr:$shard_type,
+                         TT_MeshShardDirectionAttr:$shard_direction,
+                         DenseI64ArrayAttr:$shard_shape,
+                         DenseI64ArrayAttr:$shard_dims
     );
 
     let results = (outs AnyRankedTensor:$result);

@@ -10,6 +10,9 @@ inputs:
   enable-emitc:
     description: "Enable EmitC tests"
     required: true
+  enable-async:
+    description: "Enable async ttnn tests"
+    required: true
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
@@ -83,6 +86,7 @@ runs:
       run: |
         source env/activate
         cmake --install ${{ inputs.build-output-dir }} --component Test
+        cmake --install ${{ inputs.build-output-dir }} --component SharedLib
 
     - name: Run tt-mlir tests
       shell: bash
@@ -109,7 +113,7 @@ runs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-emitc-${{ inputs.enable-emitc }}
+        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-emitc-${{ inputs.enable-emitc }}-async-${{ inputs.enable-async }}
         path: ${{ inputs.test_report_path }}
 
     - name: Upload ttrt .whl
@@ -123,11 +127,22 @@ runs:
       working-directory: ${{ inputs.install-output-dir }}
       run: tar cvf artifact.tar .
 
+    - name: Archive Build Directory
+      shell: bash
+      working-directory: ${{ inputs.build-output-dir }}
+      run: tar cvf artifact.tar .
+
     - name: Upload Install Folder
       uses: actions/upload-artifact@v4
       with:
         name: install-artifacts-${{ inputs.build-name }}
         path: ${{ inputs.install-output-dir }}/artifact.tar
+
+    - name: Upload Build Folder
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts-${{ inputs.build-name }}
+        path: ${{ inputs.build-output-dir }}/artifact.tar
 
     - name: Get Latest Tag and Version
       shell: bash

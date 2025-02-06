@@ -5,36 +5,37 @@
 #ifndef TTMLIR_CONVERSION_TTKERNELTOEMITC_TTKERNELTOEMITC_H
 #define TTMLIR_CONVERSION_TTKERNELTOEMITC_TTKERNELTOEMITC_H
 
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Pass/Pass.h"
-
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+
 #include <llvm/ADT/SmallVector.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/Pass/Pass.h>
 
 namespace mlir::tt {
 #define GEN_PASS_DECL_CONVERTTTKERNELTOEMITC
 #include "ttmlir/Conversion/Passes.h.inc"
 
-// Runs a conversion pass to EmitC dialect on a func op containing given
-// region's body. Also, it adds boilerplate code such as includes and namespace
-// declarations.
-LogicalResult
-convertTTKernelRegionToEmitC(OpBuilder &builder, Region *region,
-                             const ttkernel::ThreadType &threadType);
+//===----------------------------------------------------------------------===//
+// IR -> C++ text codegen:
+//===----------------------------------------------------------------------===//
 
 // Converts given region to EmitC dialect and translates it to C++ code.
 LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
                                 const ttkernel::ThreadType &threadType);
 
+// Converts given region to EmitC dialect and writes it as C++ code to 'os'.
 LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
                                 const ttkernel::ThreadType &threadType);
 
-// Converts dispatch op's regions to C++ code.
+// Converts enqueue program op's regions to EmitC dialect and writes
+// them as C++ code to 'cppStrings' (in the same order as
+// 'enqueueProgramOp' regions).
 LogicalResult
-emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
-                           llvm::SmallVector<std::string> &cppStrings);
+emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
+                                 llvm::SmallVector<std::string> &cppStrings);
 
+// Converts all FuncOps in 'op' as if by emitOpRegionAsCpp().
 LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,
                               const ttkernel::ThreadType &threadType);
 

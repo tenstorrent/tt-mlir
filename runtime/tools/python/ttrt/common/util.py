@@ -11,8 +11,6 @@ import shutil
 
 import torch
 
-from ttrt.runtime._C import DataType
-
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -21,7 +19,7 @@ if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
 
-def ttrt_datatype_to_torch_dtype(dtype: DataType) -> torch.dtype:
+def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
 
     """Converts a PyBound `::tt::target::DataType` into a `torch.dtype`.
 
@@ -45,19 +43,18 @@ def ttrt_datatype_to_torch_dtype(dtype: DataType) -> torch.dtype:
     A `ValueError` if `dtype` is not one of `Float32`, `UInt32`, `UInt16`, or `UInt8`
 
     """
-    match dtype:
-        case DataType.Float32:
-            return torch.float32
-        case DataType.UInt32:
-            return torch.uint32
-        case DataType.UInt16:
-            return torch.uint16
-        case DataType.UInt8:
-            return torch.uint8
-        case _:
-            raise ValueError(
-                "Only F32 and unsigned integers are supported in the runtime"
-            )
+    from ttrt.runtime._C import DataType
+
+    if dtype == DataType.Float32:
+        return torch.float32
+    elif dtype == DataType.UInt32:
+        return torch.uint32
+    elif dtype == DataType.UInt16:
+        return torch.uint16
+    elif dtype == DataType.UInt8:
+        return torch.uint8
+    else:
+        raise ValueError("Only F32 and unsigned integers are supported in the runtime")
 
 
 def get_ttrt_metal_home_path():
@@ -624,8 +621,11 @@ class Binary(Flatbuffer):
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:
                 assert len(golden_inputs) == len(self.program["inputs"])
-                for golden_input in golden_inputs:
-                    self.input_tensors.append(golden_input)
+                for index, input_fb in enumerate(self.program["inputs"]):
+                    reshaped = torch.reshape(
+                        golden_inputs[index], input_fb["desc"]["shape"]
+                    )
+                    self.input_tensors.append(reshaped)
             else:
                 for i in self.program["inputs"]:
                     torch_tensor = init_fn(

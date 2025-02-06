@@ -97,9 +97,10 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, name: "run", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, name: "perf", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, name: "emitc", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, name: "perf", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, enable_async: OFF, name: "emitc", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: ON, name: "async", ttrt_flags: ""},
         ]
 
     name: Build and test tt-mlir (compute machine)
@@ -114,23 +115,21 @@ jobs:
       with:
           fetch-depth: 0
 
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "Build and test tt-mlir (compute machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.name }})"
+
     - name: Set reusable strings
       id: strings
       shell: bash
       env:
-        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.name }})"
+        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-
-        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
-        echo "Expected job name: ${{ env.job-name }}"
-        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
-          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
-        echo "Current job id: $JOB_ID"
-        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
@@ -140,7 +139,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-emitc-${{ matrix.build.enable_emitc }}-async-${{ matrix.build.enable_async }}-${{ env.SDK_VERSION }}
 
     - name: Run build and test tt-mlir
       uses: ./.github/actions/build-tt-mlir-action
@@ -148,6 +147,7 @@ jobs:
         enable-perf: ${{ matrix.build.enable_perf }}
         enable-op-model: ${{ matrix.build.enable_op_model }}
         enable-emitc: ${{ matrix.build.enable_emitc }}
+        enable-async: ${{ matrix.build.enable_async }}
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
@@ -166,13 +166,15 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, name: "run", build_name: "emitc", ttrt_flags: "--emitc"},
-          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, enable_async: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.build_name }})"
 
     runs-on:
       - in-service
@@ -180,7 +182,7 @@ jobs:
 
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
-      options: --device /dev/tenstorrent/0
+      options: ${{ matrix.build.container-options }}
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
@@ -193,25 +195,23 @@ jobs:
       with:
           fetch-depth: 0
 
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.build_name }})"
+
     - name: Set reusable strings
       id: strings
       shell: bash
       env:
-        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
+        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-
-        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
-        echo "Expected job name: ${{ env.job-name }}"
-        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
-          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
-        echo "Current job id: $JOB_ID"
-
-        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "perf_report_path=perf_$JOB_ID" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -246,17 +246,22 @@ jobs:
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt-${{ env.version }}*.whl --force-reinstall
 
+    # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
       shell: bash
       run: |
         source env/activate
-        ttrt query --save-artifacts
+        if [ "${{ matrix.build.runs-on }}" == "tg" ]; then
+          ttrt query --save-artifacts --disable-eth-dispatch
+        else
+          ttrt query --save-artifacts
+        fi
 
     - name: Generate tests
       shell: bash
       run: |
         source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
@@ -266,25 +271,41 @@ jobs:
       if: matrix.build.enable_emitc == 'ON'
       run: |
         source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
 
     - name: Run functional tests
       shell: bash
-      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_emitc == 'OFF'
+      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_emitc == 'OFF' && matrix.build.enable_async == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
+
+    - name: Run async TTNN tests
+      shell: bash
+      if: matrix.build.enable_async == 'ON'
+      run: |
+        source env/activate
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
 
     - name: Run perf tests
       shell: bash
       if: matrix.build.enable_perf == 'ON'
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/${{ matrix.build.runs-on }}/perf
+        # collect ops_perf_results.csv
         cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
+
+    - name: Collect and Upload Perf Reports
+      if: matrix.build.enable_perf == 'ON'
+      uses: ./.github/actions/collect-and-upload-perf-reports
+      with:
+        reports_dir: ttrt-artifacts
+        perf_report_path: ${{ steps.strings.outputs.perf_report_path }}
+        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.build_name }}
 
     - name: Run emitc tests
       shell: bash
@@ -297,9 +318,8 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.build_name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.enable_async }}_${{ matrix.build.build_name }}_results.json
         path: ${{ matrix.build.build_name }}_results.json
-
     - name: Upload Test Report xml
       uses: actions/upload-artifact@v4
       if: success() || failure()
@@ -347,23 +367,21 @@ jobs:
       with:
           fetch-depth: 0
 
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }}, ${{ matrix.build.build_name }})"
+
     - name: Set reusable strings
       id: strings
       shell: bash
       env:
-        job-name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
+        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-
-        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
-        echo "Expected job name: ${{ env.job-name }}"
-        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
-          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
-        echo "Current job id: $JOB_ID"
-        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
@@ -410,7 +428,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
@@ -521,7 +539,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
@@ -533,7 +551,9 @@ jobs:
         pytest -ssv runtime/test/python/ttnn/test_runtime_api.py
 
   build-and-test-explorer:
-    needs: build-image
+    needs:
+      - build-image
+      - build-ttmlir
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -601,10 +621,22 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
 
+    - name: Download Tests
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: 'Untar build directory'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: tar xvf artifact.tar
+
     - name: Run tt-explorer tests
       shell: bash
       run: |
         source env/activate
+        export TT_EXPLORER_GENERATED_TEST_DIR=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
         pytest tools/explorer/test/run_tests.py
         # collect results
 
@@ -616,7 +648,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n300, enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, name: "op_model", build_name: "op_model", ttrt_flags: ""}
+          {runs-on: n300, enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, enable_async: OFF, name: "op_model", build_name: "op_model", ttrt_flags: ""}
         ]
 
     name: Run build and test tt-mlir (TT machine)
@@ -638,23 +670,21 @@ jobs:
       with:
           fetch-depth: 0
 
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "Run build and test tt-mlir (TT machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.name }}, ${{ matrix.build.build_name }})"
+
     - name: Set reusable strings
       id: strings
       shell: bash
       env:
-        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
+        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-
-        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
-        echo "Expected job name: ${{ env.job-name }}"
-        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
-          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
-        echo "Current job id: $JOB_ID"
-        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
@@ -664,7 +694,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ matrix.build.enable_emitc }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ matrix.build.enable_emitc }}-async-${{ matrix.build.enable_async }}-${{ env.SDK_VERSION }}
 
     # Build project
     - name: Run build and test tt-mlir
@@ -673,6 +703,7 @@ jobs:
         enable-perf: ${{ matrix.build.enable_perf }}
         enable-op-model: ${{ matrix.build.enable_op_model }}
         enable-emitc: ${{ matrix.build.enable_emitc }}
+        enable-async: ${{ matrix.build.enable_async }}
         build-name: ${{ matrix.build.build_name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}

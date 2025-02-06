@@ -5,9 +5,20 @@
 # RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
 
 import inspect
+import torch
 
 from ttmlir.test_utils import compile_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute
+
+
+@compile_to_flatbuffer([(1, 128, 128, 1)], targets=["ttnn"])
+def test_squeeze(in0: Operand, builder: TTIRBuilder):
+    return builder.squeeze(in0, 0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_unsqueeze(in0: Operand, builder: TTIRBuilder):
+    return builder.unsqueeze(in0, 0)
 
 
 @compile_to_flatbuffer([(128, 128)])
@@ -40,11 +51,11 @@ def test_logical_not(in0: Operand, builder: TTIRBuilder):
     return builder.logical_not(in0)
 
 
-# TODO: uncomment once we have control over generated input types (bitwise ops
-# don't support floats) (see issue #1765)
-# @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-# def test_bitwise_not(in0: Operand, builder: TTIRBuilder):
-#    return builder.bitwise_not(in0)
+# NOTE: The generated flatbuffer will currently fail to run due to only floats
+# being supported by the runtime. See issue #1775 for tracking
+@compile_to_flatbuffer([(128, 128)], inputs_types=[torch.int8], targets=["ttnn"])
+def test_bitwise_not(in0: Operand, builder: TTIRBuilder):
+    return builder.bitwise_not(in0)
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
@@ -140,6 +151,18 @@ def test_is_finite(in0: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer(
     [
         (64, 128),
+        (32, 128),
+        (16, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.concat([in0, in1, in2])
+
+
+@compile_to_flatbuffer(
+    [
+        (64, 128),
         (64, 128),
     ],
 )
@@ -190,39 +213,46 @@ def test_logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.logical_xor(in0, in1)
 
 
-# TODO: uncomment once we have control over generated input types (bitwise ops
-# don't support floats) (see issue #1765)
-# @compile_to_flatbuffer(
-#    [
-#        (64, 64),
-#        (64, 64),
-#    ],
-#    targets=["ttnn"],
-# )
-# def test_bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
-#    return builder.bitwise_and(in0, in1)
-#
-#
-# @compile_to_flatbuffer(
-#    [
-#        (64, 64),
-#        (64, 64),
-#    ],
-#    targets=["ttnn"],
-# )
-# def test_bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
-#    return builder.bitwise_or(in0, in1)
-#
-#
-# @compile_to_flatbuffer(
-#    [
-#        (64, 64),
-#        (64, 64),
-#    ],
-#    targets=["ttnn"],
-# )
-# def test_bitwise_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
-#    return builder.bitwise_xor(in0, in1)
+# NOTE: The generated flatbuffer will currently fail to run due to only floats
+# being supported by the runtime. See issue #1775 for tracking
+@compile_to_flatbuffer(
+    [
+        (64, 64),
+        (64, 64),
+    ],
+    inputs_types=[torch.int8, torch.int8],
+    targets=["ttnn"],
+)
+def test_bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.bitwise_and(in0, in1)
+
+
+# NOTE: The generated flatbuffer will currently fail to run due to only floats
+# being supported by the runtime. See issue #1775 for tracking
+@compile_to_flatbuffer(
+    [
+        (64, 64),
+        (64, 64),
+    ],
+    inputs_types=[torch.int8, torch.int8],
+    targets=["ttnn"],
+)
+def test_bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.bitwise_or(in0, in1)
+
+
+# NOTE: The generated flatbuffer will currently fail to run due to only floats
+# being supported by the runtime. See issue #1775 for tracking
+@compile_to_flatbuffer(
+    [
+        (64, 64),
+        (64, 64),
+    ],
+    inputs_types=[torch.int8, torch.int8],
+    targets=["ttnn"],
+)
+def test_bitwise_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.bitwise_xor(in0, in1)
 
 
 @compile_to_flatbuffer(
@@ -346,17 +376,39 @@ def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.minimum(in0, in1)
 
 
-# TODO: uncomment when we have control over the input types
+@compile_to_flatbuffer(
+    [
+        (32, 64),
+        (64, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.matmul(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (128, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_mean(in0: Operand, builder: TTIRBuilder):
+    return builder.mean(in0)
+
+
 # @compile_to_flatbuffer(
-#    [
-#        (64, 64),
-#        (64, 64),
-#        (64, 64),
-#    ],
-#    targets=["ttnn"],
+#   [
+#       (64, 64),
+#       (64, 64),
+#       (64, 64),
+#   ],
+#   inputs_types = [torch.int8, torch.float32, torch.float32],
+#   targets=["ttnn"],
 # )
 # def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-#    return builder.where(in0, in1, in2)
+#   return builder.where(in0, in1, in2)
+#
 
 
 @compile_to_flatbuffer(

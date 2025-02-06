@@ -8,30 +8,30 @@
 /.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 /include/ttmlir/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
 /include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/include/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT @azecevicTT
-/include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT @azecevicTT
-/include/ttmlir/Dialect/TTKernel/ @nsmithtt @rjakovljevicTT
-/include/ttmlir/Dialect/TTMetal/ @nsmithtt
-/include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @nobradovictt @jserbedzijaTT @azecevicTT
-/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT @nobradovictt
-/include/ttmlir/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT @nobradovictt
+/include/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/include/ttmlir/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
+/include/ttmlir/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
+/include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
+/include/ttmlir/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /lib/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 /lib/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT @azecevicTT
-/lib/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT @azecevicTT
-/lib/Dialect/TTKernel/ @nsmithtt @rjakovljevicTT
-/lib/Dialect/TTMetal/ @nsmithtt
-/lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @nobradovictt @jserbedzijaTT @jnie-TT @azecevicTT
-/lib/Dialect/TTNN/Analysis/ @odjuricicTT @nobradovictt
-/lib/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT @nobradovictt
+/lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/lib/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/lib/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
+/lib/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
+/lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
+/lib/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
+/lib/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /python/ @nsmithtt @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
 /python/test_infra/ @nsmithtt @tapspatel @vprajapati-tt
 /runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
 /runtime/tools/ @tapspatel @nsmithtt
-/test/ttmlir/Dialect/TTNN/optimizer/ @odjuricicTT @tt-mpantic @sdjordjevicTT @nobradovictt
-/test/ttmlir/Silicon/TTNN/optimizer/ @odjuricicTT @tt-mpantic @sdjordjevicTT @nobradovictt
-/test/unittests/Optimizer @odjuricicTT @tt-mpantic @sdjordjevicTT @nobradovictt
-/test/unittests/OpModel @odjuricicTT @tt-mpantic @sdjordjevicTT @nobradovictt
+/test/ttmlir/Dialect/TTNN/optimizer/ @odjuricicTT @tt-mpantic @sdjordjevicTT
+/test/ttmlir/Silicon/TTNN/optimizer/ @odjuricicTT @tt-mpantic @sdjordjevicTT
+/test/unittests/Optimizer @odjuricicTT @tt-mpantic @sdjordjevicTT
+/test/unittests/OpModel @odjuricicTT @tt-mpantic @sdjordjevicTT
 /tools/ @svuckovicTT @mtopalovicTT
-/tools/explorer/ @odjuricicTT @tt-mpantic @sdjordjevicTT @nobradovictt @vprajapati-tt @vcanicTT
+/tools/explorer/ @odjuricicTT @tt-mpantic @sdjordjevicTT @vprajapati-tt @vcanicTT
 /tools/ttnn-standalone @svuckovicTT @mtopalovicTT @sdjordjevicTT @azecevicTT @jserbedzijaTT

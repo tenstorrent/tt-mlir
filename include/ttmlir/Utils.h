@@ -7,6 +7,7 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
@@ -14,6 +15,7 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
+#include <type_traits>
 
 namespace ttmlir::utils {
 template <typename T>
@@ -246,6 +248,166 @@ getPairOfInteger(mlir::Attribute attr) {
   }
 
   return std::make_pair(x, y);
+}
+
+// It's assumed that operand is convertible to mlir::Value or mlir::ValueRange.
+// The only exception being tt::DeviceType, which is convertible to mlir::Value
+// but should not be considered an operand.
+template <typename T>
+struct is_operand
+    : std::bool_constant<
+          (std::is_convertible_v<T, mlir::Value> ||
+           std::is_convertible_v<T, mlir::ValueRange>) &&
+          !std::is_convertible_v<T, mlir::TypedValue<mlir::tt::DeviceType>>> {};
+
+template <typename T>
+inline constexpr bool is_operand_v = is_operand<T>::value;
+
+template <typename... ArgsTy>
+struct count_consecutive : std::integral_constant<size_t, 0> {};
+
+template <typename... ArgsTy>
+inline constexpr size_t count_consecutive_v =
+    count_consecutive<ArgsTy...>::value;
+
+template <typename FirstTy, typename... RestTy>
+struct count_consecutive<FirstTy, RestTy...>
+    : std::conditional_t<
+          is_operand_v<FirstTy>,
+          std::integral_constant<size_t, 1 + count_consecutive_v<RestTy...>>,
+          std::integral_constant<size_t, 0>> {};
+
+template <typename OpTy, typename IndexSeqFirst, typename IndexSeqRest>
+struct SplitCaller;
+
+template <typename OpTy, size_t... Is, size_t... Js>
+struct SplitCaller<OpTy, std::index_sequence<Is...>,
+                   std::index_sequence<Js...>> {
+  template <typename... ArgsTy>
+  static auto call(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                   mlir::Value output, ArgsTy &&...args) {
+    return rewriter.create<OpTy>(
+        loc, output.getType(),
+        std::get<Is>(std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
+        output,
+        std::get<sizeof...(Is) + Js>(
+            std::forward_as_tuple(std::forward<ArgsTy>(args)...))...);
+  }
+};
+
+template <typename OpTy, size_t OperandCountV, size_t AttributeCountV>
+struct SplitImpl {
+  template <typename... ArgsTy>
+  static auto call(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                   mlir::Value dpsOutput, ArgsTy &&...args) {
+    return SplitCaller<OpTy, std::make_index_sequence<OperandCountV>,
+                       std::make_index_sequence<AttributeCountV>>::
+        call(rewriter, loc, dpsOutput, std::forward<ArgsTy>(args)...);
+  }
+};
+
+template <typename OpTy, typename... ArgsTy>
+auto splitAndCall(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                  mlir::Value output, ArgsTy &&...args) {
+  constexpr size_t count = count_consecutive_v<ArgsTy...>;
+
+  return SplitImpl<OpTy, count, sizeof...(ArgsTy) - count>::call(
+      rewriter, loc, output, std::forward<ArgsTy>(args)...);
+}
+
+// Wrapper for creating a DPS op with a given output type. It's assumed that a
+// DPS op has exactly one output that comes after all of the inputs and before
+// any of the attributes in the builder of an op. The output is generated using
+// a tensor::EmptyOp. Calling this function:
+// createDPSOp<OpTy>(rewriter, loc,  outputType, operand1, operand2, ...,
+// operandN, attribute1, attribute2, ..., attributeM);
+// is equivalent to:
+// auto output = rewriter.create<tensor::EmptyOp>(loc, outputType.getShape(),
+// outputType.getElementType(), outputType.getEncoding());
+// rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
+// output, attribute1, attribute2, ..., attributeM);
+template <typename OpTy, typename... ArgsTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 mlir::RankedTensorType outputType, ArgsTy &&...args) {
+  auto output = rewriter.create<mlir::tensor::EmptyOp>(
+      loc, outputType.getShape(), outputType.getElementType(),
+      outputType.getEncoding());
+
+  return splitAndCall<OpTy>(rewriter, loc, output,
+                            std::forward<ArgsTy>(args)...);
+}
+
+// Wrapper for creating a DPS op with a given output shape, element type and
+// encoding. It's assumed that a  DPS op has exactly one output that comes after
+// all of the inputs and before any of the attributes in the builder of an op.
+// The output is generated using a tensor::EmptyOp. Calling this function:
+// createDPSOp<OpTy>(rewriter, loc,  outputShape, outputElementType,
+// outputEncoding, operand1, operand2, ..., operandN, attribute1, attribute2,
+// ..., attributeM);
+// is equivalent to:
+// auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
+// outputEncoding);
+// auto output = rewriter.create<tensor::EmptyOp>(loc, outputShape,
+// outputElementType, outputEncoding);
+// rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
+// output, attribute1, attribute2, ..., attributeM);
+template <typename OpTy, typename... ArgsTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::Type outputElementType, mlir::Attribute outputEncoding,
+                 ArgsTy &&...args) {
+  auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
+                                                outputEncoding);
+  return createDPSOp<OpTy>(rewriter, loc, outputType,
+                           std::forward<ArgsTy>(args)...);
+}
+
+// Wrapper for replacing an op with a DPS op with a given output type.
+// It's assumed that a  DPS op has exactly one output that comes after all of
+// the inputs and before any of the attributes in the builder of a DPS op. The
+// output is generated using a tensor::EmptyOp. Calling this function:
+// replaceOpWithNewDPSOp<OpTy>(rewriter, op, outputType, operand1, operand2,
+// ..., operandN, attribute1, attribute2, ..., attributeM);
+// is equivalent to:
+// auto output = rewriter.create<tensor::EmptyOp>(loc, outputType.getShape(),
+// outputType.getElementType(), outputType.getEncoding());
+// rewriter.replaceOpWithNewOp<OpTy>(op, outputType, operand1, operand2, ...,
+// operandN, output, attribute1, attribute2, ..., attributeM);
+template <typename OpTy, typename... ArgsTy>
+OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
+                           mlir::RankedTensorType outputType,
+                           ArgsTy &&...args) {
+  auto newOp = createDPSOp<OpTy>(rewriter, op->getLoc(), outputType,
+                                 std::forward<ArgsTy>(args)...);
+  rewriter.replaceOp(op, newOp.getOperation());
+  return newOp;
+}
+
+// Wrapper for replacing an op with a DPS op with a given output shape, element
+// type and encoding. It's assumed that a  DPS op has exactly one output that
+// comes after all of the inputs and before any of the attributes in the builder
+// of a DPS op. The output is generated using a tensor::EmptyOp. Calling this
+// function:
+// replaceOpWithNewDPSOp<OpTy>(rewriter, op,  outputShape,
+// outputElementType, outputEncoding, operand1, operand2, ..., operandN,
+// attribute1, attribute2, ..., attributeM);
+// is equivalent to:
+// auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
+// outputEncoding);
+// auto output = rewriter.create<tensor::EmptyOp>(loc, outputShape,
+// outputElementType, outputEncoding);
+// rewriter.replaceOpWithNewOp<OpTy>(op, outputType, operand1, operand2, ...,
+// operandN, output, attribute1, attribute2, ..., attributeM);
+template <typename OpTy, typename... ArgsTy>
+OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
+                           llvm::ArrayRef<int64_t> outputShape,
+                           mlir::Type outputElementType,
+                           mlir::Attribute outputEncoding, ArgsTy &&...args) {
+  auto newOp =
+      createDPSOp<OpTy>(rewriter, op->getLoc(), outputShape, outputElementType,
+                        outputEncoding, std::forward<ArgsTy>(args)...);
+  rewriter.replaceOp(op, newOp.getOperation());
+  return newOp;
 }
 
 } // namespace ttmlir::utils

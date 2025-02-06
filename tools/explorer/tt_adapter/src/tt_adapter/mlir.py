@@ -30,7 +30,7 @@ class AttrHandler:
 
     @staticmethod
     def default_parser(attr):
-        return [graph_builder.KeyValue(key=attr.name, value=str(attr.attr))]
+        return [graph_builder.KeyValue(key=str(attr.name), value=str(attr.attr))]
 
     @staticmethod
     def parse_attr(attr):
@@ -324,6 +324,9 @@ def parse_force(attr):
 @AttrHandler.register_handler("dtype")
 def parse_dtype(attr):
     dtype = tt.ir.DataTypeAttr.maybe_downcast(attr)
+    if dtype is None:
+        # Potential for dtype to be StringAttr instead of tt.DataTypeAttr
+        return [graph_builder.KeyValue(key="dtype", value=str(attr))]
     return [
         graph_builder.KeyValue(
             key="dtype", value=str(tt.DataType(dtype.data_type_as_int))
@@ -512,7 +515,11 @@ class OpHandler:
 
         # Add output tensor attriributes to the op itself
         if self.op.results:
-            output_tensor = self.op.result
+            # Examples like the Pooling Op Contain more than 1 Result Tensor
+            # Since the output of a pool op is currently the same shape we don't have to add any extra logic
+            # In the future we may have to obfuscate with output_shape_1, etc...
+            # For now let's just set the output_tensor to the first result
+            output_tensor = list(self.op.results)[0]
             output_attrs = []
             if isinstance(output_tensor.type, ir.RankedTensorType):
                 output_attrs = [
@@ -546,7 +553,7 @@ class OpHandler:
     def make_graph_node(self):
         return graph_builder.GraphNode(
             id=self.id,
-            label=self.op.name,
+            label=str(self.op.name),
             namespace=self.get_namespace(),
             attrs=self.get_attributes(),
         )
@@ -554,7 +561,7 @@ class OpHandler:
     def make_constant_node(self, constant_name):
         return graph_builder.GraphNode(
             id=self._create_unique_id(),
-            label=constant_name,
+            label=str(constant_name),
             namespace=self.get_namespace(),
         )
 
@@ -687,7 +694,7 @@ def build_graph(module, perf_trace=None):
                                 id=str(output_connections[source_node.id]),
                                 attrs=[
                                     graph_builder.KeyValue(
-                                        key="__tensor_tag", value=target_node.label
+                                        key="__tensor_tag", value=str(target_node.label)
                                     ),
                                 ]
                                 + output_attrs,

@@ -2,22 +2,24 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdint>
-#include <fstream>
-#include <mlir/IR/BuiltinTypes.h>
-#include <numeric>
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Utils.h"
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Target/Common/Target.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/TypeSwitch.h"
+#include "ttmlir/Utils.h"
+
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/StringExtras.h>
+#include <llvm/ADT/TypeSwitch.h>
+#include <mlir/IR/Builders.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/DialectImplementation.h>
+#include <mlir/Support/LLVM.h>
+
+#include <cstdint>
+#include <fstream>
+#include <numeric>
 
 using namespace mlir::tt;
 
@@ -128,9 +130,9 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
 mlir::tt::SystemDescAttr
 mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Check if file exists
-  assert(!path.empty() && "cluster desc path must not be empty!");
+  assert(!path.empty() && "system desc path must not be empty!");
   std::ifstream fbb(path, std::ios::binary | std::ios::ate);
-  assert(fbb.good() && "cluster desc does not exist!");
+  assert(fbb.good() && "system desc does not exist!");
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
@@ -373,6 +375,19 @@ unsigned SystemDescAttr::getNocDRAMAddressAlignBytes(unsigned chipIndex) const {
 
 unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
+}
+
+::llvm::LogicalResult StreamLayoutAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    AffineMap affineMap, StreamMode streamMode, uint32_t numBuffers) {
+  if (streamMode == StreamMode::Alias) {
+    if (numBuffers != 1) {
+      emitError() << "'Alias' mode must imply no buffering: numBuffers = "
+                  << numBuffers;
+      return ::mlir::failure();
+    }
+  }
+  return ::mlir::success();
 }
 
 //
@@ -691,6 +706,40 @@ MetalLayoutAttr::withShardShape(::mlir::MLIRContext *context,
       buildMemRef<MemorySpace, MemorySpaceAttr>(
           context, shardShape, getElementType(), getMemorySpace()),
       getMemLayout());
+}
+
+// TODO(vroubtsovTT): remove this, it's difficult/unsafe to use
+MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
+                                                  StreamLayoutAttr layout) {
+  return MetalLayoutAttr::get(
+      context, getLinear(), getOobVal(), getGrid(),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(
+          context, getShardShape(), getElementType(), getMemorySpace(), layout),
+      getMemLayout());
+}
+
+MetalLayoutAttr MetalLayoutAttr::withOuterScale(
+    ::mlir::MLIRContext *context, llvm::ArrayRef<int64_t> outerScale,
+    StreamMode streamMode, std::uint32_t numBuffers) {
+
+  auto innerShape = getShardShape();
+  std::size_t innerShapeSize = innerShape.size();
+
+  llvm::SmallVector<int64_t> fullShape(2 * innerShapeSize); // rank doubles
+  for (std::size_t d = 0; d < innerShapeSize; ++d) {
+    fullShape[d] = 1;
+    fullShape[innerShapeSize + d] = innerShape[d];
+  }
+
+  auto fullAffineMap =
+      mlir::AffineMap::getMultiDimIdentityMap(fullShape.size(), context);
+  auto fullLayout =
+      StreamLayoutAttr::get(context, fullAffineMap, streamMode, numBuffers);
+  auto fullMemRef = buildMemRef<MemorySpace, MemorySpaceAttr>(
+      context, fullShape, getElementType(), getMemorySpace(), fullLayout);
+
+  return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
+                              fullMemRef, getMemLayout());
 }
 
 MemorySpace MetalLayoutAttr::getMemorySpace() const {
@@ -1181,11 +1230,14 @@ mlir::Type TileType::getElementType() const {
   case DataType::BFP_BFloat2:
     return FloatType::getBF16(getContext());
   case DataType::UInt32:
-    return IntegerType::get(getContext(), 32);
+    return IntegerType::get(getContext(), 32,
+                            IntegerType::SignednessSemantics::Unsigned);
   case DataType::UInt16:
-    return IntegerType::get(getContext(), 16);
+    return IntegerType::get(getContext(), 16,
+                            IntegerType::SignednessSemantics::Unsigned);
   case DataType::UInt8:
-    return IntegerType::get(getContext(), 8);
+    return IntegerType::get(getContext(), 8,
+                            IntegerType::SignednessSemantics::Unsigned);
   }
 }
 

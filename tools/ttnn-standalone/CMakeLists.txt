@@ -61,7 +61,7 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
     $ENV{TT_METAL_HOME}/.cpmcache/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
     $ENV{TT_METAL_HOME}/.cpmcache/boost_core/e679bef5c160cf29d0f37d549881dc5f5a58c332/include
-    $ENV{TT_METAL_HOME}/.cpmcache/json/230202b6f5267cbf0c8e5a2f17301964d95f83ff/include
+    $ENV{TT_METAL_HOME}/.cpmcache/json/798e0374658476027d9723eeb67a262d0f3c8308/include
 
     # Metalium
     $ENV{TT_METAL_HOME}
@@ -141,5 +141,6 @@ target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
 target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
 set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
+target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)

@@ -24,6 +24,12 @@ table ToLayoutOp {
   out: tt.target.TensorRef;
 }
 
+table ToDTypeOp {
+  in: tt.target.TensorRef;
+  dtype: tt.target.DataType;
+  out: tt.target.TensorRef;
+}
+
 table TypecastOp {
   in: tt.target.TensorRef;
   dtype: tt.target.DataType;
@@ -63,6 +69,15 @@ table EmptyOp {
   device: tt.target.DeviceRef;
   memcfg: tt.target.MemoryConfigDesc;
   strategy: tt.target.DistributionStrategy;
+  out: tt.target.TensorRef;
+}
+
+table ZerosOp {
+  shape: [int64];
+  dtype: DataType = null;
+  layout: TensorLayout = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
@@ -140,7 +155,8 @@ enum EltwiseOpType: uint32 {
   LeakyRelu,
   Scatter,
   Tan,
-  Tanh
+  Tanh,
+  Power
 }
 
 table ClampOpParams {
@@ -164,10 +180,18 @@ table EltwiseOp {
   params: EltwiseOpParams;
 }
 
+table MorehCumSumOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim: int64;
+  memcfg: tt.target.MemoryConfigDesc;
+}
+
 enum ReductionOpType: uint32 {
   Sum,
   Mean,
   Max,
+  Min,
 }
 
 table ReductionOp {
@@ -176,6 +200,15 @@ table ReductionOp {
   out: tt.target.TensorRef;
   dim_arg: [int32];
   keep_dim: bool;
+}
+
+table ReductionProdOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  all_dimensions: bool;
+  dim_arg: int64;
+  keep_dim: bool;
+  memcfg: tt.target.MemoryConfigDesc;
 }
 
 table EmbeddingOp {
@@ -229,7 +262,16 @@ table ReshapeOp {
 table RepeatOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
-  shape: [uint32];
+  repeat_dims: [int64];
+}
+
+table PadOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  padding: [uint32];
+  value: float;
+  use_multicore: bool;
+  memcfg: MemoryConfigDesc;
 }
 
 table SliceOp {
@@ -352,22 +394,48 @@ table MeshShardOp {
   shard_direction: tt.target.MeshShardDirection;
   shard_type: tt.target.MeshShardType;
   shard_shape: [int64];
+  shard_dims: [int64];
+}
+
+table UniformScale2D {
+  scale: int32;
+}
+
+table NonUniformScale2D {
+  scale: [int32];
+}
+
+union Scale2D {
+  UniformScale2D,
+  NonUniformScale2D,
+}
+
+table UpsampleOp {
+  in: tt.target.TensorRef;
+  scale_factor: Scale2D;
+  mode: string;
+  memory_config: MemoryConfigDesc;
+  out: tt.target.TensorRef;
 }
 
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
   ToLayoutOp,
+  ToDTypeOp,
   TypecastOp,
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
+  ZerosOp,
   OnesOp,
   FullOp,
   EltwiseOp,
   LinearOp,
   MatmulOp,
+  MorehCumSumOp,
   ReductionOp,
+  ReductionProdOp,
   EmbeddingOp,
   EmbeddingBackwardOp,
   RepeatInterleaveOp,
@@ -388,6 +456,8 @@ union OpType {
   FillCacheOp,
   PermuteOp,
   RepeatOp,
+  UpsampleOp,
+  PadOp,
 }
 
 table Operation {

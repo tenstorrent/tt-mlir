@@ -15,6 +15,11 @@
 
 namespace tt::runtime::ttnn::test {
 
+static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
+    "",
+    "PNS1_2v07IDeviceE",
+};
+
 void *openSo(std::string path) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
@@ -55,22 +60,36 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
 
   // Get function from the shared object
   //
-  using ForwardFunction = std::vector<::ttnn::Tensor> (*)(
+  using ForwardFunctionWithDevice = std::vector<::ttnn::Tensor> (*)(
       std::vector<::ttnn::Tensor>, ::ttnn::IDevice *);
-  ForwardFunction forwardFunc =
-      reinterpret_cast<ForwardFunction>(dlsym(so, func_name.c_str()));
+  using ForwardFunctionNoDevice =
+      std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
 
-  // Check for errors
-  //
-  const char *dlsym_error = dlerror();
+  const char *dlsym_error;
+  void *symbol;
+  std::string mangledName;
+  for (const char *addition : POTENTIAL_MANGLING_ADDITIONS) {
+    mangledName = func_name + addition;
+    symbol = dlsym(so, mangledName.c_str());
+    dlsym_error = dlerror();
+    if (!dlsym_error) {
+      break;
+    }
+  }
   if (dlsym_error) {
     dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsym_error);
   }
-
   // Call program/function
   //
-  std::vector<::ttnn::Tensor> ttnnOutputs = forwardFunc(ttnnInputs, ttnnDevice);
+  std::vector<::ttnn::Tensor> ttnnOutputs;
+  if (mangledName.find("IDevice") != std::string::npos) {
+    auto forwardFunc = reinterpret_cast<ForwardFunctionWithDevice>(symbol);
+    ttnnOutputs = forwardFunc(ttnnInputs, ttnnDevice);
+  } else {
+    auto forwardFunc = reinterpret_cast<ForwardFunctionNoDevice>(symbol);
+    ttnnOutputs = forwardFunc(ttnnInputs);
+  }
 
   // Convert TTNN Tensors to Runtime Tensors
   //
@@ -105,8 +124,9 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
                "DType: ", static_cast<int>(lhsTensor->get_dtype()), ", ",
                static_cast<int>(rhsTensor->get_dtype()));
-    LOG_ASSERT(lhsTensor->get_shape() == rhsTensor->get_shape(),
-               "Shape: ", lhsTensor->get_shape(), ", ", rhsTensor->get_shape());
+    LOG_ASSERT(lhsTensor->get_logical_shape() == rhsTensor->get_logical_shape(),
+               "Shape: ", lhsTensor->get_logical_shape(), ", ",
+               rhsTensor->get_logical_shape());
     LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
                "Layout: ", static_cast<int>(lhsTensor->get_layout()), ", ",
                static_cast<int>(rhsTensor->get_layout()));

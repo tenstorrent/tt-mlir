@@ -8,9 +8,7 @@ add_mlir_translation_library(TTKernelTargetCpp
     LINK_LIBS PUBLIC
     MLIRTTKernelDialect
     TTMLIRTTKernelToEmitC
-    MLIRFuncToEmitC
-    MLIRSCFToEmitC
-    MLIRArithToEmitC
+    MLIR
 )
 
 target_include_directories(TTKernelTargetCpp PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

@@ -5,6 +5,7 @@
 #ifndef TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
 #define TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/ArrayRef.h"
@@ -18,8 +19,7 @@ namespace mlir::tt::op_model::ttnn {
 //===----------------------------------------------------------------------===//
 
 namespace Device {
-std::tuple<bool, std::optional<std::string>>
-getDeviceConstraints(const mlir::tt::GridAttr &workerGrid);
+llvm::Expected<bool> getDeviceConstraints(mlir::tt::GridAttr workerGrid);
 }; // namespace Device
 
 //===----------------------------------------------------------------------===//
@@ -27,12 +27,17 @@ getDeviceConstraints(const mlir::tt::GridAttr &workerGrid);
 //===----------------------------------------------------------------------===//
 
 namespace ReluOpInterface {
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
-getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-                 const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 }; // namespace ReluOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -40,14 +45,22 @@ getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
 //===----------------------------------------------------------------------===//
 
 namespace AddOpInterface {
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
-getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
-                 const llvm::ArrayRef<int64_t> &inputShape_b,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
-                 const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                 llvm::ArrayRef<int64_t> inputShapeB,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+             llvm::ArrayRef<int64_t> inputShapeB,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
 }; // namespace AddOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -55,12 +68,18 @@ getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
 //===----------------------------------------------------------------------===//
 
 namespace SoftmaxOpInterface {
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
-getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-                 const int dim_arg, const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dimArg,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dimArg,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
 }; // namespace SoftmaxOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -68,15 +87,22 @@ getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
 //===----------------------------------------------------------------------===//
 
 namespace MatmulOpInterface {
-std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-           std::optional<std::string>>
-getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
-                 const llvm::ArrayRef<int64_t> &inputShape_b,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
-                 const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
-                 bool transpose_a, bool transpose_b);
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                 llvm::ArrayRef<int64_t> inputShapeB,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool transposeA,
+                 bool transposeB);
+
+llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+                                    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                                    llvm::ArrayRef<int64_t> inputShapeB,
+                                    mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                                    llvm::ArrayRef<int64_t> outputShape,
+                                    mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                                    bool transposeA, bool transposeB);
 }; // namespace MatmulOpInterface
 
 } // namespace mlir::tt::op_model::ttnn

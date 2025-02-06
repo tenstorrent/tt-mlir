@@ -4,8 +4,10 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
+        Workarounds/Decomposition/CumSumOpRewritePattern.cpp
         Workarounds/Decomposition/ReduceOpsRewritePattern.cpp
-        Workarounds/TTNNWorkarounds.cpp
+        Workarounds/Decomposition/RepeatOpRewritePattern.cpp
+	Workarounds/TTNNWorkarounds.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

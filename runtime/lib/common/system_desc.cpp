@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+#include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -141,7 +142,8 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
                              device->get_active_ethernet_cores().size();
   std::uint32_t totalDramCores = dramGridSize.x * dramGridSize.y;
   std::uint32_t programCarveOutPerCore =
-      device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
+      device->allocator()->get_base_allocator_addr(
+          ::tt::tt_metal::HalMemType::L1);
   std::uint32_t totalProgramCarveOut = programCarveOutPerCore * totalCores;
   // The total carve out can be interleaved between all dram channels
   std::uint32_t programCarveOutDramSpace =
@@ -173,10 +175,10 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   ::flatbuffers::FlatBufferBuilder fbb;
 
   for (const ::tt::tt_metal::IDevice *device : devices) {
-    size_t l1UnreservedBase =
-        device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
-    size_t dramUnreservedBase =
-        device->get_base_allocator_addr(::tt::tt_metal::HalMemType::DRAM);
+    size_t l1UnreservedBase = device->allocator()->get_base_allocator_addr(
+        ::tt::tt_metal::HalMemType::L1);
+    size_t dramUnreservedBase = device->allocator()->get_base_allocator_addr(
+        ::tt::tt_metal::HalMemType::DRAM);
 
     // Construct chip descriptor
     ::tt::target::Dim2d deviceGrid =
@@ -255,8 +257,11 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   return std::make_unique<::tt::runtime::SystemDesc>(handle);
 }
 
-std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
+std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
+    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt) {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
   ::tt::tt_metal::distributed::MeshShape meshShape = {1, numDevices};
@@ -264,8 +269,10 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
       ::tt::tt_metal::distributed::MeshDevice::create(
           ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape =
                                                             meshShape},
-          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
-          ::tt::tt_metal::DispatchCoreType::WORKER);
+          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {

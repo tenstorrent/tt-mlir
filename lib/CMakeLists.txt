@@ -7,15 +7,11 @@ add_subdirectory(Conversion)
 add_subdirectory(Dialect)
 add_subdirectory(Target)
 add_subdirectory(Scheduler)
-
-# Shared library will include runtime code
-# so we only build it if runtime is enabled
-if (TTMLIR_ENABLE_SHARED_LIB)
-    add_subdirectory(SharedLib)
-endif()
+add_subdirectory(SharedLib)
 
 set(link_libs
 MLIRTTDialect
+MLIRTTTransforms
 MLIRTTIRDialect
 MLIRTTIRTransforms
 TTMLIRConversions
@@ -30,7 +26,7 @@ MLIRTTMetalPipelines
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)
-list(APPEND link_libs StablehloRegister)
+list(APPEND link_libs StablehloRegister SdyRegister)
 endif()
 
 add_mlir_library(TTMLIRStatic STATIC RegisterAll.cpp

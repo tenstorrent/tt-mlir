@@ -4,6 +4,7 @@ project(ttmlir-toolchain LANGUAGES CXX C)
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
 set(LLVM_PROJECT_VERSION "e813750354bbc08551cf23ff559a54b4a9ea1f29")
 set(STABLEHLO_VERSION "d40285ef3db0687e3f1e2bb0d716d748485a9739")
+set(SHARDY_VERSION "55f44c23b766be38bccb0b2394b0e8dfba45694e")
 
 include(ExternalProject)
 
@@ -54,7 +55,7 @@ ExternalProject_Add(
     -DLLVM_INSTALL_GTEST=ON
     -DLLVM_LINK_LLVM_DYLIB=ON
     -DMLIR_BUILD_MLIR_C_DYLIB=ON
-    -DMLIR_LINK_MLIR_DYLIB=OFF
+    -DMLIR_LINK_MLIR_DYLIB=ON
     -DMLIR_BUILD_MLIR_C_DYLIB=ON
     # ======================
     -DCMAKE_BUILD_TYPE=MinSizeRel
@@ -76,6 +77,17 @@ ExternalProject_Add(stablehlo
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
+)
+
+ExternalProject_Add(shardy
+   PREFIX ${TTMLIR_TOOLCHAIN_DIR}
+   GIT_REPOSITORY https://github.com/openxla/shardy.git
+   GIT_TAG ${SHARDY_VERSION}
+   GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
+   CONFIGURE_COMMAND ""
+   BUILD_COMMAND ""
+   INSTALL_COMMAND ""
+   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy.patch" && git commit -m "tt-mlir related patch"
 )
 
 add_custom_target(llvm-lit ALL COMMAND cp llvm-project-prefix/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN_DIR}/bin/llvm-lit DEPENDS llvm-project)

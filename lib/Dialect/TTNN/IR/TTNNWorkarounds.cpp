@@ -7,6 +7,7 @@
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include <mlir/IR/BuiltinTypes.h>
 
 namespace mlir::tt::ttnn::wa {
 
@@ -53,6 +54,12 @@ WorkaroundResults applyWorkarounds(const TTNNOperandWorkarounds &workaround,
           : inputLayoutAttr.getMemLayoutOpt();
   results.tensorMemoryLayoutResult.previousValue =
       inputLayoutAttr.getMemLayoutOpt();
+  // TODO(#2103): This is a temporary fix to handle host tensors
+  // If the target buffer type is SystemMemory, set tensor memory layout to
+  // nullopt.
+  if (results.tensorBufferTypeResult.targetValue == BufferType::SystemMemory) {
+    results.tensorMemoryLayoutResult.targetValue = std::nullopt;
+  }
 
   results.tensorDataTypeResult.targetValue =
       workaround.tensorDataTypeWorkaround.value_or(
@@ -148,5 +155,64 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds() {
       .addInputOperandWorkaround(bf16Workaround)
       .addInputOperandWorkaround(bf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
+}
+
+// Factory method to create a set of workarounds for UpsampleO. The UpsampleOp
+// expects the input to be in row-major layout and to use the bf16 data type.
+// Since the output of the UpsampleOp follows the same format as the input
+// operand, the same workaround is applied to the output operand.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+}
+
+// Factory method to create a set of workarounds for cumsum operation operands.
+// The cumsum op generates incorrect results for integer data types. So input
+// tensor is converted to float32 in case of integer input.
+
+// Metal issue for generation of incorrect outputs for integer inputs.
+// https://github.com/tenstorrent/tt-mlir/issues/1979
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(
+    RankedTensorType inputType) {
+  mlir::Type inputElementType = inputType.getElementType();
+  // DataType dataType = elementTypeToDataType(inputElementType);
+  TTNNOperandWorkarounds typeWorkaround =
+      isa<IntegerType>(inputElementType)
+          ? TTNNOperandWorkarounds(DataType::Float32)
+          : TTNNOperandWorkarounds();
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkaround)
+      .addInputOperandWorkaround(typeWorkaround)
+      .addOutputOperandWorkaround(typeWorkaround);
+}
+
+// Factory method to create a set of workarounds for full op output operand.
+// ttnn::FullOp does not support 1D tilized tensors
+// If the output of full is a 1D tensor and is tiled
+// we need to convert it to row major layout then tilize separately
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+}
+
+// Factory method to create a set of workarounds for mesh shard op input
+// operand. ttnn::MeshShardOp supports host tensors only
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds sysMemWorkaround;
+  sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(sysMemWorkaround)
+      .addOutputOperandWorkaround(sysMemWorkaround);
 }
 } // namespace mlir::tt::ttnn::wa
