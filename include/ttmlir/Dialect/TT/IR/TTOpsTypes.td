@@ -7,8 +7,10 @@
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
+include "mlir/IR/BuiltinAttributeInterfaces.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
+
 include "ttmlir/Dialect/TT/IR/TTBase.td"
 include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
 
@@ -214,6 +216,45 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   }];
 }
 
+def TT_StreamModeAttr : EnumAttr<TT_Dialect, TT_StreamMode, "stream_mode"> {
+  let description = [{
+    Describes mode of a data stream:
+    - Alias: Data stream is a buffer that aliases data directly in L1. No data movement is necessary
+             to co-locate data with kernel calculations.
+    - Stream: Data stream references remote memory (e.g., in DRAM or another core's L1). Data movement
+              is necessary to get remote data into local buffer(s), possibly via a sequence of steps that use
+              local buffer(s) as temporary destination(s).
+  }];
+  let assemblyFormat = "$value";
+}
+
+def TT_StreamLayoutAttr : TT_Attr<"StreamLayout", "stream", [MemRefLayoutAttrInterface]> {
+  let summary = "Stream layout attribute in TT dialect";
+  let description = [{
+    Describes stream mode- and buffering-aware layout of a memref buffer.
+    - AffineMap: Provides affine map indexing into the associated data stream.
+    - StreamMode: Encodes 'Alias' or 'Stream' mode.
+    - NumBuffers: Number of back buffers used for double buffering, I/O latency hiding, etc
+                  (always 1 in 'Alias' stream mode).
+  }];
+  let parameters = (ins "AffineMap":$affineMap,
+                        AttrParameter<"StreamMode", "Encodes 'Alias' or 'Stream' mode.">:$streamMode,
+                        DefaultValuedParameter<"uint32_t", "1">:$numBuffers);
+
+  let assemblyFormat = "`<` $affineMap`,` $streamMode(`,` $numBuffers^)? `>`";
+
+  let extraClassDeclaration = [{
+      static constexpr std::tuple<StreamMode, uint32_t> getDefaults(MemorySpace memorySpace) {
+        switch (memorySpace) {
+          case MemorySpace::DeviceL1: return { StreamMode::Alias, 1 };
+          default: return { StreamMode::Stream, 1 };
+        }
+      };
+  }];
+
+  let genVerifyDecl = 1;
+}
+
 def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
   let summary = "Tensor layout attribute";
   let description = [{
@@ -314,6 +355,12 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       MetalLayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
       MetalLayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
       MetalLayoutAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
+      MetalLayoutAttr withStreamLayout(::mlir::MLIRContext *context, StreamLayoutAttr stream);
+      MetalLayoutAttr withOuterScale(::mlir::MLIRContext *context,
+                          llvm::ArrayRef<int64_t> outerScale,
+                          StreamMode streamMode,
+                          std::uint32_t numBuffers);
+
 
       uint64_t getMemrefSizeBytes() const;
       MemorySpace getMemorySpace() const;
@@ -337,11 +384,8 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
   }];
 }
 
-def TT_BufferAccessAttr : EnumAttr<TT_Dialect, TT_BufferAccess, "buffer_access"> {
-  let assemblyFormat = "$value";
-}
 
-def TT_BufferAttr : TT_Attr<"Buffer", "buffer", []> {
+def TT_BufferAttr : TT_Attr<"Buffer", "buffer", []>, Deprecated<"use TT_StreamModeAttr instead"> {
   let summary = "Buffer attribute in TT dialect";
   let description = [{
     Describes the physical footprint and layout of a buffer in L1. Its memref must also have a shape with rank equal to DeviceAttr grid.
