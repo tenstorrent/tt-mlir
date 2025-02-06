@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  skip-checks:
+  pr-skip-check:
     runs-on: ubuntu-latest
     name: Test changed-files
     outputs:
