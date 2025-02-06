@@ -527,7 +527,6 @@ private:
 
   bool rewriteOutput(mlir::func::FuncOp funcOp,
                      PatternRewriter &rewriter) const {
-    bool forceSysMem = false;
     // Func declarations are always CPU-hoisted funcs, which means all outputs
     // should stay in system  memory.
     if (funcOp.isDeclaration()) {
@@ -537,6 +536,7 @@ private:
     funcOp.walk(
         [&](mlir::func::ReturnOp returnOp) { returnOps.push_back(returnOp); });
 
+    bool forceSysMem = false;
     for (auto returnOp : returnOps) {
       forceSysMem |= shouldForceOutputSystemMemory(returnOp);
     }
