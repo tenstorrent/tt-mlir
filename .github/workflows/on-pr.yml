@@ -42,6 +42,8 @@ jobs:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
   build-and-test:
+    needs: 
+      - pr-skip-check
     if: ${{ needs.pr-skip-check.outputs.bool == 'true'}}
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
