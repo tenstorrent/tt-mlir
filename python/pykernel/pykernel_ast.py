@@ -448,7 +448,7 @@ def ttkernel_compile(kernel_type=None):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
             m = ast.parse(inspect.getsource(f))
-            b = TTKernelCompiler(f.__name__, args)
+            b = TTKernelCompiler(f.__name__, *args)
             # print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
@@ -457,11 +457,18 @@ def ttkernel_compile(kernel_type=None):
             b.module.operation.verify()
 
             if kernel_type:
-                assert kernel_type in ["compute", "tensix"], "Invalid kernel type"
-                print(kernel_type)
-                is_compute_kernel = kernel_type == "compute"
-                ttkernel_to_cpp_file(b.module, f"{f.__name__}.cpp", is_compute_kernel)
+                assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
+                is_tensix_kernel = kernel_type == "tensix"
+                ttkernel_to_cpp_file(b.module, f"{f.__name__}.cpp", is_tensix_kernel)
 
         return _wrapper
 
     return _decorator
+
+
+def ttkernel_tensix_compile():
+    return ttkernel_compile(kernel_type="tensix")
+
+
+def ttkernel_noc_compile():
+    return ttkernel_compile(kernel_type="noc")

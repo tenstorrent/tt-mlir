@@ -219,13 +219,13 @@ void populatePassesModule(py::module &m) {
 
   m.def(
       "ttkernel_to_cpp_file",
-      [](MlirModule module, std::string &filepath, bool isComputeKernel) {
+      [](MlirModule module, std::string &filepath, bool isTensixKernel) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         std::error_code fileError;
         llvm::raw_fd_ostream file(filepath, fileError);
         tt::ttkernel::ThreadType threadType =
-            isComputeKernel ? tt::ttkernel::ThreadType::Tensix
-                            : tt::ttkernel::ThreadType::Noc;
+            isTensixKernel ? tt::ttkernel::ThreadType::Tensix
+                           : tt::ttkernel::ThreadType::Noc;
         if (fileError) {
           throw std::runtime_error("Failed to open file: " + filepath +
                                    ". Error: " + fileError.message());
@@ -235,7 +235,7 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to write cpp to file: " + filepath);
         }
       },
-      py::arg("module"), py::arg("filepath") = "", py::arg("isComputeKernel"));
+      py::arg("module"), py::arg("filepath") = "", py::arg("isTensixKernel"));
 
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
