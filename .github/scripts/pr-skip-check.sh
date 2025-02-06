@@ -9,10 +9,10 @@ function main() {
     local draft=$1
     local doc_only_changed=$2
 
-    if $draft == true; then
+    if $draft == false; then
         echo "false"
         exit 0
-    elif $doc_only_changed == true; then
+    elif $doc_only_changed == false; then
         echo "false"
         exit 0
     fi
