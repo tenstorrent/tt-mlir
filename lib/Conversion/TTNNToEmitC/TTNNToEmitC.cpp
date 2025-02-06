@@ -593,9 +593,7 @@ public:
     //
     ArrayAttr arrayAttrs = rewriter.getArrayAttr({
         rewriter.getIndexAttr(0), // input tensor
-        rewriter.getIndexAttr(1), // ttnn::Shape
-        ttnn_to_emitc::utils::createStdNullopt(
-            rewriter) // std::nullopt for memory config
+        rewriter.getIndexAttr(1)  // ttnn::Shape
     });
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
