@@ -627,6 +627,17 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
+    def reshape(self, in0: Operand, shape: Shape) -> OpView:
+        kwargs = {"shape": shape}
+        return self.op_proxy(
+            torch.reshape,
+            ttir.ReshapeOp,
+            [in0],
+            ttir_kwargs=kwargs,
+            golden_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
     def clamp(
         self,
         in0: Operand,
