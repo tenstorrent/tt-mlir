@@ -72,6 +72,8 @@ ExternalProject_Add(
 
 ExternalProject_Add(stablehlo
    PREFIX ${TTMLIR_TOOLCHAIN_DIR}
+   CMAKE_ARGS
+        -DSTABLEHLO_ENABLE_BINDINGS_PYTHON=ON
    GIT_REPOSITORY https://github.com/openxla/stablehlo.git
    GIT_TAG ${STABLEHLO_VERSION}
    CONFIGURE_COMMAND ""
