@@ -157,7 +157,7 @@ install(CODE
     file(
         INSTALL
         ${library_paths}
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
         TYPE SHARED_LIBRARY
         FOLLOW_SYMLINK_CHAIN
     )"
