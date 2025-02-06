@@ -141,13 +141,6 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
-            name="--disable-default-stride-computation",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable runtime default stride computation workaround",
-        )
-        Run.register_arg(
             name="--disable-to-layout-api-assume-single-chip",
             type=bool,
             default=False,
@@ -431,7 +424,6 @@ class Run:
                 not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-default-stride-computation"],
                 not self["--disable-to-layout-api-assume-single-chip"],
                 not self["--disable-pad-op-padding-pairs-signature"],
             )

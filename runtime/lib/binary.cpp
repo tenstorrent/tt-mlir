@@ -38,6 +38,11 @@ static std::string asJson(void const *fbb, uint8_t const *binarySchema,
 
 static std::vector<uint32_t>
 calculateStride(std::vector<uint32_t> const &shape) {
+  // TODO(bug #2045): Our current stride calculation is incorrect for tilized
+  // tensors. The current solution is to remove stride entirely from the
+  // flatbuffer and calculate the stride in runtime assuming using the default
+  // method ignoring details like grid, layout etc. Once we have a more
+  // sophisticated way for handling this, we can remove this workaround.
   LOG_ASSERT(!shape.empty());
   std::vector<uint32_t> stride(shape.size(), 1);
   for (size_t i = shape.size() - 1; i > 0; i--) {
