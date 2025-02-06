@@ -417,9 +417,14 @@ public:
           optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand);
     }
 
+    // Original CallOp defaults to device tensor return type now, we need to
+    // replace with return types which TTNNLayoutFuncInputOutputTypeRewriter
+    // updated.
+    func::FuncOp funcOp = dyn_cast<func::FuncOp>(
+        SymbolTable::lookupNearestSymbolFrom(callOp, callOp.getCalleeAttr()));
     // Create the original CallOp with the new inputs on host.
     auto newCallOp = rewriter.create<func::CallOp>(
-        callOp.getLoc(), callOp.getCallee(), callOp.getResultTypes(),
+        callOp.getLoc(), callOp.getCallee(), funcOp.getResultTypes(),
         fromDeviceOperands);
 
     rewriter.replaceOp(callOp, newCallOp);
@@ -451,43 +456,67 @@ private:
   bool rewriteInput(mlir::func::FuncOp funcOp,
                     PatternRewriter &rewriter) const {
     bool modified = false;
-    Block &entryBlock = funcOp.getBody().front();
-
     SmallVector<Type> inputTypes;
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
-    for (BlockArgument &arg : entryBlock.getArguments()) {
-      if (!mlir::isa<RankedTensorType>(arg.getType()) ||
-          !shouldForceInputSystemMemory(arg)) {
-        inputTypes.push_back(arg.getType());
-        continue;
+    // Func declarations are always CPU-hoisted funcs, which means all inputs
+    // should be in system_memory.
+    if (funcOp.isDeclaration()) {
+      for (Type type : funcOp.getArgumentTypes()) {
+        if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
+          RankedTensorType newType =
+              toSystemMemoryType(funcOp.getContext(), tensorType);
+          inputTypes.push_back(newType);
+          modified |= (tensorType != newType);
+        } else {
+          inputTypes.push_back(type);
+        }
       }
-      RankedTensorType ty = mlir::cast<RankedTensorType>(arg.getType());
-      RankedTensorType newType = toSystemMemoryType(funcOp.getContext(), ty);
+    } else {
+      Block &entryBlock = funcOp.getBody().front();
 
-      inputTypes.push_back(newType);
-      modified = arg.getType() != newType;
+      for (BlockArgument &arg : entryBlock.getArguments()) {
+        if (!mlir::isa<RankedTensorType>(arg.getType()) ||
+            !shouldForceInputSystemMemory(arg)) {
+          inputTypes.push_back(arg.getType());
+          continue;
+        }
+        RankedTensorType ty = mlir::cast<RankedTensorType>(arg.getType());
+        RankedTensorType newType = toSystemMemoryType(funcOp.getContext(), ty);
+
+        inputTypes.push_back(newType);
+        modified = arg.getType() != newType;
+      }
+      // Ensure entryBlock's arg types match func's arg types.
+      if (modified) {
+        for (uint32_t i = 0; i < entryBlock.getNumArguments(); i++) {
+          entryBlock.getArgument(i).setType(inputTypes[i]);
+        }
+      }
     }
-
     if (modified) {
       FunctionType newFuncType =
           rewriter.getFunctionType(inputTypes, outputTypes);
       funcOp.setFunctionType(newFuncType);
-      for (uint32_t i = 0; i < entryBlock.getNumArguments(); i++) {
-        entryBlock.getArgument(i).setType(inputTypes[i]);
-      }
     }
     return modified;
   }
 
   bool rewriteOutput(mlir::func::FuncOp funcOp,
                      PatternRewriter &rewriter) const {
-    SmallVector<mlir::func::ReturnOp> returnOps;
-    funcOp.walk(
-        [&](mlir::func::ReturnOp returnOp) { returnOps.push_back(returnOp); });
-
     bool forceSysMem = false;
-    for (auto returnOp : returnOps) {
-      forceSysMem |= shouldForceOutputSystemMemory(returnOp);
+    // Func declarations are always CPU-hoisted funcs, which means all outputs
+    // should be in system  memory.
+    if (funcOp.isDeclaration()) {
+      forceSysMem = true;
+    } else {
+      SmallVector<mlir::func::ReturnOp> returnOps;
+      funcOp.walk([&](mlir::func::ReturnOp returnOp) {
+        returnOps.push_back(returnOp);
+      });
+
+      for (auto returnOp : returnOps) {
+        forceSysMem |= shouldForceOutputSystemMemory(returnOp);
+      }
     }
     if (!forceSysMem) {
       return false;
@@ -626,6 +655,7 @@ public:
         return;
       }
     }
+    getOperation()->dump();
     {
       RewritePatternSet patterns(&getContext());
       // Takes all TTIR ops which have DPS operands
