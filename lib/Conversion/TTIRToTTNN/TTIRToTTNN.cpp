@@ -1356,6 +1356,52 @@ public:
 } // namespace
 
 namespace {
+class ReduceScatterOpConversionPattern : public OpConversionPattern<ttir::ReduceScatterOp> {
+public:
+  using OpConversionPattern<ttir::ReduceScatterOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceScatterOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    uint32_t cluster_axis = 0;
+    auto replicaGroups = adaptor.getReplicaGroups();
+    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
+
+    if (replicaGroupsShape.size() == 0) {
+      return failure();
+    }
+
+    if (replicaGroupsShape[1] == 1) {
+      cluster_axis = 0;
+    } else {
+      auto firstElementIt = replicaGroups.begin();
+      auto secondElementIt = firstElementIt + 1;
+
+      if (((*firstElementIt) + 1) == *secondElementIt) {
+        cluster_axis = 1;
+      } else {
+        cluster_axis = 0;
+      }
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::ReduceScatterOp>(
+        op,
+        this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), 
+        device, 
+        adaptor.getScatterDimension(),
+        adaptor.getReduceType(),
+        cluster_axis);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ArangeOpConversionPattern : public OpConversionPattern<ttir::ArangeOp> {
 public:
   using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
@@ -1537,6 +1583,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
            AllGatherOpConversionPattern,
+           ReduceScatterOpConversionPattern,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,

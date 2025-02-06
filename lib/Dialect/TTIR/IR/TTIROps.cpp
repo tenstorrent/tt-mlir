@@ -1872,6 +1872,22 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// ReduceScatterOp
+//===----------------------------------------------------------------------===//
+
+// ReduceScatterOp verification
+::mlir::LogicalResult mlir::tt::ttir::ReduceScatterOp::verify() {
+  ::mlir::RankedTensorType inputType = mlir::cast<RankedTensorType>(getInput().getType());
+  int32_t scatterDimension = getScatterDimension();
+  
+  if (scatterDimension >= inputType.getRank()) {
+    return emitOpError("Invalid scatter dimension for reduce scatter, the scatter dimension is >= rank of the tensor when it must be <");
+  }
+  
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
 

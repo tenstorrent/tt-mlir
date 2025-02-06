@@ -341,6 +341,7 @@ public:
     int32_t scatter_num = op.getScatterNum();
     Value deviceValue = op.getDevice();
     Location loc = op.getLoc();
+    uint32_t cluster_axis = 1; // hard-code to 1 to prevent any changing behaviour while all_reduce code is updated with new algorithm
 
     // TODO(wooseoklee): Once it supports two dimensional tensor
     // (https://github.com/tenstorrent/tt-metal/issues/15010), we can remove
@@ -372,7 +373,7 @@ public:
       ttnn::ReduceScatterOp reduceScatterOp =
           rewriter.create<ttnn::ReduceScatterOp>(
               loc, Type(scatteredInputType), preReshapeOp.getResult(),
-              deviceValue, scatter_dim, op.getMathOp());
+              deviceValue, scatter_dim, op.getMathOp(), cluster_axis);
 
       RankedTensorType outputType = mlir::cast<RankedTensorType>(op.getType());
       SmallVector<int64_t> outputTypeShape(outputType.getShape());
@@ -406,7 +407,7 @@ public:
       ttnn::ReduceScatterOp reduceScatterOp =
           rewriter.create<ttnn::ReduceScatterOp>(loc, Type(scatteredInputType),
                                                  op.getInput(), deviceValue,
-                                                 scatter_dim, op.getMathOp());
+                                                 scatter_dim, op.getMathOp(), cluster_axis);
 
       rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
           op, op.getType(), reduceScatterOp.getResult(), deviceValue,

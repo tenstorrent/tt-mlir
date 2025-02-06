@@ -1188,7 +1188,7 @@ private:
 
 template <typename SrcOpTy>
 LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
-  if constexpr (!std::is_same<SrcOpTy, mlir::stablehlo::AllReduceOp>::value) {
+  if constexpr (!std::is_same<SrcOpTy, mlir::stablehlo::AllReduceOp>::value || !std::is_same<SrcOpTy, mlir::stablehlo::ReduceScatterOp>::value) {
     return failure();
   }
   // Check operations in the first block and determine reduce type for now
@@ -1409,6 +1409,72 @@ private:
   }
 };
 } // namespace
+
+namespace {
+class StableHLOToTTIRReduceScatterOpConversionPattern : public OpConversionPattern<mlir::stablehlo::ReduceScatterOp> {
+  using OpConversionPattern<mlir::stablehlo::ReduceScatterOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(mlir::stablehlo::ReduceScatterOp srcOp,
+                  mlir::stablehlo::ReduceScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(srcOp.getResult().getType()));
+    
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    SmallVector<Type> ttirTypes;
+    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
+                                                      ttirTypes))) {
+      return failure();
+    }
+
+    SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
+    int32_t channel_handle = 0;
+
+    for (auto srcAttr : srcAttrs) {
+      StringAttr srcName = srcAttr.getName();
+
+      if (srcName == "channel_handle") {
+        auto srcChannelHandleAttr =
+            dyn_cast<mlir::stablehlo::ChannelHandleAttr>(srcAttr.getValue());
+        if (!srcChannelHandleAttr) {
+          return failure();
+        }
+
+        auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
+        if (channelType != kChannelTypeDeviceToDevice) {
+          return failure();
+        }
+
+        channel_handle = static_cast<int32_t>(srcChannelHandleAttr.getHandle());
+        break;
+      }
+    }
+
+    // Convert reduceType shlo attribute into ttir attribute
+    ReduceType reduceType;
+    if (failed(getReduceType(srcOp, reduceType))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ReduceScatter cannot specify reduce type.");
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReduceScatterOp>(
+      srcOp,
+      outputType,
+      adaptor.getOperands()[0],
+      Value(outputTensor),
+      reduceType,
+      static_cast<int32_t>(adaptor.getScatterDimension()),
+      adaptor.getReplicaGroups(),
+      rewriter.getSI32IntegerAttr(channel_handle),
+      adaptor.getUseGlobalDeviceIds());
+
+    return success();
+  }
+};
+} // namespace
+
 
 namespace {
 class StableHLOToTTIRCustomCallOpConversionPattern
@@ -2107,6 +2173,7 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRAllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRAllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }

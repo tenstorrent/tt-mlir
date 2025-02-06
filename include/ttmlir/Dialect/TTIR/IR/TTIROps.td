@@ -1894,6 +1894,25 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
+    let summary = "Reduce scatter operation.";
+    let description = [{
+      Reduce scatter op.
+    }];
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$scatter_dimension,
+                         I64ElementsAttr:$replica_groups,
+                         OptionalAttr<SI32Attr>:$channel_handle,
+                         UnitAttr:$use_global_device_ids);
+    let results = (outs AnyRankedTensor:$result);
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+    let hasVerifier = 1;
+}
+
 def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
     let summary = "Mesh shard operation.";
     let description = [{
