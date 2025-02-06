@@ -19,4 +19,6 @@ function main() {
     echo "true"
 }
 
+printenv
+
 main $1 $2
