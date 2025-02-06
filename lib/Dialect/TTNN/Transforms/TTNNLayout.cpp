@@ -98,15 +98,43 @@ public:
   }
 };
 
+// Converts tensor types to have a ttnn layout attribute for in SystemMemory
+//
+// Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
+// where ttnn_layout<...> is constructed with SystemMemory
+class TTNNLayoutTensorTypeSystemMemoryConverter : public TypeConverter {
+public:
+  TTNNLayoutTensorTypeSystemMemoryConverter(MLIRContext *ctx,
+                                            GridAttr deviceGrid) {
+    addConversion([](Type type) { return type; });
+    addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
+      Attribute layout = type.getEncoding();
+      if (layout) {
+        return type;
+      }
+
+      TTNNLayoutAttr newLayout = createLayoutAttr(
+          ctx, deviceGrid, type, BufferType::SystemMemory, std::nullopt, false);
+      // Convert mlir data types to tt data types
+      Type elementType = mlir::tt::ttnn::utils::dataTypeToElementType(
+          ctx, elementTypeToDataType(type.getElementType()));
+      return RankedTensorType::get(type.getShape(), elementType, newLayout);
+    });
+  }
+};
+
 // Rewrites tensor types to have a ttnn layout attribute with default values
 class TTNNLayoutTensorTypeRewriter : public RewritePattern {
 public:
-  TTNNLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
+  TTNNLayoutTensorTypeRewriter(const TypeConverter &dramConverter,
+                               const TypeConverter &sysMemoryConverter,
+                               MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx),
-        converter(&converter) {}
+        dramConverter(&dramConverter), sysMemoryConverter(&sysMemoryConverter) {
+  }
 
   bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const {
-    if (failed(converter->convertTypes(valueRange.getTypes(), newTypes))) {
+    if (failed(dramConverter->convertTypes(valueRange.getTypes(), newTypes))) {
       return false;
     }
 
@@ -129,6 +157,8 @@ public:
     SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
 
+    const TypeConverter *converter =
+        funcOp.isDeclaration() ? sysMemoryConverter : dramConverter;
     for (Type &ty : inputTypes) {
       ty = converter->convertType(ty);
     }
@@ -156,16 +186,19 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
-    bool updated = false;
     SmallVector<Type> operands;
     SmallVector<Type> results;
+    if (isa<func::FuncOp>(op)) {
+      return convertFuncType(op, rewriter) ? success() : failure();
+    }
+    bool updated = false;
     updated |= convertTypes(op->getOperands(), operands);
     updated |= convertTypes(op->getResults(), results);
-    updated |= convertFuncType(op, rewriter);
     return updated ? success() : failure();
   }
 
-  const TypeConverter *converter;
+  const TypeConverter *dramConverter;
+  const TypeConverter *sysMemoryConverter;
 };
 
 // Given desired buffer type, memory layout and type checks if the input tensor
@@ -461,31 +494,22 @@ private:
     // Func declarations are always CPU-hoisted funcs, which means all inputs
     // should be in system_memory.
     if (funcOp.isDeclaration()) {
-      for (Type type : funcOp.getArgumentTypes()) {
-        if (auto tensorType = dyn_cast<RankedTensorType>(type)) {
-          RankedTensorType newType =
-              toSystemMemoryType(funcOp.getContext(), tensorType);
-          inputTypes.push_back(newType);
-          modified |= (tensorType != newType);
-        } else {
-          inputTypes.push_back(type);
-        }
-      }
-    } else {
-      Block &entryBlock = funcOp.getBody().front();
+      return false;
+    }
 
-      for (BlockArgument &arg : entryBlock.getArguments()) {
-        if (!mlir::isa<RankedTensorType>(arg.getType()) ||
-            !shouldForceInputSystemMemory(arg)) {
-          inputTypes.push_back(arg.getType());
-          continue;
-        }
-        RankedTensorType ty = mlir::cast<RankedTensorType>(arg.getType());
-        RankedTensorType newType = toSystemMemoryType(funcOp.getContext(), ty);
+    Block &entryBlock = funcOp.getBody().front();
 
-        inputTypes.push_back(newType);
-        modified = arg.getType() != newType;
+    for (BlockArgument &arg : entryBlock.getArguments()) {
+      if (!mlir::isa<RankedTensorType>(arg.getType()) ||
+          !shouldForceInputSystemMemory(arg)) {
+        inputTypes.push_back(arg.getType());
+        continue;
       }
+      RankedTensorType ty = mlir::cast<RankedTensorType>(arg.getType());
+      RankedTensorType newType = toSystemMemoryType(funcOp.getContext(), ty);
+
+      inputTypes.push_back(newType);
+      modified = arg.getType() != newType;
       // Ensure entryBlock's arg types match func's arg types.
       if (modified) {
         for (uint32_t i = 0; i < entryBlock.getNumArguments(); i++) {
@@ -505,18 +529,16 @@ private:
                      PatternRewriter &rewriter) const {
     bool forceSysMem = false;
     // Func declarations are always CPU-hoisted funcs, which means all outputs
-    // should be in system  memory.
+    // should stay in system  memory.
     if (funcOp.isDeclaration()) {
-      forceSysMem = true;
-    } else {
-      SmallVector<mlir::func::ReturnOp> returnOps;
-      funcOp.walk([&](mlir::func::ReturnOp returnOp) {
-        returnOps.push_back(returnOp);
-      });
+      return false;
+    }
+    SmallVector<mlir::func::ReturnOp> returnOps;
+    funcOp.walk(
+        [&](mlir::func::ReturnOp returnOp) { returnOps.push_back(returnOp); });
 
-      for (auto returnOp : returnOps) {
-        forceSysMem |= shouldForceOutputSystemMemory(returnOp);
-      }
+    for (auto returnOp : returnOps) {
+      forceSysMem |= shouldForceOutputSystemMemory(returnOp);
     }
     if (!forceSysMem) {
       return false;
@@ -639,11 +661,14 @@ public:
     {
       DeviceAttr device = getCurrentScopeDevice(getOperation());
       assert(device && "Device not found");
-      TTNNLayoutTensorTypeConverter typeConverter(&getContext(),
-                                                  device.getWorkerGrid());
+      TTNNLayoutTensorTypeConverter typeDefaultConverter(
+          &getContext(), device.getWorkerGrid());
+      TTNNLayoutTensorTypeSystemMemoryConverter typeSystemMemoryConverter(
+          &getContext(), device.getWorkerGrid());
       RewritePatternSet patterns(&getContext());
-      // Set the tensor layouts to have default values (dram interleaved)
-      patterns.add<TTNNLayoutTensorTypeRewriter>(typeConverter, &getContext());
+      // Set the tensor layouts to have proper values
+      patterns.add<TTNNLayoutTensorTypeRewriter>(
+          typeDefaultConverter, typeSystemMemoryConverter, &getContext());
       // Set the tensor layouts of the func op inputs and outputs based on their
       // consumers/producers. For example, if a func op input is consumed by a
       // mesh shard op, that input tensor should be on host
@@ -655,7 +680,6 @@ public:
         return;
       }
     }
-    getOperation()->dump();
     {
       RewritePatternSet patterns(&getContext());
       // Takes all TTIR ops which have DPS operands
