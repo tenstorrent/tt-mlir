@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
@@ -172,7 +173,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       ttnn::utils::createRankedTensorTypeWithEncoding(
           ttnn::utils::createRankedTensorTypeWithElementType(
               opResultType,
-              ttnn::utils::createRowMajorTypeFromDtype(
+              ttnn::utils::dataTypeToElementType(
                   rewriter.getContext(),
                   outputWorkaroundResults.tensorDataTypeResult.targetValue)),
           newOutputLayoutAttr);
@@ -439,7 +440,9 @@ public:
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
                        ttnn::MeanOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
-                       ttnn::MinOp>>(&getContext());
+                       ttnn::MinOp>,
+                   workarounds::decomposition::CumSumOpRewritePattern>(
+          &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

@@ -572,9 +572,9 @@ public:
 
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-      std::optional<Value> updatedLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(), desiredBufferType,
-            nullptr /* desiredMemLayoutAttr */, false /* tiled */);
+      std::optional<Value> updatedLayout = createToLayoutOp(
+          rewriter, newLoc, operand.get(), desiredBufferType,
+          nullptr /* desiredMemLayoutAttr */, false /* tiled */);
       if (updatedLayout.has_value()) {
         rewriter.modifyOpInPlace(op, [&]() {
           op.setOperand(operand.getOperandNumber(), *updatedLayout);
@@ -630,12 +630,9 @@ public:
       // and rewrites its operands and result to have the correct layout
       // with respect to operand constraints.
       patterns.add<TTNNLayoutDPSOperandsRewriter>(&getContext());
-      // Takes func::Return and ttir::MeshShard ops and set layout which will
-      // move it's operands to host
-      patterns.add<TTNNLayoutForceSystemMemoryRewriter<ttir::MeshShardOp>>(
-          &getContext());
-      patterns.add<TTNNLayoutForceSystemMemoryRewriter<mlir::func::ReturnOp>>(
-          &getContext());
+      // Update the return op output layout based on its consumers
+      // Logic here should match that of TTNNLayoutFuncInputOutputTypeRewriter
+      patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
       patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
