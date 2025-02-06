@@ -74,7 +74,7 @@ class TTAdapter(model_explorer.Adapter):
         name="Tenstorrent MLIR Adapter",
         description="Adapter for Tenstorrent MLIR dialects used in the Forge compiler.",
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
-        fileExts=["mlir", "ttir"],
+        fileExts=["mlir", "ttir", "ttnn"],
         settings={
             "optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()),
         },
@@ -96,7 +96,8 @@ class TTAdapter(model_explorer.Adapter):
             # Get performance results.
             perf_trace = self.model_runner.get_perf_trace(model_path)
 
-            module = utils.parse_mlir_file(optimized_model_path)
+            with open(optimized_model_path, "r") as model_file:
+                module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph, perf_data = mlir.build_graph(module, perf_trace)
@@ -107,7 +108,19 @@ class TTAdapter(model_explorer.Adapter):
             if overrides := self.model_runner.get_overrides(model_path):
                 graph = utils.add_to_dataclass(graph, "overrides", overrides)
         else:
-            module = utils.parse_mlir_file(model_path)
+            if model_path.endswith(".ttnn"):
+                # Executing on a Flatbuffer so we should parse through that path
+                module_str = utils.parse_flatbuffer_file(
+                    model_path, at_pass="PRE-PIPELINE"
+                )
+
+                if module_str:
+                    module = utils.parse_mlir_str(module_str)
+                elif module_str is None:
+                    raise Exception("Failed to parse flatbuffer")
+            else:
+                with open(model_path, "r") as model_file:
+                    module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph, _ = mlir.build_graph(module)

@@ -27,6 +27,14 @@ namespace mlir::tt {
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Conversion/Passes.h.inc"
 
+struct MLIRModuleLogger {
+  mlir::MLIRContext *context;
+  std::vector<std::pair<std::string, std::string>> moduleCache;
+
+  void attachContext(mlir::MLIRContext *ctx,
+                     std::vector<std::string> passNamesToCache);
+};
+
 } // namespace mlir::tt
 
 #endif // TTMLIR_CONVERSION_PASSES_H

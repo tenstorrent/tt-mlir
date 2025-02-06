@@ -14,12 +14,16 @@ from ttmlir.passes import (
     ttnn_to_flatbuffer_file,
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
+    MLIRModuleLogger,
+    ModuleLog,
 )
 
 from .ttir_builder import Golden, Operand, Shape, TTIRBuilder, DataType
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
+# Default output to the current directory from where this module is being invoked
+OUTPUT_PATH = ""
 
 # ----- Static helpers used in this file only -----
 
@@ -30,6 +34,25 @@ def _dump_module(module: Module) -> None:
 
 
 #  ----- General Purpose Helpers - Could Be Used In Other Files -----
+def set_output_path(path):
+    global OUTPUT_PATH
+    if not os.path.exists(path):
+        raise ValueError(f"The provided path '{path}' is not a valid path.")
+    OUTPUT_PATH = path
+
+
+def get_ttnn_path(filename):
+    ttnn_dir = os.path.join(OUTPUT_PATH, "ttnn")
+    if not os.path.exists(ttnn_dir):
+        os.makedirs(ttnn_dir)
+    return os.path.join(ttnn_dir, filename)
+
+
+def get_ttmetal_path(filename):
+    ttmetal_dir = os.path.join(OUTPUT_PATH, "ttmetal")
+    if not os.path.exists(ttmetal_dir):
+        os.makedirs(ttmetal_dir)
+    return os.path.join(ttmetal_dir, filename)
 
 
 def compile_as_mlir_module(
@@ -177,6 +200,7 @@ def ttir_to_ttnn(
 
     # Optionally dump to file.
     if dump_to_file:
+        output_file_name = get_ttnn_path(output_file_name)
         with open(output_file_name, "w") as f:
             f.write(str(module))
 
@@ -222,6 +246,7 @@ def ttir_to_ttmetal(
 
     # Optionally dump to file.
     if dump_to_file:
+        output_file_name = get_ttmetal_path(output_file_name)
         with open(output_file_name, "w") as f:
             f.write(str(module))
 
@@ -229,9 +254,7 @@ def ttir_to_ttmetal(
 
 
 def ttnn_to_flatbuffer(
-    module,
-    builder,
-    output_file_name: str = "ttnn_fb.ttnn",
+    module, builder, output_file_name: str = "ttnn_fb.ttnn", module_log=None
 ):
     """
     Converts TTNN module to flatbuffer and saves to file. Wrapper around
@@ -239,7 +262,14 @@ def ttnn_to_flatbuffer(
     """
 
     # Convert to flatbuffer file.
-    ttnn_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
+    # Take the output_file_name and prefix with the ttnn directory
+    output_file_name = get_ttnn_path(output_file_name)
+    if module_log:
+        ttnn_to_flatbuffer_file(
+            module, output_file_name, builder.get_golden_map(), module_log
+        )
+    else:
+        ttnn_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
 
     print("`ttnn_to_flatbuffer_file` passed successfully.")
 
@@ -255,6 +285,8 @@ def ttmetal_to_flatbuffer(
     """
 
     # Convert to flatbuffer file.
+    # Take the output_file_name and prefix with ttm directory
+    output_file_name = get_ttmetal_path(output_file_name)
     ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
 
     print("`ttmetal_to_flatbuffer_file` passed successfully.")
@@ -340,8 +372,12 @@ def compile_to_flatbuffer(
                 module, builder = compile_as_mlir_module(
                     test_fn, inputs_shapes, inputs_types
                 )
+                module_logger = MLIRModuleLogger()
+                module_logger.attach_context(module.context)
                 module = ttir_to_ttnn(module, builder, test_base + ".mlir")
-                ttnn_to_flatbuffer(module, builder, test_base + ".ttnn")
+                ttnn_to_flatbuffer(
+                    module, builder, test_base + ".ttnn", module_logger.module_log
+                )
 
         return wrapper
 

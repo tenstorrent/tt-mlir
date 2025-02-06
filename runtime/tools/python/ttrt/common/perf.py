@@ -521,7 +521,7 @@ class Perf:
 
                     for result in test_result:
                         if result["result"] != "pass":
-                            raise Exception(f'result["exception"]')
+                            raise Exception(f'{result["exception"]}')
 
                 except Exception as e:
                     test_result = {
