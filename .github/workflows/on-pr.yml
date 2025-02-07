@@ -33,52 +33,16 @@ jobs:
           echo "$GITHUB_OUTPUT"
           python .github/scripts/pr.py
 
-#  pre-commit:
-#    uses: ./.github/workflows/pre-commit.yml
-#    secrets: inherit
-#  spdx:
-#    uses: ./.github/workflows/spdx.yml
-#    secrets: inherit
-#  build-and-test:
-#    needs: 
-#      - pr-skip-check
-#    if: ${{ needs.pr-skip-check.outputs.bool == 'true'}}
-#    uses: ./.github/workflows/build-and-test.yml
-#    secrets: inherit
-#
-#  # When a PR runs on the uplift branch trigger the downstream checks
-#  downstream-checks:
-#    runs-on: ubuntu-latest
-#    needs: build-and-test
-#    if: github.event.pull_request.head.ref == 'uplift'
-#    strategy:
-#      matrix:
-#        target-repo: ['tenstorrent/tt-forge-fe', 'tenstorrent/tt-torch', 'tenstorrent/tt-xla']
-#    env:
-#      GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-#      TARGET_REPO: ${{ matrix.target-repo }}
-#      WORKFLOW_NAME: 'on-pr.yml'
-#    steps:
-#      - name: Trigger ${{ env.TARGET_REPO }} tests
-#        shell: bash
-#        run: |
-#          gh workflow run ${{ env.WORKFLOW_NAME }} \
-#            --repo ${{ env.TARGET_REPO }} --ref main \
-#            --field mlir_override=${{ github.event.pull_request.head.sha }}
-#          gh run list --workflow=${{ env.WORKFLOW_NAME }} --repo ${{ env.TARGET_REPO }} --limit 1
-#          echo "Triggered ${{ env.TARGET_REPO }} with tt-mlir ${{ github.event.pull_request.head.sha }}"
-#          echo "### Triggered [${{ env.TARGET_REPO }}](https://github.com/${{ env.TARGET_REPO }}/actions/workflows/${{ env.WORKFLOW_NAME }}) with tt-mlir ${{ github.event.pull_request.head.sha }} :rocket:" >> $GITHUB_STEP_SUMMARY
-#
-#  check-all-green:
-#    if: always()
-#    needs:
-#    - pre-commit
-#    - spdx
-#    - build-and-test
-#    runs-on: Ubuntu-latest
-#    steps:
-#    - name: Check if the needed jobs succeeded or failed
-#      uses: re-actors/alls-green@release/v1
-#      with:
-#        allowed-skips: build-and-test
-#        jobs: ${{ toJSON(needs) }}
+  test:
+    runs-on: ubuntu-latest
+    name: Test changed-files
+    steps:
+      - name: check
+        shell: bash
+        env:
+          changed_files: ${{ toJson(steps.changed-files.outputs) }}
+          pull_request: ${{ toJson(github.event.pull_request) }}
+          output: ${{ github.env }}
+        run: |
+          echo ${{needs.pr-skip-check.outputs.output1}}
+      
