@@ -4,8 +4,7 @@ module attributes {} {
     // CHECK-DAG: #{{.*}} = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!tt.tile<32x32, f32>, #dram>, <interleaved>>
 
   // CHECK: tt.device_module {
-  // CHECK: builtin.module {
-
+  // CHECK: builtin.module attributes {{.*}} {
   // CHECK: func.func @forward
   func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK: %{{.*}} = "ttnn.empty"(%{{.*}})
@@ -15,10 +14,11 @@ module attributes {} {
     // CHECK: %{{.*}} = "ttnn.ones"
     %2 = "ttir.ones"() <{shape = array<i32:64, 128>}> : () -> tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.from_device"(%{{.*}}) : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
-    // CHECK: %{{.*}} = call @hoisted_func_decl(%{{.*}}, %{{.*}}, %{{.*}})
+    // CHECK: %{{.*}} = call @hoisted_ttir_add_64x128xf32_64x128xf32_64x128xf32_func_decl(%{{.*}}, %{{.*}}, %{{.*}})
     %3 = "ttir.add"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> {should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.zeros"
     %4 = "ttir.zeros"() <{shape = array<i32:64, 128>}> : () -> tensor<64x128xf32>
+    // CHECK: %{{.*}} = call @hoisted_ttir_add_64x128xf32_64x128xf32_64x128xf32_func_decl(%{{.*}}, %{{.*}}, %{{.*}})
     %5 = "ttir.add"(%arg0, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> {should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.empty"(%{{.*}})
     %6 = tensor.empty() : tensor<64x128xf32>
