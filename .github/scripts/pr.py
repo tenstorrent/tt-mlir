@@ -9,7 +9,9 @@ import re
 from pathlib import Path
 
 os.environ["pull_request"] = '{"draft": "false"}'
-os.environ["changed_files"] =  '{ "all_changed_and_modified_files": ".github/scripts/pr.py docs/src/build.md" }' 
+os.environ["changed_files"] =  '{ "all_changed_and_modified_files": ".github/scripts/pr.py docs/src/build.md" }'
+os.environ["job_name"] = 'pr-check'
+ 
 
 #os.environ["pull_request"] = '{"draft": "true"}'
 #os.environ["changed_files"] =  '{ "all_changed_and_modified_files": ".github/scripts/pr.py docs/src/build.md" }' 
@@ -21,12 +23,13 @@ pull_request: dict = json.loads(os.environ.get('pull_request', '{}'))
 changed_files: dict = json.loads(os.environ.get('changed_files', '{}'))
 
 def to_github_output(outputs: dict):
+    parent_job_name = os.environ['job_name']
     print_builder = 'Here are your available outputs:\n'
     for x, z in outputs.items():
         print_builder += f'\tOutput values for job: {x}\n'
         for y, t in z.items():
-            print_builder += f'\tfromJson(needs.pr-skip-check.outputs.results).{x}.{y}\n'
-            print_builder += f'\tvalue: {t}'
+            print_builder += f'\tfromJson(needs.{parent_job_name}.outputs.results).{x}.{y}\n'
+            print_builder += f'\tvalue: {t}\n'
         
 
     # TODO: add test flag
