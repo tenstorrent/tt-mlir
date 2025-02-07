@@ -305,14 +305,24 @@ def parse_memory_config(attr):
             value="x".join(map(str, memory_config.shard_spec.shard_shape.shape)),
         )
     )
+
+    my_layout = memory_config.tensor_memory_layout
+    my_val = int(my_layout.value)
+    print(my_layout, my_val)
+    my_mlir_layout = ttnn.TensorMemoryLayout(my_val)
+    print(my_mlir_layout)
+    my_mlir_layout_repr = str(my_mlir_layout)
+    print(my_mlir_layout_repr)
+
     result.append(
         graph_builder.KeyValue(
             key="tensor-memory-layout",
-            value=str(
-                ttnn.TensorMemoryLayout(memory_config.tensor_memory_layout.value)
-            ),
+            value=my_mlir_layout_repr,
         )
     )
+
+    print("Made it here!")
+
     return result
 
 

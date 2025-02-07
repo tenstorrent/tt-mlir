@@ -14,9 +14,8 @@ HOST = "localhost"
 PORT = 8002
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
-    "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
     "test/ttmlir/Explorer/**/*.mlir",
-    "test/ttmlir/Silicon/TTNN/**/*.mlir",
+    "test/ttmlir/Dialect/TTNN/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
