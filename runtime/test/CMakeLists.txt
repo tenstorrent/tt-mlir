@@ -1,30 +1,7 @@
-if (NOT TTMLIR_ENABLE_RUNTIME_TESTS)
-  add_library(TTRuntimeTTNNTestHelpers INTERFACE)
-  return()
-endif()
+add_subdirectory(include/tt/runtime/ttnn/test)
 
 if (NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL))
   message(FATAL_ERROR "Runtime tests require -DTTMLIR_ENABLE_RUNTIME=ON and at least one backend runtime to be enabled")
-endif()
-
-if (NOT TT_RUNTIME_ENABLE_TTNN)
-  add_library(TTRuntimeTTNNTestHelpers INTERFACE)
-else()
-  add_library(TTRuntimeTTNNTestHelpers
-    STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/test/utils.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/test/dylib.cpp
-  )
-  set_property(TARGET TTRuntimeTTNNTestHelpers PROPERTY CXX_STANDARD 20)
-  target_compile_options(TTRuntimeTTNNTestHelpers PUBLIC -mavx -mavx2 -fsized-deallocation)
-  target_include_directories(TTRuntimeTTNNTestHelpers PUBLIC
-    ${PROJECT_SOURCE_DIR}/runtime/include
-    ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/include
-    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
-  )
-  target_include_directories(TTRuntimeTTNNTestHelpers SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-  add_dependencies(TTRuntimeTTNNTestHelpers TTMLIRRuntime tt-metal FBS_GENERATION)
-  target_link_libraries(TTRuntimeTTNNTestHelpers PUBLIC TTMLIRRuntime TTNN_LIBRARY)
 endif()
 
 enable_testing()

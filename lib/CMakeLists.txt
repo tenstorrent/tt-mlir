@@ -45,9 +45,7 @@ target_link_libraries(TTMLIRCompiler PRIVATE
 
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 
-set_target_properties(TTMLIRCompiler PROPERTIES INSTALL_RPATH "$ORIGIN")
-
-install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
+install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 
 install(CODE
     "

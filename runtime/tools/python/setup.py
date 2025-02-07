@@ -62,26 +62,14 @@ metallibs = []
 install_requires = []
 install_requires += ["pybind11"]
 
-linklibs = ["TTBinary"]
 if enable_ttnn:
     runlibs += ["_ttnn.so"]
-    linklibs += [
-        "TTRuntimeTTNN",
-        "TTRuntimeTTNNOps",
-        "TTRuntimeTTNNHelpers",
-        ":_ttnn.so",
-    ]
-
-if enable_ttnn and enable_runtime_tests:
-    linklibs += ["TTRuntimeTTNNTestHelpers"]
 
 if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
-    linklibs += ["TTRuntimeTTMetal", "tt_metal"]
 
 if enable_ttnn or enable_ttmetal:
     runlibs += ["libdevice.so"]
-    linklibs += ["TTRuntimeSysDesc", "TTRuntimeDebug", "TTRuntimeWorkarounds"]
 
 if enable_perf:
     runlibs += ["libtracy.so.0.10.0"]
@@ -243,17 +231,11 @@ if enable_runtime:
                 f"{ttmlir_build_dir}/include",
                 f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
             ],
-            libraries=["TTMLIRRuntime"] + linklibs + ["flatbuffers"],
+            libraries=["TTMLIRRuntime", "TTRuntimeTTNNTestHelpers", "flatbuffers"],
             library_dirs=[
                 f"{ttmlir_build_dir}/runtime/lib",
-                f"{ttmlir_build_dir}/runtime/lib/common",
-                f"{ttmlir_build_dir}/runtime/lib/ttnn",
-                f"{ttmlir_build_dir}/runtime/lib/ttnn/operations",
-                f"{ttmlir_build_dir}/runtime/lib/ttmetal",
-                f"{ttmlir_build_dir}/runtime/test",
+                f"{ttmlir_build_dir}/runtime/test/include/tt/runtime/ttnn/test",
                 f"{toolchain}/lib",
-                f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
-                f"{metaldir}/lib",
             ],
             define_macros=[
                 ("VERSION_INFO", __version__),

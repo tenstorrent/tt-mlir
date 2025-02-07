@@ -67,14 +67,14 @@ target_link_libraries(TTMLIRRuntime
     flatbuffers
 )
 
-set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
+set_target_properties(TTMLIRRuntime PROPERTIES BUILD_RPATH_USE_ORIGIN TRUE)
 
 add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimeWorkarounds FBS_GENERATION)
 
 if (TTMLIR_ENABLE_RUNTIME)
   set_target_properties(TTMLIRRuntime PROPERTIES PUBLIC_HEADER "../include/tt/runtime/runtime.h;../include/tt/runtime/types.h;../include/tt/runtime/utils.h")
   install(TARGETS TTMLIRRuntime
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime
         COMPONENT SharedLib
   )
