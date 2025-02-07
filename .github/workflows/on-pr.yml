@@ -13,7 +13,7 @@ concurrency:
 jobs:
   pr-skip-check:
     runs-on: ubuntu-latest
-    name: Test changed-files
+    name: pr-skip-check
     outputs:
       skip: ${{ steps.skip.outputs.skip }}
     steps:
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: 
       - pr-skip-check
-    name: Test changed-files
+    name: Test
     steps:
       - name: check
         shell: bash
