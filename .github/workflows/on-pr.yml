@@ -27,7 +27,7 @@ jobs:
         env:
           changed_files: ${{ toJson(steps.changed-files.outputs) }}
           pull_request: ${{ toJson(github.event.pull_request) }}
-          job_name: ${{ github.job.name }}
+          job_name: ${{ github.job }}
         id: script
         run: |
           echo $job_name
