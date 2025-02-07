@@ -38,10 +38,10 @@ jobs:
     needs: 
       - pr-check
     name: Test
-    if: ${{ fromJson(needs.pr-skip-check.outputs.results).test.skip  == false }}
+    if: ${{ fromJson(needs.pr-check.outputs.results).test.skip  == false }}
     steps:
       - name: check
         shell: bash
         run: |
-          echo ${{ fromJson(needs.pr-skip-check.outputs.results).test.skip }}
+          echo ${{ fromJson(needs.pr-check.outputs.results).test.skip }}
       
