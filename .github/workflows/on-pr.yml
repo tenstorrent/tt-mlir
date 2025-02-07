@@ -27,7 +27,7 @@ jobs:
         env:
           changed_files: ${{ toJson(steps.changed-files.outputs) }}
           pull_request: ${{ toJson(github.event.pull_request) }}
-          output: $GITHUB_OUTPUT
+          output: ${{ env.GITHUB_OUTPUT }}
         id: skip
         run: python .github/scripts/pr.py
 
