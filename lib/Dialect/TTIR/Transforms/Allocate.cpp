@@ -126,7 +126,11 @@ public:
     ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
 
     module->walk([&](func::FuncOp func) {
-      assert(func.getBody().hasOneBlock());
+      if (func.isDeclaration()) {
+        return;
+      }
+      assert(func.getBody().hasOneBlock() &&
+             "found func that didn't have one block!");
       auto systemDesc = getCurrentScopeSystemDesc(func);
       assert(systemDesc);
       auto device = getCurrentScopeDevice(func);

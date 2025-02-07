@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -45,8 +46,7 @@ getOperandTensorRanks(mlir::Operation *op) {
 static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   // Start building the unique function name
   llvm::SmallString<16> uniqueName("hoisted_");
-  uniqueName.append(op->getName().getStringRef().begin(),
-                    op->getName().getStringRef().end());
+  uniqueName.append(op->getName().getStringRef());
 
   // Iterate over operands to extract tensor shapes and types
   for (auto operand : op->getOperands()) {
@@ -69,8 +69,11 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
     }
   }
 
-  // Add suffix to indicate it's a function
   uniqueName += "_func";
+
+  // Dots in func names may or may not be legal in a dylib based on platform,
+  // safer to replace with underscores at this stage.
+  std::replace(uniqueName.begin(), uniqueName.end(), '.', '_');
 
   return uniqueName;
 }
@@ -81,12 +84,15 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
 static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                      mlir::ModuleOp sourceModule,
                                      mlir::ModuleOp targetModule) {
+
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
 
   const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
+  llvm::SmallString<16> localFunctionName = functionName;
+  localFunctionName.append("_decl");
 
   auto localFunc = llvm::dyn_cast_or_null<func::FuncOp>(
-      sourceModule.lookupSymbol(functionName));
+      sourceModule.lookupSymbol(localFunctionName.str()));
 
   // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
@@ -102,10 +108,12 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
 
     // Create the function signature.
-    mlir::FunctionType funcType =
+    mlir::FunctionType localFuncType =
         mlir::FunctionType::get(context, operandTypes, resultTypes);
+    mlir::FunctionType funcType =
+        mlir::FunctionType::get(context, operandTypes, {});
 
-    // Create the function in the target module.
+    // Insert the function and the terminator
     auto hoistedFunc =
         func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
     targetModule.push_back(hoistedFunc);
@@ -125,15 +133,14 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       mapping.map(std::get<0>(operand), std::get<1>(operand));
     }
 
-    mlir::Operation *clonedOp = builder.clone(*opToHoist, mapping);
+    builder.clone(*opToHoist, mapping);
 
     // Add a return operation to the function.
-    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
-                                         clonedOp->getResults());
+    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(), ValueRange());
 
     // Declare the function prototype in the source module.
-    localFunc =
-        func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
+    localFunc = func::FuncOp::create(opToHoist->getLoc(),
+                                     localFunctionName.str(), localFuncType);
     localFunc.setPrivate();
     sourceModule.push_back(localFunc);
 
@@ -183,42 +190,67 @@ public:
       TTIRHoistTransform>::TTIRHoistTransformBase;
 
   void runOnOperation() final {
-    mlir::ModuleOp moduleOp = getOperation();
+    mlir::ModuleOp rootModule = getOperation();
+
+    // We must run this transform on the root ModuleOp, since we are creating
+    // new Op's within the root.
+    if (rootModule->getParentOp() != nullptr) {
+      return;
+    }
+
+    tt::DeviceModuleOp deviceModule;
+    for (Operation &op : rootModule.getBodyRegion().front()) {
+      if (auto maybeDeviceModule = dyn_cast<tt::DeviceModuleOp>(op)) {
+        deviceModule = maybeDeviceModule;
+        break;
+      }
+    }
+    assert(deviceModule &&
+           "must run tt::WrapDeviceModulePass on IR before hoisting!");
+
+    ModuleOp deviceInnerModule = dyn_cast_or_null<mlir::ModuleOp>(
+        deviceModule.getBodyRegion().front().front());
+    assert(deviceInnerModule &&
+           "tt::DeviceModuleOp must have single ModuleOp child!");
 
     IRRewriter rewriter(&getContext());
 
-    auto loc = moduleOp->getLoc();
+    auto loc = rootModule->getLoc();
 
-    TTIRHoistAnalyze analysisPass(moduleOp);
+    TTIRHoistAnalyze analysisPass(deviceInnerModule);
     const TTIRHoistAnalyze::HoistOpSet &hoistOpSets = analysisPass.getResults();
 
+    // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
+    if (hoistOpSets.empty()) {
+      return;
+    }
+
     // Check if a "cpu_module" already exists.
-    mlir::ModuleOp cpuModule;
-    for (auto &op : moduleOp.getBody()->getOperations()) {
-      if (auto module = llvm::dyn_cast<mlir::ModuleOp>(op)) {
-        if (module->hasAttr("ttir.cpu_module")) {
-          cpuModule = module;
-          break;
-        }
+    tt::CPUModuleOp cpuModule;
+    mlir::ModuleOp cpuInnerModule;
+    for (auto &op : rootModule.getBody()->getOperations()) {
+      if (auto module = llvm::dyn_cast<tt::CPUModuleOp>(op)) {
+        cpuModule = module;
+        cpuInnerModule = dyn_cast_or_null<mlir::ModuleOp>(
+            cpuModule.getBodyRegion().front().front());
+        assert(cpuInnerModule && "CPUModuleOp must contain 1 ModuleOp!");
+        break;
       }
     }
 
     // If no CPU module exists, create one.
     if (!cpuModule) {
-      rewriter.setInsertionPointToEnd(moduleOp.getBody());
-      cpuModule = rewriter.create<mlir::ModuleOp>(loc);
-      cpuModule->setAttr("ttir.cpu_module", rewriter.getUnitAttr());
-      cpuModule->setAttr(mlir::SymbolTable::getSymbolAttrName(),
-                         rewriter.getStringAttr("cpu_module"));
-      // try to make cpu module global
-      mlir::SymbolTable::setSymbolVisibility(
-          cpuModule, mlir::SymbolTable::Visibility::Public);
+      rewriter.setInsertionPointToEnd(rootModule.getBody());
+      cpuModule = rewriter.create<tt::CPUModuleOp>(loc);
+      rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
+      cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
     }
 
     for (const auto &opSet : hoistOpSets) {
       assert(opSet.size() == 1 &&
              "currently don't support hoisting multiple instructions at once!");
-      hoistOperationToFunction(*opSet.begin(), moduleOp, cpuModule);
+      hoistOperationToFunction(*opSet.begin(), deviceInnerModule,
+                               cpuInnerModule);
     }
   }
 };

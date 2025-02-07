@@ -13,6 +13,9 @@ inputs:
   enable-async:
     description: "Enable async ttnn tests"
     required: true
+  enable-runtime-debug:
+    description: "Enable runtime debug"
+    required: true
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
@@ -49,6 +52,7 @@ runs:
           -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ inputs.enable-perf }} \
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ inputs.enable-op-model }} \
+          -DTT_RUNTIME_DEBUG=${{ inputs.enable-runtime-debug }} \
           -S ${{ inputs.work-dir }}
 
     - name: Build
@@ -113,7 +117,7 @@ runs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-emitc-${{ inputs.enable-emitc }}-async-${{ inputs.enable-async }}
+        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-emitc-${{ inputs.enable-emitc }}-async-${{ inputs.enable-async }}-runtime-debug-${{ inputs.enable-runtime-debug }}
         path: ${{ inputs.test_report_path }}
 
     - name: Upload ttrt .whl

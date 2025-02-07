@@ -11,6 +11,16 @@ from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute
 
 
+@compile_to_flatbuffer([(1, 128, 128, 1)], targets=["ttnn"])
+def test_squeeze(in0: Operand, builder: TTIRBuilder):
+    return builder.squeeze(in0, 0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_unsqueeze(in0: Operand, builder: TTIRBuilder):
+    return builder.unsqueeze(in0, 0)
+
+
 @compile_to_flatbuffer([(128, 128)])
 def test_exp(in0: Operand, builder: TTIRBuilder):
     return builder.exp(in0)
@@ -136,6 +146,18 @@ def test_reciprocal(in0: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_is_finite(in0: Operand, builder: TTIRBuilder):
     return builder.is_finite(in0)
+
+
+@compile_to_flatbuffer(
+    [
+        (64, 128),
+        (32, 128),
+        (16, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.concat([in0, in1, in2])
 
 
 @compile_to_flatbuffer(
@@ -352,6 +374,37 @@ def test_maximum(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.minimum(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (32, 64),
+        (64, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.matmul(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (128, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_mean(in0: Operand, builder: TTIRBuilder):
+    return builder.mean(in0)
+
+
+@compile_to_flatbuffer(
+    [
+        (32, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_reshape(in0: Operand, builder: TTIRBuilder):
+    return builder.reshape(in0, [2048])
 
 
 # @compile_to_flatbuffer(
