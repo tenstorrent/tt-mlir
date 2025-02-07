@@ -26,10 +26,10 @@ def to_github_output(outputs: dict):
     parent_job_name = os.environ['job_name']
     print_builder = 'Here are your available outputs:\n'
     for x, z in outputs.items():
-        print_builder += f'\tOutput values for job: {x}\n'
+        print_builder += f'---- job: {x} ----\n'
         for y, t in z.items():
-            print_builder += f'\tfromJson(needs.{parent_job_name}.outputs.results).{x}.{y}\n'
-            print_builder += f'\tvalue: {t}\n'
+            print_builder += f'conditional: fromJson(needs.{parent_job_name}.outputs.results).{x}.{y}\n'
+            print_builder += f'value: {t}\n'
         
     print(print_builder)
     # TODO: add test flag
