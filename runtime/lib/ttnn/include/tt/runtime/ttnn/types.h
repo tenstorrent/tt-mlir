@@ -11,8 +11,9 @@
 #include <unordered_map>
 
 namespace tt::runtime::ttnn {
-using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
+using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::Device>,
                                    std::reference_wrapper<::ttnn::MeshDevice>>;
+using DylibHandleMap = std::unordered_map<uint32_t, void *>;
 
 struct LayoutDesc {
   ::ttnn::StorageType storageType;
@@ -141,7 +142,12 @@ public:
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputs,
       const std::vector<uint32_t> &programOutputs,
-      ::ttnn::MeshDevice *parentMesh);
+      const DylibHandleMap *programDylibs, ::ttnn::MeshDevice *parentMesh)
+      : tensorPool(
+            ProgramTensorPool(liveTensors, programInputs, programOutputs)),
+        dylibHandles(programDylibs), parentMesh(parentMesh) {
+    assert(parentMesh && "Parent mesh cannot be null");
+  }
   ProgramContext(const ProgramContext &) = delete;
   ProgramContext &operator=(const ProgramContext &) = delete;
   ProgramContext(ProgramContext &&) = default;
@@ -165,12 +171,17 @@ public:
 
   size_t subMeshSize(uint32_t meshId) const;
 
-  ::ttnn::IDevice &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
+  ::ttnn::Device &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
 
   ::ttnn::IDevice &getDeviceIndexFromSubMesh(
       uint32_t meshId, ::tt::tt_metal::distributed::MeshCoordinate meshCoords);
 
   DeviceVariant getTargetDevice(uint32_t meshId);
+
+  void *tryGetDylibHandle(const uint32_t dylibId) {
+    const auto it = dylibHandles->find(dylibId);
+    return (it == dylibHandles->end()) ? nullptr : it->second;
+  }
 
   //
   // Tensor Pool Operations
@@ -181,6 +192,7 @@ public:
 private:
   ProgramTensorPool tensorPool;
 
+  const DylibHandleMap *dylibHandles;
   // Contains all devices borrowed from the user that are available to the
   // program
   ::ttnn::MeshDevice *parentMesh = nullptr;
