@@ -44,5 +44,5 @@ jobs:
           pull_request: ${{ toJson(github.event.pull_request) }}
           output: ${{ github.env }}
         run: |
-          echo ${{needs.pr-skip-check.outputs.output1}}
+          echo ${{needs.pr-skip-check.outputs.test }}
       

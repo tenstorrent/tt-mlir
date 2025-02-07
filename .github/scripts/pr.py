@@ -22,7 +22,7 @@ def pr(changed_files: Dict, pull_request: dict, output: str ):
 
 
 def main():
-    output = os.environ['output']
+    output = os.environ.get['output']
     changed_files = json.loads(os.environ.get('changed_files'))
     pull_request = json.loads(os.environ.get('pull_request'))
     pr(changed_files, pull_request, output)
