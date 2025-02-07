@@ -30,7 +30,6 @@ jobs:
           output: ${{ github.env }}
         id: skip
         run: |
-          echo "$GITHUB_OUTPUT"
           python .github/scripts/pr.py
 
   test:
@@ -41,10 +40,7 @@ jobs:
     steps:
       - name: check
         shell: bash
-        env:
-          changed_files: ${{ toJson(steps.changed-files.outputs) }}
-          pull_request: ${{ toJson(github.event.pull_request) }}
-          output: ${{ github.env }}
         run: |
+          echo "$GITHUB_OUTPUT"
           echo ${{ needs.pr-skip-check.outputs.test }}
       
