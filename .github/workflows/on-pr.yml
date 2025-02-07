@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0
       - uses: tj-actions/changed-files@v45
         id: changed-files
-      - name: check
+      - name: check and conditional outputs
         shell: bash
         env:
           changed_files: ${{ toJson(steps.changed-files.outputs) }}
@@ -30,7 +30,6 @@ jobs:
           job_name: ${{ github.job }}
         id: script
         run: |
-          echo $job_name
           python .github/scripts/pr.py
 
   test:
