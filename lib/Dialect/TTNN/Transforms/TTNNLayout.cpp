@@ -79,6 +79,7 @@ static TTNNLayoutAttr createLayoutAttr(
 // Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
 // where ttnn_layout<...> is constructed with default values
 // Dram, MemoryLayout::Interleaved, Grid<1x1>
+namespace {
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTNNLayoutTensorTypeConverter(MLIRContext *ctx, GridAttr deviceGrid) {
@@ -97,11 +98,13 @@ public:
     });
   }
 };
+} // namespace
 
 // Converts tensor types to have a ttnn layout attribute for in SystemMemory
 //
 // Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
 // where ttnn_layout<...> is constructed with SystemMemory
+namespace {
 class TTNNLayoutTensorTypeSystemMemoryConverter : public TypeConverter {
 public:
   TTNNLayoutTensorTypeSystemMemoryConverter(MLIRContext *ctx,
@@ -122,8 +125,10 @@ public:
     });
   }
 };
+} // namespace
 
 // Rewrites tensor types to have a ttnn layout attribute with default values
+namespace {
 class TTNNLayoutTensorTypeRewriter : public RewritePattern {
 public:
   TTNNLayoutTensorTypeRewriter(const TypeConverter &dramConverter,
@@ -200,6 +205,7 @@ public:
   const TypeConverter *dramConverter;
   const TypeConverter *sysMemoryConverter;
 };
+} // namespace
 
 // Given desired buffer type, memory layout and type checks if the input tensor
 // needs to be converted to the desired layout. If it does, creates a new
@@ -321,6 +327,7 @@ static bool changeLayoutToHost(DestinationStyleOpInterface &op,
 // Updates the layout of the operands of a TTIR ops which have DPS operands.
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
+namespace {
 class TTNNLayoutDPSOperandsRewriter
     : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
 public:
@@ -424,7 +431,9 @@ private:
     return true;
   }
 };
+} // namespace
 
+namespace {
 class TTNNLayoutHoistedFuncCallRewriter
     : public OpRewritePattern<func::CallOp> {
 public:
@@ -465,10 +474,12 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Update the input/output layouts of a function
 // This rewriter checks for special ops (e.g. mesh shard ops) and updates the
 // function input/output layouts accordingly
+namespace {
 class TTNNLayoutFuncInputOutputTypeRewriter
     : public OpRewritePattern<mlir::func::FuncOp> {
 public:
@@ -600,9 +611,11 @@ private:
     return false;
   }
 };
+} // namespace
 
 // Updates the layout of the operands of a func::ReturnOp
 // forces it to dram interleaved tiled unless we need special handling
+namespace {
 class TTNNLayoutFuncReturnRewriter
     : public OpRewritePattern<mlir::func::ReturnOp> {
 public:
@@ -652,7 +665,9 @@ private:
     return false;
   }
 };
+} // namespace
 
+namespace {
 class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
 public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
@@ -711,5 +726,6 @@ public:
     registry.insert<mlir::func::FuncDialect>();
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttnn
