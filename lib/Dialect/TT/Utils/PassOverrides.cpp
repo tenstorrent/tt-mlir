@@ -29,6 +29,11 @@ bool ArgumentTypeMapParser::parse(llvm::cl::Option &O, llvm::StringRef argName,
 
     llvm::SmallVector<llvm::StringRef> argNames;
     argsStr.split(argNames, ','); // Split arguments by `,`
+    if (argNames.empty()) {
+      llvm::errs() << "Provided empty argument list for funtion name: \""
+                   << funcName << "\"" << "\n";
+      return true;
+    }
 
     llvm::SmallVector<ArgumentType> argTypes;
     for (llvm::StringRef arg : argNames) {
