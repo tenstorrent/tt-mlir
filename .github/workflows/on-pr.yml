@@ -25,8 +25,9 @@ jobs:
       - name: check
         shell: bash
         env:
-          changed_files_json: ${{ toJson(steps.changed-files.outputs) }}
+          changed_files: ${{ toJson(steps.changed-files.outputs) }}
           pull_request: ${{ toJson(github.event.pull_request) }}
+          output: $GITHUB_OUTPUT
         id: skip
         run: python .github/scripts/pr.py
 
