@@ -152,6 +152,9 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   auto callOp = opBuilder.create<mlir::func::CallOp>(
       opToHoist->getLoc(), localFunc, opToHoist->getOperands());
 
+  // Add the hoisted_call attribute which TTNNLayout uses.
+  callOp->setAttr("hoisted_call", opBuilder.getUnitAttr());
+
   // Replace all results of the original operation with the call results.
   opToHoist->replaceAllUsesWith(callOp);
 

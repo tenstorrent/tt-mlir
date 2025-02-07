@@ -10,6 +10,7 @@
 int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
   mlir::tt::registerAllDialects(registry);
+  mlir::tt::registerAllExternalInterfaces(registry);
 
   return mlir::failed(mlir::MlirLspServerMain(argc, argv, registry));
 }

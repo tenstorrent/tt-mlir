@@ -14,6 +14,7 @@ class DialectRegistry;
 namespace mlir::tt {
 
 void registerAllDialects(mlir::DialectRegistry &registry);
+void registerAllExternalInterfaces(mlir::DialectRegistry &registry);
 void registerAllExtensions(mlir::DialectRegistry &registry);
 void registerAllPasses();
 

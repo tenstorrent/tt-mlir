@@ -51,7 +51,8 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
                                 const LinalgToLLVMPipelineOptions &options) {
   // These are initial passes to ensure we start with well-form linalg dialect
   // operations.
-  manager.addPass(mlir::createCanonicalizerPass());
+  // TODO (#2145): Explore ways to re-enable canonicalizer w/o return values for
+  // linalg funcs. manager.addPass(mlir::createCanonicalizerPass());
   manager.addPass(mlir::createConvertElementwiseToLinalgPass());
   manager.addPass(mlir::createConvertTensorToLinalgPass());
 
