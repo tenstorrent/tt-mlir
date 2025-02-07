@@ -16,6 +16,7 @@ int main(int argc, char **argv) {
 
   mlir::DialectRegistry registry;
   mlir::tt::registerAllDialects(registry);
+  mlir::tt::registerAllExternalInterfaces(registry);
   mlir::tt::registerAllExtensions(registry);
 
   return mlir::asMainReturnCode(
