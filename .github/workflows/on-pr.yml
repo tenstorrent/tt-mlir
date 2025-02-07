@@ -27,10 +27,10 @@ jobs:
         env:
           changed_files: ${{ toJson(steps.changed-files.outputs) }}
           pull_request: ${{ toJson(github.event.pull_request) }}
-          output: ${{ github.env }}
         id: skip
         run: |
           echo "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
           python .github/scripts/pr.py
           cat "$GITHUB_OUTPUT"
 
