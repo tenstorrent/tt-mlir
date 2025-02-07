@@ -79,6 +79,7 @@ static TTNNLayoutAttr createLayoutAttr(
 // Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
 // where ttnn_layout<...> is constructed with default values
 // Dram, MemoryLayout::Interleaved, Grid<1x1>
+namespace {
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTNNLayoutTensorTypeConverter(MLIRContext *ctx, GridAttr deviceGrid) {
@@ -97,16 +98,48 @@ public:
     });
   }
 };
+} // namespace
+
+// Converts tensor types to have a ttnn layout attribute for in SystemMemory
+//
+// Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
+// where ttnn_layout<...> is constructed with SystemMemory
+namespace {
+class TTNNLayoutTensorTypeSystemMemoryConverter : public TypeConverter {
+public:
+  TTNNLayoutTensorTypeSystemMemoryConverter(MLIRContext *ctx,
+                                            GridAttr deviceGrid) {
+    addConversion([](Type type) { return type; });
+    addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
+      Attribute layout = type.getEncoding();
+      if (layout) {
+        return type;
+      }
+
+      TTNNLayoutAttr newLayout = createLayoutAttr(
+          ctx, deviceGrid, type, BufferType::SystemMemory, std::nullopt, false);
+      // Convert mlir data types to tt data types
+      Type elementType = mlir::tt::ttnn::utils::dataTypeToElementType(
+          ctx, elementTypeToDataType(type.getElementType()));
+      return RankedTensorType::get(type.getShape(), elementType, newLayout);
+    });
+  }
+};
+} // namespace
 
 // Rewrites tensor types to have a ttnn layout attribute with default values
+namespace {
 class TTNNLayoutTensorTypeRewriter : public RewritePattern {
 public:
-  TTNNLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
+  TTNNLayoutTensorTypeRewriter(const TypeConverter &dramConverter,
+                               const TypeConverter &sysMemoryConverter,
+                               MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx),
-        converter(&converter) {}
+        dramConverter(&dramConverter), sysMemoryConverter(&sysMemoryConverter) {
+  }
 
   bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const {
-    if (failed(converter->convertTypes(valueRange.getTypes(), newTypes))) {
+    if (failed(dramConverter->convertTypes(valueRange.getTypes(), newTypes))) {
       return false;
     }
 
@@ -129,6 +162,8 @@ public:
     SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
 
+    const TypeConverter *converter =
+        funcOp.isDeclaration() ? sysMemoryConverter : dramConverter;
     for (Type &ty : inputTypes) {
       ty = converter->convertType(ty);
     }
@@ -142,6 +177,10 @@ public:
     }
     funcOp.setFunctionType(newType);
 
+    if (funcOp.isDeclaration()) {
+      return true;
+    }
+
     Block &entryBlock = funcOp.getBody().front();
     for (unsigned i = 0; i < entryBlock.getNumArguments(); ++i) {
       entryBlock.getArgument(i).setType(inputTypes[i]);
@@ -152,17 +191,21 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
-    bool updated = false;
     SmallVector<Type> operands;
     SmallVector<Type> results;
+    if (isa<func::FuncOp>(op)) {
+      return convertFuncType(op, rewriter) ? success() : failure();
+    }
+    bool updated = false;
     updated |= convertTypes(op->getOperands(), operands);
     updated |= convertTypes(op->getResults(), results);
-    updated |= convertFuncType(op, rewriter);
     return updated ? success() : failure();
   }
 
-  const TypeConverter *converter;
+  const TypeConverter *dramConverter;
+  const TypeConverter *sysMemoryConverter;
 };
+} // namespace
 
 // Given desired buffer type, memory layout and type checks if the input tensor
 // needs to be converted to the desired layout. If it does, creates a new
@@ -266,9 +309,9 @@ static bool changeLayoutToHost(DestinationStyleOpInterface &op,
                                OpOperand &operand, PatternRewriter &rewriter,
                                bool isDPSResult) {
   Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-  std::optional<Value> layout =
-      createToLayoutOp(rewriter, newLoc, operand.get(),
-                       BufferType::SystemMemory, nullptr, false);
+  std::optional<Value> layout = createToLayoutOp(
+      rewriter, newLoc, operand.get(), BufferType::SystemMemory,
+      nullptr /* desiredMemLayoutAttr */, false /* tiled */);
   if (layout.has_value()) {
     rewriter.modifyOpInPlace(op, [&]() {
       op->setOperand(operand.getOperandNumber(), *layout);
@@ -284,6 +327,7 @@ static bool changeLayoutToHost(DestinationStyleOpInterface &op,
 // Updates the layout of the operands of a TTIR ops which have DPS operands.
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
+namespace {
 class TTNNLayoutDPSOperandsRewriter
     : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
 public:
@@ -387,10 +431,55 @@ private:
     return true;
   }
 };
+} // namespace
+
+namespace {
+class TTNNLayoutHoistedFuncCallRewriter
+    : public OpRewritePattern<func::CallOp> {
+public:
+  TTNNLayoutHoistedFuncCallRewriter(MLIRContext *ctx)
+      : OpRewritePattern<func::CallOp>(ctx) {}
+
+  // Match and rewrite the CallOp.
+  LogicalResult matchAndRewrite(func::CallOp callOp,
+                                PatternRewriter &rewriter) const override {
+    if (!callOp->hasAttr("hoisted_call")) {
+      return failure();
+    }
+
+    // Create a FromDevice operation for each operand.
+    SmallVector<Value, 4> fromDeviceOperands;
+    size_t locIdx = 0;
+    for (auto operand : callOp.getOperands()) {
+      Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
+      std::optional<Value> optionalLayoutOp = createToLayoutOp(
+          rewriter, newLoc, operand, BufferType::SystemMemory,
+          nullptr /* desiredMemLayoutAttr */, false /* tiled */);
+      fromDeviceOperands.push_back(
+          optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand);
+    }
+
+    // Original CallOp defaults to device tensor return type now, we need to
+    // replace with return types which TTNNLayoutFuncInputOutputTypeRewriter
+    // updated.
+    func::FuncOp funcOp = dyn_cast<func::FuncOp>(
+        SymbolTable::lookupNearestSymbolFrom(callOp, callOp.getCalleeAttr()));
+    // Create the original CallOp with the new inputs on host.
+    auto newCallOp = rewriter.create<func::CallOp>(
+        callOp.getLoc(), callOp.getCallee(), funcOp.getResultTypes(),
+        fromDeviceOperands);
+
+    rewriter.replaceOp(callOp, newCallOp);
+
+    return success();
+  }
+};
+} // namespace
 
 // Update the input/output layouts of a function
 // This rewriter checks for special ops (e.g. mesh shard ops) and updates the
 // function input/output layouts accordingly
+namespace {
 class TTNNLayoutFuncInputOutputTypeRewriter
     : public OpRewritePattern<mlir::func::FuncOp> {
 public:
@@ -410,6 +499,11 @@ private:
 
   bool rewriteInput(mlir::func::FuncOp funcOp,
                     PatternRewriter &rewriter) const {
+    // Func declarations are always CPU-hoisted funcs, which means all inputs
+    // should stay in system  memory.
+    if (funcOp.isDeclaration()) {
+      return false;
+    }
     bool modified = false;
     Block &entryBlock = funcOp.getBody().front();
 
@@ -441,6 +535,11 @@ private:
 
   bool rewriteOutput(mlir::func::FuncOp funcOp,
                      PatternRewriter &rewriter) const {
+    // Func declarations are always CPU-hoisted funcs, which means all outputs
+    // should stay in system  memory.
+    if (funcOp.isDeclaration()) {
+      return false;
+    }
     SmallVector<mlir::func::ReturnOp> returnOps;
     funcOp.walk(
         [&](mlir::func::ReturnOp returnOp) { returnOps.push_back(returnOp); });
@@ -512,9 +611,11 @@ private:
     return false;
   }
 };
+} // namespace
 
 // Updates the layout of the operands of a func::ReturnOp
 // forces it to dram interleaved tiled unless we need special handling
+namespace {
 class TTNNLayoutFuncReturnRewriter
     : public OpRewritePattern<mlir::func::ReturnOp> {
 public:
@@ -564,7 +665,9 @@ private:
     return false;
   }
 };
+} // namespace
 
+namespace {
 class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
 public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
@@ -577,11 +680,14 @@ public:
     {
       DeviceAttr device = getCurrentScopeDevice(getOperation());
       assert(device && "Device not found");
-      TTNNLayoutTensorTypeConverter typeConverter(&getContext(),
-                                                  device.getWorkerGrid());
+      TTNNLayoutTensorTypeConverter typeDefaultConverter(
+          &getContext(), device.getWorkerGrid());
+      TTNNLayoutTensorTypeSystemMemoryConverter typeSystemMemoryConverter(
+          &getContext(), device.getWorkerGrid());
       RewritePatternSet patterns(&getContext());
-      // Set the tensor layouts to have default values (dram interleaved)
-      patterns.add<TTNNLayoutTensorTypeRewriter>(typeConverter, &getContext());
+      // Set the tensor layouts to have proper values
+      patterns.add<TTNNLayoutTensorTypeRewriter>(
+          typeDefaultConverter, typeSystemMemoryConverter, &getContext());
       // Set the tensor layouts of the func op inputs and outputs based on their
       // consumers/producers. For example, if a func op input is consumed by a
       // mesh shard op, that input tensor should be on host
@@ -602,6 +708,7 @@ public:
       // Update the return op output layout based on its consumers
       // Logic here should match that of TTNNLayoutFuncInputOutputTypeRewriter
       patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
+      patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
@@ -619,5 +726,6 @@ public:
     registry.insert<mlir::func::FuncDialect>();
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttnn
