@@ -30,11 +30,8 @@ jobs:
           job_name: ${{ github.job.name }}
         id: script
         run: |
-          echo "$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
-          echo $pull_request
+          echo $job_name
           python .github/scripts/pr.py
-          cat "$GITHUB_OUTPUT"
 
   test:
     runs-on: ubuntu-latest
