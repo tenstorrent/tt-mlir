@@ -35,6 +35,8 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    needs: 
+      - pr-skip-check
     name: Test changed-files
     steps:
       - name: check
@@ -44,5 +46,5 @@ jobs:
           pull_request: ${{ toJson(github.event.pull_request) }}
           output: ${{ github.env }}
         run: |
-          echo ${{needs.pr-skip-check.outputs.test }}
+          echo ${{ needs.pr-skip-check.outputs.test }}
       
