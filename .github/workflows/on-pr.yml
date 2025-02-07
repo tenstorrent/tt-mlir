@@ -28,7 +28,7 @@ jobs:
           changed_files_json: ${{ toJson(steps.changed-files.outputs) }}
           pull_request: ${{ toJson(github.event.pull_request) }}
         id: skip
-        run: python ./github/scripts/pr.py
+        run: python .github/scripts/pr.py
 
 #  pre-commit:
 #    uses: ./.github/workflows/pre-commit.yml
