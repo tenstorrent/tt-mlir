@@ -1,0 +1,9 @@
+[{
+  "job_name": "test",
+  "skip": {
+    "draft_pr": "true",
+    "files_regex": [
+      "docs/.*"
+    ]
+  }
+}]
