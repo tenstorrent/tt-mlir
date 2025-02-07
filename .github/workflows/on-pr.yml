@@ -29,7 +29,9 @@ jobs:
           pull_request: ${{ toJson(github.event.pull_request) }}
           output: ${{ github.env }}
         id: skip
-        run: python .github/scripts/pr.py
+        run: |
+          echo "$GITHUB_OUTPUT"
+          python .github/scripts/pr.py
 
 #  pre-commit:
 #    uses: ./.github/workflows/pre-commit.yml
