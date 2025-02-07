@@ -13,7 +13,7 @@ no_build_re = re.compile('^')
 def to_github_output(output: str):
     payload =json.dumps({"test": "hello_word"})
     with open(output, "a") as myfile:
-        myfile.write(f"output={payload}")
+        myfile.write(f"results={payload}")
 
 def pr(changed_files: Dict, pull_request: dict, output: str ):
     run_test_and_build = True
