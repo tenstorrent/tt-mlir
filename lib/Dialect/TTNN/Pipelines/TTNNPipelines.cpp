@@ -6,6 +6,10 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -136,13 +140,26 @@ void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  createTTNNPipelineTTIRPasses(pm, options);
-  createTTNNPipelineTTIRImplicitBroadcastFoldPass(pm, options);
-  createTTNNPipelineLoweringPasses(pm, options);
-  createTTNNPipelineWorkaroundPass(pm, options);
-  createTTNNPipelineAnalysisPasses(pm, options);
-  createTTNNPipelineLayoutDecompositionPass(pm, options);
-  createTTNNPipelineDeallocPass(pm, options);
+  llvm::outs() << "createTTIRToTTNNBackendPipeline pm addr:" << &pm << "\n";
+  pm.addPass(tt::createTTWrapDeviceModulePass());
+  // create CPUModuleOp w/ hoisted ops (if any)
+  pm.addPass(ttir::createTTIRHoistTransform());
+
+  OpPassManager &devicePm =
+      pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+  createTTNNPipelineTTIRPasses(devicePm, options);
+  createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
+  createTTNNPipelineLoweringPasses(devicePm, options);
+  createTTNNPipelineWorkaroundPass(devicePm, options);
+  createTTNNPipelineAnalysisPasses(devicePm, options);
+  createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+  createTTNNPipelineDeallocPass(devicePm, options);
+
+  OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+  cpuPm.addPass(createConvertTTIRToLinalgPass());
+  ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
+  ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLLVMOptions);
+  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
