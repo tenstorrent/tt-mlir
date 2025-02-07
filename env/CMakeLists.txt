@@ -70,15 +70,29 @@ ExternalProject_Add(
     DEPENDS python-venv
 )
 
-ExternalProject_Add(stablehlo
-   PREFIX ${TTMLIR_TOOLCHAIN_DIR}
-   CMAKE_ARGS
+ExternalProject_Add(
+    stablehlo
+    CMAKE_GENERATOR Ninja
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
+        -DSTABLEHLO_BUILD_EMBEDDED=ON
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++
+        -DSTABLEHLO_ENABLE_LLD=ON
+        -DCMAKE_BUILD_TYPE=Release
+        -DLLVM_ENABLE_ASSERTIONS=ON
         -DSTABLEHLO_ENABLE_BINDINGS_PYTHON=ON
-   GIT_REPOSITORY https://github.com/openxla/stablehlo.git
-   GIT_TAG ${STABLEHLO_VERSION}
-   CONFIGURE_COMMAND ""
-   BUILD_COMMAND ""
-   INSTALL_COMMAND ""
+        -DSTABLEHLO_ENABLE_SPLIT_DWARF=ON
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        -DSTABLEHLO_ENABLE_SANITIZER=address
+        -DLLVM_MAIN_SRC_DIR=${TTMLIR_TOOLCHAIN_DIR}/lib/cmake/llvm
+    SOURCE_SUBDIR stablehlo
+    GIT_REPOSITORY https://github.com/openxla/stablehlo.git
+    GIT_TAG ${STABLEHLO_VERSION}
+    GIT_PROGRESS ON
+    DEPENDS llvm-project python-venv
 )
 
 ExternalProject_Add(shardy
