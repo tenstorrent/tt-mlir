@@ -193,7 +193,7 @@ error: process exited with status -1 (attach failed (Not allowed to attach to pr
 he attach permission will likely have logged an informative message about why it was denied.))
 ```
 
-Tgr prnsted macOS binaries you st maually n with bug entitlements.
+Tgr prnsted macOS binaries you st maualy n with bug entitlements.
 
 Create file `debuggee-entitlement.xml`:
 ```xml
