@@ -9,6 +9,7 @@ import os
 
 
 def main():
+    
     print(os.environ.get('changed_files_json'))
     print(os.environ.get('pull_request'))
 
