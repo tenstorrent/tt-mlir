@@ -30,7 +30,9 @@ jobs:
           output: ${{ github.env }}
         id: skip
         run: |
+          echo "$GITHUB_OUTPUT"
           python .github/scripts/pr.py
+          cat "$GITHUB_OUTPUT"
 
   test:
     runs-on: ubuntu-latest
