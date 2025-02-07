@@ -15,7 +15,7 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
+  get(bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
       bool toLayoutAPIAssumeSingleChip = true,
       bool usePaddingPairSignatureWithQueueId = true)
@@ -23,13 +23,9 @@ struct Env {
       ;
 #else
   {
-    return Env(true, true, true, true, true);
+    return Env(true, true, true, true);
   }
 #endif
-  // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
-  // instead of adding a method in runtime
-  bool maxpool2dPreshard;
-
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
   // rhs operand). We should add this check in the compiler.
@@ -60,12 +56,11 @@ struct Env {
   bool usePaddingPairSignatureWithQueueId;
 
 private:
-  constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
+  constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
                 bool toLayoutAPIAssumeSingleChip,
                 bool usePaddingPairSignatureWithQueueId)
-      : maxpool2dPreshard(maxpool2dPreshard),
-        swapBinaryOperands(swapBinaryOperands),
+      : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
         toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip),
@@ -75,8 +70,6 @@ private:
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "workaround::Env{\n";
-  os << "\t"
-     << "maxpool2dPreshard: " << env.maxpool2dPreshard << ",\n";
   os << "\t"
      << "swapBinaryOperands: " << env.swapBinaryOperands << ",\n";
   os << "\t"
