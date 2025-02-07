@@ -418,7 +418,6 @@ table UpsampleOp {
   out: tt.target.TensorRef;
 }
 
-// TODO: flesh this out
 table CpuOp {
   ins: [tt.target.TensorRef];
   out: tt.target.TensorRef;
@@ -475,7 +474,6 @@ table Operation {
   loc_info: string;
 }
 
-// TODO: should probably move this somewhere else
 table DynamicLib {
   dylib_id: uint32;
   raw_file: [uint8];
