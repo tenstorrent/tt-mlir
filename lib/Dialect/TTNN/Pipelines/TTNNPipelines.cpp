@@ -140,11 +140,12 @@ void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  llvm::outs() << "createTTIRToTTNNBackendPipeline pm addr:" << &pm << "\n";
+  // Create DeviceModule to wrap all ops.
   pm.addPass(tt::createTTWrapDeviceModulePass());
-  // create CPUModuleOp w/ hoisted ops (if any)
+  // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
+  // Run regular TTIR to TTNN pipeline on DeviceModule.
   OpPassManager &devicePm =
       pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
@@ -155,6 +156,7 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
   createTTNNPipelineDeallocPass(devicePm, options);
 
+  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
   cpuPm.addPass(createConvertTTIRToLinalgPass());
   ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
