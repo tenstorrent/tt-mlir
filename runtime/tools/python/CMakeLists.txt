@@ -32,4 +32,4 @@ add_custom_command(
 add_custom_target(ttrt
   COMMENT "python ttrt package"
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed)
-add_dependencies(ttrt TTMLIRRuntime)
+add_dependencies(ttrt TTMLIRRuntime TTRuntimeTTNNTestHelpers)

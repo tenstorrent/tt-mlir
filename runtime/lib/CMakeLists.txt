@@ -67,7 +67,8 @@ target_link_libraries(TTMLIRRuntime
     flatbuffers
 )
 
-set_target_properties(TTMLIRRuntime PROPERTIES BUILD_RPATH_USE_ORIGIN TRUE)
+set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
+set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
 add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimeWorkarounds FBS_GENERATION)
 
