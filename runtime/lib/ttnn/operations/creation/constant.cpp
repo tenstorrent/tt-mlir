@@ -15,9 +15,9 @@ static T getElement(const ::flatbuffers::Vector<uint8_t> *data, size_t i) {
   if constexpr (std::is_same_v<T, bfloat16>) {
     return bfloat16(
         ::flatbuffers::IndirectHelper<uint16_t>::Read(data->data(), i));
-  } else {
-    return ::flatbuffers::IndirectHelper<T>::Read(data->data(), i);
   }
+
+  return ::flatbuffers::IndirectHelper<T>::Read(data->data(), i);
 }
 
 template <typename T>
@@ -34,10 +34,10 @@ makeBuffer(const ::flatbuffers::Vector<uint8_t> *data) {
       ownedBuffer[i] = getElement<T>(data, i);
     }
     return ownedBuffer;
-  } else {
-    LOG_FATAL("Unsupported data type");
-    return {};
   }
+
+  LOG_FATAL("Unsupported data type");
+  return {};
 }
 
 using BufferCreatorFn =
