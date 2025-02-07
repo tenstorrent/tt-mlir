@@ -31,7 +31,7 @@ def to_github_output(outputs: dict):
             print_builder += f'\tfromJson(needs.{parent_job_name}.outputs.results).{x}.{y}\n'
             print_builder += f'\tvalue: {t}\n'
         
-
+    print(print_builder)
     # TODO: add test flag
     github_output = os.environ['GITHUB_OUTPUT']
     payload =json.dumps(outputs)
