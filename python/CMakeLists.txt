@@ -149,6 +149,7 @@ if(TTMLIR_ENABLE_PYKERNEL)
     ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
     SOURCES
       pykernel_ast.py
+      types.py
   )
   add_mlir_python_modules(TTPykernelModules
     ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/pykernel"

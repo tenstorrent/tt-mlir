@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -75,6 +76,7 @@ void mlir::tt::registerAllPasses() {
   // unused OPs/operands after conversion.
   mlir::registerPass(mlir::createRemoveDeadValuesPass);
 
+  mlir::tt::registerPasses();
   mlir::tt::ttir::registerPasses();
   mlir::tt::ttnn::registerTTNNOptimizer();
   mlir::tt::ttnn::registerPasses();
@@ -85,4 +87,51 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttir::registerTTIRPipelines();
   mlir::tt::ttnn::registerTTNNPipelines();
   mlir::tt::ttmetal::registerTTMetalPipelines();
+}
+
+void mlir::tt::MLIRModuleLogger::attachContext(
+    mlir::MLIRContext *ctx, std::vector<std::string> passNamesToCache = {}) {
+  context = ctx;
+
+  context->registerActionHandler(
+      [this, passNamesToCache](llvm::function_ref<void()> transform,
+                               const mlir::tracing::Action &action) {
+        // Also might make sense to store the _FIRST_ module. Or the module
+        // before it was sent through the pipeline.
+        if (moduleCache.empty()) {
+          // Add it to the current Cache.
+          std::string passName = "PRE-PIPELINE", outString;
+          llvm::raw_string_ostream os(outString);
+          mlir::OpPrintingFlags flags;
+          flags.enableDebugInfo();
+          action.getContextIRUnits()[0].print(os, flags);
+          os.flush();
+          moduleCache.emplace_back(passName, outString);
+        }
+
+        // Might make more sense to hold the module after a transformation has
+        // occured.
+        transform(); // Run the transformation pass.
+
+        // Now save the module if it should be Cached.
+        if (mlir::isa<mlir::PassExecutionAction>(action)) {
+          auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
+          // A Pass action has occured, need to store the previous module
+          // before transform is completed.
+          std::string passName = passAction.getPass().getName().str();
+
+          if (passNamesToCache.empty() or
+              std::find(passNamesToCache.begin(), passNamesToCache.end(),
+                        passName) != passNamesToCache.end()) {
+            std::string outString;
+            llvm::raw_string_ostream os(outString);
+            mlir::OpPrintingFlags flags;
+            flags.enableDebugInfo();
+            passAction.getOp()->print(os, flags);
+            os.flush();
+
+            this->moduleCache.emplace_back(passName, outString);
+          }
+        }
+      });
 }

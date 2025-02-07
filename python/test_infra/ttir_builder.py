@@ -86,6 +86,9 @@ class Golden:
         s += f"\nGolden tensor:\n{self.tensor}"
         return s
 
+    def contiguous(self) -> Golden:
+        return Golden(self.tensor.contiguous())
+
 
 class TTIRBuilder:
     """Builder class providing API for creating TTIR ops."""
@@ -168,6 +171,7 @@ class TTIRBuilder:
     def get_golden_map(self) -> Dict:
         golden_info = {}
         for name, golden_tensor in self.id_golden_map.items():
+            golden_tensor = golden_tensor.contiguous()
             golden_info[name] = create_golden_tensor(
                 name,
                 list(golden_tensor.tensor.shape),
@@ -346,9 +350,7 @@ class TTIRBuilder:
     ):
         return ([self._get_type(output)], inputs, [output])
 
-    def _organize_eltwise_golden(
-        self, inputs: List[Operand], output: OpView, output_shape: Optional[Shape]
-    ):
+    def _organize_eltwise_golden(self, inputs: List[Operand]):
         return [self._get_golden_tensor(inp) for inp in inputs]
 
     def op_proxy(
@@ -412,8 +414,14 @@ class TTIRBuilder:
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            shape = self.get_shape(inputs[0]) if not output_shape else output_shape
-            output = self.empty(shape)
+            # Compute the golden
+            golden = Golden(
+                op_golden_function(*(organize_golden_args(inputs)), **golden_kwargs)
+            )
+
+            # Use the golden output to determine proper output shape unless otherwise specified
+            output_shape = golden.tensor.shape if not output_shape else output_shape
+            output = self.empty(output_shape)
 
             id = self.get_next_global_id()
             loc = get_loc_of_extra_file_callee(id=id)
@@ -424,11 +432,6 @@ class TTIRBuilder:
                 **ttir_kwargs,
             )
 
-            golden = Golden(
-                op_golden_function(
-                    *organize_golden_args(inputs, output, output_shape), **golden_kwargs
-                )
-            )
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
@@ -574,6 +577,22 @@ class TTIRBuilder:
     def minimum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.minimum, ttir.MinimumOp, [in0, in1])
 
+    def mean(
+        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+    ) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.mean,
+            ttir.MeanOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
     def leaky_relu(self, in0: Operand, parameter: float = 0.01) -> OpView:
         # TODO: reconcile this naming mismatch
         ttir_kwargs = {"parameter": parameter}
@@ -584,6 +603,39 @@ class TTIRBuilder:
             [in0],
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
+        )
+
+    def squeeze(self, in0: Operand, dim: Optional[int] = 0) -> OpView:
+        kwargs = {"dim": dim}
+        return self.op_proxy(
+            torch.squeeze,
+            ttir.SqueezeOp,
+            [in0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def unsqueeze(self, in0: Operand, dim: Optional[int] = 0) -> OpView:
+        kwargs = {"dim": dim}
+        return self.op_proxy(
+            torch.unsqueeze,
+            ttir.UnsqueezeOp,
+            [in0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def reshape(self, in0: Operand, shape: Shape) -> OpView:
+        kwargs = {"shape": shape}
+        return self.op_proxy(
+            torch.reshape,
+            ttir.ReshapeOp,
+            [in0],
+            ttir_kwargs=kwargs,
+            golden_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
     def clamp(
@@ -602,23 +654,31 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
+    def concat(self, ins: List[Operand], dim: int = 0) -> OpView:
+        kwargs = {"dim": dim}
+        return self.op_proxy(
+            torch.concat,
+            ttir.ConcatOp,
+            ins,
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            # special handling is needed here to get around arg expansion; `torch.concat` takes a tuple of tensors on input
+            organize_golden_args=lambda i: (
+                tuple([self._get_golden_tensor(i_i) for i_i in i]),
+            ),
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i, o),
+        )
+
     def matmul(
         self, in0: Operand, in1: Operand, bias: Optional[Operand] = None
     ) -> OpView:
-        # Calculate the output shape for Matmul
         inputs = [in0, in1]
         if bias:
             inputs.append(bias)
-        shapes = [self.get_shape(x) for x in inputs]
-        shape = (shapes[0][0], shapes[1][1])
-        assert (
-            shapes[0][1] == shapes[1][0]
-        ), "Input Shapes not compatible for Matrix Multiplication"
         return self.op_proxy(
             torch.matmul,
             ttir.MatmulOp,
             inputs,
-            output_shape=shape,
             organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
         )
 

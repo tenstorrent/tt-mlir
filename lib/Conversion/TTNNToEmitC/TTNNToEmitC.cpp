@@ -593,9 +593,7 @@ public:
     //
     ArrayAttr arrayAttrs = rewriter.getArrayAttr({
         rewriter.getIndexAttr(0), // input tensor
-        rewriter.getIndexAttr(1), // ttnn::Shape
-        ttnn_to_emitc::utils::createStdNullopt(
-            rewriter) // std::nullopt for memory config
+        rewriter.getIndexAttr(1)  // ttnn::Shape
     });
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
@@ -1324,7 +1322,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
                DefaultOpConversionPattern<ttnn::RepeatInterleaveOp>,
                DefaultOpConversionPattern<ttnn::SliceOp>,
-               DefaultOpConversionPattern<ttnn::PermuteOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::PermuteOp>,
+               DefaultOpConversionPattern<ttnn::PadOp>>(typeConverter, ctx);
 
   // Matmul ops
   //

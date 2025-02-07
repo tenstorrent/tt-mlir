@@ -11,6 +11,7 @@ add_subdirectory(SharedLib)
 
 set(link_libs
 MLIRTTDialect
+MLIRTTTransforms
 MLIRTTIRDialect
 MLIRTTIRTransforms
 TTMLIRConversions

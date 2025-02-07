@@ -5,12 +5,13 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLAYOUT
@@ -90,7 +91,7 @@ public:
 
       TTNNLayoutAttr newLayout = createLayoutAttr(ctx, deviceGrid, type);
       // Convert mlir data types to tt data types
-      Type elementType = utils::dataTypeToElementType(
+      Type elementType = mlir::tt::ttnn::utils::dataTypeToElementType(
           ctx, elementTypeToDataType(type.getElementType()));
       return RankedTensorType::get(type.getShape(), elementType, newLayout);
     });
@@ -255,17 +256,10 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
             .getResult();
   }
 
-  // If the input tensor is not a constant or empty tensor, we need to create a
-  // new tensor with the desired layout which will be used as the output of the
-  // ToLayoutOp
-  tensor::EmptyOp output = rewriter.create<tensor::EmptyOp>(
-      loc, ty.getShape(), ty.getElementType(), desiredLayout);
-
   // Create the ToLayoutOp which will convert the input tensor to the desired
-  // layout
-  return rewriter
-      .create<ttir::ToLayoutOp>(loc, output.getType(), input, output)
-      ->getResult(0);
+  // layout.
+  return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
+      rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout, input);
 }
 
 static bool changeLayoutToHost(DestinationStyleOpInterface &op,
@@ -493,6 +487,13 @@ private:
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
     for (Operation *user : arg.getUsers()) {
       if (mlir::isa<ttir::MeshShardOp>(user)) {
+        return true;
+      }
+      // For the weight input of the conv2d op, it specifically needs to be on
+      // host (issue https://github.com/tenstorrent/tt-mlir/issues/1528).
+      if ((mlir::isa<ttir::Conv2dOp>(user) ||
+           mlir::isa<ttir::ConvTranspose2dOp>(user)) &&
+          user->getOperand(1) == arg) {
         return true;
       }
     }

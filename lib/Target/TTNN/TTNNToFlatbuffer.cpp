@@ -989,6 +989,25 @@ createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
       *cache.fbb, in, out, cache.fbb->CreateVector<int64_t>(repeatDims));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PadOp>
+createPadOp(FlatbufferObjectCache &cache, PadOp op) {
+  flatbuffers::Offset<::tt::target::TensorRef> in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  std::vector<uint32_t> padding(op.getPadding().begin(), op.getPadding().end());
+  float value = op.getValue().convertToFloat();
+  flatbuffers::Offset<::tt::target::TensorRef> out =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedAddress, kHostAllocatedSize);
+
+  flatbuffers::Offset<::tt::target::MemoryConfigDesc> memoryConfigDesc =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
+  return ::tt::target::ttnn::CreatePadOp(
+      *cache.fbb, in, out, cache.fbb->CreateVector<uint32_t>(padding), value,
+      op.getUseMulticore(), memoryConfigDesc);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
   auto in =
@@ -1359,6 +1378,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createRepeatOp(cache, repeatOp), debugString,
                            locInfo);
   }
+  if (auto padOp = dyn_cast<PadOp>(op); padOp) {
+    return createOperation(cache, createPadOp(cache, padOp), debugString,
+                           locInfo);
+  }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
     return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
                            locInfo);
@@ -1419,9 +1442,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
 
-std::shared_ptr<void>
-ttnnToFlatbuffer(Operation *op,
-                 std::unordered_map<std::string, GoldenTensor> goldenMap) {
+std::shared_ptr<void> ttnnToFlatbuffer(
+    Operation *op,
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   ModuleOp module = dyn_cast<ModuleOp>(op);
   assert(module && "Expected ModuleOp as top level operation");
 
@@ -1455,9 +1479,20 @@ ttnnToFlatbuffer(Operation *op,
     goldenKVList.push_back(goldenKV);
   }
 
+  // Load the ModuleCache if present and populate DebugInfo
+  std::vector<::flatbuffers::Offset<::tt::target::MLIR>> moduleCacheList;
+  moduleCacheList.reserve(moduleCache.size());
+
+  for (const auto &item : moduleCache) {
+    // Here the Name is the Pass Name and Source is the IR itself
+    auto moduleCacheItem = ::tt::target::CreateMLIRDirect(
+        fbb, item.first.c_str(), item.second.c_str());
+    moduleCacheList.push_back(moduleCacheItem);
+  }
+
   auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
-  auto debugInfo =
-      ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str(), goldenInfo);
+  auto debugInfo = ::tt::target::CreateDebugInfoDirect(
+      fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {
@@ -1487,8 +1522,9 @@ ttnnToFlatbuffer(Operation *op,
 
 LogicalResult translateTTNNToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    std::unordered_map<std::string, GoldenTensor> goldenMap) {
-  std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap);
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::vector<std::pair<std::string, std::string>> &moduleCache) {
+  std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<char const *>(data.get()), size);
