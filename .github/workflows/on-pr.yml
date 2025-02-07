@@ -43,5 +43,5 @@ jobs:
       - name: check
         shell: bash
         run: |
-          echo ${{ fromJson(needs.pr-skip-check.outputs) }}
+          echo ${{ fromJson(needs.pr-skip-check.outputs.output) }}
       
