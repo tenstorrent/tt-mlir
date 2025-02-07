@@ -1,6 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
-// UNSUPPORTED: true
-// https://github.com/tenstorrent/tt-mlir/issues/1448
+
 module attributes {} {
   func.func @forward(%arg0: tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32> {
     // CHECK: %[[C:.*]] = "ttnn.arange"[[C:.*]]
