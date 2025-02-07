@@ -11,8 +11,9 @@ from typing import Dict
 no_build_re = re.compile('^')
 
 def to_github_output(output: str):
+    payload = {"test": "hello_word"}
     with open(output, "a") as myfile:
-        myfile.write("test=hello-world")
+        myfile.write(f"output={payload}")
 
 def pr(changed_files: Dict, pull_request: dict, output: str ):
     run_test_and_build = True
