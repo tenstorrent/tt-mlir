@@ -244,12 +244,11 @@ void populatePassesModule(py::module &m) {
                        ::tt::target::DataType dtype, std::uintptr_t ptr,
                        std::size_t dataSize) {
         // Create Golden Tensor and move ownership to GoldenTensor
-        std::vector<std::uint8_t> dataVec(dataSize);
-        std::memcpy(dataVec.data(), reinterpret_cast<std::uint8_t *>(ptr),
-                    dataSize);
+        auto dataPtr = reinterpret_cast<std::uint8_t *>(ptr);
 
         return std::make_shared<mlir::tt::GoldenTensor>(
-            name, shape, strides, dtype, std::move(dataVec));
+            name, shape, strides, dtype,
+            std::vector<std::uint8_t>(dataPtr, dataPtr + dataSize));
       }))
       .def_readwrite("name", &mlir::tt::GoldenTensor::name)
       .def_readwrite("shape", &mlir::tt::GoldenTensor::shape)

@@ -37,7 +37,7 @@ struct GoldenTensor {
 
   GoldenTensor(std::string name, std::vector<int64_t> shape,
                std::vector<int64_t> strides, ::tt::target::DataType dtype,
-               std::vector<std::uint8_t> _data)
+               std::vector<std::uint8_t> &&_data)
       : name(name), shape(shape), strides(strides), dtype(dtype),
         data(std::move(_data)) {}
 };
