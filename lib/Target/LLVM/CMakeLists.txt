@@ -7,6 +7,9 @@ add_mlir_translation_library(TTLLVMToDynamicLib
     ${LLVM_INCLUDE_DIRS}
 
     LINK_LIBS PUBLIC
-    LLVM
-    MLIR
+    MLIRLLVMDialect
+    LLVMTarget
+    LLVMX86Info
+    LLVMX86AsmParser
+    LLVMX86CodeGen
 )
