@@ -30,10 +30,6 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
 }
 
-static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
-}
-
 static tt::runtime::MemoryView
 createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
   return tt::runtime::MemoryView{
@@ -348,14 +344,16 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
-  return createNullTensor();
+  return {};
 }
 
-std::vector<float> getTensorData(Tensor tensor) {
+std::unordered_map<std::uint32_t, std::vector<float>>
+getTensorData(std::unordered_map<std::uint32_t, Tensor> tensor_map) {
   // Not implemented
   LOG_WARNING("obtaining tensor data for metal runtime not implemented");
   return {};

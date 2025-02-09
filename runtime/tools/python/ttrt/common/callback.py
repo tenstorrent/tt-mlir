@@ -204,22 +204,29 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
 
-    op_golden_tensor = binary.get_debug_info_golden(loc)
+    op_golden_tensor_map = binary.get_debug_info_golden(loc)
 
-    if op_golden_tensor is None:
+    if len(op_golden_tensor_map) == 0:
         logging.debug("Golden tensor is None - skipping golden comparison")
         return
 
-    op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context)
+    op_output_tensor_map = ttrt.runtime.get_op_output_tensor(
+        op_context, program_context
+    )
 
-    if len(op_output_tensor) == 0:
+    if len(op_output_tensor_map) == 0:
         logging.debug("Output tensor is empty - skipping golden comparison")
         return
 
+    op_golden_tensor = op_golden_tensor_map[
+        0
+    ]  # todo: tapspatel - currently it's supported for single device, extend to multi-device
     dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
-
     golden_tensor_torch = torch.frombuffer(op_golden_tensor, dtype=dtype).flatten()
 
+    op_output_tensor = op_output_tensor_map[
+        0
+    ]  # todo: tapspatel - currently it's supported for single device, extend to multi-device
     output_tensor_torch = torch.tensor(op_output_tensor, dtype=dtype).flatten()
 
     if callback_runtime_config.save_golden_tensors:

@@ -174,9 +174,10 @@ PYBIND11_MODULE(_C, m) {
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
-            opContextHandle, programContextHandle);
-        return tt::runtime::getTensorData(tensor);
+        std::unordered_map<std::uint32_t, tt::runtime::Tensor> tensor_map =
+            tt::runtime::getOpOutputTensor(opContextHandle,
+                                           programContextHandle);
+        return tt::runtime::getTensorData(tensor_map);
       },
       "Get the input tensor of the op");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,

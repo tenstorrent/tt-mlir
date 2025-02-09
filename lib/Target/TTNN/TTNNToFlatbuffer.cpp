@@ -1444,7 +1444,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
 
 std::shared_ptr<void> ttnnToFlatbuffer(
     Operation *op,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   ModuleOp module = dyn_cast<ModuleOp>(op);
   assert(module && "Expected ModuleOp as top level operation");
@@ -1469,13 +1471,24 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   std::vector<::flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
   goldenKVList.reserve(goldenMap.size());
 
-  for (auto element : goldenMap) {
-    std::vector<std::uint8_t> dataTensor = element.second.convertDataToVector();
-    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
-        fbb, element.second.name.c_str(), &element.second.shape,
-        &element.second.strides, element.second.dtype, &dataTensor);
+  for (auto locMap : goldenMap) {
+    std::vector<::flatbuffers::Offset<::tt::target::GoldenDevice>>
+        goldenDeviceList;
+    goldenDeviceList.reserve(locMap.second.size());
+
+    for (auto tensorMap : locMap.second) {
+      std::vector<std::uint8_t> dataTensor =
+          tensorMap.second.convertDataToVector();
+      auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
+          fbb, tensorMap.second.name.c_str(), &tensorMap.second.shape,
+          &tensorMap.second.strides, tensorMap.second.dtype, &dataTensor);
+      auto goldenDevice =
+          ::tt::target::CreateGoldenDevice(fbb, tensorMap.first, goldenTensor);
+      goldenDeviceList.push_back(goldenDevice);
+    }
+
     auto goldenKV = ::tt::target::CreateGoldenKVDirect(
-        fbb, element.first.c_str(), goldenTensor);
+        fbb, locMap.first.c_str(), &goldenDeviceList);
     goldenKVList.push_back(goldenKV);
   }
 
@@ -1522,7 +1535,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
 LogicalResult translateTTNNToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string, std::unordered_map<std::uint32_t, GoldenTensor>> &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(

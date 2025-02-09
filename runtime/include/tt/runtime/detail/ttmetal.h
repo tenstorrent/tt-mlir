@@ -65,10 +65,12 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
-std::vector<float> getTensorData(Tensor tensor);
+std::unordered_map<std::uint32_t, std::vector<float>>
+getTensorData(std::unordered_map<std::uint32_t, Tensor> tensor_map);
 
 using InputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,

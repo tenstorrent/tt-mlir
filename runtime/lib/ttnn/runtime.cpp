@@ -83,10 +83,6 @@ createOwnedTensor(std::shared_ptr<void> data,
       ::ttnn::Layout::ROW_MAJOR);
 }
 
-static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
-}
-
 static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
   if (meshDevice.num_devices() == 1) {
     return std::ref(*(meshDevice.get_device_index(0)));
@@ -407,8 +403,9 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
   auto const &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
@@ -417,6 +414,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
   std::int32_t globalId{-1};
   const ::ttnn::Tensor *outPtr = nullptr;
+  std::unordered_map<std::uint32_t, Tensor> opOutputTensorMap;
 
   switch (opContext.type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
@@ -509,7 +507,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     LOG_WARNING("getting output tensor for DeallocateOp is not supported");
-    return createNullTensor();
+    return opOutputTensorMap;
   }
   default: {
     LOG_FATAL("Unsupported operation type");
@@ -520,28 +518,66 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     outPtr = &tensorPool.at(globalId);
   } else {
     LOG_WARNING("Output tensor not found in tensor pool");
-    return createNullTensor();
+    return opOutputTensorMap;
   }
 
-  std::shared_ptr<::ttnn::Tensor> hostTensor =
-      std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
-          ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-          std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
+  if (outPtr->storage_type() == StorageType::MULTI_DEVICE) {
+    const auto &tensor_storage =
+        std::get<MultiDeviceStorage>((*outPtr).get_storage());
+    for (unsigned long i = 0; i < tensor_storage.ordered_device_ids.size();
+         ++i) {
+      auto device_id = tensor_storage.ordered_device_ids[i];
+      ::ttnn::Tensor ttnnTensor = ::ttnn::Tensor{
+          DeviceStorage{tensor_storage.get_buffer_for_device_id(device_id)},
+          tensor_storage.specs.at(device_id)};
+      std::shared_ptr<::ttnn::Tensor> hostTensor =
+          std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+              ::ttnn::from_device(ttnnTensor), ::ttnn::Layout::ROW_MAJOR,
+              std::nullopt, std::nullopt,
+              static_cast<::ttnn::IDevice *>(nullptr)));
+      opOutputTensorMap[device_id] =
+          Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
+                 DeviceRuntime::TTNN);
+    }
+  } else if (outPtr->storage_type() == StorageType::DEVICE) {
+    std::shared_ptr<::ttnn::Tensor> hostTensor =
+        std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+            ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR,
+            std::nullopt, std::nullopt,
+            static_cast<::ttnn::IDevice *>(nullptr)));
+    opOutputTensorMap[0] = Tensor(std::static_pointer_cast<void>(hostTensor),
+                                  nullptr, DeviceRuntime::TTNN);
+  } else {
+    LOG_WARNING("Unsupported storage type of output tensor. Cannot acquire "
+                "from device");
+    return opOutputTensorMap;
+  }
 
-  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-                DeviceRuntime::TTNN);
+  return opOutputTensorMap;
 }
 
-std::vector<float> getTensorData(Tensor tensor) {
-  const ::ttnn::Tensor *nnTensor =
-      static_cast<::ttnn::Tensor *>(tensor.handle.get());
-  if (nnTensor == nullptr) {
-    return {};
+std::unordered_map<std::uint32_t, std::vector<float>>
+getTensorData(std::unordered_map<std::uint32_t, Tensor> tensor_map) {
+  std::unordered_map<std::uint32_t, std::vector<float>> tensor_data_map;
+
+  for (auto tensor_element : tensor_map) {
+    auto device_id = tensor_element.first;
+    auto tensor = tensor_element.second;
+
+    const ::ttnn::Tensor *nnTensor =
+        static_cast<::ttnn::Tensor *>(tensor.handle.get());
+
+    if (nnTensor == nullptr) {
+      continue;
+    }
+
+    void *dataPtr = ::tt::tt_metal::get_raw_host_data_ptr(*nnTensor);
+    tensor_data_map[device_id] =
+        std::vector<float>(static_cast<float *>(dataPtr),
+                           static_cast<float *>(dataPtr) + nnTensor->volume());
   }
 
-  void *dataPtr = ::tt::tt_metal::get_raw_host_data_ptr(*nnTensor);
-  return std::vector<float>(static_cast<float *>(dataPtr),
-                            static_cast<float *>(dataPtr) + nnTensor->volume());
+  return tensor_data_map;
 }
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
