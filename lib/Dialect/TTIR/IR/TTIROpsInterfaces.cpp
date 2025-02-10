@@ -4,7 +4,6 @@
 
 #include <cstdint>
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
