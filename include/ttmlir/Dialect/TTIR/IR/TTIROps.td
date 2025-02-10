@@ -1837,7 +1837,8 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
 }
 
 //===----------------------------------------------------------------------===//
-// TTIR region ops (ops that may appear inside of ttir.generic region)
+// TTIR region ops (ops that may appear inside of ttir.generic region) 
+//    DEPRECATED: Generic region ops are moving to TTIRGenericRegionOps.td
 //===----------------------------------------------------------------------===//
 
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
@@ -1853,15 +1854,6 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
                          Variadic<AnyRankedTensorOrMemRef>:$inputs,
                          Variadic<AnyRankedTensorOrMemRef>:$outputs);
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
-}
-
-def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
-    let summary = "Yield op.";
-    let description = [{
-      Yield operation, this is required by MLIR to mark the end of a dispatch region.
-    }];
-
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 }
 
 //===----------------------------------------------------------------------===//
