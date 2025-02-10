@@ -2,21 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/ccl/all_gather.h"
-#include "operations/ccl/mesh_shard.h"
-#include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
-#include "operations/conv/conv_transpose2d.h"
+#include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
-#include "operations/creation/zeros.h"
 #include "operations/data_movement/concat.h"
-#include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
-#include "operations/data_movement/repeat.h"
-#include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/transpose.h"
@@ -32,19 +26,16 @@
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
-#include "operations/layout/to_dtype.h"
 #include "operations/layout/to_layout.h"
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
-#include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
-#include "operations/pool/upsample.h"
-#include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/dylib.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
@@ -77,10 +68,10 @@ public:
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputs,
       const std::vector<uint32_t> &programOutputs,
-      ::ttnn::MeshDevice *meshDevice)
+      const DylibHandleMap *programDylibHandles, ::ttnn::MeshDevice *meshDevice)
       : executableHandle(executableHandle),
         context(ProgramContext(liveTensors, programInputs, programOutputs,
-                               meshDevice)) {}
+                               programDylibHandles, meshDevice)) {}
 
   void runCallback(Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
@@ -166,9 +157,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), context);
   }
-  case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    return operations::layout::run(op->type_as_ToDTypeOp(), context);
-  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     return operations::layout::run(op->type_as_TypecastOp(), context);
   }
@@ -180,9 +168,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return operations::creation::run(op->type_as_EmptyOp(), context);
-  }
-  case ::tt::target::ttnn::OpType::ZerosOp: {
-    return operations::creation::run(op->type_as_ZerosOp(), context);
   }
   case ::tt::target::ttnn::OpType::OnesOp: {
     return operations::creation::run(op->type_as_OnesOp(), context);
@@ -201,12 +186,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
-  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    return operations::moreh::run(op->type_as_MorehCumSumOp(), context);
-  }
-  case ::tt::target::ttnn::OpType::ReductionProdOp: {
-    return operations::reduction::run(op->type_as_ReductionProdOp(), context);
-  }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return operations::reduction::run(op->type_as_ReductionOp(), context);
   }
@@ -223,9 +202,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::TransposeOp: {
     return operations::data_movement::run(op->type_as_TransposeOp(), context);
   }
-  case ::tt::target::ttnn::OpType::PadOp: {
-    return operations::data_movement::run(op->type_as_PadOp(), context);
-  }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), context);
   }
@@ -238,18 +214,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::SliceOp: {
     return operations::data_movement::run(op->type_as_SliceOp(), context);
   }
-  case ::tt::target::ttnn::OpType::RepeatOp: {
-    return operations::data_movement::run(op->type_as_RepeatOp(), context);
-  }
-  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
-    return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
-                                          context);
-  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), context);
-  }
-  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
-    return operations::conv::run(op->type_as_ConvTranspose2dOp(), context);
   }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     return operations::deletion::run(op->type_as_DeallocateOp(), context);
@@ -260,12 +226,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
   }
-  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
-    return operations::ccl::run(op->type_as_ReduceScatterOp(), context);
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    return operations::ccl::run(op->type_as_MeshShardOp(), context);
-  }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), context);
   }
@@ -275,8 +235,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     return operations::kv_cache::run(op->type_as_FillCacheOp(), context);
   }
-  case ::tt::target::ttnn::OpType::UpsampleOp: {
-    return operations::pool::run(op->type_as_UpsampleOp(), context);
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    return operations::cpu::run(op->type_as_CpuOp(), context);
   }
   default: {
     LOG_FATAL("Unsupported operation type");
@@ -298,6 +258,7 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
              "Program input size mismatch: ", program->inputs()->size(),
              " != ", inputs.size());
   for (::tt::target::TensorRef const *input : *program->inputs()) {
+    LOG_INFO("Adding input: ", input->global_id());
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
     LOG_ASSERT(inserted, "Duplicate input tensor");
@@ -307,9 +268,11 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   for (::tt::target::TensorRef const *output : *program->outputs()) {
     programOutputs.push_back(output->global_id());
   }
+  auto dylibMap = openDylibHandles(program);
   ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                           programOutputs, &meshDevice);
+                           programOutputs, &dylibMap, &meshDevice);
   executor.execute(program);
+  closeDylibHandles(dylibMap);
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;
 }
