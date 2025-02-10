@@ -359,6 +359,7 @@ class TTIRBuilder:
         op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
+        unit_attrs: List[str] = None,
         organize_ttir_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
