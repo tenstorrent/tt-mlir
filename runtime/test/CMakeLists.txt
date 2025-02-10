@@ -1,5 +1,9 @@
 add_subdirectory(include/tt/runtime/ttnn/test)
 
+if (NOT TTMLIR_ENABLE_RUNTIME_TESTS)
+  return()
+endif()
+
 if (NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL))
   message(FATAL_ERROR "Runtime tests require -DTTMLIR_ENABLE_RUNTIME=ON and at least one backend runtime to be enabled")
 endif()
