@@ -1837,7 +1837,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
 }
 
 //===----------------------------------------------------------------------===//
-// TTIR region ops (ops that may appear inside of ttir.generic region) 
+// TTIR region ops (ops that may appear inside of ttir.generic region)
 //    DEPRECATED: Generic region ops are moving to TTIRGenericRegionOps.td
 //===----------------------------------------------------------------------===//
 
