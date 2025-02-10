@@ -39,7 +39,7 @@ getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
 }
 
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
-  ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape;
+  ::tt::stl::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
     small_vector_shape.push_back(static_cast<uint32_t>(dim));
   }

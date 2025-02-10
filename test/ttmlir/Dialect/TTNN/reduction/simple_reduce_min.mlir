@@ -6,13 +6,9 @@ module attributes {} {
     %0 = tensor.empty() : tensor<128x32x4xf32>
     // CHECK: %[[MIN:[0-9]+]] = "ttnn.min"
     // CHECK-SAME: dim_arg = [1 : i32]
-    // CHECK-SAME: keep_dim = true
+    // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x32x4xf32,
-    // CHECK-SAME: -> tensor<128x1x32x4xf32,
-    // CHECK: "ttnn.reshape"(%[[MIN]])
-    // CHECK-SAME: shape = [128 : i32, 32 : i32, 4 : i32]
-    // CHECK-SAME: tensor<128x1x32x4xf32,
-    // CHECK-SAME: -> tensor<128x32x4xf32
+    // CHECK-SAME: -> tensor<128x32x4xf32,
     %1 = "ttir.min"(%arg0, %0) <{dim_arg = [1: i32], keep_dim = false}> : (tensor<128x10x32x4xf32>, tensor<128x32x4xf32>) -> tensor<128x32x4xf32>
     return %1 : tensor<128x32x4xf32>
   }
@@ -38,13 +34,9 @@ module attributes {} {
     %0 = tensor.empty() : tensor<128x4xf32>
     // CHECK: %[[MIN:[0-9]+]] = "ttnn.min"
     // CHECK-SAME: dim_arg = [1 : i32]
-    // CHECK-SAME: keep_dim = true
+    // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x4xf32,
-    // CHECK-SAME: -> tensor<128x1x4xf32,
-    // CHECK: "ttnn.reshape"(%[[MIN]])
-    // CHECK-SAME: shape = [128 : i32, 4 : i32]
-    // CHECK-SAME: tensor<128x1x4xf32,
-    // CHECK-SAME: -> tensor<128x4xf32
+    // CHECK-SAME: -> tensor<128x4xf32,
     %1 = "ttir.min"(%arg0, %0) <{dim_arg = [1: i32], keep_dim = false}> : (tensor<128x10x4xf32>, tensor<128x4xf32>) -> tensor<128x4xf32>
     return %1 : tensor<128x4xf32>
   }

@@ -17,23 +17,19 @@ namespace mlir::tt::ttnn {
 
 class OpModelBase : public OpModelFixture {
 public:
-  std::optional<
-      std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
-                 std::optional<std::string>>>
+  llvm::Expected<std::tuple<size_t, size_t, size_t>>
   getOpConstraints(Operation *op) {
     if (OpModel backend = dyn_cast<OpModel>(op)) {
       return backend.getOpConstraints(getInputLayouts(op), getOutputLayout(op));
     }
-    return std::nullopt;
+    return llvm::createStringError("Could not cast op to OpModel");
   }
 
-  std::optional<
-      std::tuple<bool, std::optional<size_t>, std::optional<std::string>>>
-  getOpRuntime(Operation *op) {
+  llvm::Expected<size_t> getOpRuntime(Operation *op) {
     if (OpModel backend = dyn_cast<OpModel>(op)) {
       return backend.getOpRuntime(getInputLayouts(op), getOutputLayout(op));
     }
-    return std::nullopt;
+    return llvm::createStringError("Could not cast op to OpModel");
   }
 
   std::vector<TTNNLayoutAttr> getInputLayouts(Operation *op) {
@@ -99,33 +95,23 @@ TEST_F(OpModelBase, ReluInterface) {
   relu->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test ReluOp interface
-  auto constraintsOpt = getOpConstraints(relu.getOperation());
-  if (constraintsOpt.has_value()) {
-    auto constraints = constraintsOpt.value();
-    EXPECT_EQ(std::get<bool>(constraints), true);
-    auto l1 = std::get<1>(constraints);
-    if (l1.has_value()) {
-      const auto &[cb_size, peak_size, output_size] = l1.value();
-      EXPECT_EQ(cb_size, 8192);
-      EXPECT_EQ(peak_size, 2048);
-      EXPECT_EQ(output_size, 2048);
-    } else {
-      FAIL() << "Missing L1 constraints; Error="
-             << std::get<2>(constraints).value() << std::endl;
-    }
+  auto constraintsExp = getOpConstraints(relu.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 8192);
+    EXPECT_EQ(peak_size, 2048);
+    EXPECT_EQ(output_size, 2048);
   } else {
-    FAIL() << "Failed to cast ReluOp to OpModel";
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeOpt = getOpRuntime(relu.getOperation());
-  if (runtimeOpt.has_value()) {
-    auto runtime = runtimeOpt.value();
-    EXPECT_TRUE(std::get<0>(runtime));
-    EXPECT_TRUE(std::get<1>(runtime).has_value());
-    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
-    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  auto runtimeExp = getOpRuntime(relu.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << "Failed to cast ReluOp to OpModel";
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 TEST_F(OpModelBase, SoftmaxInterface) {
@@ -140,32 +126,23 @@ TEST_F(OpModelBase, SoftmaxInterface) {
   softmax->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test SoftmaxOp interface
-  auto constraintsOpt = getOpConstraints(softmax.getOperation());
-  if (constraintsOpt.has_value()) {
-    auto constraints = constraintsOpt.value();
-    EXPECT_EQ(std::get<bool>(constraints), true);
-    auto l1 = std::get<1>(constraints);
-    if (l1.has_value()) {
-      const auto &[cb_size, peak_size, output_size] = l1.value();
-      EXPECT_EQ(cb_size, 137216);
-      EXPECT_EQ(peak_size, 2048);
-      EXPECT_EQ(output_size, 2048);
-    } else {
-      FAIL() << "Missing L1 constraints";
-    }
+  auto constraintsExp = getOpConstraints(softmax.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 137216);
+    EXPECT_EQ(peak_size, 2048);
+    EXPECT_EQ(output_size, 2048);
   } else {
-    FAIL() << "Failed to cast SoftmaxOp to OpModel";
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeOpt = getOpRuntime(softmax.getOperation());
-  if (runtimeOpt.has_value()) {
-    auto runtime = runtimeOpt.value();
-    EXPECT_TRUE(std::get<0>(runtime));
-    EXPECT_TRUE(std::get<1>(runtime).has_value());
-    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
-    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  auto runtimeExp = getOpRuntime(softmax.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << "Failed to cast SoftmaxOp to OpModel";
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 
@@ -182,32 +159,23 @@ TEST_F(OpModelBase, AddInterface) {
   add->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test AddOp interface
-  auto constraintsOpt = getOpConstraints(add.getOperation());
-  if (constraintsOpt.has_value()) {
-    auto constraints = constraintsOpt.value();
-    EXPECT_EQ(std::get<bool>(constraints), true);
-    auto l1 = std::get<1>(constraints);
-    if (l1.has_value()) {
-      const auto &[cb_size, peak_size, output_size] = l1.value();
-      EXPECT_EQ(cb_size, 12288);
-      EXPECT_EQ(peak_size, 2048);
-      EXPECT_EQ(output_size, 2048);
-    } else {
-      FAIL() << "Missing L1 constraints";
-    }
+  auto constraintsExp = getOpConstraints(add.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 12288);
+    EXPECT_EQ(peak_size, 2048);
+    EXPECT_EQ(output_size, 2048);
   } else {
-    FAIL() << "Failed to cast AddOp to OpModel";
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeOpt = getOpRuntime(add.getOperation());
-  if (runtimeOpt.has_value()) {
-    auto runtime = runtimeOpt.value();
-    EXPECT_TRUE(std::get<0>(runtime));
-    EXPECT_TRUE(std::get<1>(runtime).has_value());
-    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
-    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  auto runtimeExp = getOpRuntime(add.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << "Failed to cast AddOp to OpModel";
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 
@@ -227,32 +195,23 @@ TEST_F(OpModelBase, MatmulInterface) {
   matmul->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test MatmulOp interface
-  auto constraintsOpt = getOpConstraints(matmul.getOperation());
-  if (constraintsOpt.has_value()) {
-    auto constraints = constraintsOpt.value();
-    EXPECT_EQ(std::get<bool>(constraints), true);
-    auto l1 = std::get<1>(constraints);
-    if (l1.has_value()) {
-      const auto &[cb_size, peak_size, output_size] = l1.value();
-      EXPECT_EQ(cb_size, 786432);
-      EXPECT_EQ(peak_size, 131072);
-      EXPECT_EQ(output_size, 131072);
-    } else {
-      FAIL() << "Missing L1 constraints";
-    }
+  auto constraintsExp = getOpConstraints(matmul.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 786432);
+    EXPECT_EQ(peak_size, 131072);
+    EXPECT_EQ(output_size, 131072);
   } else {
-    FAIL() << "Failed to cast MatmulOp to OpModel";
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeOpt = getOpRuntime(matmul.getOperation());
-  if (runtimeOpt.has_value()) {
-    auto runtime = runtimeOpt.value();
-    EXPECT_TRUE(std::get<0>(runtime));
-    EXPECT_TRUE(std::get<1>(runtime).has_value());
-    EXPECT_TRUE(std::get<1>(runtime).value() > 0);
-    EXPECT_FALSE(std::get<2>(runtime).has_value());
+  auto runtimeExp = getOpRuntime(matmul.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
-    FAIL() << "Failed to cast MatmulOp to OpModel";
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 

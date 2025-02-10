@@ -19,7 +19,7 @@ void registerTTNNToFlatbuffer() {
   TranslateFromMLIRRegistration reg(
       "ttnn-to-flatbuffer", "translate ttnn to flatbuffer",
       [](Operation *op, llvm::raw_ostream &os) -> LogicalResult {
-        return translateTTNNToFlatbuffer(op, os, {});
+        return translateTTNNToFlatbuffer(op, os, {}, {});
       },
       [](DialectRegistry &registry) {
         // clang-format off

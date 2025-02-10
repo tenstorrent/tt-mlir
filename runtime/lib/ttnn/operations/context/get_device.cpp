@@ -12,7 +12,6 @@ namespace tt::runtime::ttnn::operations::context {
 
 using ::tt::tt_metal::distributed::MeshOffset;
 using ::tt::tt_metal::distributed::MeshShape;
-using ::tt::tt_metal::distributed::MeshType;
 
 static MeshOffset
 calculateMeshOffset(const ::ttnn::MeshDevice &parentMesh,
@@ -37,7 +36,7 @@ createSubMesh(::ttnn::MeshDevice &parentMesh,
   MeshShape meshShape(subMeshShape->y(), subMeshShape->x());
   MeshOffset offset =
       calculateMeshOffset(parentMesh, desiredDeviceIds, subMeshShape);
-  return parentMesh.create_submesh(meshShape, offset, MeshType::RowMajor);
+  return parentMesh.create_submesh(meshShape, offset);
 }
 
 void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {

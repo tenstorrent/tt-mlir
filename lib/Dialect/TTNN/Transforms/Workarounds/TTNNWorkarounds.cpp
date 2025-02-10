@@ -426,13 +426,13 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNAllReduceWorkarounds,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::SumOp>,
+                       ttnn::SumOp, /*keepDimUnsupported*/ false>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MaxOp>,
+                       ttnn::MaxOp, /*keepDimUnsupported*/ false>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MeanOp>,
+                       ttnn::MeanOp, /*keepDimUnsupported*/ false>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
-                       ttnn::MinOp>,
+                       ttnn::MinOp, /*keepDimUnsupported*/ false>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
                        ttnn::SumOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
