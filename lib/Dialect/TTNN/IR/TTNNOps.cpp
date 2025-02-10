@@ -1683,14 +1683,6 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
 
   int64_t inputTensorRank = inputType.getRank();
 
-  // TODO(mrakita): Only last two dimensions can be reduced, check for that
-  // too.
-  if (reduceDims && reduceDims->size() > 2 &&
-      static_cast<int64_t>(reduceDims->size()) != inputTensorRank) {
-    return reduceOp->emitOpError("Reduce on more than two dimensions is not "
-                                 "currently supported by TTNN");
-  }
-
   // Calculate output shape for given args.
   //
   llvm::SmallVector<int64_t> calculatedOutputShape;
