@@ -21,7 +21,7 @@ class TTIR_TileOp<string mnemonic, list<Trait> traits = [TTIR_TileOpTrait]> :
 def TTIR_TileAddOp : TTIR_TileOp<"tile_add">{
     let summary = "TTIR Tile Add Op";
     let description = [{
-        The `tile_add` operation adds two tensors element-wise.
+        The `tile_add` operation adds two tiles element-wise.
     }];
 
     let arguments = (ins TT_Tile:$lhs, 
@@ -32,7 +32,7 @@ def TTIR_TileAddOp : TTIR_TileOp<"tile_add">{
 def TTIR_TileSubOp : TTIR_TileOp<"tile_sub">{
     let summary = "TTIR Tile Sub Op";
     let description = [{
-        The `tile_sub` operation subtracts two tensors element-wise.
+        The `tile_sub` operation subtracts two tiles element-wise.
     }];
 
     let arguments = (ins TT_Tile:$lhs, 
@@ -43,7 +43,7 @@ def TTIR_TileSubOp : TTIR_TileOp<"tile_sub">{
 def TTIR_TileMulOp : TTIR_TileOp<"tile_mul">{
     let summary = "TTIR Tile Mul Op";
     let description = [{
-        The `tile_mul` operation multiplies two tensors element-wise.
+        The `tile_mul` operation multiplies two tiles element-wise.
     }];
 
     let arguments = (ins TT_Tile:$lhs, 
@@ -54,7 +54,7 @@ def TTIR_TileMulOp : TTIR_TileOp<"tile_mul">{
 def TTIR_TileRecipOp : TTIR_TileOp<"tile_recip">{
     let summary = "TTIR Tile Recip Op";
     let description = [{
-        The `tile_recip` operation computes the reciprocal of each element in the input tensor.
+        The `tile_recip` operation computes the reciprocal of each element in the input tile.
     }];
 
     let arguments = (ins TT_Tile:$input);
@@ -64,7 +64,7 @@ def TTIR_TileRecipOp : TTIR_TileOp<"tile_recip">{
 def TTIR_TileExpOp : TTIR_TileOp<"tile_exp">{
     let summary = "TTIR Tile Exp Op";
     let description = [{
-        The `tile_exp` operation computes the exponential of each element in the input tensor.
+        The `tile_exp` operation computes the exponential of each element in the input tile.
     }];
 
     let arguments = (ins TT_Tile:$input);
@@ -74,7 +74,7 @@ def TTIR_TileExpOp : TTIR_TileOp<"tile_exp">{
 def TTIR_TileLogOp : TTIR_TileOp<"tile_log">{
     let summary = "TTIR Tile Log Op";
     let description = [{
-        The `tile_log` operation computes the natural logarithm of each element in the input tensor.
+        The `tile_log` operation computes the natural logarithm of each element in the input tile.
     }];
 
     let arguments = (ins TT_Tile:$input);
@@ -84,11 +84,11 @@ def TTIR_TileLogOp : TTIR_TileOp<"tile_log">{
 def TTIR_TileReduceSumOp : TTIR_TileOp<"tile_reduce_sum">{
     let summary = "TTIR Tile Reduce Sum Op";
     let description = [{
-        The `tile_reduce_sum` operation computes the sum of all elements in the input tensor over the specified reduction dims.
+        The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
     }];
 
-    let arguments = (ins TT_Tile:$a, 
-                         TT_Tile:$b,
+    let arguments = (ins TT_Tile:$input, 
+                         TT_Tile:$weight,
                          OptionalAttr<I32ArrayAttr>:$dim_arg);
     let results = (outs TT_Tile:$result);
 }
@@ -96,11 +96,10 @@ def TTIR_TileReduceSumOp : TTIR_TileOp<"tile_reduce_sum">{
 def TTIR_TileReduceMaxOp : TTIR_TileOp<"tile_reduce_max">{
     let summary = "TTIR Tile Reduce Max Op";
     let description = [{
-        The `tile_reduce_max` operation computes the max of all elements in the input tensor over the specified reduction dims.
+        The `tile_reduce_max` operation computes the max of all elements in the input tile over the specified reduction dim(s).
     }];
 
-    let arguments = (ins TT_Tile:$a, 
-                         TT_Tile:$b,
+    let arguments = (ins TT_Tile:$input, 
                          OptionalAttr<I32ArrayAttr>:$dim_arg);
     let results = (outs TT_Tile:$result);
 }
