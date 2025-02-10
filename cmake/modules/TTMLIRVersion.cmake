@@ -13,6 +13,7 @@ execute_process(
   OUTPUT_VARIABLE GIT_TAG
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
+message(TODO_remove_this_GIT_TAG_is "[${GIT_TAG}]")
 
 # get the number of commits since the latest tag
 execute_process(
