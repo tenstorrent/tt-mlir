@@ -6,7 +6,7 @@ module @jit_predict attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas
   func.func public @main(%arg0: tensor<512x784xf32> {mhlo.layout_mode = "default"}, %arg1: tensor<512xf32> {mhlo.layout_mode = "default"}, %arg2: tensor<10x512xf32> {mhlo.layout_mode = "default"}, %arg3: tensor<10xf32> {mhlo.layout_mode = "default"}, %arg4: tensor<128x784xui8> {mhlo.layout_mode = "default"}) -> (tensor<128x10xf32> {jax.result_info = "", mhlo.layout_mode = "default"}) {
     %0 = stablehlo.convert %arg0 : tensor<512x784xf32>
     %1 = stablehlo.convert %arg4 : (tensor<128x784xui8>) -> tensor<128x784xf32>
-    %2 = stablehlo.dot_general %0, %1, contracting_dims = [1] x [1], precision = [DEFAULT, DEFAULT] : (tensor<512x784xf32>, tensor<128x784xf32>) -> tensor<512x128xf32>
+  %2 = stablehlo.dot_general %0, %1, contracting_dims = [1] x [1], precision = [DEFAULT, DEFAULT] : (tensor<512x784xf32>, tensor<128x784xf32>) -> tensor<512x128xf32>
     %3 = stablehlo.transpose %2, dims = [1, 0] : (tensor<512x128xf32>) -> tensor<128x512xf32>
     %4 = stablehlo.broadcast_in_dim %arg1, dims = [1] : (tensor<512xf32>) -> tensor<1x512xf32>
     %5 = stablehlo.broadcast_in_dim %4, dims = [0, 1] : (tensor<1x512xf32>) -> tensor<128x512xf32>

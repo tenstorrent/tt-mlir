@@ -1086,31 +1086,44 @@ def TTIR_ConvTranspose2dOp : TTIR_DPSOp<"conv_transpose2d"> {
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
 
       Inputs:
-      - `input` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
-      - `weight` AnyRankedTensor: OIHW format (output_channels x input_channels x height x width)
-      - `bias` Optional<AnyRankedTensor>: (1 x 1 x 1 x output_channels)
-      - `output` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
+        - `input` AnyRankedTensor: expected in the following format (N, H_in, W_in, C) where:
+          - N is the batch size
+          - H_in is the height of the input planes
+          - W_in is the width of the input planes
+          - C is the number of channels
+
+        - `weight` AnyRankedTensor: expected in the following format (C, O/G, K_H, K_W).
+        - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O) where:
+          - C is the number of input channels
+          - O is the number of output channels
+          - G is the number of groups
+          - K_H is the height of the kernel
+          - K_W is the width of the kernel
+
+        - `output` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
+          - H_out = (H_in - 1) * stride[0] - (padding_top + padding_bottom) + dilation[0] * (K_H - 1) + output_padding[0] + 1
+          - W_out = (W_in - 1) * stride[1] - (padding_left + padding_right) + dilation[1] * (K_W - 1) + output_padding[1] + 1
 
       Attributes:
-      - `stride` (i32 | array<i32>): Controls the stride for the cross-correlation.
-      - `padding` (i32 | array<i32>): Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
-      - `output_padding` (i32 | array<i32>): Controls the additional size added to one side of the output shape.
-      - `dilation` (i32 | array<i32>): Controls the spacing between the kernel points
-      - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+        - `stride` (i32 | array<2xi32>): Controls the stride for the cross-correlation.
+        - `padding` (i32 | array<2xi32> | array<4xi32>): Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
+        - `output_padding` (i32 | array<2xi32>): Controls the additional size added to one side of the output shape.
+        - `dilation` (i32 | array<2xi32>): Controls the spacing between the kernel points
+        - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
 
       Example:
-        %input = tensor.empty() : () -> tensor<256x256x3x3xbf16>
+        %input = tensor.empty() : () -> tensor<3x8x8x256xbf16>
         %weight = tensor.empty() : () -> tensor<256x256x3x3xbf16>
         %bias = tensor.empty() : () -> tensor<1x1x1x256xbf16>
         %output = tensor.empty() : () -> tensor<1x10x10x256xbf16>
         %0 = "ttir.conv_transpose2d"(%input, %weight, %bias, %output)
           <{
-            stride = = array<i32: 1, 1>,
+            stride = 1: i32,
             padding = 0: i32,
             output_padding = 0: i32,
             dilation = 1: i32,
             groups = 1: i32
-          > : (tensor<1x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<1x10x10x256xbf16>) -> tensor<1x10x10x256xbf16>
+          > : (tensor<3x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<3x10x10x256xbf16>) -> tensor<3x10x10x256xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

@@ -108,7 +108,7 @@ module attributes {} {
 module attributes {} {
   func.func @conv_transpose2d_invalid_padding_shape(%arg0: tensor<1x8x8x256xbf16>, %arg1: tensor<256x256x3x3xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<1x10x10x256xbf16> {
     %0 = tensor.empty() : tensor<1x10x10x256xbf16>
-    // CHECK: error: 'ttir.conv_transpose2d' op Expected integer or pair of integers, got tuple of size 3 for padding
+    // CHECK: error: 'ttir.conv_transpose2d' op Expected integer, pair, or tuple of size 4, but got tuple of size 3 for padding
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,

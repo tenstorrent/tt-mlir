@@ -1045,30 +1045,40 @@ public:
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
 
-    std::function<int64_t(const RankedTensorType &, int)> getLastDim =
-        [](const RankedTensorType &ty, int offset = 1) {
-          return ty.getShape()[ty.getRank() - offset];
-        };
-
-    auto inChannelsAttr = rewriter.getI32IntegerAttr(getLastDim(inputTy, 1));
-    auto outChannelsAttr = rewriter.getI32IntegerAttr(getLastDim(outputTy, 1));
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(getLastDim(inputTy, 4));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(getLastDim(inputTy, 3));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(getLastDim(inputTy, 2));
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
+    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
+    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
 
     auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(getLastDim(kernelTy, 2)),
-         static_cast<int32_t>(getLastDim(kernelTy, 1))});
+        {static_cast<int32_t>(kernelTy.getDimSize(2)),
+         static_cast<int32_t>(kernelTy.getDimSize(3))});
 
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {
       return LogicalResult::failure();
     }
 
-    auto paddingAttr = attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter);
+    auto paddingAttr =
+        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
     if (auto error = paddingAttr.takeError()) {
       return LogicalResult::failure();
     }
+
+    auto paddingArrayRef = paddingAttr->asArrayRef();
+    if (paddingArrayRef[0] != paddingArrayRef[1] ||
+        paddingArrayRef[2] != paddingArrayRef[3]) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "TTNN only supports padding height/width attributes. Thus, "
+          "padding_top/padding_left must equal padding_bottom/padding_right "
+          "for the op to execute as expected.");
+    }
+
+    // Padding only supports 2 values in ttnn
+    auto reducedPaddingAttr =
+        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
 
     auto outputPaddingAttr =
         attrToDenseI32ArrayAttr(adaptor.getOutputPadding(), rewriter);
@@ -1106,7 +1116,7 @@ public:
         op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
         adaptor.getBias(), convDPSOutput, device, inChannelsAttr,
         outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
-        kernelSizeAttr, *strideAttr, *paddingAttr, *outputPaddingAttr,
+        kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
         *dilationAttr, groupsAttr);
 
     // Restore the normal shape (N x H x W x C)
@@ -1120,13 +1130,35 @@ public:
 private:
   llvm::Expected<DenseI32ArrayAttr>
   attrToDenseI32ArrayAttr(mlir::Attribute attr,
-                          ConversionPatternRewriter &rewriter) const {
-    auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
-    if (auto error = pair.takeError()) {
-      return error;
+                          ConversionPatternRewriter &rewriter,
+                          uint32_t elementCount = 2) const {
+    switch (elementCount) {
+    case 2: {
+      // Handles attributes requiring 2 spatial dimensions (e.g., stride,
+      // dilation). Converts the attribute into a pair of integers.
+      auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
+      if (auto error = pair.takeError()) {
+        return std::move(error);
+      }
+      return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
     }
-
-    return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
+    case 4: {
+      // Handles attributes requiring 4 spatial dimensions (e.g., padding in
+      // this case). Converts the attribute into a quadruple of integers.
+      auto quadruple = ttmlir::utils::getQuadrupleOfInteger<int32_t>(attr);
+      if (auto error = quadruple.takeError()) {
+        return std::move(error);
+      }
+      return rewriter.getDenseI32ArrayAttr(
+          {std::get<0>(*quadruple), std::get<1>(*quadruple),
+           std::get<2>(*quadruple), std::get<3>(*quadruple)});
+    }
+    default: {
+      return llvm::createStringError(std::errc::invalid_argument,
+                                     "Unsupported element count: %d",
+                                     elementCount);
+    }
+    }
   }
 };
 } // namespace

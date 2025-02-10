@@ -20,6 +20,7 @@ set(TTMLIR_LIBS
     TTMLIRTTIRToTTIRDecomposition
     TTMLIRTTIRToTTNN
     TTMLIRTTIRToTTMetal
+    TTLLVMToDynamicLib
     MLIRTTMetalDialect
     MLIRTTIRTransforms
     MLIRTTNNTransforms

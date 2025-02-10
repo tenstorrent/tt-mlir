@@ -97,10 +97,11 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, name: "perf", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, enable_async: OFF, name: "emitc", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: ON, name: "async", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, enable_async: OFF, enable_runtime_debug: OFF, name: "emitc", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: ON, enable_runtime_debug: OFF, name: "async", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "runtime_debug", ttrt_flags: ""},
         ]
 
     name: Build and test tt-mlir (compute machine)
@@ -119,7 +120,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "Build and test tt-mlir (compute machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.name }})"
+        job_name: "Build and test tt-mlir (compute machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
 
     - name: Set reusable strings
       id: strings
@@ -139,7 +140,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-emitc-${{ matrix.build.enable_emitc }}-async-${{ matrix.build.enable_async }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-emitc-${{ matrix.build.enable_emitc }}-async-${{ matrix.build.enable_async }}-runtime_debug-${{ matrix.build.enable_runtime_debug}}-${{ env.SDK_VERSION }}
 
     - name: Run build and test tt-mlir
       uses: ./.github/actions/build-tt-mlir-action
@@ -148,6 +149,7 @@ jobs:
         enable-op-model: ${{ matrix.build.enable_op_model }}
         enable-emitc: ${{ matrix.build.enable_emitc }}
         enable-async: ${{ matrix.build.enable_async }}
+        enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
@@ -171,8 +173,11 @@ jobs:
           {runs-on: n150, enable_perf: OFF, enable_emitc: ON, enable_async: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          {runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: llmbox, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          #{runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          #{runs-on: tg, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.build_name }})"
 
