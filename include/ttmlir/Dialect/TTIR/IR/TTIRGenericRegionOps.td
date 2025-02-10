@@ -37,7 +37,7 @@ def TTIR_TileAddOp : TTIR_GenericRegionOp<"tile_add">{
         The `tile_add` operation adds two tiles element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs, 
+    let arguments = (ins TT_Tile:$lhs,
                          TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
 }
@@ -48,7 +48,7 @@ def TTIR_TileSubOp : TTIR_GenericRegionOp<"tile_sub">{
         The `tile_sub` operation subtracts two tiles element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs, 
+    let arguments = (ins TT_Tile:$lhs,
                          TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
 }
@@ -59,7 +59,7 @@ def TTIR_TileMulOp : TTIR_GenericRegionOp<"tile_mul">{
         The `tile_mul` operation multiplies two tiles element-wise.
     }];
 
-    let arguments = (ins TT_Tile:$lhs, 
+    let arguments = (ins TT_Tile:$lhs,
                          TT_Tile:$rhs);
     let results = (outs TT_Tile:$result);
 }
@@ -100,7 +100,7 @@ def TTIR_TileReduceSumOp : TTIR_GenericRegionOp<"tile_reduce_sum">{
         The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
     }];
 
-    let arguments = (ins TT_Tile:$input, 
+    let arguments = (ins TT_Tile:$input,
                          TT_Tile:$weight,
                          TTIR_ReduceDim:$dim_arg);
     let results = (outs TT_Tile:$result);
@@ -112,7 +112,7 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
         The `tile_reduce_max` operation computes the max of all elements in the input tile over the specified reduction dim(s).
     }];
 
-    let arguments = (ins TT_Tile:$input, 
+    let arguments = (ins TT_Tile:$input,
                          TTIR_ReduceDim:$dim_arg);
     let results = (outs TT_Tile:$result);
 }
@@ -123,7 +123,7 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block">{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$a, 
+    let arguments = (ins AnyNon0RankedMemRef:$a,
                          AnyNon0RankedMemRef:$b);
     let results = (outs AnyNon0RankedMemRef:$result);
 
