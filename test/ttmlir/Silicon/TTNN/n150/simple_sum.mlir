@@ -3,10 +3,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
-// These tests are currently failing until a fix for this issue is uplifted
-// with new version of Metal: https://github.com/tenstorrent/tt-metal/issues/16104
-// TODO(mrakita): Enable and edit these tests after the Metal issue is fixed.
-// Tracked by: https://github.com/tenstorrent/tt-mlir/issues/1640
 
 module {
   func.func public @reduce_not_keep_dim(%arg0: tensor<128x10xf32>) -> tensor<128xf32> {
