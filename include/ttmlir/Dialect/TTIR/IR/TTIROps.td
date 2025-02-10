@@ -806,6 +806,28 @@ def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
     }];
 }
 
+def TTIR_ReduceOrOp : TTIR_ReductionOp<"reduce_or"> {
+    let summary = "Or reduction op.";
+    let description = [{
+      Reduces a given tensor using logical or operator along the given dimension(s).
+
+      Example:
+        input: [[True,  False, False, False],
+                [True,  True,  False, True],
+                [False, False, False, True],
+                [False, False, False, False]]
+
+        // Reduction along dim 0
+        output: [True, True, False, True]
+
+        // Reduction along dim 1
+        output: [True, True, True, False]
+
+        // Reduction for both dimensions (entire tensor)
+        output: [True]
+    }];
+}
+
 def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
   let summary = "Product reduction op.";
   let description = [{

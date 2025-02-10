@@ -2564,6 +2564,22 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 }
 
 //===----------------------------------------------------------------------===//
+// ReduceOrOp
+//===----------------------------------------------------------------------===//
+
+// ReduceOrOp kernel builder.
+void mlir::tt::ttir::ReduceOrOp::buildGenericRegion(
+    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "or");
+}
+
+// ReduceOrOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ReduceOrOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
 // Reduce ArgMaxOp
 //===----------------------------------------------------------------------===//
 
