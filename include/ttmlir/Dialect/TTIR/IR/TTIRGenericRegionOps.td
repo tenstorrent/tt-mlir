@@ -10,6 +10,8 @@ include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
+include "mlir/Interfaces/ControlFlowInterfaces.td"
+
 class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRegionOpTrait]> :
     TTIR_Op<mnemonic, !listconcat([HasParent<"GenericOp">], traits)> {
 }
@@ -17,6 +19,17 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRe
 //===----------------------------------------------------------------------===//
 // TTIR Generic Region Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
+
+def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
+
+def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator, TTIR_GenericRegionOpTrait, ParentOneOf<["GenericOp", "ScatterOp"]>]> {
+    let summary = "Yield op.";
+    let description = [{
+      Yield operation, this is required by MLIR to mark the end of a dispatch region.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+}
 
 def TTIR_TileAddOp : TTIR_GenericRegionOp<"tile_add">{
     let summary = "TTIR Tile Add Op";
