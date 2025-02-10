@@ -244,7 +244,7 @@ void populatePassesModule(py::module &m) {
                        ::tt::target::DataType dtype, std::uintptr_t ptr,
                        std::size_t dataSize) {
         // Create Golden Tensor and move ownership to GoldenTensor
-        auto dataPtr = reinterpret_cast<std::uint8_t *>(ptr);
+        auto *dataPtr = reinterpret_cast<std::uint8_t *>(ptr);
 
         return std::make_shared<mlir::tt::GoldenTensor>(
             name, shape, strides, dtype,
