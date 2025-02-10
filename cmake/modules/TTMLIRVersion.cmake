@@ -6,6 +6,14 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
+execute_process(
+  COMMAND bash "-c" "git tag --merged main --sort=-taggerdate"
+  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+  OUTPUT_VARIABLE VLAD_TRACE
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+message(TODO_remove_this_VLAD_TRACE_is "[${VLAD_TRACE}]")
+
 # get the latest tag from git, reachable from 'main' branch and matching 'v<major>.<minor>' format
 execute_process(
   COMMAND bash "-c" "git tag --merged main --sort=-taggerdate | egrep '^v([0-9]+)\.([0-9]+)$' | head -1"
