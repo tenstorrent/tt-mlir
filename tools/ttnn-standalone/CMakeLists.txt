@@ -71,6 +71,7 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
     $ENV{TT_METAL_HOME}/tt_metal/include
+    $ENV{TT_METAL_HOME}/tt_metal/tt_stl
     $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
     $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
     $ENV{TT_METAL_HOME}/tt_metal/third_party/taskflow
