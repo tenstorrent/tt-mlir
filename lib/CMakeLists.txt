@@ -46,17 +46,3 @@ target_link_libraries(TTMLIRCompiler PRIVATE
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 
 install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
-
-install(CODE
-    "
-    MESSAGE(STATUS \"Installing tt-mlir runtime shared lib dependencies (${TTMLIR_COMPILER_DEPS}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
-    file(
-        INSTALL
-        ${TTMLIR_COMPILER_DEPS}
-        DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
-        TYPE SHARED_LIBRARY
-        FOLLOW_SYMLINK_CHAIN
-    )"
-    COMPONENT SharedLib
-    EXCLUDE_FROM_ALL
-)

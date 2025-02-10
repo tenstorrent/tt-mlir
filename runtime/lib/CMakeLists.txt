@@ -75,8 +75,11 @@ add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntim
 if (TTMLIR_ENABLE_RUNTIME)
   set_target_properties(TTMLIRRuntime PROPERTIES PUBLIC_HEADER "../include/tt/runtime/runtime.h;../include/tt/runtime/types.h;../include/tt/runtime/utils.h")
   install(TARGETS TTMLIRRuntime
-        LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime
+        COMPONENT SharedLib
+  )
+  install(TARGETS TTMLIRRuntime
+        LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
         COMPONENT SharedLib
   )
 endif()
