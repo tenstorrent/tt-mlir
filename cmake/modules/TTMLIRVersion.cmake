@@ -7,7 +7,7 @@ execute_process(
 )
 
 execute_process(
-  COMMAND bash "-c" "git tag --merged main --sort=-taggerdate"
+  COMMAND bash "-c" "git status"
   WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
   OUTPUT_VARIABLE VLAD_TRACE
   OUTPUT_STRIP_TRAILING_WHITESPACE
