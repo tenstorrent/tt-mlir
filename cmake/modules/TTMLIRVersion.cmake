@@ -6,9 +6,9 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-# get the latest tag from Git
+# get the latest tag from git, reachable from 'main' branch and matching 'v<major>.<minor>' format
 execute_process(
-  COMMAND git describe --tags --abbrev=0
+  COMMAND bash "-c" "git tag --merged main --sort=-taggerdate | egrep '^v([0-9]+)\\.([0-9]+)$' | head -1"
   WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
   OUTPUT_VARIABLE GIT_TAG
   OUTPUT_STRIP_TRAILING_WHITESPACE
