@@ -2,23 +2,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTILEOPS_TD
-#define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTILEOPS_TD
+#ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD
+#define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD
 
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
-class TTIR_TileOp<string mnemonic, list<Trait> traits = [TTIR_TileOpTrait]> :
+class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRegionOpTrait]> :
     TTIR_Op<mnemonic, !listconcat([HasParent<"GenericOp">], traits)> {
 }
 
 //===----------------------------------------------------------------------===//
-// TTIR Tile Ops (Used in TTMetal Lowering)
+// TTIR Generic Region Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_TileAddOp : TTIR_TileOp<"tile_add">{
+def TTIR_TileAddOp : TTIR_GenericRegionOp<"tile_add">{
     let summary = "TTIR Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise.
@@ -29,7 +29,7 @@ def TTIR_TileAddOp : TTIR_TileOp<"tile_add">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileSubOp : TTIR_TileOp<"tile_sub">{
+def TTIR_TileSubOp : TTIR_GenericRegionOp<"tile_sub">{
     let summary = "TTIR Tile Sub Op";
     let description = [{
         The `tile_sub` operation subtracts two tiles element-wise.
@@ -40,7 +40,7 @@ def TTIR_TileSubOp : TTIR_TileOp<"tile_sub">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMulOp : TTIR_TileOp<"tile_mul">{
+def TTIR_TileMulOp : TTIR_GenericRegionOp<"tile_mul">{
     let summary = "TTIR Tile Mul Op";
     let description = [{
         The `tile_mul` operation multiplies two tiles element-wise.
@@ -51,7 +51,7 @@ def TTIR_TileMulOp : TTIR_TileOp<"tile_mul">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileRecipOp : TTIR_TileOp<"tile_recip">{
+def TTIR_TileRecipOp : TTIR_GenericRegionOp<"tile_recip">{
     let summary = "TTIR Tile Recip Op";
     let description = [{
         The `tile_recip` operation computes the reciprocal of each element in the input tile.
@@ -61,7 +61,7 @@ def TTIR_TileRecipOp : TTIR_TileOp<"tile_recip">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileExpOp : TTIR_TileOp<"tile_exp">{
+def TTIR_TileExpOp : TTIR_GenericRegionOp<"tile_exp">{
     let summary = "TTIR Tile Exp Op";
     let description = [{
         The `tile_exp` operation computes the exponential of each element in the input tile.
@@ -71,7 +71,7 @@ def TTIR_TileExpOp : TTIR_TileOp<"tile_exp">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileLogOp : TTIR_TileOp<"tile_log">{
+def TTIR_TileLogOp : TTIR_GenericRegionOp<"tile_log">{
     let summary = "TTIR Tile Log Op";
     let description = [{
         The `tile_log` operation computes the natural logarithm of each element in the input tile.
@@ -81,7 +81,7 @@ def TTIR_TileLogOp : TTIR_TileOp<"tile_log">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileReduceSumOp : TTIR_TileOp<"tile_reduce_sum">{
+def TTIR_TileReduceSumOp : TTIR_GenericRegionOp<"tile_reduce_sum">{
     let summary = "TTIR Tile Reduce Sum Op";
     let description = [{
         The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
@@ -93,7 +93,7 @@ def TTIR_TileReduceSumOp : TTIR_TileOp<"tile_reduce_sum">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileReduceMaxOp : TTIR_TileOp<"tile_reduce_max">{
+def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
     let summary = "TTIR Tile Reduce Max Op";
     let description = [{
         The `tile_reduce_max` operation computes the max of all elements in the input tile over the specified reduction dim(s).
@@ -104,7 +104,7 @@ def TTIR_TileReduceMaxOp : TTIR_TileOp<"tile_reduce_max">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block">{
+def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block">{
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
@@ -117,4 +117,4 @@ def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block">{
     let hasVerifier = 1;
 }
 
-#endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTILEOPS_TD
+#endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD

@@ -68,8 +68,8 @@ public:
 };
 
 template <typename ConcreteType>
-class TTIRTileOpTrait
-    : public mlir::OpTrait::TraitBase<ConcreteType, TTIRTileOpTrait> {
+class TTIRGenericRegionOpTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTIRGenericRegionOpTrait> {
 };
 
 } // namespace OpTrait
