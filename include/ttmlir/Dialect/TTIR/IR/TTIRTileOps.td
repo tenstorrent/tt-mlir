@@ -89,7 +89,7 @@ def TTIR_TileReduceSumOp : TTIR_TileOp<"tile_reduce_sum">{
 
     let arguments = (ins TT_Tile:$input, 
                          TT_Tile:$weight,
-                         OptionalAttr<I32ArrayAttr>:$dim_arg);
+                         TTIR_ReduceDim:$dim_arg);
     let results = (outs TT_Tile:$result);
 }
 
@@ -100,7 +100,7 @@ def TTIR_TileReduceMaxOp : TTIR_TileOp<"tile_reduce_max">{
     }];
 
     let arguments = (ins TT_Tile:$input, 
-                         OptionalAttr<I32ArrayAttr>:$dim_arg);
+                         TTIR_ReduceDim:$dim_arg);
     let results = (outs TT_Tile:$result);
 }
 
