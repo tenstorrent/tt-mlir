@@ -41,6 +41,7 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/pool/upsample.h"
+#include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
@@ -203,6 +204,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   // ANCHOR_END: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
     return operations::moreh::run(op->type_as_MorehCumSumOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
+    return operations::reduction::run(op->type_as_ReductionArgMaxOp(), context);
   }
   case ::tt::target::ttnn::OpType::ReductionProdOp: {
     return operations::reduction::run(op->type_as_ReductionProdOp(), context);
