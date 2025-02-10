@@ -6,22 +6,14 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
+# get the latest tag from git matching 'v<major>.<minor>' format
+# (note: matching a glob(7) pattern, not a regex)
 execute_process(
-  COMMAND bash "-c" "git tag"
-  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-  OUTPUT_VARIABLE VLAD_TRACE
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-message(TODO_remove_this_VLAD_TRACE_is "[${VLAD_TRACE}]")
-
-# get the latest tag from git, reachable from 'main' branch and matching 'v<major>.<minor>' format
-execute_process(
-  COMMAND bash "-c" "git tag --merged main --sort=-taggerdate | egrep '^v([0-9]+)\.([0-9]+)$' | head -1"
+  COMMAND git describe --tags --match 'v[0-9]*.[0-9]*' --abbrev=0
   WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
   OUTPUT_VARIABLE GIT_TAG
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-message(TODO_remove_this_GIT_TAG_is "[${GIT_TAG}]")
 
 # get the number of commits since the latest tag
 execute_process(
