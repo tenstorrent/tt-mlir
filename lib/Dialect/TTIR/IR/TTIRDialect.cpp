@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 
 #include "mlir/InitAllDialects.h"
 #include "mlir/Interfaces/FoldInterfaces.h"
@@ -97,7 +97,7 @@ void TTIRDialect::initialize() {
       >();
   addOperations<
 #define GET_OP_LIST
-#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.cpp.inc"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"
       >();
   addInterfaces<TTIRInlinerInterface, TTIRDialectFoldInterface>();
   addAttributes<

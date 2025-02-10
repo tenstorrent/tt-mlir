@@ -65,7 +65,7 @@ def TTIR_Idempotence : TTIR_Trait<"TTIRIdempotence", [DestinationStyleOpInterfac
 // BinaryIdempotence is property of a binary operation where applying the operation on the same value results in the same value.
 // Example: and(x, x) == x
 def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationStyleOpInterface, ThreeOperands, NoMemoryEffect]>;
-// TileOpTrait is a trait that acts as a label for all tile operations.
-def TTIR_TileOpTrait : TTIR_Trait<"TTIRTileOpTrait", []>;
+// GenericRegionOpTrait is a trait that acts as a label for all generic region operations.
+def TTIR_GenericRegionOpTrait : TTIR_Trait<"TTIRGenericRegionOpTrait", []>;
 
 #endif

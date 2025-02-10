@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 
 #define GET_OP_CLASSES
-#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.cpp.inc"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"
 
 //===----------------------------------------------------------------------===//
 // TileMatmulBlockOp
