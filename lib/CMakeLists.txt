@@ -13,7 +13,14 @@ get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
 
-set(TTMLIR_LIBS "${dialect_libs};${conversion_libs};${extension_libs};${translation_libs}")
+set(TTMLIR_LIBS
+  ${dialect_libs}
+  ${conversion_libs}
+  ${extension_libs}
+  ${translation_libs}
+  MLIRPass
+  MLIRSupport
+)
 
 #
 # Static Target for tools like opt/translate/lspserver
