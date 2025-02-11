@@ -830,11 +830,42 @@ struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
 
-  std::vector<int64_t> getIndicesOfSpatialDims(ttir::PoolingOp op) const {
-    std::vector<int64_t> spatialDims;
-    for (int64_t i = 0;
-         i < static_cast<int64_t>(op.getWindowDimensions().size()); i++) {
-      if (op.getWindowDimensions()[i] > 1) {
+  LogicalResult
+  matchAndRewrite(ttir::PoolingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    llvm::SmallVector<int64_t> spatialDims =
+        getIndicesofNonOneElements(op.getWindowDimensions());
+    size_t numSpatialDims = spatialDims.size();
+    if (numSpatialDims <= 2) {
+      if (failed(canDecompose2DPoolingOp(op))) {
+        return rewriter.notifyMatchFailure(
+            op, "2D pooling op with the given attributes is not supported "
+                "currently");
+      }
+
+      switch (op.getPoolingMethod()) {
+      case ttir::PoolingMethod::Max: {
+        rewritePool2d<ttir::MaxPool2dOp>(op, adaptor, rewriter);
+        return success();
+      }
+      default: {
+        return rewriter.notifyMatchFailure(
+            op, "Failed to match pooling method: " +
+                    stringifyPoolingMethod(op.getPoolingMethod()));
+      }
+      }
+    }
+    return rewriter.notifyMatchFailure(
+        op, "No decompositions for a pooling op with " +
+                std::to_string(numSpatialDims) + " spatial dimensions");
+  }
+
+private:
+  llvm::SmallVector<int64_t>
+  getIndicesofNonOneElements(llvm::ArrayRef<int64_t> input) const {
+    llvm::SmallVector<int64_t, 2> spatialDims;
+    for (size_t i = 0; i < input.size(); i++) {
+      if (input[i] > 1) {
         spatialDims.push_back(i);
       }
     }
@@ -861,32 +892,21 @@ public:
       }
     }
 
-    // Exactly two of the window dimensions must be greater than 1
-    std::vector<int64_t> trueWindowDimensionsIndices =
-        getIndicesOfSpatialDims(op);
-
-    if (trueWindowDimensionsIndices.size() != 2) {
+    // Window dimensions will have two or less than two non 1 elements;
+    // representing the kernel size for max pooling operation.
+    llvm::SmallVector<int64_t> trueWindowDimensionsIndices =
+        getIndicesofNonOneElements(op.getWindowDimensions());
+    size_t windowDimensionsSize = trueWindowDimensionsIndices.size();
+    if (windowDimensionsSize > 2) {
       return failure();
     }
 
-    // Exactly two of the window strides must be greater than 1
-    std::vector<int64_t> trueWindowStrideIndices;
-    for (int64_t i = 0; i < static_cast<int64_t>(op.getWindowStrides().size());
-         i++) {
-      if (op.getWindowStrides()[i] > 1) {
-        trueWindowStrideIndices.push_back(i);
-      }
-    }
-
-    if (trueWindowStrideIndices.size() != 2) {
-      return failure();
-    }
-
-    // The indices of the true window dimensions and strides must be the same
-    if ((trueWindowDimensionsIndices[0] != trueWindowStrideIndices[0] ||
-         trueWindowDimensionsIndices[1] != trueWindowStrideIndices[1]) &&
-        (trueWindowDimensionsIndices[0] != trueWindowStrideIndices[1] ||
-         trueWindowDimensionsIndices[1] != trueWindowStrideIndices[0])) {
+    // Window strides will have two or less than two non 1 elements;
+    // representing the strides for max pooling operation.
+    llvm::SmallVector<int64_t> trueWindowStrideIndices =
+        getIndicesofNonOneElements(op.getWindowStrides());
+    size_t windowStrideSize = trueWindowStrideIndices.size();
+    if (windowStrideSize > 2) {
       return failure();
     }
 
@@ -921,7 +941,15 @@ public:
       }
     }
 
-    std::vector<int64_t> spatialDims = getIndicesOfSpatialDims(op);
+    llvm::SmallVector<int64_t> spatialDims =
+        getIndicesofNonOneElements(op.getWindowDimensions());
+    int64_t numWinDims = op.getWindowDimensions().size();
+    // Using default indices (based on stablehlo specifications) if window
+    // dimension attribute does not contain two non 1 elements for kernel size.
+    spatialDims =
+        (spatialDims.size() == 2)
+            ? spatialDims
+            : llvm::SmallVector<int64_t>({numWinDims - 2, numWinDims - 1});
 
     std::vector<int64_t> currentLayout(inputType.getRank(), NON_SPATIAL);
     currentLayout[spatialDims[0]] = SPATIAL_H;
@@ -997,45 +1025,6 @@ public:
     }
 
     rewriter.replaceOp(op, outputs);
-  }
-
-  uint32_t getNumSpatialDims(ttir::PoolingOp op) const {
-    uint32_t numSpatialDims = 0;
-    for (int64_t dim : op.getWindowDimensions()) {
-      if (dim > 1) {
-        numSpatialDims++;
-      }
-    }
-    return numSpatialDims;
-  }
-
-  LogicalResult
-  matchAndRewrite(ttir::PoolingOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    uint32_t numSpatialDims = getNumSpatialDims(op);
-    if (numSpatialDims == 2) {
-      if (failed(canDecompose2DPoolingOp(op))) {
-        return rewriter.notifyMatchFailure(
-            op, "2D pooling op with the given attributes is not supported "
-                "currently");
-      }
-
-      switch (op.getPoolingMethod()) {
-      case ttir::PoolingMethod::Max: {
-        rewritePool2d<ttir::MaxPool2dOp>(op, adaptor, rewriter);
-        return success();
-      }
-      default: {
-        return rewriter.notifyMatchFailure(
-            op, "Failed to match pooling method: " +
-                    stringifyPoolingMethod(op.getPoolingMethod()));
-      }
-      }
-    }
-    return rewriter.notifyMatchFailure(
-        op, "No decompositions for a pooling op with " +
-                std::to_string(numSpatialDims) + " spatial dimensions");
   }
 };
 } // namespace
