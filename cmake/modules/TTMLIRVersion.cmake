@@ -9,7 +9,7 @@ execute_process(
 # get the latest tag from git matching 'v<major>.<minor>' format
 # (note: matching a glob(7) pattern, not a regex)
 execute_process(
-  COMMAND git describe --tags --abbrev=0
+  COMMAND git describe --tags --match v[0-9]*.[0-9]* --abbrev=0
   WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
   OUTPUT_VARIABLE GIT_TAG
   OUTPUT_STRIP_TRAILING_WHITESPACE
