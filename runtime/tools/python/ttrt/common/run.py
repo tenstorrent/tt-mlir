@@ -141,13 +141,6 @@ class Run:
             help="disable runtime to_layout api assume single chip workaround",
         )
         Run.register_arg(
-            name="--disable-pad-op-padding-pairs-signature",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable pad op padding pairs signature workaround",
-        )
-        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -417,7 +410,6 @@ class Run:
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-to-layout-api-assume-single-chip"],
-                not self["--disable-pad-op-padding-pairs-signature"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")

@@ -8,11 +8,10 @@ namespace tt::runtime::workaround {
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
 const Env &Env::get(bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
-                    bool toLayoutAPIAssumeSingleChip,
-                    bool usePaddingPairSignatureWithQueueId) {
-  static const Env config(
-      swapBinaryOperands, readUpdateIndexFromDeviceForKVCache,
-      toLayoutAPIAssumeSingleChip, usePaddingPairSignatureWithQueueId);
+                    bool toLayoutAPIAssumeSingleChip) {
+  static const Env config(swapBinaryOperands,
+                          readUpdateIndexFromDeviceForKVCache,
+                          toLayoutAPIAssumeSingleChip);
   return config;
 }
 #endif
