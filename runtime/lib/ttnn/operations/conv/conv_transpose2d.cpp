@@ -52,10 +52,10 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
   ::ttnn::Tensor out = std::visit(
       [&](auto &&targetDevice) -> ::ttnn::Tensor {
         return std::get<0>(::ttnn::conv_transpose2d(
-            ::ttnn::DefaultQueueId, input, weight, &(targetDevice.get()),
-            op->in_channels(), op->out_channels(), op->batch_size(),
-            op->input_height(), op->input_width(), kernelSize, stride, padding,
-            outputPadding, dilation, op->groups(), bias, config));
+            input, weight, &targetDevice.get(), op->in_channels(),
+            op->out_channels(), op->batch_size(), op->input_height(),
+            op->input_width(), kernelSize, stride, padding, outputPadding,
+            dilation, op->groups(), bias, config));
       },
       targetDevice);
 
