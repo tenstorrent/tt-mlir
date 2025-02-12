@@ -463,9 +463,10 @@ def ttkernel_compile(kernel_type=None):
             if kernel_type:
                 assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
                 os.makedirs(PYKERNEL_CPP_PATH, exist_ok=True)
-                cpp_file_path = f"{PYKERNEL_CPP_PATH}/{f.__name__}.cpp"
+                kernel_file_path = f"{PYKERNEL_CPP_PATH}/{f.__name__}.cpp"
                 is_tensix_kernel = kernel_type == "tensix"
-                ttkernel_to_cpp_file(b.module, cpp_file_path, is_tensix_kernel)
+                ttkernel_to_cpp_file(b.module, kernel_file_path, is_tensix_kernel)
+                return kernel_file_path
 
         return _wrapper
 

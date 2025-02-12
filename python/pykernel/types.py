@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 
 class CircularBuffer:
     def __init__(self, cb_id, tensor_shape=(8, 128, 128), dtype="Float32"):
@@ -16,3 +18,13 @@ class CircularBuffer:
         tilized_shape[-2] = (tilized_shape[-2] + self.tile_shape - 1) // self.tile_shape
         tilized_shape[-1] = (tilized_shape[-1] + self.tile_shape - 1) // self.tile_shape
         return tilized_shape
+
+
+class Kernel:
+    def __init__(self, kernel_path):
+        self.kernel_path = kernel_path
+        self.kernel_name = os.path.splitext(os.path.basename(kernel_path))[0]
+
+    def dump(self):
+        with open(self.kernel_path, "r") as f:
+            print(f.read())

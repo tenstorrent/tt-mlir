@@ -40,4 +40,6 @@ def reader_binary_1_tile(cb_in0: CircularBuffer, cb_in1: CircularBuffer):
 
 cb_in0 = CircularBuffer(0)
 cb_in1 = CircularBuffer(1)
-reader_binary_1_tile(cb_in0, cb_in1)
+kernel_file = reader_binary_1_tile(cb_in0, cb_in1)
+reader_binary_1_tile_kernel = Kernel(kernel_file)
+reader_binary_1_tile_kernel.dump()

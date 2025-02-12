@@ -38,4 +38,6 @@ def add_2_tiles(cb_in0: CircularBuffer, cb_in1: CircularBuffer, cb_out: Circular
 cb_in0 = CircularBuffer(0)
 cb_in1 = CircularBuffer(1)
 cb_out = CircularBuffer(16)
-add_2_tiles(cb_in0, cb_in1, cb_out)
+kernel_file = add_2_tiles(cb_in0, cb_in1, cb_out)
+add_2_tiles_kernel = Kernel(kernel_file)
+add_2_tiles_kernel.dump()
