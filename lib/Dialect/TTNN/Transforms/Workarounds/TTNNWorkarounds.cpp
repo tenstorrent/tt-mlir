@@ -433,14 +433,6 @@ public:
                        ttnn::MeanOp, /*keepDimUnsupported*/ false>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
                        ttnn::MinOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
-                       ttnn::SumOp>,
-                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
-                       ttnn::MaxOp>,
-                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
-                       ttnn::MeanOp>,
-                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
-                       ttnn::MinOp>,
                    workarounds::decomposition::CumSumOpRewritePattern>(
           &getContext());
 
