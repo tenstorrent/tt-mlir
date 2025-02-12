@@ -171,14 +171,20 @@ class TTIRBuilder:
     def get_golden_map(self) -> Dict:
         golden_info = {}
         for name, golden_tensor in self.id_golden_map.items():
+            golden_device_info = {}
             golden_tensor = golden_tensor.contiguous()
-            golden_info[name] = create_golden_tensor(
+
+            # for now, assume all golden tensors live on device 0 (todo: tapspatel - extend to multichip)
+            golden_device_info[0] = create_golden_tensor(
                 name,
                 list(golden_tensor.tensor.shape),
                 list(golden_tensor.tensor.stride()),
                 DataType.Float32,
                 golden_tensor.tensor.data_ptr(),
             )
+
+            golden_info[name] = golden_device_info
+
         return golden_info
 
     # ----- Private helpers -----
