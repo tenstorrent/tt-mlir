@@ -141,4 +141,14 @@ def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
     let description = "L1 pointer address type in TTKernel dialect";
 }
 
+// consider using a class for templated types?
+def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "interleaved_addr_gen_fast"> {
+    let summary = "TTKernel InterleavedAddrGenFast type";
+    let description = "InterleavedAddrGenFast type in TTKernel dialect";
+    let parameters = (ins "uint32_t":$bank_base_address,
+                          "uint32_t":$page_size,
+                          "DataFormat":$data_format);
+    let assemblyFormat =  "`<` $bank_base_address`,` $page_size`,` $data_format `>`";
+}
+
 #endif
