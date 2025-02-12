@@ -174,4 +174,48 @@ def TTKernel_ReduceDim : I32EnumAttr<"ReduceDim", "TTKernel Reduce Dimensions",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+def TTKernel_DataFormatFloat32    : I32EnumAttrCase<"Float32", 0, "Float32">;
+def TTKernel_DataFormatFloat16    : I32EnumAttrCase<"Float16", 1, "Float16">;
+def TTKernel_DataFormatBfp8       : I32EnumAttrCase<"Bfp8", 2, "Bfp8">;
+def TTKernel_DataFormatBfp4       : I32EnumAttrCase<"Bfp4", 3, "Bfp4">;
+def TTKernel_DataFormatBfp2       : I32EnumAttrCase<"Bfp2", 11, "Bfp2">;
+def TTKernel_DataFormatFloat16_b  : I32EnumAttrCase<"Float16_b", 5, "Float16_b">;
+def TTKernel_DataFormatBfp8_b     : I32EnumAttrCase<"Bfp8_b", 6, "Bfp8_b">;
+def TTKernel_DataFormatBfp4_b     : I32EnumAttrCase<"Bfp4_b", 7, "Bfp4_b">;
+def TTKernel_DataFormatBfp2_b     : I32EnumAttrCase<"Bfp2_b", 15, "Bfp2_b">;
+def TTKernel_DataFormatLf8        : I32EnumAttrCase<"Lf8", 10, "Lf8">;
+def TTKernel_DataFormatFp8_e4m3   : I32EnumAttrCase<"Fp8_e4m3", 0x1A, "Fp8_e4m3">;
+def TTKernel_DataFormatInt8       : I32EnumAttrCase<"Int8", 14, "Int8">;
+def TTKernel_DataFormatTf32       : I32EnumAttrCase<"Tf32", 4, "Tf32">;
+def TTKernel_DataFormatUInt8      : I32EnumAttrCase<"UInt8", 30, "UInt8">;
+def TTKernel_DataFormatUInt16     : I32EnumAttrCase<"UInt16", 9, "uint16">;
+def TTKernel_DataFormatInt32      : I32EnumAttrCase<"Int32", 8, "Int32">;
+def TTKernel_DataFormatUInt32     : I32EnumAttrCase<"UInt32", 24, "UInt32">;
+def TTKernel_DataFormatInvalid    : I32EnumAttrCase<"Invalid", 0xff, "Invalid">;
+
+def TTKernel_DataFormat : I32EnumAttr<"DataFormat", "TTKernel Tensix Dataformat">,
+                         [
+                           TTKernel_DataFormatFloat32,
+                           TTKernel_DataFormatFloat16,
+                           TTKernel_DataFormatBfp8,
+                           TTKernel_DataFormatBfp4,
+                           TTKernel_DataFormatBfp2,
+                           TTKernel_DataFormatFloat16_b,
+                           TTKernel_DataFormatBfp8_b,
+                           TTKernel_DataFormatBfp4_b,
+                           TTKernel_DataFormatBfp2_b,
+                           TTKernel_DataFormatLf8,
+                           TTKernel_DataFormatFp8_e4m3,
+                           TTKernel_DataFormatInt8,
+                           TTKernel_DataFormatTf32,
+                           TTKernel_DataFormatUInt8,
+                           TTKernel_DataFormatUInt16,
+                           TTKernel_DataFormatInt32,
+                           TTKernel_DataFormatUInt32,
+                           TTKernel_DataFormatInvalid
+                         ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
 #endif
