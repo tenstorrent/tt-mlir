@@ -193,7 +193,7 @@ def TTKernel_DataFormatInt32      : I32EnumAttrCase<"Int32", 8, "Int32">;
 def TTKernel_DataFormatUInt32     : I32EnumAttrCase<"UInt32", 24, "UInt32">;
 def TTKernel_DataFormatInvalid    : I32EnumAttrCase<"Invalid", 0xff, "Invalid">;
 
-def TTKernel_DataFormat : I32EnumAttr<"DataFormat", "TTKernel Tensix Dataformat">,
+def TTKernel_DataFormat : I32EnumAttr<"DataFormat", "TTKernel Tensix Dataformat",
                          [
                            TTKernel_DataFormatFloat32,
                            TTKernel_DataFormatFloat16,
@@ -212,7 +212,7 @@ def TTKernel_DataFormat : I32EnumAttr<"DataFormat", "TTKernel Tensix Dataformat"
                            TTKernel_DataFormatUInt16,
                            TTKernel_DataFormatInt32,
                            TTKernel_DataFormatUInt32,
-                           TTKernel_DataFormatInvalid
+                           TTKernel_DataFormatInvalid,
                          ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";
