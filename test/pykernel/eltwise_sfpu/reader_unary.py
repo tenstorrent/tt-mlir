@@ -52,4 +52,6 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
 
 cb_in = CircularBuffer(0)
 cb_out = CircularBuffer(16)
-reader_unary(cb_in, cb_out)
+kernel_file = reader_unary(cb_in, cb_out)
+reader_unary_kernel = Kernel(kernel_file)
+reader_unary_kernel.dump()
