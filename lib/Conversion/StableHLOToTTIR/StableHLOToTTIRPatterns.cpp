@@ -95,6 +95,10 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
           srcOp, adaptor, rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::OrOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceOrOp>(srcOp, adaptor,
+                                                                 rewriter);
+    }
 
     return failure();
   }
@@ -116,7 +120,8 @@ private:
     }
 
     mlir::Operation &innerOp = srcOp.getBody().front().front();
-    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp) ||
+        mlir::isa<mlir::stablehlo::OrOp>(innerOp)) {
       bool allOperandsAreBoolean = std::all_of(
           srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
             return mlir::cast<RankedTensorType>(operand.getType())
@@ -124,8 +129,9 @@ private:
           });
       if (!allOperandsAreBoolean) {
         return rewriter.notifyMatchFailure(
-            srcOp, "stablehlo.reduce for stablehlo.and operator is only "
-                   "supported for logical and.");
+            srcOp,
+            "stablehlo.reduce for stablehlo.and/stablehlo.or operator is only "
+            "supported for logical and.");
       }
     }
 
