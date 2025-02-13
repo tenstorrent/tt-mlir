@@ -5,6 +5,7 @@ set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
 set(LLVM_PROJECT_VERSION "e813750354bbc08551cf23ff559a54b4a9ea1f29")
 set(STABLEHLO_VERSION "d40285ef3db0687e3f1e2bb0d716d748485a9739")
 set(SHARDY_VERSION "55f44c23b766be38bccb0b2394b0e8dfba45694e")
+set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
 
@@ -31,6 +32,8 @@ ExternalProject_Add(
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON # Required for linking into shared libraries (python bindings)
     GIT_REPOSITORY https://github.com/google/flatbuffers.git
     GIT_TAG ${FLATBUFFERS_VERSION}
+    GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
+    UPDATE_DISCONNECTED ON
     DEPENDS python-venv
 )
 
@@ -41,6 +44,7 @@ ExternalProject_Add(
     PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt"
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
+    -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}
     -DPython3_FIND_VIRTUALENV=ONLY
     -DPython3_EXECUTABLE=${TTMLIR_TOOLCHAIN_DIR}/venv/bin/python
     -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
@@ -48,17 +52,7 @@ ExternalProject_Add(
     -DCMAKE_CXX_COMPILER=clang++
     -DLLVM_ENABLE_PROJECTS=mlir
     -DLLVM_INSTALL_UTILS=ON
-    # Build shared libraries
-    # ======================
-    -DLLVM_ENABLE_PIC=ON
-    -DLLVM_BUILD_LLVM_DYLIB=ON
     -DLLVM_INSTALL_GTEST=ON
-    -DLLVM_LINK_LLVM_DYLIB=ON
-    -DMLIR_BUILD_MLIR_C_DYLIB=ON
-    -DMLIR_LINK_MLIR_DYLIB=ON
-    -DMLIR_BUILD_MLIR_C_DYLIB=ON
-    # ======================
-    -DCMAKE_BUILD_TYPE=MinSizeRel
     -DLLVM_ENABLE_ASSERTIONS=ON
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON
     -DCMAKE_C_FLAGS=-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
@@ -67,6 +61,8 @@ ExternalProject_Add(
     GIT_REPOSITORY https://github.com/llvm/llvm-project.git
     GIT_TAG ${LLVM_PROJECT_VERSION}
     GIT_PROGRESS ON
+    GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
+    UPDATE_DISCONNECTED ON
     DEPENDS python-venv
 )
 
@@ -74,6 +70,7 @@ ExternalProject_Add(stablehlo
    PREFIX ${TTMLIR_TOOLCHAIN_DIR}
    GIT_REPOSITORY https://github.com/openxla/stablehlo.git
    GIT_TAG ${STABLEHLO_VERSION}
+   GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""

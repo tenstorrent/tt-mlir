@@ -7,11 +7,6 @@ set(TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra")
 
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
-get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
-get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
-
 declare_mlir_python_sources(TTMLIRPythonSources)
 declare_mlir_python_sources(TTMLIRPythonExtensions)
 declare_mlir_python_sources(TTMLIRPythonTestInfra)
@@ -106,9 +101,8 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRCAPITransforms
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
-    LLVM
-    MLIR
-    TTMLIRCompiler
+    LLVMSupport
+    TTMLIRCompilerStatic
 )
 
 set(TTMLIR_PYTHON_SOURCES

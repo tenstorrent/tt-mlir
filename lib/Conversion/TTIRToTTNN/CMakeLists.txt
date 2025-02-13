@@ -1,4 +1,4 @@
-add_mlir_library(TTMLIRTTIRToTTNN
+add_mlir_conversion_library(TTMLIRTTIRToTTNN
   TTIRToTTNN.cpp
   TTIRToTTNNPass.cpp
   Utils.cpp
@@ -10,6 +10,7 @@ add_mlir_library(TTMLIRTTIRToTTNN
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRIR
+  MLIRPass
   TTMLIRTTNNUtils
 )
