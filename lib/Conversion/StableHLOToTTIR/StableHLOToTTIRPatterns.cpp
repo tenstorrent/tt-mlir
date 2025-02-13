@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <limits>
+#include <mlir/IR/Operation.h>
 #include <vector>
 
 #include "mlir/Dialect/Traits.h"
@@ -1532,8 +1533,8 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    if (std::optional<float> minValue = getConstantValue(adaptor.getMin()),
-        maxValue = getConstantValue(adaptor.getMax());
+    if (std::optional<float> minValue = getConstantValue(srcOp.getMin()),
+        maxValue = getConstantValue(srcOp.getMax());
         minValue && maxValue) {
       ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(),
@@ -1553,16 +1554,53 @@ public:
 
 private:
   std::optional<float> getConstantValue(Value value) const {
-    if (auto constantOp = value.getDefiningOp<ttir::ConstantOp>()) {
+    Operation *op = value.getDefiningOp();
+    if (!op) {
+      return std::nullopt;
+    }
+
+    while (isa<stablehlo::BroadcastInDimOp>(op) ||
+           isa<stablehlo::ReshapeOp>(op) || isa<stablehlo::ConvertOp>(op)) {
+      op = op->getOpOperand(0).get().getDefiningOp();
+    }
+    if (auto constantOp = mlir::dyn_cast<stablehlo::ConstantOp>(op)) {
       auto attr = constantOp.getValueAttr();
       if (!attr.isSplat()) {
-        return {};
+        return std::nullopt;
       }
-      return attr.getElementType().isInteger()
-                 ? static_cast<float>(attr.getSplatValue<int>())
-                 : attr.getSplatValue<float>();
+      mlir::Type elementType = attr.getElementType();
+      int64_t bitWidth = elementType.getIntOrFloatBitWidth();
+      if (isa<IntegerType>(elementType)) {
+        switch (bitWidth) {
+        case 1:
+          return static_cast<float>(attr.getSplatValue<bool>());
+        case 8:
+          return elementType.isUnsignedInteger()
+                     ? static_cast<float>(attr.getSplatValue<uint8_t>())
+                     : static_cast<float>(attr.getSplatValue<int8_t>());
+        case 16:
+          return elementType.isUnsignedInteger()
+                     ? static_cast<float>(attr.getSplatValue<uint16_t>())
+                     : static_cast<float>(attr.getSplatValue<int16_t>());
+        case 32:
+          return elementType.isUnsignedInteger()
+                     ? static_cast<float>(attr.getSplatValue<uint32_t>())
+                     : static_cast<float>(attr.getSplatValue<int32_t>());
+        case 64:
+          return elementType.isUnsignedInteger()
+                     ? static_cast<float>(attr.getSplatValue<uint64_t>())
+                     : static_cast<float>(attr.getSplatValue<int64_t>());
+        default:
+          assert(false && "Unsupported integer type.");
+        }
+      } else if (isa<FloatType>(elementType)) {
+        return static_cast<float>(
+            attr.getSplatValue<mlir::APFloat>().convertToDouble());
+      } else {
+        assert(false && "Unsupported data type.");
+      }
     }
-    return {};
+    return std::nullopt;
   }
 };
 } // namespace
