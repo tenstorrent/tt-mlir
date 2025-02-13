@@ -19,6 +19,7 @@
 #include <shardy/dialect/sdy/ir/dialect.h>
 #include <stablehlo/dialect/StablehloOps.h>
 
+#include "ttmlir/Conversion/StableHLOToTTIR/EmptyOpTypeConversion.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
@@ -120,6 +121,10 @@ struct ConvertStableHLOToTTIRPass
     populateCallOpTypeConversionPattern(patterns, typeConverter);
     target.addDynamicallyLegalOp<func::CallOp>(
         [&](func::CallOp op) { return typeConverter.isLegal(op); });
+
+    addEmptyOpTypeConversionPattern(&getContext(), patterns, typeConverter);
+    target.addDynamicallyLegalOp<tensor::EmptyOp>(
+        [&](tensor::EmptyOp op) { return typeConverter.isLegal(op); });
 
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
     // Apply conversion.
