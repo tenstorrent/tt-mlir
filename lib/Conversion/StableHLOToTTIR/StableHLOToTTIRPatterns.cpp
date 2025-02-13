@@ -1898,8 +1898,8 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    if (std::optional<float> minValue = getConstantValue(adaptor.getMin()),
-        maxValue = getConstantValue(adaptor.getMax());
+    if (std::optional<float> minValue = getConstantValue(srcOp.getMin()),
+        maxValue = getConstantValue(srcOp.getMax());
         minValue && maxValue) {
       ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(),
@@ -1908,27 +1908,81 @@ public:
       return success();
     }
 
+    mlir::Value min =
+        broadcastAttr(adaptor.getMin(), outputType, srcOp, rewriter);
+    mlir::Value max =
+        broadcastAttr(adaptor.getMax(), outputType, srcOp, rewriter);
+
     ttir::MaximumOp maximumOp = ttmlir::utils::createDPSOp<ttir::MaximumOp>(
-        rewriter, srcOp->getLoc(), outputType, adaptor.getMin(),
-        adaptor.getOperand());
+        rewriter, srcOp->getLoc(), outputType, min, adaptor.getOperand());
     ttmlir::utils::replaceOpWithNewDPSOp<ttir::MinimumOp>(
-        rewriter, srcOp, outputType, maximumOp.getResult(0), adaptor.getMax());
+        rewriter, srcOp, outputType, maximumOp.getResult(0), max);
 
     return success();
   }
 
 private:
   std::optional<float> getConstantValue(Value value) const {
-    if (auto constantOp = value.getDefiningOp<ttir::ConstantOp>()) {
+    Operation *op = value.getDefiningOp();
+    while (op &&
+           (isa<stablehlo::BroadcastInDimOp>(op) ||
+            isa<stablehlo::ReshapeOp>(op) || isa<stablehlo::ConvertOp>(op))) {
+      op = op->getOperand(0).getDefiningOp();
+    }
+    if (!op) {
+      return std::nullopt;
+    }
+
+    if (auto constantOp = mlir::dyn_cast<stablehlo::ConstantOp>(op)) {
       auto attr = constantOp.getValueAttr();
       if (!attr.isSplat()) {
-        return {};
+        return std::nullopt;
       }
-      return attr.getElementType().isInteger()
-                 ? static_cast<float>(attr.getSplatValue<int>())
-                 : attr.getSplatValue<float>();
+      mlir::Type elementType = attr.getElementType();
+      mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
+      if (isa<IntegerType>(elementType)) {
+        fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
+                                   attr.getElementType().isSignedInteger(),
+                                   llvm::RoundingMode::TowardZero);
+        return fillValue.convertToFloat();
+      }
+      if (isa<FloatType>(elementType)) {
+        return static_cast<float>(
+            attr.getSplatValue<mlir::APFloat>().convertToDouble());
+      }
+      assert(false && "Unsupported data type.");
     }
-    return {};
+    return std::nullopt;
+  }
+
+  mlir::Value broadcastAttr(mlir::Value input, RankedTensorType desiredType,
+                            mlir::stablehlo::ClampOp srcOp,
+                            ConversionPatternRewriter &rewriter) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    if (inputType.getShape() == desiredType.getShape()) {
+      return input;
+    }
+
+    SmallVector<int64_t> unsqueezeShape(desiredType.getRank(), 1);
+    for (int64_t i = 0; i < inputType.getRank(); i++) {
+      unsqueezeShape[i] = inputType.getDimSize(i);
+    }
+    SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
+                                    unsqueezeShape.end());
+
+    auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
+    ttir::ReshapeOp reshapeOp = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, srcOp.getLoc(), unsqueezeShape, desiredType.getElementType(),
+        desiredType.getEncoding(), input, reshapeDimAttr);
+
+    ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
+    ::llvm::ArrayRef<int64_t> outputShape = desiredType.getShape();
+
+    SmallVector<int64_t> broadcastShape =
+        ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape, outputShape);
+
+    return ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+        rewriter, srcOp->getLoc(), desiredType, reshapeOp, broadcastShape);
   }
 };
 } // namespace
