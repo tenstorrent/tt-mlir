@@ -11,7 +11,7 @@
 namespace mlir::tt::ttnn::utils {
 // Gets or inserts a GetDeviceOp at the top of the current block of the given
 // operation.
-GetDeviceOp getOrInsertDevice(PatternRewriter &rewriter, Operation *op) {
+GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
   Block *block = op->getBlock();
   for (auto &op : block->getOperations()) {
     if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
