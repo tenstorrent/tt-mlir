@@ -2,11 +2,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.ir import *
-from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref
 import ast
 import inspect
 import functools
+import os
+from ttmlir.ir import *
+from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref
+from ttmlir.passes import ttkernel_to_cpp_file
+
+# ttmlir-translate --ttkernel-to-cpp-noc
+
+TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME")
+PYKERNEL_CPP_PATH = TT_MLIR_HOME + "/build/python_packages/pykernel/cpp"
 
 
 def get_supported_nodes():
@@ -440,16 +447,35 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
-def ttkernel_compile(f):
-    @functools.wraps(f)
-    def _wrapper(*args, **kwargs):
-        m = ast.parse(inspect.getsource(f))
-        b = TTKernelCompiler(f.__name__, args)
-        # print(ast.dump(m, indent=4) + "\n")
-        b.visit(m)
+def ttkernel_compile(kernel_type=None):
+    def _decorator(f):
+        @functools.wraps(f)
+        def _wrapper(*args, **kwargs):
+            m = ast.parse(inspect.getsource(f))
+            b = TTKernelCompiler(f.__name__, args)
+            # print(ast.dump(m, indent=4) + "\n")
+            b.visit(m)
 
-        # Check if generated IR is valid
-        print(b.module)
-        b.module.operation.verify()
+            # Check if generated IR is valid
+            print(b.module)
+            b.module.operation.verify()
 
-    return _wrapper
+            if kernel_type:
+                assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
+                os.makedirs(PYKERNEL_CPP_PATH, exist_ok=True)
+                kernel_file_path = f"{PYKERNEL_CPP_PATH}/{f.__name__}.cpp"
+                is_tensix_kernel = kernel_type == "tensix"
+                ttkernel_to_cpp_file(b.module, kernel_file_path, is_tensix_kernel)
+                return kernel_file_path
+
+        return _wrapper
+
+    return _decorator
+
+
+def ttkernel_tensix_compile():
+    return ttkernel_compile(kernel_type="tensix")
+
+
+def ttkernel_noc_compile():
+    return ttkernel_compile(kernel_type="noc")

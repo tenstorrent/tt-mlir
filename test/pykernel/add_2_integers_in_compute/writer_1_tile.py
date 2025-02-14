@@ -9,7 +9,7 @@ from pykernel.pykernel_ast import *
 from pykernel.types import *
 
 
-@ttkernel_compile
+@ttkernel_noc_compile()
 def write_1_tile(cb_out: CircularBuffer):
     dst_addr = get_arg_val(int, 0)
     dst_bank_id = get_arg_val(int, 1)
@@ -28,4 +28,6 @@ def write_1_tile(cb_out: CircularBuffer):
 
 
 cb_out = CircularBuffer(16)
-write_1_tile(cb_out)
+kernel_file = write_1_tile(cb_out)
+write_1_tile_kernel = Kernel(kernel_file)
+write_1_tile_kernel.dump()

@@ -9,7 +9,7 @@ from pykernel.pykernel_ast import *
 from pykernel.types import *
 
 
-@ttkernel_compile
+@ttkernel_noc_compile()
 def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
@@ -52,4 +52,6 @@ def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
 
 cb_in = CircularBuffer(0)
 cb_out = CircularBuffer(16)
-writer_unary(cb_in, cb_out)
+kernel_file = writer_unary(cb_in, cb_out)
+write_unary_kernel = Kernel(kernel_file)
+write_unary_kernel.dump()
