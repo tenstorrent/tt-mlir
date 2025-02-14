@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/test/utils.h"
+#include "tt/runtime/ttnn/test/utils.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/ttnn/types.h"
