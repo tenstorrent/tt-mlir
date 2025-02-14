@@ -873,6 +873,15 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::Operation::operand_range inputs = getInputs();
+        int64_t numOperands = getOperands().size();
+        int32_t dim = getDim();
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
+                                                        inputs, numOperands, dim);
+      }
     }];
 
     let hasVerifier = 1;
