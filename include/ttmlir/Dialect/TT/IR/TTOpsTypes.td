@@ -495,6 +495,25 @@ def TT_MeshShardTypeAttr : EnumAttr<TT_Dialect, TT_MeshShardType, "shard_type"> 
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TT_MeshAttr : TT_Attr<"Mesh", "mesh", []> {
+  let summary = "Mesh reference attribute in TT dialect.";
+  let description = [{
+    Describes a mesh config including name and shape.
+  }];
+  let parameters = (ins "StringAttr":$name,
+                        ArrayRefParameter<"int64_t">:$shape);
+  let assemblyFormat = "`<` $name `=` custom<DimensionList>($shape) `>`";
+}
+
+def TT_SystemMeshAttr : TT_Attr<"SystemMesh", "system_mesh"> {
+  let summary = "TT system mesh attribute";
+  let description = [{
+    TT system mesh attribute that can include multiple mesh configs used for networks.
+  }];
+  let parameters = (ins ArrayRefParameter<"MeshAttr">:$system_mesh);
+  let assemblyFormat = "`<` `[` $system_mesh `]` `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//

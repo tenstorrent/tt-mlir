@@ -13,6 +13,11 @@ let summary = "Convert StableHLO dialect to TTIR dialect.";
   let constructor = "createConvertStableHLOToTTIRPass()";
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::tt::ttir::TTIRDialect"];
 }
+def ConvertShardyToTTIR : Pass<"convert-shardy-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "Convert Shardy dialect to TTIR dialect.";
+  let constructor = "createConvertShardyToTTIRPass()";
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::sdy::SdyDialect", "mlir::tt::ttir::TTIRDialect"];
+}
 def ConvertArithToStableHLO : Pass<"convert-arith-to-stablehlo", "::mlir::ModuleOp"> {
 let summary = "Convert Arith Dialect to StableHLO dialect.";
   let constructor = "createConvertArithToStableHLOPass()";

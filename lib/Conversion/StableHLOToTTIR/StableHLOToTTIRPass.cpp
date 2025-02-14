@@ -4,23 +4,23 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
-#include <llvm/ADT/ArrayRef.h>
-#include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Func/Transforms/FuncConversions.h>
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/Dialect.h>
-#include <mlir/IR/MLIRContext.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/Pass/Pass.h>
-
-#include <shardy/dialect/sdy/ir/dialect.h>
-#include <stablehlo/dialect/StablehloOps.h>
-
+#include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Dialect.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/Pass.h"
+#include "shardy/dialect/sdy/ir/dialect.h"
+#include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/ArrayRef.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -28,6 +28,7 @@ using namespace mlir::tt;
 namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_CONVERTSTABLEHLOTOTTIR
+#define GEN_PASS_DEF_CONVERTSHARDYTOTTIR
 #include "ttmlir/Conversion/Passes.h.inc"
 
 } // namespace mlir::tt::ttir
@@ -94,7 +95,6 @@ struct ConvertStableHLOToTTIRPass
 
     target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
 
-    target.addLegalDialect<mlir::sdy::SdyDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tensor::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
@@ -131,12 +131,44 @@ struct ConvertStableHLOToTTIRPass
   }
 };
 
+class ConvertShardyToTTIRPass
+    : public ttir::impl::ConvertShardyToTTIRBase<ConvertShardyToTTIRPass> {
+  void runOnOperation() final {
+    mlir::ConversionTarget target(getContext());
+
+    target.addIllegalDialect<mlir::sdy::SdyDialect>();
+
+    target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
+    target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalOp<mlir::tensor::EmptyOp>();
+    target.addLegalOp<mlir::ModuleOp>();
+    target.addLegalOp<mlir::func::FuncOp>();
+    target.addLegalOp<mlir::func::ReturnOp>();
+    target.addLegalOp<mlir::func::CallOp>();
+
+    StablehloTypeConverter typeConverter(&getContext());
+    RewritePatternSet patterns(&getContext());
+
+    populateShardyToTTIRPatterns(&getContext(), patterns, typeConverter);
+
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass() {
   return std::make_unique<ConvertStableHLOToTTIRPass>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>> createConvertShardyToTTIRPass() {
+  return std::make_unique<ConvertShardyToTTIRPass>();
 }
 
 } // namespace mlir::tt
