@@ -96,7 +96,16 @@ Tensor createOwnedTensor(std::shared_ptr<void> data,
 }
 
 static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
+  TensorDesc emptyDesc;
+  emptyDesc.shape = std::vector<uint32_t>();
+  emptyDesc.stride = std::vector<uint32_t>();
+
+  // This is just a placeholded dtype, if there's a better option we should use
+  // that
+  emptyDesc.dataType = ::tt::target::DataType::UInt32;
+  emptyDesc.itemsize = 0;
+
+  return Tensor(nullptr, nullptr, DeviceRuntime::TTNN, emptyDesc);
 }
 
 static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
@@ -138,8 +147,9 @@ Tensor createTensor(std::shared_ptr<void> data,
       createStorage<BorrowedStorage>(data.get(), numElements, dataType),
       ::ttnn::Shape(shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
+  TensorDesc desc = utils::descFromTTNNTensor(*tensor.get());
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, desc);
 }
 
 // Create a owned multi-device host tensor from user-owned data
@@ -162,8 +172,9 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
       ::ttnn::distributed::create_multi_device_tensor(
           tensorShards, ::ttnn::StorageType::MULTI_DEVICE_HOST,
           distributionStrategy));
+  TensorDesc desc = utils::descFromTTNNTensor(*tensor.get());
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, desc);
 }
 
 // Create an owned empty tensor on host/device
@@ -317,8 +328,10 @@ Tensor toHost(Tensor tensor, bool untilize) {
         static_cast<::ttnn::IDevice *>(nullptr)));
   }
 
+  TensorDesc desc = utils::descFromTTNNTensor(*hostTensor.get());
+
   return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, desc);
 }
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout) {
@@ -344,8 +357,9 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout) {
   std::shared_ptr<::ttnn::Tensor> out = std::make_shared<::ttnn::Tensor>(
       converter.convertTensorLayout(ttnnTensor, targetDevice));
 
+  TensorDesc desc = utils::descFromTTNNTensor(*out.get());
   return Tensor(std::static_pointer_cast<void>(out), nullptr,
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, desc);
 }
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
@@ -550,8 +564,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
           ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
           std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
 
+  TensorDesc desc = utils::descFromTTNNTensor(*hostTensor.get());
+
   return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, desc);
 }
 
 std::vector<float> getTensorData(Tensor tensor) {

@@ -142,15 +142,26 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
   Event event;
+  TensorDesc desc;
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
-         DeviceRuntime runtime)
+         DeviceRuntime runtime, TensorDesc desc)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
-        event(nullptr, runtime) {}
+        event(nullptr, runtime), desc(desc) {}
 
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
-         std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
+         std::shared_ptr<void> eventHandle, DeviceRuntime runtime,
+         TensorDesc desc)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
-        event(eventHandle, runtime) {}
+        event(eventHandle, runtime), desc(desc) {}
+
+public:
+  std::vector<std::uint32_t> shape() { return desc.shape; }
+
+  std::vector<std::uint32_t> stride() { return desc.stride; }
+
+  std::uint32_t itemsize() { return desc.itemsize; }
+
+  ::tt::target::DataType dataType() { return desc.dataType; }
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {

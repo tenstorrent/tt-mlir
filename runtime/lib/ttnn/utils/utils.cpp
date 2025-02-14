@@ -233,8 +233,9 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor) {
   auto tensorPtr = std::make_shared<::ttnn::Tensor>(tensor);
+  TensorDesc desc = descFromTTNNTensor(tensor);
   return Tensor(std::static_pointer_cast<void>(tensorPtr), nullptr,
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, desc);
 }
 
 } // namespace tt::runtime::ttnn::utils
