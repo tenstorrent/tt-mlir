@@ -33,8 +33,8 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
                    : std::nullopt;
 
   if (workaround::Env::get().usePaddingPairSignatureWithQueueId) {
-    out = ::ttnn::pad(0, in, padding, padValue, op->use_multicore(),
-                      outputMemoryConfig);
+    out = ::ttnn::pad(::ttnn::DefaultQueueId, in, padding, padValue,
+                      op->use_multicore(), outputMemoryConfig);
   } else {
     LOG_FATAL("Currently, the only ::ttnn::pad signature which supports "
               "padding pairs as input has queue_id in its signature. The only "

@@ -23,10 +23,10 @@
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
-#include "tensor/shape/small_vector.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
 #include "tt-metalium/bfloat16.hpp"
+#include "tt-metalium/small_vector.hpp"
 #include "types.hpp"
 // ANCHOR_END: standalone_includes
 

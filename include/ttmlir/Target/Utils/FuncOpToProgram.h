@@ -68,7 +68,8 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
   printFlags = printFlags.elideLargeElementsAttrs()
                    .elideLargeResourceString()
                    .skipRegions()
-                   .enableDebugInfo();
+                   .enableDebugInfo()
+                   .assumeVerified();
 
   Program<OpT> program;
   program.name = entry.getSymName().data();
