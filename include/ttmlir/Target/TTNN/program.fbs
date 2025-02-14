@@ -251,7 +251,6 @@ table ConcatOp {
  inputs: [tt.target.TensorRef];
  out: tt.target.TensorRef;
  dim: int32;
- memory_config: MemoryConfigDesc;
 }
 
 table ReshapeOp {

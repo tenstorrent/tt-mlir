@@ -5,7 +5,6 @@
 #include "operations/data_movement/concat.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/operations/utils.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::ConcatOp *op, ProgramContext &context) {
@@ -17,11 +16,7 @@ void run(const ::tt::target::ttnn::ConcatOp *op, ProgramContext &context) {
     inputs.push_back(in);
   }
   int32_t dim = op->dim();
-  std::optional<tt::tt_metal::MemoryConfig> memoryConfig =
-      op->memory_config() ? std::make_optional(utils::createMemoryConfig(
-                                op->memory_config(), op->out()))
-                          : std::nullopt;
-  ::ttnn::Tensor out = ::ttnn::concat(inputs, dim, memoryConfig);
+  ::ttnn::Tensor out = ::ttnn::concat(inputs, dim);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

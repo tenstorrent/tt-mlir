@@ -219,8 +219,9 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
           ? ::flatbuffers::Optional<::tt::target::DataType>(
                 ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value()))
           : ::flatbuffers::nullopt,
-      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
-                   : 0,
+      memoryConfig.has_value()
+          ? cache.getOrCreate(memoryConfig.value(), memoryConfigToFlatbuffer)
+          : 0,
       device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
 }
 
@@ -921,13 +922,7 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
       getOperandThroughDPSOps(op.getResult()));
   int32_t dim = op.getDim();
 
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
-
-  return ::tt::target::ttnn::CreateConcatOpDirect(
-      *cache.fbb, &ins, out, dim,
-      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
-                   : 0);
+  return ::tt::target::ttnn::CreateConcatOpDirect(*cache.fbb, &ins, out, dim);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
@@ -963,8 +958,9 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
           ? ::flatbuffers::Optional<::tt::target::DataType>(
                 ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value()))
           : ::flatbuffers::nullopt,
-      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
-                   : 0,
+      memoryConfig.has_value()
+          ? cache.getOrCreate(memoryConfig.value(), memoryConfigToFlatbuffer)
+          : 0,
       out);
 }
 

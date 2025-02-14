@@ -10,7 +10,6 @@ include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -28,7 +27,7 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let results = (outs TT_Device:$device);
 }
 
-def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [HasMemoryConfigTrait]> {
+def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let summary = "ToMemoryConfig op.";
     let description = [{
       This op converts the memory config of the input tensor based on the given memory config.
@@ -860,7 +859,7 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat", [HasMemoryConfigTrait]> {
+def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let summary = "Concat op.";
     let description = [{
       Concat tensors along a given dimension.
@@ -868,8 +867,7 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat", [HasMemoryConfigTrait]> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dim,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
 

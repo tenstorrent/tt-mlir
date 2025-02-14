@@ -596,21 +596,3 @@ MemoryConfigAttr::withMemoryLayout(::mlir::MLIRContext *context,
   return MemoryConfigAttr::get(context, getBufferType(), getShardSpec(),
                                TensorMemoryLayoutAttr::get(context, memLayout));
 }
-
-// Verify memory config attribute
-::llvm::LogicalResult MemoryConfigAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    BufferTypeAttr bufferType, ShardSpecAttr shardSpec,
-    TensorMemoryLayoutAttr tensorMemoryLayout) {
-  // Verify that we don't have tensorMemoryLayout for BufferType::SystemMemory
-  if (bufferType.getValue() == BufferType::SystemMemory && tensorMemoryLayout) {
-    emitError() << "MemoryConfig with SystemMemory buffer type cannot have "
-                   "tensor memory layout.";
-    return ::llvm::failure();
-  }
-
-  // TODO(#2140): Once we complete #1628, we should add a verifier for
-  // ShardSpecAttr. ShardSpecAttr is only valid if the buffer type is L1.
-
-  return ::llvm::success();
-}
