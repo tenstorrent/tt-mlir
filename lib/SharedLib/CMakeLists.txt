@@ -13,6 +13,7 @@ set(TTMLIR_LIBS
     TTMetalTargetFlatbuffer
     TTKernelTargetCpp
     MLIRTTDialect
+    MLIRTTUtils
     MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTKernelDialect
