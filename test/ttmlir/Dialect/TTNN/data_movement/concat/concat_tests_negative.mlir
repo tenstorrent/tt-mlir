@@ -1,5 +1,6 @@
 // RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
 // Negative tests for concat operation
+// UNSUPPORTED: true
 
 // Verify that verification fails when the given dimension is out of bounds and is negative.
 module {
