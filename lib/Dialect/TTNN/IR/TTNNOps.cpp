@@ -1352,18 +1352,18 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult ReduceScatterOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t scatterSplitDim = getScatterSplitDim();
-  auto mathOp = getMathOp();
+  int32_t scatterDimension = getScatterDimension();
+  auto reduceType = getReduceType();
 
-  if (scatterSplitDim >= inputType.getRank() ||
-      scatterSplitDim < -inputType.getRank()) {
+  if (scatterDimension >= inputType.getRank() ||
+      scatterDimension < -inputType.getRank()) {
     return emitOpError("Invalid dimension for reduce scatter op.");
   }
 
   // Check reduction op that we currently support in tt_nn
-  if (mathOp != ::mlir::tt::ReduceType::Sum &&
-      mathOp != ::mlir::tt::ReduceType::Max &&
-      mathOp != ::mlir::tt::ReduceType::Min) {
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min) {
     return emitOpError("Invalid reduction op for reduce scatter op.");
   }
 

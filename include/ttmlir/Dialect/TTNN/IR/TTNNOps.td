@@ -1337,8 +1337,9 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         SI32Attr:$scatter_split_dim,
-                         TT_ReduceTypeAttr:$math_op,
+                         SI32Attr:$scatter_dimension,
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$cluster_axis,
                          DefaultValuedAttr<SI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
