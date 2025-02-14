@@ -56,13 +56,7 @@ void populateTTNNModule(py::module &m) {
                   })
       .def_property_readonly("value",
                              [](tt::ttnn::TensorMemoryLayoutAttr self) {
-                               llvm::outs() << "Before\n";
-                               auto layout = self.getValue();
-                               llvm::outs() << "Got the Layout\n";
-                               auto casted = static_cast<uint32_t>(layout);
-                               llvm::outs() << "Cast the Layout\n";
-
-                               return casted;
+                               return static_cast<uint32_t>(self.getValue());
                              });
   tt_attribute_class<tt::ttnn::BufferTypeAttr>(m, "BufferTypeAttr")
       .def_static(
