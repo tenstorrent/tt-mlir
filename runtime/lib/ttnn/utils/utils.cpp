@@ -233,8 +233,27 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor) {
   auto tensorPtr = std::make_shared<::ttnn::Tensor>(tensor);
+  TensorDesc desc = descFromTTNNTensor(tensor);
   return Tensor(std::static_pointer_cast<void>(tensorPtr), nullptr,
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, desc);
 }
 
+/**
+ * Copies tensor metadata from a `::ttnn::Tensor` `t` into a `TensorDesc` that's
+ * returned.
+ */
+TensorDesc descFromTTNNTensor(const ::ttnn::Tensor &t) {
+  TensorDesc desc;
+  desc.dataType = fromTTNNDataType(t.dtype());
+  desc.itemsize = t.element_size();
+  desc.shape = std::vector<std::uint32_t>();
+  for (size_t i = 0; i < t.logical_shape().size(); ++i) {
+    desc.shape.push_back(t.logical_shape()[i]);
+  }
+  desc.stride = std::vector<std::uint32_t>();
+  for (size_t i = 0; i < t.strides().size(); ++i) {
+    desc.stride.push_back(t.strides()[i]);
+  }
+  return desc;
+}
 } // namespace tt::runtime::ttnn::utils

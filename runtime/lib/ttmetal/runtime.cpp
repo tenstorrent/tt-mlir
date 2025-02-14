@@ -31,7 +31,15 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
 }
 
 static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
+  TensorDesc emptyDesc;
+  emptyDesc.shape = std::vector<uint32_t>();
+  emptyDesc.stride = std::vector<uint32_t>();
+
+  // This is just a placeholder dtype, if there's a better option we should use
+  // that
+  emptyDesc.dataType = ::tt::target::DataType::UInt32;
+  emptyDesc.itemsize = 0;
+  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal, emptyDesc);
 }
 
 static tt::runtime::MemoryView
@@ -57,8 +65,8 @@ Tensor createTensor(std::shared_ptr<void> data,
   desc.itemsize = itemsize;
   desc.dataType = dataType;
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
-  return Tensor(static_pointer_cast<void>(tensor), data,
-                DeviceRuntime::TTMetal);
+  return Tensor(static_pointer_cast<void>(tensor), data, DeviceRuntime::TTMetal,
+                desc);
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor) {
