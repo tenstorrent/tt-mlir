@@ -631,7 +631,8 @@ public:
     }
     rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInputs(), adaptor.getOutput(), dim);
+        adaptor.getInputs(), adaptor.getOutput(), dim,
+        /* memory_config */ nullptr);
     return success();
   }
 };
