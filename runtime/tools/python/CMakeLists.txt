@@ -6,8 +6,22 @@ foreach (filename ${TTRT_FILES})
     list(APPEND TTRT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/${relative_filename}")
 endforeach (filename)
 
+function(get_all_deps target deps)
+    get_target_property(libs ${target} LINK_LIBRARIES)
+    if (libs)
+        foreach(lib IN LISTS libs)
+            list(APPEND ${deps} ${lib})
+            get_all_deps(${lib} ${deps})
+        endforeach()
+    endif()
+    set(${deps} ${${deps}} PARENT_SCOPE)
+endfunction()
+
+set(TTRuntime_DEPS TTRuntime)
+get_all_deps(TTRuntime TTRuntime_DEPS)
+
 add_custom_command(
-  COMMAND rm -f build/*.whl
+  COMMAND rm -rf build
   COMMAND python -m pip install -r "${CMAKE_CURRENT_BINARY_DIR}/requirements.txt"
   COMMAND TTMLIR_ENABLE_RUNTIME=${TTMLIR_ENABLE_RUNTIME}
           TT_RUNTIME_ENABLE_TTNN=${TT_RUNTIME_ENABLE_TTNN}
@@ -25,7 +39,7 @@ add_custom_command(
   COMMAND python -m pip install build/*.whl --force-reinstall
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  DEPENDS ${TTRT_SOURCES}
+  DEPENDS ${TTRT_SOURCES} ${TTRuntime_DEPS}
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
 )
 
