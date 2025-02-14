@@ -102,7 +102,7 @@ def TTIR_TileReduceSumOp : TTIR_GenericRegionOp<"tile_reduce_sum">{
 
     let arguments = (ins TT_Tile:$input,
                          TT_Tile:$weight,
-                         TTIR_ReduceDim:$dim_arg);
+                         TTIR_ReduceDimAttr:$reduce_dim);
     let results = (outs TT_Tile:$result);
 }
 
@@ -113,7 +113,7 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
     }];
 
     let arguments = (ins TT_Tile:$input,
-                         TTIR_ReduceDim:$dim_arg);
+                         TTIR_ReduceDimAttr:$reduce_dim);
     let results = (outs TT_Tile:$result);
 }
 
