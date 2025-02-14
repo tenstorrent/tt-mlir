@@ -949,6 +949,13 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::ArrayAttr begins = getBegins();
+        ::mlir::ArrayAttr step = getStep();
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSliceOpOperandsWorkarounds(begins, step);
+      }
     }];
 
     let hasVerifier = 1;
