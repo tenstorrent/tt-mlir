@@ -15,7 +15,7 @@ PORT = 8002
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Explorer/**/*.mlir",
-    "test/ttmlir/Dialect/TTNN/**/*.mlir",
+    "test/ttmlir/Silicon/TTNN/n150/perf/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
@@ -137,7 +137,7 @@ def test_load_model(model_path):
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
 def test_execute_model(model_path):
     execute_command_and_wait(
-        model_path, {"optimizationPolicy": "DF Sharding"}, timeout=300
+        model_path, {"optimizationPolicy": "Optimizer Disabled"}, timeout=300
     )
     convert_command_and_assert(model_path)
 
@@ -151,10 +151,10 @@ def test_execute_mnist_l1_interleaved():
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
 
-def test_execute_mnist_optimizer_disabled():
+def test_execute_mnist_df_sharding():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
-        {"optimizationPolicy": "Optimizer Disabled"},
+        {"optimizationPolicy": "DF Sharding"},
         timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
