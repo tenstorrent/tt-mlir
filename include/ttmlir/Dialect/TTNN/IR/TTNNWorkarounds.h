@@ -226,6 +226,7 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
+  // Create workarounds for cumulative sum op operands.
   static TTNNOperandsWorkarounds
   createCumSumOpOperandsWorkarounds(RankedTensorType inputType);
 
@@ -245,6 +246,10 @@ public:
   createSliceOpOperandsWorkarounds(ttnn::TTNNLayoutAttr layoutAttr,
                                    mlir::ArrayAttr begins,
                                    mlir::ArrayAttr step);
+
+  // Create workarounds for concat op operands.
+  static TTNNOperandsWorkarounds
+  createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
 };
 
 } // namespace mlir::tt::ttnn::wa
