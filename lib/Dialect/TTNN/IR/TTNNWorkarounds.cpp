@@ -6,6 +6,7 @@
 
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -261,5 +262,56 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
     workaround.addInputOperandWorkaround(bf16Workaround);
   }
   return workaround.addOutputOperandWorkaround(bf16Workaround);
+}
+
+// Factory method to create a set of workarounds for slice op input operands.
+// ttnn::SliceOp requires bfloat16 data type for strided slice.
+// ttnn::SliceOp requires row major layout if 'begins' elements (corresponding
+// to Width and Height) are not divisible by tile width and height.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
+    ttnn::TTNNLayoutAttr layoutAttr, mlir::ArrayAttr begins,
+    mlir::ArrayAttr step) {
+  // Check if any element in 'step' is greater than 1, indicating a strided
+  // slice operation.
+  bool isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
+    mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
+    return intAttr.getInt() > 1;
+  });
+
+  // Compute Width Index.
+  int64_t idxWidth = begins.size() - 1;
+  // Compute Height Index; 0 if input tensor is 1D.
+  int64_t idxHeight = begins.size() > 1 ? begins.size() - 2 : 0;
+
+  // Determine if workaround for row major layout is required.
+  bool isLayoutWARequired = layoutAttr.isTiled();
+  int32_t tileWidth = 1;
+  int32_t tileHeight = 1;
+  if (isLayoutWARequired) {
+    TileType tile =
+        mlir::cast<TileType>(layoutAttr.getMemref().getElementType());
+    tileWidth = tile.getWidth();
+    tileHeight = tile.getHeight();
+  }
+  isLayoutWARequired &=
+      ((mlir::dyn_cast<mlir::IntegerAttr>(begins[idxWidth]).getInt() %
+            tileWidth !=
+        0) ||
+       (mlir::dyn_cast<mlir::IntegerAttr>(begins[idxHeight]).getInt() %
+            tileHeight !=
+        0));
+
+  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  if (isStridedSliceOp) {
+    rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  }
+  if (!isStridedSliceOp && isLayoutWARequired) {
+    rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  }
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 } // namespace mlir::tt::ttnn::wa
