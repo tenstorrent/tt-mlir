@@ -604,6 +604,49 @@ public:
   }
 };
 
+// RepeatInterleave op conversion pattern
+//
+class RepeatInterleaveOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::RepeatInterleaveOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::RepeatInterleaveOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::RepeatInterleaveOp repeatInterleaveOp,
+                  ttnn::RepeatInterleaveOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create operands vector
+    //
+    llvm::SmallVector<Value, 2> operands{
+        adaptor.getOperands()[0],
+    };
+
+    // Create ArrayAttr object holding attributes and pointers to operands
+    //
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(0), // input tensor
+        repeatInterleaveOp.getRepeatsAttr(), repeatInterleaveOp.getDimAttr(),
+        repeatInterleaveOp.getMemoryConfig().has_value()
+            ? (operands.push_back(ttnn_to_emitc::utils::createMemoryConfigOp(
+                                      rewriter,
+                                      repeatInterleaveOp.getMemoryConfigAttr(),
+                                      repeatInterleaveOp.getLoc())
+                                      ->getResult(0)),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(1)))
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::MemoryConfig
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        repeatInterleaveOp,
+        this->getTypeConverter()->convertType(repeatInterleaveOp.getType()),
+        this->convertOpName(repeatInterleaveOp), arrayAttrs, nullptr, operands);
+
+    return success();
+  }
+};
+
 // GetDeviceOp conversion pattern
 //
 namespace {
@@ -1320,7 +1363,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               DefaultOpConversionPattern<ttnn::RepeatInterleaveOp>,
+               RepeatInterleaveOpConversionPattern,
                DefaultOpConversionPattern<ttnn::SliceOp>,
                DefaultOpConversionPattern<ttnn::PermuteOp>,
                DefaultOpConversionPattern<ttnn::PadOp>>(typeConverter, ctx);
