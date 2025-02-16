@@ -68,12 +68,13 @@ if enable_ttnn:
     linklibs += [
         "TTRuntimeTTNN",
         "TTRuntimeTTNNOps",
-        "TTRuntimeTTNNHelpers",
+        "TTRuntimeTTNNTypes",
+        "TTRuntimeTTNNUtils",
         ":_ttnn.so",
     ]
 
 if enable_ttnn and enable_runtime_tests:
-    linklibs += ["TTRuntimeTTNNTestHelpers"]
+    linklibs += ["TTRuntimeTTNNTestLib"]
 
 if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
@@ -235,6 +236,7 @@ if enable_runtime:
             include_dirs=[
                 f"{toolchain}/include",
                 f"{src_dir}/runtime/include",
+                f"{src_dir}/runtime/test/include",
                 f"{ttmlir_build_dir}/include",
                 f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
             ],
@@ -243,9 +245,11 @@ if enable_runtime:
                 f"{ttmlir_build_dir}/runtime/lib",
                 f"{ttmlir_build_dir}/runtime/lib/common",
                 f"{ttmlir_build_dir}/runtime/lib/ttnn",
+                f"{ttmlir_build_dir}/runtime/lib/ttnn/types",
+                f"{ttmlir_build_dir}/runtime/lib/ttnn/utils",
                 f"{ttmlir_build_dir}/runtime/lib/ttnn/operations",
                 f"{ttmlir_build_dir}/runtime/lib/ttmetal",
-                f"{ttmlir_build_dir}/runtime/test",
+                f"{ttmlir_build_dir}/runtime/test/ttnn",
                 f"{toolchain}/lib",
                 f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
                 f"{metaldir}/lib",

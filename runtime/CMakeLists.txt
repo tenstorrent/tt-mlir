@@ -25,4 +25,6 @@ endforeach()
 
 add_subdirectory(lib)
 add_subdirectory(tools)
-add_subdirectory(test)
+if (TTMLIR_ENABLE_RUNTIME_TESTS)
+  add_subdirectory(test)
+endif()

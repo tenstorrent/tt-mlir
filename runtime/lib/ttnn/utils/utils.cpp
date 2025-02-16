@@ -7,6 +7,8 @@
 
 namespace tt::runtime::ttnn::utils {
 
+using ::tt::runtime::DeviceRuntime;
+
 // TODO (bug #701)
 // Currently the memory layout/location in flatbuffer is incorrect
 // These methods are workarounds for operations such that we query the info
