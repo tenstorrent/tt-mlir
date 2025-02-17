@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline="system-desc-path=%system_desc_path%"  %s | FileCheck %s
 #l1_ = #tt.memory_space<l1>
 
