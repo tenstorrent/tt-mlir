@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
+include "ttmlir/Dialect/TTIR/IR/TTIROpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
 class TTIR_TileOp<string mnemonic, list<Trait> traits = [TTIR_TileOpTrait]> :
@@ -115,17 +116,106 @@ def TTIR_TileReduceMaxOp : TTIR_TileOp<"tile_reduce_max">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block">{
+def TTIR_TileMatmulBlockOp : TTIR_TileOp<"tile_matmul_block",
+  [ DestinationStyleOpInterface
+  , MemoryEffects<[MemRead, MemWrite]> // Custom memory effects??
+  ]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$a, 
-                         AnyNon0RankedMemRef:$b);
-    let results = (outs AnyNon0RankedMemRef:$result);
+    let arguments = (ins AnyNon0RankedMemRef:$a,
+                         AnyNon0RankedMemRef:$b,
+                         AnyNon0RankedMemRef:$output);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 
     let hasVerifier = 1;
+}
+
+def TTIR_DMAOp : TTIR_TileOp<"dma", 
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]> // Custom memory effects??
+  ]> {
+    let summary = "TTIR DMA Op";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyNon0RankedMemRef:$src, Variadic<Index>:$srcIndices, Variadic<Index>:$srcStride,
+                         AnyNon0RankedMemRef:$dst, Variadic<Index>:$dstIndices, Variadic<Index>:$dstStride,
+                         Index:$numElements, Variadic<Index>:$mcastOffset, Variadic<Index>:$mcastShape);
+    let results = (outs TTIR_MemTx:$result);
+
+    let assemblyFormat = [{ $src `[` $srcIndices `]` `[` $srcStride `]` `,` $dst `[` $dstIndices `]` `[` $dstStride `]` `,` $numElements (`,` `mcast` `[` $mcastOffset^ `]` `[` $mcastShape `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+}
+
+def TTIR_DMAWaitOp : TTIR_TileOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> { // Custom memory effects??
+    let summary = "TTIR DMA wait Op";
+    let description = [{
+    }];
+
+    let arguments = (ins TTIR_MemTx:$mem_tx);
+
+    let assemblyFormat = [{ $mem_tx attr-dict }];
+}
+
+def TTIR_IterIndexOp : TTIR_Op<"iter_index", [HasParent<"GenericOp">, Pure]> {
+    let summary = "Iter Index op.";
+    let description = [{
+      Return the index of the current element in the iteration for the given generic op dimension.
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+}
+
+def TTIR_GridIndexOp : TTIR_Op<"grid_index", [HasParent<"GenericOp">, Pure]> {
+    let summary = "Grid Index op.";
+    let description = [{
+      Return the index of the this grid coordinate for the given grid dimension.
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+}
+
+def TTIR_YieldOp : TTIR_Op<"yield", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Yield op.";
+    let description = [{
+      Yield operation, return control flow to another thread
+    }];
+
+    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$values);
+
+    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AwaitOp : TTIR_Op<"await", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Await op.";
+    let description = [{
+      Await operation, return control flow to another thread
+    }];
+
+    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$values);
+
+    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_SynchronizeOp : TTIR_Op<"synchronize", [HasParent<"GenericOp">, MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Synchronize op.";
+    let description = [{
+    }];
+
+    let assemblyFormat = [{ attr-dict }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTILEOPS_TD

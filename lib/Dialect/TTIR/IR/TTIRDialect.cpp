@@ -105,6 +105,7 @@ void TTIRDialect::initialize() {
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"
       >();
+  registerTypes();
 }
 
 //===----------------------------------------------------------------------===//
