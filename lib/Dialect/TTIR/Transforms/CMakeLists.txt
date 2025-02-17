@@ -2,7 +2,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
         Constant.cpp
-        Generic.cpp
         HoistCPUOps.cpp
         Layout.cpp
         Transforms.cpp

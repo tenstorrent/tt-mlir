@@ -1381,8 +1381,8 @@ public:
     for (auto arg : blockArguments) {
       auto port = getPort(arg.getArgNumber(), op.getInputs().size());
       auto tensor = mlir::cast<RankedTensorType>(arg.getType());
-      auto buffer = mlir::cast<BufferAttr>(tensor.getEncoding());
-      auto memref = buffer.getMemref();
+      auto layout = mlir::cast<MetalLayoutAttr>(tensor.getEncoding());
+      auto memref = layout.getMemref();
 
       int32_t cbMapping = op.getOperandCbMapping()[arg.getArgNumber()];
 
@@ -1405,7 +1405,7 @@ public:
       llvm::MapVector<PhysicalCoreCoord,
                       SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
           dataMovement;
-      if (buffer.getBufferAccess() == BufferAccess::Stream) {
+      if (layout.getStreamMode() == StreamMode::Stream) {
         dataMovement = calculateDataMovement(
             op.getIteratorTypes(),
             mlir::cast<RankedTensorType>(matchingOperand.getType()),
@@ -1417,7 +1417,7 @@ public:
       }
       streamedOperands.push_back(StreamedOperand(
           lookupAddress(matchingOperand), lookupAddress(correspondingOperand),
-          arg.getArgNumber(), buffer.getBufferAccess() == BufferAccess::Stream,
+          arg.getArgNumber(), layout.getStreamMode() == StreamMode::Stream,
           dataMovement, numTiles,
           // TODO(rpavlovic) fix the assumption that input is always in L1.
           PhysicalCoreCoordMapping::getMemorySpaceMapping(

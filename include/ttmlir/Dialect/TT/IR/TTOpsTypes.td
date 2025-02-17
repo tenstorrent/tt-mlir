@@ -361,7 +361,6 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
                           StreamMode streamMode,
                           std::uint32_t numBuffers);
 
-
       uint64_t getMemrefSizeBytes() const;
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
@@ -377,31 +376,11 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape(bool convertTileToScalar = true) const;
+      StreamMode getStreamMode() const;
       AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
       AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
-  }];
-}
-
-
-def TT_BufferAttr : TT_Attr<"Buffer", "buffer", []>, Deprecated<"use TT_StreamModeAttr instead"> {
-  let summary = "Buffer attribute in TT dialect";
-  let description = [{
-    Describes the physical footprint and layout of a buffer in L1. Its memref must also have a shape with rank equal to DeviceAttr grid.
-    It also carries a buffer access attribute which can be one of:
-    - Alias: This buffer aliases a persistent Tensor L1 allocation directly. Implies that no datamovement occurs and the compute kernel
-             just accesses the local allocation directly.
-    - Stream: This buffer is a temporary destination as a means to get remote data for local computation.  Remote data is most likely a
-              a tensor that is allocated in dram, but could also be data from a remote core.
-  }];
-  let parameters = (ins AttrParameter<"MemRefType", "A memref that describes the physical footprint and layout of the buffer. It must also have a shape with rank equal to DeviceAttr grid.">:$memref,
-                        AttrParameter<"BufferAccess", "How data is accessed through this buffer, alias or stream.">:$buffer_access);
-  let assemblyFormat = "`<` $memref `,` $buffer_access `>`";
-
-  let extraClassDeclaration = [{
-      ::mlir::Type getElementType() const;
-      ::llvm::SmallVector<int64_t> getShape() const;
   }];
 }
 
