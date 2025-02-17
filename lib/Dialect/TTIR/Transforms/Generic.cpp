@@ -72,10 +72,10 @@ std::pair<ttir::GenericOp, Block *> buildGenericOp(GenericRegionOp op,
   auto genericOp = rewriter.create<ttir::GenericOp>(
       op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
       ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
-      iteratorTypes);
+      iteratorTypes, ::llvm::ArrayRef<int64_t>(), 1 /*numRegions*/);
 
   // Create a new basic block for the generic op and create block arguments.
-  Block *block = rewriter.createBlock(&genericOp.getRegion());
+  Block *block = rewriter.createBlock(&genericOp.getRegion(0));
   SmallVector<Location> blockArgumentLocs(genericOp.getOperands().size(),
                                           genericOp.getLoc());
   SmallVector<Type> blockArgTypes(llvm::map_range(
@@ -190,7 +190,7 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    Block *entry = &op.getRegion().front();
+    Block *entry = &op.getRegion(0).front();
     rewriter.setInsertionPointToStart(entry);
     auto args = entry->getArguments();
     if (llvm::all_of(args, isLinearizedMemref)) {
