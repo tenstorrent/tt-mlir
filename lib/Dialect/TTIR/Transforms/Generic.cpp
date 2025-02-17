@@ -26,7 +26,9 @@ namespace mlir::tt::ttir {
 class TTIRGenericRegionRewriter
     : public OpInterfaceRewritePattern<GenericRegionOp> {
 public:
-  using OpInterfaceRewritePattern<GenericRegionOp>::OpInterfaceRewritePattern;
+  TTIRGenericRegionRewriter(MLIRContext *context, bool newLowering)
+      : OpInterfaceRewritePattern<GenericRegionOp>(context),
+        newLowering(newLowering) {}
 
   LogicalResult matchAndRewrite(GenericRegionOp op,
                                 PatternRewriter &rewriter) const final {
@@ -59,8 +61,20 @@ public:
     Block *block = rewriter.createBlock(&genericOp.getRegion());
     SmallVector<Location> blockArgumentLocs(genericOp.getOperands().size(),
                                             genericOp.getLoc());
-    block->addArguments(TypeRange(genericOp.getOperandTypes()),
-                        blockArgumentLocs);
+    if (newLowering) {
+      SmallVector<Type> blockArgTypes(
+          llvm::map_range(genericOp.getOperands().getTypes(), [&](Type type) {
+            RankedTensorType tensorType = mlir::cast<RankedTensorType>(type);
+            tt::MetalLayoutAttr layout =
+                mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
+            return layout.getMemref();
+          }));
+      block->addArguments(blockArgTypes,
+                          blockArgumentLocs);
+    } else {
+      block->addArguments(TypeRange(genericOp.getOperandTypes()),
+                          blockArgumentLocs);
+    }
 
     // Convert the original op into arith/math and into the generic block.
     OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
@@ -68,6 +82,8 @@ public:
     rewriter.replaceOp(op, genericOp);
     return success();
   }
+
+  bool newLowering;
 };
 
 class TTIRGenericRegion
@@ -76,7 +92,7 @@ public:
   using impl::TTIRGenericRegionBase<TTIRGenericRegion>::TTIRGenericRegionBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericRegionRewriter>(&getContext());
+    patterns.add<TTIRGenericRegionRewriter>(&getContext(), newLowering);
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
