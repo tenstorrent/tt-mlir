@@ -2275,6 +2275,94 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   return success();
 }
 
+bool mlir::tt::ttir::GenericOp::bufferizesToMemoryRead(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is not bufferized to a memory read.
+  if (operand.getOperandNumber() >= getInputs().size()) {
+    return false;
+  }
+
+  return true;
+}
+
+bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is not bufferized to a memory write.
+  if (operand.getOperandNumber() < getInputs().size()) {
+    return false;
+  }
+
+  return true;
+}
+
+::mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
+    ::mlir::RewriterBase &rewriter,
+    const ::mlir::bufferization::BufferizationOptions &options) {
+  if (getNumResults() == 0) {
+    return ::mlir::failure();
+  }
+
+  assert(getNumResults() == 1 &&
+         "GenericOp should have exactly one result");
+  assert(getOutputs().size() == 1 &&
+         "GenericOp should have exactly one output");
+  assert(getCbs().size() == 0 &&
+         "GenericOp should not have any cb, these are deprecated");
+
+  if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
+    return ::mlir::failure();
+  }
+  ::mlir::SmallVector<::mlir::Value> bufferInputs;
+  bufferInputs.reserve(getInputs().size());
+  for (auto input : getInputs()) {
+    auto maybeValue = bufferization::getBuffer(rewriter, input, options);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferInputs.push_back(maybeValue.value());
+  }
+  ::mlir::SmallVector<::mlir::Value> bufferOutputs;
+  bufferOutputs.reserve(getOutputs().size());
+  for (auto output : getOutputs()) {
+    auto maybeValue = bufferization::getBuffer(rewriter, output, options);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferOutputs.push_back(maybeValue.value());
+  }
+  auto bufferGeneric = rewriter.create<::mlir::tt::ttir::GenericOp>(
+      getLoc(), ValueRange(), bufferInputs, ValueRange(), bufferOutputs,
+      getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping());
+  bufferGeneric.getRegion().takeBody(getRegion());
+  rewriter.replaceAllUsesWith(getResult(0), getOutputs()[0]);
+  rewriter.eraseOp(*this);
+  return ::mlir::success();
+}
+
+::mlir::bufferization::AliasingValueList
+mlir::tt::ttir::GenericOp::getAliasingValues(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+::mlir::FailureOr<::mlir::BaseMemRefType>
+mlir::tt::ttir::GenericOp::getBufferType(
+    ::mlir::Value value, const ::mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<::mlir::Value> &) {
+  auto rankedTensorType =
+      mlir::cast<::mlir::RankedTensorType>(value.getType());
+  mlir::Type memrefResultType =
+      mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+          .getMemref();
+  return mlir::cast<::mlir::BaseMemRefType>(memrefResultType);
+}
+
+// TODO
+//
+// bool bufferizesToElementwiseAccess
+// audit rest of bufferization interface
+
 // GenericOp builders
 
 // Build a generic region for a binary elementwise operation.

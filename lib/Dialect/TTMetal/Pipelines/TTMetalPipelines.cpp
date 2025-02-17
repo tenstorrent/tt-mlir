@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
 
@@ -38,6 +40,31 @@ void createTTIRToTTMetalBackendPipeline(
       mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   if (options.version > 0) {
+    mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
+    {
+      bufferizationOptions.bufferizeFunctionBoundaries = true;
+      bufferizationOptions.functionArgTypeConverterFn =
+        [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
+            mlir::FunctionOpInterface functionOp,
+            const bufferization::BufferizationOptions &bufferizationOptions) {
+          auto rankedTensorType =
+            mlir::cast<::mlir::RankedTensorType>(tensorType);
+          mlir::Type memrefResultType =
+            mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+            .getMemref();
+          return mlir::cast<::mlir::BaseMemRefType>(memrefResultType);
+        };
+      bufferizationOptions.defaultMemorySpaceFn =
+        [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
+          auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
+          return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+            .getMemref()
+            .getMemorySpace();
+        };
+      // bufferizationOptions.bufferAlignment = TODO;
+    }
+    pm.addPass(
+        mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
     pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
     pm.addPass(mlir::createLowerAffinePass());
