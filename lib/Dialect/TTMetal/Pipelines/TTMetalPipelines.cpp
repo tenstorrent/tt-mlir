@@ -34,8 +34,9 @@ void createTTIRToTTMetalBackendPipeline(
   }
   pm.addPass(
       mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
-  // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
-  // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
+  ttir::TTIRGenericRegionOptions genericRegionOptions;
+  { genericRegionOptions.newLowering = options.version > 0; }
+  pm.addPass(mlir::tt::ttir::createTTIRGenericRegion(genericRegionOptions));
   if (options.version > 0) {
 
   } else {
