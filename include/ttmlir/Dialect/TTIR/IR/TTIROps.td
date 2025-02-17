@@ -68,7 +68,7 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments, Bufferizab
                          TT_IteratorTypeArrayAttr:$iterator_types,
                          DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$operand_cb_mapping); // index of input operand and index of cb go together
     let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region AnyRegion:$region);
+    let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{

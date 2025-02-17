@@ -1485,7 +1485,7 @@ public:
   }
 
   static bool needScaler(ttir::GenericOp op) {
-    Block &block = op.getRegion().front();
+    Block &block = op.getRegion(0).front();
     Operation &firstOp = block.getOperations().front();
     if (!mlir::isa<ttir::KernelOp>(firstOp)) {
       return false;
@@ -1502,7 +1502,7 @@ public:
   static Type addReduceScaler(ttir::GenericOp op, Block *dmBlock,
                               ArrayRef<Type> rewrittenBlockArgumentTypes,
                               PatternRewriter &rewriter) {
-    Block &block = op.getRegion().front();
+    Block &block = op.getRegion(0).front();
     Operation &firstOp = block.getOperations().front();
     if (!mlir::isa<ttir::KernelOp>(firstOp)) {
       return nullptr;
