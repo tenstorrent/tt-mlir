@@ -41,8 +41,9 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
       mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
       mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-      mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-      mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+      mlir::affine::AffineDialect, mlir::scf::SCFDialect,
+      mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
+      mlir::vector::VectorDialect, mlir::memref::MemRefDialect,
       mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
       mlir::LLVM::LLVMDialect>();
 
