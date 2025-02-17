@@ -36,16 +36,20 @@ void createTTIRToTTMetalBackendPipeline(
       mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
   // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
   // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
-  mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
-  {
-    layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-    layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-    layoutOptions.defaultDeviceMemoryLayout =
-        mlir::tt::TensorMemoryLayout::None;
+  if (options.version > 0) {
+
+  } else {
+    mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
+    {
+      layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
+      layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
+      layoutOptions.defaultDeviceMemoryLayout =
+          mlir::tt::TensorMemoryLayout::None;
+    }
+    pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
+    pm.addPass(mlir::tt::ttir::createTTIRAllocate());
+    pm.addPass(createConvertTTIRToTTMetalPass());
   }
-  pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
-  pm.addPass(mlir::tt::ttir::createTTIRAllocate());
-  pm.addPass(createConvertTTIRToTTMetalPass());
 }
 
 //===----------------------------------------------------------------------===//
