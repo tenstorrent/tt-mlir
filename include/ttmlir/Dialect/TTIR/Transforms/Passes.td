@@ -52,6 +52,12 @@ def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::M
   }];
 }
 
+def TTIRGenericDatamovement: Pass<"ttir-generic-datamovement", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
