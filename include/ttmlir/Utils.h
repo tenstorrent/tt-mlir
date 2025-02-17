@@ -61,6 +61,18 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
   return result;
 }
 
+inline mlir::AffineMap getMinorReductionMap(size_t rank,
+                                            mlir::MLIRContext *ctx) {
+  llvm::SmallVector<mlir::AffineExpr> exprs;
+  for (size_t i = 0; i < rank; ++i) {
+    exprs.push_back(getAffineConstantExpr(0, ctx));
+  }
+  for (size_t i = 0; i < rank; ++i) {
+    exprs.push_back(getAffineDimExpr(i, ctx));
+  }
+  return mlir::AffineMap::get(rank, /*symbolCount=*/0, exprs, ctx);
+}
+
 template <typename IntType>
 IntType volume(mlir::ArrayRef<IntType> shape) {
   IntType result = 1;
