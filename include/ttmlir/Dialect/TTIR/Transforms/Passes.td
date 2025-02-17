@@ -38,6 +38,13 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
   ];
 }
 
+def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Wrap top level elementwise ops in a generic op.
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
