@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
         Constant.cpp
+        Generic.cpp
         GenericLinearizeMemref.cpp
         GenericDatamovement.cpp
         GenericLowerAffineDMAs.cpp

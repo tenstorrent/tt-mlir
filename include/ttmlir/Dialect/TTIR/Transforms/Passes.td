@@ -23,6 +23,12 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRGenericConversion : Pass<"ttir-generic-conversion", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
 def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{

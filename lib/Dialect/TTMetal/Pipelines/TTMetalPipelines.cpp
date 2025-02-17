@@ -51,6 +51,21 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
       return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getBufferType();
     };
+    bufferizationOptions.allocationFn = [](OpBuilder &builder, Location loc,
+                                           MemRefType type, ValueRange shape,
+                                           unsigned int) -> FailureOr<Value> {
+      auto tileType =
+          builder.getType<mlir::tt::TileType>(type.getElementType());
+      auto tensorGrid = builder.getAttr<GridAttr>(type.getRank() / 2);
+      SmallVector<int64_t> shapeVec(type.getShape());
+      for (int i = type.getRank() / 2; i < type.getRank(); i += 1) {
+        shapeVec[i] *= 32;
+      }
+      auto layout = builder.getAttr<mlir::tt::MetalLayoutAttr>(
+          shapeVec, tileType, tt::MemorySpace::DeviceL1, tensorGrid);
+      auto ty = layout.getBufferType();
+      return builder.create<memref::AllocOp>(loc, ty).getResult();
+    };
   }
   pm.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
@@ -87,7 +102,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(
       mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
   // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
-  // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
+  pm.addPass(mlir::tt::ttir::createTTIRGenericConversion());
   if (options.version > 0) {
     createTTIRBufferizationPipeline(pm);
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());

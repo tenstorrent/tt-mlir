@@ -1771,7 +1771,7 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_NamedOp<"matmul", [TTIR_GenericRegionOpInterface]> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.
@@ -1784,6 +1784,43 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      void buildGenericRegion(::mlir::OpBuilder &, ::mlir::Block*) {
+        assert(false);
+      }
+
+      // Returns the indexing maps and iterator types for the reduction op.
+      // Indexing maps are identity maps with dropped dimensions corresponding to the
+      // reduction dimensions. Iterator types are parallel for non-reduction dimensions
+      // and reduction for reduction dimensions.
+      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
+        auto rank = mlir::cast<RankedTensorType>(getA().getType()).getRank();
+        auto rank_plus_inner_dim = rank + 1;
+
+        // (d0, d1, d2, d3) -> (d0, d1, d2, d3)
+        // lhs (d0, d1, d2, d3) -> (d0, d1, d3) drop d2
+        // rhs (d0, d1, d2, d3) -> (d0, d3, d2) drop d1 and swap d2 and d3
+        // out (d0, d1, d2, d3) -> (d0, d1, d2) drop d3
+        auto id = builder.getMultiDimIdentityMap(rank_plus_inner_dim);
+        auto lhs = id.dropResult(rank_plus_inner_dim - 2);
+        auto rhs = id.dropResult(rank_plus_inner_dim - 3);
+        auto rhs_outer = rhs.getResult(rank - 2);
+        rhs = rhs.insertResult(rhs_outer, rank);
+        rhs = rhs.dropResult(rank - 2);
+        auto out = id.dropResult(rank_plus_inner_dim - 1);
+
+        SmallVector<AffineMap> indexingMaps = {lhs, rhs, out};
+        SmallVector<Attribute> iteratorTypes(
+            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+        iteratorTypes.push_back(
+            builder.getAttr<IteratorTypeAttr>(IteratorType::Reduction));
+        return {builder.getAffineMapArrayAttr(indexingMaps),
+                builder.getArrayAttr(iteratorTypes)};
+      }
+    }];
 
     let hasVerifier = 1;
 
