@@ -34,7 +34,8 @@ void createTTIRToTTMetalBackendPipeline(
   }
   pm.addPass(
       mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
-  // TODO(#1951): replace with TTIRToGeneric implemented as a converter: pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
+  // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
+  // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
   {
     layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;

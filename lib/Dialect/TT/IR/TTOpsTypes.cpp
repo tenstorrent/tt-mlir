@@ -602,9 +602,10 @@ MetalLayoutAttr::getShardShape(bool convertTileToScalar) const {
 }
 
 StreamMode MetalLayoutAttr::getStreamMode() const {
-  StreamLayoutAttr layout = llvm::dyn_cast<StreamLayoutAttr> (getMemref().getLayout());
-  assert (layout != nullptr && "expected a StreamLayoutAttr layout");
-  return layout.getStreamMode();  
+  StreamLayoutAttr layout =
+      llvm::dyn_cast<StreamLayoutAttr>(getMemref().getLayout());
+  assert(layout != nullptr && "expected a StreamLayoutAttr layout");
+  return layout.getStreamMode();
 }
 
 mlir::Type MetalLayoutAttr::getElementType() const {
