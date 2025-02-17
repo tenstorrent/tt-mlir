@@ -11,6 +11,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -2693,4 +2694,42 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// YieldOp / AwaitOp
+//===----------------------------------------------------------------------===//
+
+static bool valueInBlockArguments(mlir::Value value, mlir::Block *block) {
+  return llvm::any_of(block->getArguments(),
+                      [&](const mlir::BlockArgument &blockArgument) {
+                        return blockArgument == value;
+                      });
+}
+
+static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
+  while (auto memrefCastOp =
+             value.getDefiningOp<::mlir::memref::CollapseShapeOp>()) {
+    value = memrefCastOp.getOperand();
+  }
+  return value;
+}
+
+static ::mlir::LogicalResult operandsInBlockArguments(mlir::Operation* op, mlir::Block *block) {
+  for (mlir::OpOperand& operand : op->getOpOperands()) {
+    mlir::Value value = recurseThroughMemrefCollapse(operand.get());
+    if (!valueInBlockArguments(value, block)) {
+      return op->emitOpError() << "operand[" << operand.getOperandNumber()
+                               << "] not in block arguments";
+    }
+  }
+  return ::mlir::success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
+  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
+}
+
+::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
+  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
 }
