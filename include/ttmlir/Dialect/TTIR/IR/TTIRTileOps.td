@@ -11,7 +11,7 @@ include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
 class TTIR_TileOp<string mnemonic, list<Trait> traits = [TTIR_TileOpTrait]> :
-    TTIR_Op<mnemonic, !listconcat([HasParent<"GenericOp">], traits)> {
+    TTIR_Op<mnemonic, !listconcat([], traits)> {
 }
 
 //===----------------------------------------------------------------------===//
