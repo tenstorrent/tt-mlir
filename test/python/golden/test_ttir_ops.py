@@ -21,7 +21,7 @@ def test_unsqueeze(in0: Operand, builder: TTIRBuilder):
     return builder.unsqueeze(in0, 0)
 
 
-@compile_to_flatbuffer([(128, 128)])
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_exp(in0: Operand, builder: TTIRBuilder):
     return builder.exp(in0)
 
@@ -165,6 +165,7 @@ def test_concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         (64, 128),
         (64, 128),
     ],
+    targets=["ttnn"]
 )
 def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.add(in0, in1)
@@ -175,6 +176,7 @@ def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
         (64, 64),
         (64, 64),
     ],
+    targets=["ttnn"]
 )
 def test_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.multiply(in0, in1)
@@ -427,6 +429,7 @@ def test_reshape(in0: Operand, builder: TTIRBuilder):
         (32, 32),
         (32, 32),
     ],
+    targets=["ttnn"]
 )
 def test_arbitrary_op_chain(
     in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
