@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Memref/IR/Memref.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -23,6 +24,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICLINEARIZEMEMREF
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRGENERICOPCBS
+#define GEN_PASS_DEF_TTIRGENERICDATAMOVEMENT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -115,7 +117,6 @@ void buildLinalgGeneric(::mlir::Location loc, ::mlir::Block *block,
             loc, args[0].getType(), args[0], args[1]);
         nestedBuilder.create<mlir::linalg::YieldOp>(nestedLoc, result);
       });
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange());
 }
 
 class TTIRGenericRegionRewriter
@@ -163,6 +164,27 @@ public:
   }
 };
 
+class TTIRGenericMatmulRewriter
+    : public OpRewritePattern<MatmulOp> {
+public:
+  using OpRewritePattern<MatmulOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(MatmulOp op,
+                                PatternRewriter &rewriter) const final {
+    if (mlir::isa<GenericOp>(op.getOperation()->getParentOp())) {
+      return failure();
+    }
+
+    auto [genericOp, block] = buildGenericOp(op, rewriter);
+    OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
+    blockBuilder.create<ttir::TileMatmulBlockOp>(
+        op->getLoc(), block->getArgument(0), block->getArgument(1),
+        block->getArgument(2));
+    rewriter.replaceOp(op, genericOp);
+    return success();
+  }
+};
+
 class TTIRGenericRegion
     : public impl::TTIRGenericRegionBase<TTIRGenericRegion> {
 public:
@@ -171,6 +193,7 @@ public:
     RewritePatternSet patterns(&getContext());
     if (newLowering) {
       patterns.add<TTIRGenericMaximumRewriter>(&getContext());
+      patterns.add<TTIRGenericMatmulRewriter>(&getContext());
     } else {
       patterns.add<TTIRGenericRegionRewriter>(&getContext());
     }
@@ -228,7 +251,9 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    Block *entry = &op.getRegion(0).front();
+    unsigned numRegions = op.getNumRegions();
+    // Only linearize the last region. i.e. compute
+    Block *entry = &op.getRegion(numRegions - 1).front();
     rewriter.setInsertionPointToStart(entry);
     auto args = entry->getArguments();
     if (llvm::all_of(args, isLinearizedMemref)) {
@@ -484,4 +509,241 @@ public:
     }
   }
 };
+
+namespace {
+class TTIRGenericDatamovementRewriter : public OpRewritePattern<GenericOp> {
+public:
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  static bool compatibleDeviceGrid(DeviceAttr device, GridAttr grid) {
+    if (grid.getShape().size() != device.getWorkerGrid().getShape().size()) {
+      return false;
+    }
+    return true;
+  }
+
+  static SmallVector<IteratorType>
+  calculateMcastIterators(GridAttr grid, DeviceAttr device,
+                          AffineMap indexingMap, ArrayAttr iteratorTypes) {
+    assert(grid.getShape().size() == 2 && "Currently only support 2D grid");
+    assert(grid.getShape().size() == indexingMap.getNumResults());
+    assert(compatibleDeviceGrid(device, grid));
+
+    bool allParallel = true;
+    SmallVector<IteratorType> mcastIterators;
+    mcastIterators.reserve(grid.getShape().size());
+    for (unsigned dim = 0; dim < grid.getShape().size(); dim++) {
+      unsigned dimPosition = indexingMap.getDimPosition(dim);
+
+      IteratorType iteratorType =
+          mlir::cast<IteratorTypeAttr>(iteratorTypes[dimPosition]).getValue();
+      mcastIterators.push_back(iteratorType);
+      allParallel &= iteratorType == IteratorType::Parallel;
+    }
+
+    return allParallel ? SmallVector<IteratorType>() : mcastIterators;
+  }
+
+  static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+  calculateMcastArguments(OpBuilder &blockBuilder, Location loc, GridAttr grid,
+                          DeviceAttr device, AffineMap indexingMap,
+                          ArrayAttr iteratorTypes) {
+    SmallVector<IteratorType> mcastIterators =
+        calculateMcastIterators(grid, device, indexingMap, iteratorTypes);
+    if (mcastIterators.empty()) {
+      return std::make_tuple(SmallVector<Value>(), SmallVector<Value>(),
+                             SmallVector<Value>());
+    }
+
+    Value zero = blockBuilder.create<arith::ConstantOp>(
+        loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(0));
+    Value one = blockBuilder.create<arith::ConstantOp>(
+        loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(1));
+
+    SmallVector<Value> mcastOffset;
+    SmallVector<Value> mcastShape;
+    SmallVector<Value> conditions;
+    mcastOffset.reserve(grid.getShape().size());
+    mcastShape.reserve(grid.getShape().size());
+
+    for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
+      Value gridDim = blockBuilder.create<arith::ConstantOp>(
+          loc, blockBuilder.getIndexType(),
+          blockBuilder.getIndexAttr(grid.getShape()[dim]));
+      Value gridIndex =
+          blockBuilder.create<GridIndexOp>(loc, blockBuilder.getIndexType(),
+                                           blockBuilder.getI64IntegerAttr(dim));
+      if (iteratorType == IteratorType::Parallel) {
+        mcastOffset.push_back(Value(gridIndex));
+        mcastShape.push_back(Value(one));
+      } else {
+        assert(iteratorType == IteratorType::Reduction);
+        mcastOffset.push_back(zero);
+        mcastShape.push_back(gridDim);
+
+        Value iterIndex = blockBuilder.create<IterIndexOp>(
+            loc, blockBuilder.getIndexType(),
+            blockBuilder.getI64IntegerAttr(dim));
+        Value condition = blockBuilder.create<arith::CmpIOp>(
+            loc, blockBuilder.getI1Type(), mlir::arith::CmpIPredicate::eq,
+            gridIndex, iterIndex);
+        conditions.push_back(condition);
+      }
+    }
+
+    return std::make_tuple(mcastOffset, mcastShape, conditions);
+  }
+
+  static Value createDMA(OpBuilder &builder, Location loc, Value src, Value dst,
+                         SmallVector<Value> mcastOffset = {},
+                         SmallVector<Value> mcastShape = {}) {
+    MemRefType memrefType = mlir::cast<MemRefType>(dst.getType());
+    auto zero = builder.create<arith::ConstantOp>(
+        loc, builder.getIndexType(), builder.getIndexAttr(0));
+    SmallVector<Value> zeros(memrefType.getShape().size(), zero);
+    auto numElements = builder.create<arith::ConstantOp>(
+        loc, builder.getIndexType(),
+        builder.getIndexAttr(memrefType.getShape().size()));
+    return builder
+        .create<ttir::DMAOp>(loc, builder.getType<MemTxType>(), src, zeros,
+                             zeros, dst, zeros, zeros, numElements, mcastOffset,
+                             mcastShape)
+        .getResult();
+  }
+
+  static LogicalResult buildDatamovementBlock(
+      OpBuilder &blockBuilder, Location loc, Value genericOperand,
+      Value blockOperand, GridAttr grid, DeviceAttr device,
+      AffineMap indexingMap, ArrayAttr iteratorTypes, bool isOutput) {
+
+    if (isOutput) {
+      // Wait for compute
+      blockBuilder.create<ttir::AwaitOp>(loc, ValueRange(blockOperand));
+    }
+
+    Value memTx =
+        isOutput ? createDMA(blockBuilder, loc, blockOperand, genericOperand)
+                 : createDMA(blockBuilder, loc, genericOperand, blockOperand);
+    blockBuilder.create<ttir::DMAWaitOp>(loc, memTx);
+
+    // Multicast
+    SmallVector<Value> mcastOffset, mcastShape, conditions;
+    std::tie(mcastOffset, mcastShape, conditions) = calculateMcastArguments(
+        blockBuilder, loc, grid, device, indexingMap, iteratorTypes);
+    assert(mcastOffset.size() == mcastShape.size());
+    if (!mcastOffset.empty()) {
+      assert(conditions.size() == 1 && "Exactly one condition supported");
+      Value mcastSrc = blockOperand;
+      Value mcastDst = blockOperand;
+      blockBuilder.create<scf::IfOp>(
+          loc, conditions[0], [&](OpBuilder &builder, Location loc) {
+            Value mcastMemTx =
+                createDMA(builder, loc, mcastSrc, mcastDst, mcastOffset, mcastShape);
+            builder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
+            builder.create<scf::YieldOp>(loc);
+          });
+      blockBuilder.create<ttir::SynchronizeOp>(loc);
+    }
+
+    if (!isOutput) {
+      // Wait for compute
+      blockBuilder.create<ttir::YieldOp>(loc, ValueRange(blockOperand));
+    }
+
+    return success();
+  }
+
+  LogicalResult matchAndRewrite(GenericOp generic,
+                                PatternRewriter &rewriter) const final {
+    if (generic.getNumRegions() > 1) {
+      // Already inserted, skip.
+      return failure();
+    }
+
+    // One per operand
+    auto numDataMovementRegions = generic.getNumOperands();
+    auto newGeneric = rewriter.create<GenericOp>(
+        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
+        generic.getCbs(), generic.getOutputs(), generic.getGrid(),
+        generic.getIndexingMaps(), generic.getIteratorTypes(),
+        generic.getOperandCbMapping(),
+        generic.getNumRegions() + numDataMovementRegions);
+
+    // Insert the new data movement regions.
+    auto [outputOperandsIndex, outputOperandsLength] =
+        generic.getODSOperandIndexAndLength(2);
+    auto device = getCurrentScopeDevice(generic);
+    for (OpOperand &operand : generic->getOpOperands()) {
+      Block *datamovementBlock =
+          &newGeneric.getRegion(operand.getOperandNumber()).emplaceBlock();
+      datamovementBlock->addArguments(
+          generic.getRegion(0).getArgumentTypes(),
+          SmallVector<mlir::Location>(
+              generic.getRegion(0).getArgumentTypes().size(),
+              generic.getLoc()));
+
+      OpBuilder blockBuilder = OpBuilder::atBlockEnd(datamovementBlock);
+      bool isOutput = operand.getOperandNumber() >= outputOperandsIndex;
+      AffineMap indexingMap =
+          mlir::cast<AffineMapAttr>(
+              generic.getIndexingMaps()[operand.getOperandNumber()])
+              .getValue();
+      auto result = buildDatamovementBlock(
+          blockBuilder, generic->getLoc(),
+          generic->getOperand(operand.getOperandNumber()),
+          datamovementBlock->getArgument(operand.getOperandNumber()),
+          generic.getGrid(), device, indexingMap, generic.getIteratorTypes(),
+          isOutput);
+      if (failed(result)) {
+        return result;
+      }
+    }
+
+    // Copy over the original compute region.
+    unsigned computeRegionIndex = numDataMovementRegions;
+    auto &newRegion = newGeneric.getRegion(computeRegionIndex);
+    auto &oldRegion = generic.getRegion(0);
+    newRegion.takeBody(oldRegion);
+
+    // Await / Yield insertion to compute region.
+    {
+      Block *computeBlock = &newGeneric.getRegion(computeRegionIndex).front();
+      OpBuilder blockBuilder = OpBuilder::atBlockBegin(computeBlock);
+      auto [inputOperandsIndex, inputOperandsLength] =
+          generic.getODSOperandIndexAndLength(0);
+
+      // Await the inputs
+      blockBuilder.create<ttir::AwaitOp>(
+          generic->getLoc(), ValueRange(computeBlock->getArguments().take_front(
+                                 inputOperandsLength)));
+
+      blockBuilder.setInsertionPointToEnd(computeBlock);
+
+      // Yield the outputs
+      blockBuilder.create<ttir::YieldOp>(
+          generic->getLoc(), ValueRange(computeBlock->getArguments().take_back(
+                                 outputOperandsLength)));
+    }
+
+    rewriter.replaceOp(generic, newGeneric);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTIRGenericDatamovement : public impl::TTIRGenericDatamovementBase<TTIRGenericDatamovement> {
+public:
+  using impl::TTIRGenericDatamovementBase<TTIRGenericDatamovement>::TTIRGenericDatamovementBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericDatamovementRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+    }
+  }
+};
+} // namespace
 } // namespace mlir::tt::ttir
