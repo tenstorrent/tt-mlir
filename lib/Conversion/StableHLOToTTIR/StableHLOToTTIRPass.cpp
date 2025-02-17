@@ -73,7 +73,7 @@ public:
         }
         // Convert 64 bit float element type to 32 bit float.
         else if (isa<FloatType>(elementType)) {
-          elementType = FloatType::getF32(context);
+          elementType = Float32Type::get(context);
           changed = true;
         }
       }

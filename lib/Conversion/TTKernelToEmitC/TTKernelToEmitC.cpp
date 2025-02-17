@@ -530,7 +530,7 @@ public:
       {
         populateArithToEmitCPatterns(typeConverter, patterns);
 
-        populateSCFToEmitCConversionPatterns(patterns);
+        populateSCFToEmitCConversionPatterns(patterns, typeConverter);
 
         populateMemRefToEmitCTypeConversion(typeConverter);
         populateMemRefToEmitCConversionPatterns(patterns, typeConverter);

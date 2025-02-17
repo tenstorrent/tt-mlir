@@ -70,7 +70,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
   mlir::MLIRContext *context = sourceModule.getContext();
   mlir::OpBuilder typeBuilder(opToHoist);
-  auto f32Type = mlir::FloatType::getF32(context);
+  auto f32Type = mlir::Float32Type::get(context);
 
   // Convert operands and gather types for function signature
   llvm::SmallVector<mlir::Type> operandTypes;
