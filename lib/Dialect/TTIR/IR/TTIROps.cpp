@@ -2237,7 +2237,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
   if (getInputs().size() + getOutputs().size() !=
-      getRegion().getNumArguments()) {
+      getRegion(0).getNumArguments()) {
     return emitOpError("The number of input and output operands and "
                        "region/block arguments must match");
   }
@@ -2326,8 +2326,11 @@ bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
   }
   auto bufferGeneric = rewriter.create<::mlir::tt::ttir::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, ValueRange(), bufferOutputs,
-      getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping());
-  bufferGeneric.getRegion().takeBody(getRegion());
+      getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping(),
+      getNumRegions());
+  for (mlir::Region &region : bufferGeneric.getRegions()) {
+    region.takeBody(getRegion(region.getRegionNumber()));
+  }
   rewriter.replaceAllUsesWith(getResult(0), getOutputs()[0]);
   rewriter.eraseOp(*this);
 #endif

@@ -80,10 +80,10 @@ std::pair<ttir::GenericOp, Block *> buildGenericOp(GenericRegionOp op,
   auto genericOp = rewriter.create<ttir::GenericOp>(
       op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
       ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
-      iteratorTypes);
+      iteratorTypes, ::llvm::ArrayRef<int64_t>(), 1 /*numRegions*/);
 
   // Create a new basic block for the generic op and create block arguments.
-  Block *block = rewriter.createBlock(&genericOp.getRegion());
+  Block *block = rewriter.createBlock(&genericOp.getRegion(0));
   SmallVector<Location> blockArgumentLocs(genericOp.getOperands().size(),
                                           genericOp.getLoc());
   SmallVector<Type> blockArgTypes(llvm::map_range(
@@ -228,7 +228,7 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    Block *entry = &op.getRegion().front();
+    Block *entry = &op.getRegion(0).front();
     rewriter.setInsertionPointToStart(entry);
     auto args = entry->getArguments();
     if (llvm::all_of(args, isLinearizedMemref)) {
@@ -310,7 +310,7 @@ struct TTIRGenericOperandsToMemrefRewriter
   LogicalResult
   matchAndRewrite(GenericOp generic, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Block *entry = &generic.getRegion().front();
+    Block *entry = &generic.getRegion(0).front();
     auto firstEntryArgType = entry->getArguments()[0].getType();
     auto encoding =
         mlir::cast<RankedTensorType>(firstEntryArgType).getEncoding();
@@ -355,7 +355,7 @@ struct TTIRGenericOperandsToMemrefRewriter
         typeMap[blockArg.getType()] = ty;
         blockArg.setType(ty);
       }
-      for (Operation &op : generic.getRegion().getOps()) {
+      for (Operation &op : generic.getRegion(0).getOps()) {
         convertTypes(op.getOperands(), typeMap);
         convertTypes(op.getResults(), typeMap);
       }
@@ -460,10 +460,10 @@ public:
     auto newGenericOp = rewriter.create<ttir::GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         cbValues, generic.getOutputs(), generic.getGrid(),
-        generic.getIndexingMaps(), generic.getIteratorTypes(),
-        operandCBMapping);
+        generic.getIndexingMaps(), generic.getIteratorTypes(), operandCBMapping,
+        1 /*numRegions*/);
 
-    auto &oldRegion = generic.getRegion();
+    auto &oldRegion = generic.getRegion(0);
     newGenericOp->getRegion(0).takeBody(oldRegion);
 
     rewriter.replaceOp(generic, newGenericOp);
