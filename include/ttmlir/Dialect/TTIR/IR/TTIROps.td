@@ -32,7 +32,17 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 // TTIR top level ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments, BufferizableOpInterface, MemoryEffects<[MemWrite]>]> {
+def TTIR_GenericOp : TTIR_DPSOp<"generic",
+  [ AttrSizedOperandSegments
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , NoTerminator
+  , MemoryEffects<[MemWrite]>
+  ]> {
     let summary = "Generically dispatch work to a grid of cores.";
     let description = [{
       This generic op carries a region that represents the work each core does. The region is
@@ -83,26 +93,6 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments, Bufferizab
       MutableOperandRange getDpsInitsMutable() {
         return getOutputsMutable();
       }
-
-      // Bufferization Interface
-      //
-      bool bufferizesToMemoryRead(
-          ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &);
-
-      bool bufferizesToMemoryWrite(
-          ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &);
-
-      ::mlir::LogicalResult bufferize(
-          ::mlir::RewriterBase &rewriter,
-          const ::mlir::bufferization::BufferizationOptions &options);
-
-      ::mlir::FailureOr<::mlir::BaseMemRefType>
-      getBufferType(::mlir::Value value,
-                    const ::mlir::bufferization::BufferizationOptions &options,
-                    ::llvm::SmallVector<::mlir::Value> &invocationStack);
-
-      ::mlir::bufferization::AliasingValueList getAliasingValues(
-          ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &);
     }];
 }
 
@@ -706,6 +696,8 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
       // and reduction for reduction dimensions.
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
         auto rank = mlir::cast<RankedTensorType>(getInput().getType()).getRank();
+        assert(rank % 2 == 0);
+        rank /= 2;
         SmallVector<AffineMap> indexingMaps(getNumOperands(),
                                             builder.getMultiDimIdentityMap(rank));
         SmallVector<Attribute> iteratorTypes(
@@ -1692,7 +1684,7 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_DPSOp<"matmul", [TTIR_GenericRegionOpInterface]> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.
@@ -1706,6 +1698,41 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      void buildGenericRegion(::mlir::OpBuilder &, ::mlir::Block*) {
+        assert(false);
+      }
+
+      // Returns the indexing maps and iterator types for the reduction op.
+      // Indexing maps are identity maps with dropped dimensions corresponding to the
+      // reduction dimensions. Iterator types are parallel for non-reduction dimensions
+      // and reduction for reduction dimensions.
+      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
+        auto rank = mlir::cast<RankedTensorType>(getA().getType()).getRank();
+        assert(rank % 2 == 0);
+        rank /= 2;
+        auto rank_plus_inner_dim = rank + 1;
+
+        // (d0, d1, d2, d3) -> (d0, d1, d2, d3)
+        // lhs (d0, d1, d2, d3) -> (d0, d1, d3) drop d2
+        // rhs (d0, d1, d2, d3) -> (d0, d3, d2) drop d1 and swap d2 and d3
+        // out (d0, d1, d2, d3) -> (d0, d1, d2) drop d3
+        auto id = builder.getMultiDimIdentityMap(rank_plus_inner_dim);
+        auto lhs = id.dropResult(rank_plus_inner_dim - 2);
+        auto rhs = id.dropResult(rank_plus_inner_dim - 3);
+        auto rhs_outer = rhs.getResult(rank - 2);
+        rhs = rhs.insertResult(rhs_outer, rank);
+        rhs = rhs.dropResult(rank - 2);
+        auto out = id.dropResult(rank_plus_inner_dim - 1);
+
+        SmallVector<AffineMap> indexingMaps = {lhs, rhs, out};
+        SmallVector<Attribute> iteratorTypes(
+            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+        iteratorTypes.push_back(
+            builder.getAttr<IteratorTypeAttr>(IteratorType::Reduction));
+        return {builder.getAffineMapArrayAttr(indexingMaps),
+                builder.getArrayAttr(iteratorTypes)};
+      }
     }];
 
     let hasVerifier = 1;
@@ -1788,6 +1815,8 @@ class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
                "Input and output operand must have the same rank");
 
         auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
+        assert(rank % 2 == 0);
+        rank /= 2;
 
         SmallVector<AffineMap> indexingMaps(2, builder.getMultiDimIdentityMap(rank));
         SmallVector<Attribute> iteratorTypes(
@@ -1818,6 +1847,8 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
         assert(sameRank(getOperation()->getOperands()) &&
                "For now all operands must have the same rank");
         auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
+        assert(rank % 2 == 0);
+        rank /= 2;
         SmallVector<AffineMap> indexingMaps(getOperation()->getNumOperands(),
                                             builder.getMultiDimIdentityMap(rank));
         SmallVector<Attribute> iteratorTypes(

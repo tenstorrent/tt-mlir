@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
