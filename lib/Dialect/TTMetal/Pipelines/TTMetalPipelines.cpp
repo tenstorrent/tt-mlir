@@ -28,7 +28,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
   ttir::TTIRAttachMetalLayoutOptions attachMetalLayoutOptions;
   {
-    // TODO(vroubtsovTT): 'options.version' is WIP until once StreamLayout is ok
+    // TODO(vroubtsovTT): 'options.version' is WIP until StreamLayout is ok
     // to use end-to-end
     attachMetalLayoutOptions.useStreamLayout = options.version > 0;
   }
@@ -44,9 +44,6 @@ void createTTIRToTTMetalBackendPipeline(
         mlir::tt::TensorMemoryLayout::None;
   }
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
-  // NOTE: removed v0 passes
-  // pm.addPass(mlir::tt::ttir::createTTIRGenericOpCBs());
-  // pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
   pm.addPass(mlir::tt::ttir::createTTIRAllocate());
   pm.addPass(createConvertTTIRToTTMetalPass());
 }
