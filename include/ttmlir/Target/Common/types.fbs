@@ -51,15 +51,6 @@ enum ChipCapability: uint32 (bit_flags) {
   HostMMIO,
 }
 
-enum TensorMemoryLayout: ushort {
-  None,
-  Interleaved,
-  SingleBank,
-  HeightSharded,
-  WidthSharded,
-  BlockSharded,
-}
-
 enum TensorLayout: ushort {
   RowMajor,
   Tile,
@@ -72,98 +63,6 @@ enum BufferType: ushort {
   SystemMemory,
   L1Small,
   Trace,
-}
-
-enum MeshShardDirection: uint32 {
-  FullToShardShape,
-  ShardToFullShape,
-}
-
-enum MeshShardType: uint32 {
-  Manual,
-  Replicate,
-  Maximal,
-  Devices,
-}
-
-// TODO (#620): Add other fields like core_ranges, shard orientation etc.
-table ShardSpec {
-  shard_shape: [int64];
-}
-
-table MemoryConfigDesc {
-  tensor_memory_layout: TensorMemoryLayout;
-  buffer_type: BufferType;
-  shard_spec: ShardSpec;
-}
-
-table ReplicateTensor {
-  replication_factor: uint32;
-}
-
-table ShardTensor {
-  shard_dim: uint32;
-}
-
-table ShardTensor2D {
-  shard_mesh: Dim2d;
-}
-
-table AllGatherTensor {
-
-}
-
-union DistributedTensorConfig {
-  ReplicateTensor,
-  ShardTensor,
-  ShardTensor2D,
-  AllGatherTensor
-}
-
-table DistributionStrategy {
-  strategy: DistributedTensorConfig;
-}
-
-table MemoryDesc {
-  shape: [int];
-  tile_shape: Dim2d;
-  data_type: DataType;
-  memory_space: MemorySpace;
-  memory_layout: TensorMemoryLayout;
-  size: uint64;
-}
-
-table LayoutDesc {
-  oob_val: OOBVal;
-  core_range_set: [Dim2dRange];
-  memory_desc: MemoryDesc;
-  strategy: DistributionStrategy;
-}
-
-table TensorDesc {
-  shape: [int];
-  layout: LayoutDesc;
-}
-
-table CBDesc {
-  port: uint32;
-  memory_desc: MemoryDesc;
-  page_size: uint64;
-  num_buffers: uint64;
-}
-
-table TensorRef {
-  global_id: uint32;
-  address: uint64;
-  size: uint64;
-  desc: TensorDesc;
-}
-
-table CBRef {
-  global_id: uint32;
-  tensor_ref: TensorRef;
-  address: uint64;
-  desc: CBDesc;
 }
 
 table ChipDesc {
@@ -206,8 +105,7 @@ table ChipPhysicalCores {
   eth_inactive: [Dim2d];
 }
 
-enum CPURole: uint8
-{
+enum CPURole: uint8 {
   Host,
   Device,
 }

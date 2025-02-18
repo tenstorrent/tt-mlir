@@ -1,5 +1,6 @@
 include "Common/types.fbs";
 include "Common/debug_info.fbs";
+include "types.fbs";
 
 namespace tt.target.ttnn;
 
@@ -10,55 +11,55 @@ table GetDeviceOp {
 }
 
 table ToMemoryConfigOp {
-  in0: tt.target.TensorRef;
-  memcfg: MemoryConfigDesc;
-  out: tt.target.TensorRef;
+  in0: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table ToLayoutOp {
-  in: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
   layout: tt.target.TensorLayout;
   dtype: tt.target.DataType = null;
-  memcfg: tt.target.MemoryConfigDesc;
+  memcfg: tt.target.ttnn.MemoryConfig;
   device: tt.target.DeviceRef;
-  out: tt.target.TensorRef;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table ToDTypeOp {
-  in: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
   dtype: tt.target.DataType;
-  out: tt.target.TensorRef;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table TypecastOp {
-  in: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
   dtype: tt.target.DataType;
-  out: tt.target.TensorRef;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table ToDeviceOp {
-  in: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
-  memcfg: tt.target.MemoryConfigDesc;
-  out: tt.target.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table UpdateCacheOp {
-  cache: tt.target.TensorRef;
-  input: tt.target.TensorRef;
-  update_index: tt.target.TensorRef;
+  cache: tt.target.ttnn.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  update_index: tt.target.ttnn.TensorRef;
   batch_offset: uint32;
 }
 
 table FillCacheOp {
-  cache: tt.target.TensorRef;
-  input: tt.target.TensorRef;
+  cache: tt.target.ttnn.TensorRef;
+  input: tt.target.ttnn.TensorRef;
   batch_offset: uint32;
 }
 
 table FromDeviceOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table EmptyOp {
@@ -67,9 +68,9 @@ table EmptyOp {
   layout: TensorLayout;
   num_shards: uint32;
   device: tt.target.DeviceRef;
-  memcfg: tt.target.MemoryConfigDesc;
-  strategy: tt.target.DistributionStrategy;
-  out: tt.target.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  strategy: tt.target.ttnn.DistributionStrategy;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table ZerosOp {
@@ -77,8 +78,8 @@ table ZerosOp {
   dtype: DataType = null;
   layout: TensorLayout = null;
   device: tt.target.DeviceRef;
-  memcfg: tt.target.MemoryConfigDesc;
-  out: tt.target.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table OnesOp {
@@ -86,16 +87,16 @@ table OnesOp {
   dtype: DataType = null;
   layout: TensorLayout = null;
   device: tt.target.DeviceRef;
-  memcfg: tt.target.MemoryConfigDesc;
-  out: tt.target.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table FullOp {
   device: tt.target.DeviceRef;
   fill_value: float;
   num_shards: uint32;
-  strategy: tt.target.DistributionStrategy;
-  out: tt.target.TensorRef;
+  strategy: tt.target.ttnn.DistributionStrategy;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table ArangeOp {
@@ -104,8 +105,8 @@ table ArangeOp {
   step: float;
   dtype: tt.target.DataType = null;
   device: tt.target.DeviceRef;
-  memcfg: tt.target.MemoryConfigDesc;
-  out: tt.target.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }
 
 enum EltwiseOpType: uint32 {
@@ -175,16 +176,16 @@ union EltwiseOpParams {
 
 table EltwiseOp {
   type: EltwiseOpType;
-  ins: [tt.target.TensorRef];
-  out: tt.target.TensorRef;
+  ins: [tt.target.ttnn.TensorRef];
+  out: tt.target.ttnn.TensorRef;
   params: EltwiseOpParams;
 }
 
 table MorehCumSumOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   dim: int64;
-  memcfg: tt.target.MemoryConfigDesc;
+  memcfg: tt.target.ttnn.MemoryConfig;
 }
 
 enum ReductionOpType: uint32 {
@@ -196,121 +197,121 @@ enum ReductionOpType: uint32 {
 
 table ReductionOp {
   type: ReductionOpType;
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   dim_arg: [int32];
   keep_dim: bool;
 }
 
 table ReductionArgMaxOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   dim: int32 = null;
   use_multicore: bool;
-  memcfg: tt.target.MemoryConfigDesc;
+  memcfg: tt.target.ttnn.MemoryConfig;
 }
 
 table ReductionProdOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   all_dimensions: bool;
   dim_arg: int64;
   keep_dim: bool;
-  memcfg: tt.target.MemoryConfigDesc;
+  memcfg: tt.target.ttnn.MemoryConfig;
 }
 
 table EmbeddingOp {
-  input: tt.target.TensorRef;
-  weight: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table EmbeddingBackwardOp {
-  input: tt.target.TensorRef;
-  weight: tt.target.TensorRef;
-  in_grad: tt.target.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  in_grad: tt.target.ttnn.TensorRef;
   dtype: tt.target.DataType = null;
-  memcfg: tt.target.MemoryConfigDesc;
-  out: tt.target.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table RepeatInterleaveOp {
-  input: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   repeats: uint32;
   dim: int32;
-  memory_config: MemoryConfigDesc;
+  memory_config: tt.target.ttnn.MemoryConfig;
 }
 
 table SoftmaxOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   dimension: int32;
 }
 
 table TransposeOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   dim0: int32;
   dim1: int32;
 }
 
 table ConcatOp {
- inputs: [tt.target.TensorRef];
- out: tt.target.TensorRef;
+ inputs: [tt.target.ttnn.TensorRef];
+ out: tt.target.ttnn.TensorRef;
  dim: int32;
- memory_config: MemoryConfigDesc;
+ memory_config: tt.target.ttnn.MemoryConfig;
 }
 
 table ReshapeOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   shape: [int32];
 }
 
 table RepeatOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   repeat_dims: [int64];
 }
 
 table PadOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   padding: [uint32];
   value: float;
   use_multicore: bool;
-  memcfg: MemoryConfigDesc;
+  memcfg: tt.target.ttnn.MemoryConfig;
 }
 
 table SliceOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   begins: [int64];
   ends: [int64];
   step: [int64];
 }
 
 table LinearOp {
-  in0: tt.target.TensorRef;
-  in1: tt.target.TensorRef;
-  bias: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in0: tt.target.ttnn.TensorRef;
+  in1: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
 }
 
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
-  in0: tt.target.TensorRef;
-  in1: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in0: tt.target.ttnn.TensorRef;
+  in1: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 
 table Conv2dOp {
-  input: tt.target.TensorRef;
-  weight: tt.target.TensorRef;
-  bias: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
   in_channels: uint32;
   out_channels: uint32;
@@ -329,10 +330,10 @@ table Conv2dOp {
 }
 
 table ConvTranspose2dOp {
-  input: tt.target.TensorRef;
-  weight: tt.target.TensorRef;
-  bias: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
   in_channels: uint32;
   out_channels: uint32;
@@ -348,8 +349,8 @@ table ConvTranspose2dOp {
 }
 
 table MaxPool2dOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
   batch_size: uint32;
   input_height: uint32;
@@ -367,13 +368,13 @@ table MaxPool2dOp {
 }
 
 table DeallocateOp {
-  in: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
   force: bool;
 }
 
 table AllGatherOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
   all_gather_dim: int32;
   cluster_axis: uint32;
@@ -381,16 +382,16 @@ table AllGatherOp {
 }
 
 table PermuteOp {
-  in: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
   permutation: [int64];
-  memory_config: MemoryConfigDesc;
+  memory_config: tt.target.ttnn.MemoryConfig;
   pad_value: float;
-  out: tt.target.TensorRef;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table ReduceScatterOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
   scatter_split_dim: uint32;
   math_op: uint32;
@@ -398,11 +399,11 @@ table ReduceScatterOp {
 }
 
 table MeshShardOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
-  shard_direction: tt.target.MeshShardDirection;
-  shard_type: tt.target.MeshShardType;
+  shard_direction: tt.target.ttnn.MeshShardDirection;
+  shard_type: tt.target.ttnn.MeshShardType;
   shard_shape: [int64];
   shard_dims: [int64];
 }
@@ -421,22 +422,22 @@ union Scale2D {
 }
 
 table UpsampleOp {
-  in: tt.target.TensorRef;
+  in: tt.target.ttnn.TensorRef;
   scale_factor: Scale2D;
   mode: string;
-  memory_config: MemoryConfigDesc;
-  out: tt.target.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table CpuOp {
-  ins: [tt.target.TensorRef];
-  out: tt.target.TensorRef;
+  ins: [tt.target.ttnn.TensorRef];
+  out: tt.target.ttnn.TensorRef;
   func_name: string;
   dylib_id: uint32;
 }
 
 table ConstantOp {
-  out: tt.target.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   data: [ubyte];
 }
 

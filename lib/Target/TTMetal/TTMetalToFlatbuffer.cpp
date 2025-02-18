@@ -30,9 +30,8 @@
 #include "types_generated.h"
 
 namespace mlir::tt {
-flatbuffers::Offset<::tt::target::MemoryDesc>
-memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
-                       ::mlir::tt::TensorMemoryLayout memLayout) {
+flatbuffers::Offset<::tt::target::metal::MemoryDesc>
+memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   DataType dtype = DataType::Float32;
@@ -54,24 +53,25 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     size *= dim;
   }
 
-  return ::tt::target::CreateMemoryDescDirect(
+  return ::tt::target::metal::CreateMemoryDescDirect(
       *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype),
       toFlatbuffer(
           cache,
           mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
-      toFlatbuffer(cache, memLayout), size);
+      size);
 }
 
-flatbuffers::Offset<::tt::target::LayoutDesc> metalLayoutAttrToFlatbuffer(
-    FlatbufferObjectCache &cache, MetalLayoutAttr metalLayoutAttr,
-    ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
+flatbuffers::Offset<::tt::target::metal::LayoutDesc>
+metalLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
+                            MetalLayoutAttr metalLayoutAttr,
+                            ArrayRef<int64_t> logicalShape,
+                            DeviceAttr deviceAttr) {
   auto coreRangeSet = toFlatbuffer(cache, metalLayoutAttr.getGrid(),
                                    deviceAttr.getWorkerGrid());
-  return ::tt::target::CreateLayoutDescDirect(
+  return ::tt::target::metal::CreateLayoutDescDirect(
       *cache.fbb, toFlatbuffer(cache, metalLayoutAttr.getOobVal()),
       &coreRangeSet,
-      cache.getOrCreate(metalLayoutAttr.getMemref(), memrefAttrToFlatbuffer,
-                        metalLayoutAttr.getMemLayout()));
+      cache.getOrCreate(metalLayoutAttr.getMemref(), memrefAttrToFlatbuffer));
 }
 
 } // namespace mlir::tt
@@ -81,8 +81,8 @@ namespace mlir::tt::ttmetal {
 struct CQBuilder {
   ::flatbuffers::FlatBufferBuilder *fbb;
   const char *name;
-  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> inputs;
-  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> outputs;
+  std::vector<::flatbuffers::Offset<::tt::target::metal::TensorRef>> inputs;
+  std::vector<::flatbuffers::Offset<::tt::target::metal::TensorRef>> outputs;
   std::vector<::flatbuffers::Offset<::tt::target::metal::Command>> commands;
   OpPrintingFlags printFlags;
 
@@ -208,11 +208,10 @@ toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
                                   ::tt::target::Dim2d(size[0], size[1]));
 }
 
-::flatbuffers::Offset<::tt::target::CBDesc>
+::flatbuffers::Offset<::tt::target::metal::CBDesc>
 cbTypeToFlatbuffer(FlatbufferObjectCache &cache, ttkernel::CBType cbType) {
-  auto memref = cache.getOrCreate(cbType.getMemref(), memrefAttrToFlatbuffer,
-                                  ::mlir::tt::TensorMemoryLayout::None);
-  return ::tt::target::CreateCBDesc(
+  auto memref = cache.getOrCreate(cbType.getMemref(), memrefAttrToFlatbuffer);
+  return ::tt::target::metal::CreateCBDesc(
       *cache.fbb,
       static_cast<std::underlying_type_t<ttkernel::CBPort>>(cbType.getPort()),
       memref, cbType.getPageSize(), cbType.getNumBuffers());
@@ -257,6 +256,39 @@ Value getOperandThroughDPSOps(Value value) {
   return value;
 }
 
+static flatbuffers::Offset<::tt::target::metal::LayoutDesc>
+encodingToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
+                     ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
+  assert(isa<MetalLayoutAttr>(attr) && "unsupported layout attr");
+  return metalLayoutAttrToFlatbuffer(cache, cast<MetalLayoutAttr>(attr),
+                                     logicalShape, deviceAttr);
+}
+
+static flatbuffers::Offset<::tt::target::metal::TensorDesc>
+tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
+                       DeviceAttr deviceAttr) {
+  auto tensorType = mlir::cast<RankedTensorType>(type);
+  auto shapeInt64 = tensorType.getShape();
+  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
+  return ::tt::target::metal::CreateTensorDescDirect(
+      *cache.fbb, &shape,
+      cache.getOrCreate(tensorType.getEncoding(), encodingToFlatbuffer,
+                        shapeInt64, deviceAttr));
+}
+
+static flatbuffers::Offset<::tt::target::metal::TensorRef>
+tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
+                        uint64_t address, uint64_t size) {
+  auto deviceAttr =
+      getCurrentScopeDevice(value.getParentBlock()->getParentOp());
+  assert(deviceAttr);
+  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  auto tensorDesc =
+      cache.getOrCreate(tensorType, tensorTypeToFlatbuffer, deviceAttr);
+  return ::tt::target::metal::CreateTensorRef(*cache.fbb, cache.global_id++,
+                                              address, size, tensorDesc);
+}
+
 static std::shared_ptr<void> translateModuleToFlatbuffer(
     Operation *op, std::unordered_map<std::string, GoldenTensor> goldenMap) {
   ::flatbuffers::FlatBufferBuilder fbb;
@@ -299,9 +331,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
       if (auto enqueueProgramOp =
               dyn_cast_or_null<tt::ttmetal::EnqueueProgramOp>(op);
           enqueueProgramOp) {
-        std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> operands;
+        std::vector<::flatbuffers::Offset<::tt::target::metal::TensorRef>>
+            operands;
         for (auto operand : enqueueProgramOp.getOperands()) {
-          operands.push_back(cache.at<::tt::target::TensorRef>(
+          operands.push_back(cache.at<::tt::target::metal::TensorRef>(
               getOperandThroughDPSOps(operand)));
         }
 
@@ -318,7 +351,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
           std::vector<::tt::target::Dim2dRange> coreRangeSet = {
               toFlatbuffer(mlir::cast<CoreRangeAttr>(
                   enqueueProgramOp.getCoreRanges()[region.getRegionNumber()]))};
-          std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
+          std::vector<::flatbuffers::Offset<::tt::target::metal::CBRef>> cbs;
           size_t argNumber = 0;
           std::vector<::tt::target::metal::RuntimeArg> runtime_args_type;
           std::vector<::flatbuffers::Offset<void>> runtime_args;
@@ -328,9 +361,9 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
               auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
               auto tensorRef =
                   argNumber >= operands.size() ? 0 : operands[argNumber++];
-              cbs.push_back(
-                  ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
-                                            cbType.getAddress(), cbDesc));
+              cbs.push_back(::tt::target::metal::CreateCBRef(
+                  fbb, cache.global_id++, tensorRef, cbType.getAddress(),
+                  cbDesc));
             } else if (mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
               auto semType = mlir::cast<ttkernel::SemaphoreType>(arg.getType());
               auto [runtime_arg_type, runtime_arg] =
@@ -382,8 +415,9 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                  deallocateBufferOp) {
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateDeallocateBufferCommand(
-                fbb, cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(
-                         deallocateBufferOp.getInput()))),
+                fbb,
+                cache.at<::tt::target::metal::TensorRef>(
+                    getOperandThroughDPSOps(deallocateBufferOp.getInput()))),
             op);
       } else if (auto enqueueReadBufferOp =
                      dyn_cast_or_null<tt::ttmetal::EnqueueReadBufferOp>(op);
@@ -391,9 +425,9 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueReadBufferCommand(
                 fbb,
-                cache.at<::tt::target::TensorRef>(
+                cache.at<::tt::target::metal::TensorRef>(
                     getOperandThroughDPSOps(enqueueReadBufferOp.getInput())),
-                cache.at<::tt::target::TensorRef>(
+                cache.at<::tt::target::metal::TensorRef>(
                     getOperandThroughDPSOps(enqueueReadBufferOp.getOutput()))),
             op);
       } else if (auto enqueueWriteBufferOp =
@@ -404,13 +438,13 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueWriteBufferCommand(
                 fbb, hostBufferType, hostBuffer,
-                cache.at<::tt::target::TensorRef>(
+                cache.at<::tt::target::metal::TensorRef>(
                     getOperandThroughDPSOps(enqueueWriteBufferOp.getOutput()))),
             op);
       } else if (auto returnOp = dyn_cast_or_null<func::ReturnOp>(op);
                  returnOp) {
         for (auto output : returnOp.getOperands()) {
-          cqBuilder.outputs.push_back(cache.at<::tt::target::TensorRef>(
+          cqBuilder.outputs.push_back(cache.at<::tt::target::metal::TensorRef>(
               getOperandThroughDPSOps(output)));
         }
       }

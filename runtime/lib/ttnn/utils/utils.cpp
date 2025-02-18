@@ -13,21 +13,39 @@ using ::tt::runtime::DeviceRuntime;
 // Currently the memory layout/location in flatbuffer is incorrect
 // These methods are workarounds for operations such that we query the info
 // directly from the TTNN tensor. Ideally, we should be able to get all of this
-// info directly from the flatbuffer
+// info directly from the flatbuffer using the "inSystemMemory" API below
 bool isOnHost(const ::ttnn::StorageType &storageType) {
-  return storageType == ::tt::tt_metal::StorageType::BORROWED or
-         storageType == ::tt::tt_metal::StorageType::OWNED or
-         storageType == ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST;
+  return storageType == ::ttnn::StorageType::BORROWED ||
+         storageType == ::ttnn::StorageType::OWNED ||
+         storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST;
+}
+
+bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  const ::tt::target::ttnn::StorageType storageType =
+      tensorRef->desc()->layout()->memory_desc()->storage_type();
+  return (storageType == ::tt::target::ttnn::StorageType::Borrowed) ||
+         (storageType == ::tt::target::ttnn::StorageType::Owned) ||
+         (storageType == ::tt::target::ttnn::StorageType::MultiDeviceHost);
 }
 
 bool isOnDevice(const ::ttnn::StorageType &storageType) {
-  return storageType == ::tt::tt_metal::StorageType::DEVICE or
-         storageType == ::tt::tt_metal::StorageType::MULTI_DEVICE;
+  return storageType == ::ttnn::StorageType::DEVICE ||
+         storageType == ::ttnn::StorageType::MULTI_DEVICE;
 }
 
 bool isValidTileShape(const ::tt::target::Dim2d *shape) {
-  return (shape->x() == 1 and shape->y() == 1) or
-         (shape->x() == 32 and shape->y() == 32);
+  return (shape->x() == 1 && shape->y() == 1) ||
+         (shape->x() == 32 && shape->y() == 32);
+}
+
+bool isSharded(
+    const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout) {
+  return tensorMemoryLayout ==
+             ::tt::target::ttnn::TensorMemoryLayout::HeightSharded ||
+         tensorMemoryLayout ==
+             ::tt::target::ttnn::TensorMemoryLayout::WidthSharded ||
+         tensorMemoryLayout ==
+             ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
 
 ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType) {
@@ -85,42 +103,23 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape) {
   }
 }
 
-::ttnn::TensorMemoryLayout
-toTTNNTensorMemoryLayout(::tt::target::TensorMemoryLayout tensorMemoryLayout) {
+::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
+    ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout) {
 
   switch (tensorMemoryLayout) {
-  case ::tt::target::TensorMemoryLayout::Interleaved:
+  case ::tt::target::ttnn::TensorMemoryLayout::Interleaved:
     return ::ttnn::TensorMemoryLayout::INTERLEAVED;
-  case ::tt::target::TensorMemoryLayout::SingleBank:
+  case ::tt::target::ttnn::TensorMemoryLayout::SingleBank:
     return ::ttnn::TensorMemoryLayout::SINGLE_BANK;
-  case ::tt::target::TensorMemoryLayout::HeightSharded:
+  case ::tt::target::ttnn::TensorMemoryLayout::HeightSharded:
     return ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
-  case ::tt::target::TensorMemoryLayout::WidthSharded:
+  case ::tt::target::ttnn::TensorMemoryLayout::WidthSharded:
     return ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
-  case ::tt::target::TensorMemoryLayout::BlockSharded:
+  case ::tt::target::ttnn::TensorMemoryLayout::BlockSharded:
     return ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
-  case ::tt::target::TensorMemoryLayout::None:
-    LOG_FATAL("Unsupported tensor memory layout None");
   }
 }
 
-// This method will be deprecated in favor of method below
-//
-::tt::tt_metal::BufferType
-toTTNNBufferType(::tt::target::MemorySpace memorySpace) {
-  switch (memorySpace) {
-  case ::tt::target::MemorySpace::System:
-  case ::tt::target::MemorySpace::SystemMMIO:
-    return ::tt::tt_metal::BufferType::SYSTEM_MEMORY;
-  case ::tt::target::MemorySpace::DeviceDRAM:
-    return ::tt::tt_metal::BufferType::DRAM;
-  case ::tt::target::MemorySpace::DeviceL1:
-    return ::tt::tt_metal::BufferType::L1;
-  }
-}
-
-// Prefer to use this method
-//
 ::ttnn::BufferType toTTNNBufferType(::tt::target::BufferType bufferType) {
 
   switch (bufferType) {
@@ -137,12 +136,28 @@ toTTNNBufferType(::tt::target::MemorySpace memorySpace) {
   }
 };
 
+::ttnn::StorageType
+toTTNNStorageType(::tt::target::ttnn::StorageType storageType) {
+  switch (storageType) {
+  case ::tt::target::ttnn::StorageType::Owned:
+    return ::ttnn::StorageType::OWNED;
+  case ::tt::target::ttnn::StorageType::Device:
+    return ::ttnn::StorageType::DEVICE;
+  case ::tt::target::ttnn::StorageType::Borrowed:
+    return ::ttnn::StorageType::BORROWED;
+  case ::tt::target::ttnn::StorageType::MultiDevice:
+    return ::ttnn::StorageType::MULTI_DEVICE;
+  case ::tt::target::ttnn::StorageType::MultiDeviceHost:
+    return ::ttnn::StorageType::MULTI_DEVICE_HOST;
+  }
+}
+
 ::ttnn::Layout
-inferLayoutFromTileShape(const ::tt::target::TensorRef *tensorRef) {
+inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::Dim2d *tileShape =
       tensorRef->desc()->layout()->memory_desc()->tile_shape();
   LOG_ASSERT(isValidTileShape(tileShape));
-  if (tileShape->x() == 1 and tileShape->y() == 1) {
+  if (tileShape->x() == 1 && tileShape->y() == 1) {
     return ::ttnn::Layout::ROW_MAJOR;
   }
   return ::ttnn::Layout::TILE;
@@ -163,55 +178,57 @@ toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
   return CoreRangeSet(coreRanges);
 }
 
-::tt::tt_metal::MemoryConfig
-createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
-  const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
-  const ::tt::target::TensorMemoryLayout targetMemoryLayout =
-      layout->memory_desc()->memory_layout();
-  const ::tt::target::MemorySpace targetMemorySpace =
-      layout->memory_desc()->memory_space();
-  const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
-      *targetCoreRangeSet = layout->core_range_set();
-  const ::flatbuffers::Vector<int32_t> *targetShardShape =
-      layout->memory_desc()->shape();
-  const ::tt::target::Dim2d *tileShape = layout->memory_desc()->tile_shape();
+const ::tt::target::ttnn::MemoryConfig *
+getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  return tensorRef->desc()->layout()->memory_desc()->memory_config();
+}
 
-  LOG_ASSERT(targetCoreRangeSet->size() == 1,
-             "Currently only single core range/grid is supported");
+std::optional<::ttnn::MemoryConfig>
+createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
-  LOG_ASSERT(targetShardShape->size() == 2,
-             "Only 2D shard shape is supported in TTNN backend");
+  if (!memcfg) {
+    return std::nullopt;
+  }
 
-  LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(tileShape),
-             "Invalid tile shape");
+  const ::tt::target::ttnn::TensorMemoryLayout targetMemoryLayout =
+      memcfg->tensor_memory_layout();
+  const ::tt::target::BufferType targetBufferType = memcfg->buffer_type();
 
-  CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
-  std::array<uint32_t, 2> ttnnShardShape;
-  std::copy(targetShardShape->begin(), targetShardShape->end(),
-            ttnnShardShape.begin());
+  LOG_ASSERT(targetBufferType == ::tt::target::BufferType::DRAM ||
+                 targetBufferType == ::tt::target::BufferType::L1,
+             "Memory config buffer type should be DRAM or L1");
 
-  ttnnShardShape[0] *= tileShape->y();
-  ttnnShardShape[1] *= tileShape->x();
-
-  ::tt::tt_metal::TensorMemoryLayout ttnnMemLayout =
+  ::ttnn::TensorMemoryLayout ttnnMemLayout =
       toTTNNTensorMemoryLayout(targetMemoryLayout);
 
-  ::tt::tt_metal::BufferType ttnnBufferType =
-      toTTNNBufferType(targetMemorySpace);
+  ::ttnn::BufferType ttnnBufferType = toTTNNBufferType(targetBufferType);
 
-  ::tt::tt_metal::ShardSpec shardSpec(
-      ttnnCoreRangeSet, ttnnShardShape,
-      ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
+  std::optional<::tt::tt_metal::ShardSpec> metalShardSpec = std::nullopt;
 
-  std::optional<::tt::tt_metal::ShardSpec> shardSpecOpt =
-      ttnnMemLayout == tt_metal::TensorMemoryLayout::INTERLEAVED
-          ? std::nullopt
-          : std::make_optional(shardSpec);
+  if (isSharded(targetMemoryLayout)) {
+    LOG_ASSERT(memcfg->shard_spec(), "Sharded tensors must have shard spec");
+    const ::flatbuffers::Vector<int32_t> *targetShardShape =
+        memcfg->shard_spec()->shard_shape();
+    LOG_ASSERT(targetShardShape->size() == 2,
+               "Only 2D shard shape is supported in TTNN backend");
+    std::array<uint32_t, 2> ttnnShardShape;
+    std::copy(targetShardShape->begin(), targetShardShape->end(),
+              ttnnShardShape.begin());
 
-  ::tt::tt_metal::MemoryConfig memoryConfig{.memory_layout = ttnnMemLayout,
-                                            .buffer_type = ttnnBufferType,
-                                            .shard_spec = shardSpecOpt};
-  return memoryConfig;
+    const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
+        *targetCoreRangeSet = memcfg->shard_spec()->grid();
+    LOG_ASSERT(targetCoreRangeSet->size() == 1,
+               "Currently only single core range/grid is supported");
+    CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
+    metalShardSpec =
+        ::tt::tt_metal::ShardSpec(ttnnCoreRangeSet, ttnnShardShape,
+                                  ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
+  }
+
+  ::ttnn::MemoryConfig memoryConfig{.memory_layout = ttnnMemLayout,
+                                    .buffer_type = ttnnBufferType,
+                                    .shard_spec = metalShardSpec};
+  return std::make_optional(memoryConfig);
 }
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor) {

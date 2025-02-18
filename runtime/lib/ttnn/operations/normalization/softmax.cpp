@@ -14,8 +14,14 @@ void run(const ::tt::target::ttnn::SoftmaxOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
   int32_t dimension = op->dimension();
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
   ::ttnn::Tensor out = ::ttnn::softmax(in, dimension, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

@@ -9,17 +9,18 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "flatbuffers/flatbuffers.h"
+#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 
-namespace mlir::tt {
+namespace mlir::tt::ttnn {
 
 template <typename OpT>
 struct Program {
   ::flatbuffers::FlatBufferBuilder *fbb;
   const char *name;
-  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> inputs;
-  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> outputs;
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
   std::vector<::flatbuffers::Offset<OpT>> ops;
 };
 
@@ -54,10 +55,9 @@ inline Value getOperandThroughDPSOps(Value value) {
   return value;
 }
 
-template <typename OpT, typename FnT>
+template <typename OpT, typename FnT, typename TensorFnT>
 Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
-                             FnT fn) {
-  constexpr uint64_t kHostAllocatedAddress = 0;
+                             FnT fn, TensorFnT tensorValueToFlatbuffer) {
   constexpr uint64_t kHostAllocatedSize = 0;
 
   OpPrintingFlags printFlags;
@@ -71,17 +71,16 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
   program.name = entry.getSymName().data();
 
   for (auto &input : entry.getBody().getArguments()) {
-    program.inputs.push_back(cache.getOrCreate(input, tensorValueToFlatbuffer,
-                                               kHostAllocatedAddress,
-                                               kHostAllocatedSize));
+    program.inputs.push_back(
+        cache.getOrCreate(input, tensorValueToFlatbuffer, kHostAllocatedSize));
   }
 
   mlir::AsmState printState(entry, printFlags);
   entry.getBody().walk([&](mlir::Operation *op) {
     if (auto returnOp = dyn_cast_or_null<func::ReturnOp>(op); returnOp) {
       for (auto output : returnOp.getOperands()) {
-        program.outputs.push_back(
-            cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(output)));
+        program.outputs.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+            getOperandThroughDPSOps(output)));
       }
     } else {
       std::string debugStr = getOpDebugString(op, printState);
@@ -93,6 +92,6 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
   return program;
 }
 
-} // namespace mlir::tt
+} // namespace mlir::tt::ttnn
 
 #endif

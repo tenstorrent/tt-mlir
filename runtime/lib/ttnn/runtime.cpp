@@ -160,7 +160,7 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
   std::shared_ptr<::ttnn::Tensor> tensor = std::make_shared<::ttnn::Tensor>(
       ::ttnn::distributed::create_multi_device_tensor(
-          tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST,
+          tensorShards, ::ttnn::StorageType::MULTI_DEVICE_HOST,
           distributionStrategy));
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
                 DeviceRuntime::TTNN);
@@ -322,10 +322,11 @@ Tensor toHost(Tensor tensor, bool untilize) {
 Tensor toLayout(Tensor tensor, Device device, Layout layout) {
   const ::ttnn::Tensor &ttnnTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  const ::ttnn::StorageType &inputStorageType = ttnnTensor.storage_type();
   const ::ttnn::Layout &inputLayout = ttnnTensor.get_layout();
   const ::ttnn::DataType &inputDataType = ttnnTensor.get_dtype();
-  LayoutDesc inputLayoutDesc(::ttnn::BufferType::SYSTEM_MEMORY, inputLayout,
-                             inputDataType, std::nullopt);
+  LayoutDesc inputLayoutDesc(inputStorageType, inputLayout, inputDataType,
+                             std::nullopt);
 
   const LayoutDesc &outputLayoutDesc =
       layout.as<LayoutDesc>(DeviceRuntime::TTNN);
@@ -349,23 +350,28 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
   const ::tt::target::ttnn::TTNNBinary &fbb = *getBinary(executableHandle);
   LOG_ASSERT(programIndex < fbb.programs()->size(), "Invalid program index");
+
   const ::tt::target::ttnn::Program *program =
       fbb.programs()->Get(programIndex);
   LOG_ASSERT(inputIndex < program->inputs()->size(), "Invalid input index");
-  const ::tt::target::TensorRef *input = program->inputs()->Get(inputIndex);
+  const ::tt::target::ttnn::TensorRef *input =
+      program->inputs()->Get(inputIndex);
+  const ::tt::target::ttnn::MemoryConfig *memcfg =
+      input->desc()->layout()->memory_desc()->memory_config();
 
-  ::ttnn::BufferType inputBufferType = utils::toTTNNBufferType(
-      input->desc()->layout()->memory_desc()->memory_space());
   ::ttnn::Layout inputLayout = utils::inferLayoutFromTileShape(input);
   ::ttnn::DataType inputDataType = utils::toTTNNDataType(
       input->desc()->layout()->memory_desc()->data_type());
-  std::optional<::ttnn::MemoryConfig> inputMemoryConfig = std::nullopt;
-  if (inputBufferType != ::ttnn::BufferType::SYSTEM_MEMORY) {
-    inputMemoryConfig = utils::createMemoryConfig(input);
-  }
+  ::ttnn::StorageType inputStorageType = utils::toTTNNStorageType(
+      input->desc()->layout()->memory_desc()->storage_type());
+
+  std::optional<::ttnn::MemoryConfig> inputMemoryConfig =
+      utils::createMemoryConfigIfNeeded(memcfg);
+  LOG_ASSERT(utils::isOnHost(inputStorageType) || inputMemoryConfig.has_value(),
+             "Device tensors must have memory config");
 
   std::shared_ptr<LayoutDesc> layoutDesc = std::make_shared<LayoutDesc>(
-      inputBufferType, inputLayout, inputDataType, inputMemoryConfig);
+      inputStorageType, inputLayout, inputDataType, inputMemoryConfig);
 
   return Layout(std::static_pointer_cast<void>(layoutDesc),
                 DeviceRuntime::TTNN);
@@ -403,7 +409,7 @@ void memcpy(Tensor dst, Tensor src) {
 
 void deallocateTensor(Tensor &tensor, bool force) {
   ::ttnn::Tensor &ttnnTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  if (ttnnTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+  if (ttnnTensor.storage_type() == ::ttnn::StorageType::BORROWED) {
     return;
   }
   ::ttnn::deallocate(ttnnTensor, force);
