@@ -49,6 +49,6 @@ def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer):
 
 cb_in = CircularBuffer(0)
 cb_out = CircularBuffer(16)
-kernel_file = eltwise_sfpu(cb_in, cb_out)
-eltwise_sfpu_kernel = Kernel(kernel_file)
-eltwise_sfpu_kernel.dump()
+kernel_string = eltwise_sfpu(cb_in, cb_out)
+py_kernel = Kernel("eltwise_sfpu", kernel_string)
+py_kernel.dump()

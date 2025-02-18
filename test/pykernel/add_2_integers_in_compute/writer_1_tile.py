@@ -28,6 +28,6 @@ def write_1_tile(cb_out: CircularBuffer):
 
 
 cb_out = CircularBuffer(16)
-kernel_file = write_1_tile(cb_out)
-write_1_tile_kernel = Kernel(kernel_file)
-write_1_tile_kernel.dump()
+kernel_string = write_1_tile(cb_out)
+py_kernel = Kernel("write_1_tile", kernel_string)
+py_kernel.dump()

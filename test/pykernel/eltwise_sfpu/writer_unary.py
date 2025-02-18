@@ -52,6 +52,6 @@ def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
 
 cb_in = CircularBuffer(0)
 cb_out = CircularBuffer(16)
-kernel_file = writer_unary(cb_in, cb_out)
-write_unary_kernel = Kernel(kernel_file)
-write_unary_kernel.dump()
+kernel_string = writer_unary(cb_in, cb_out)
+py_kernel = Kernel("writer_unary", kernel_string)
+py_kernel.dump()

@@ -10,6 +10,7 @@
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
+#include <iostream>
 #include <pybind11/stl_bind.h>
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
@@ -218,24 +219,22 @@ void populatePassesModule(py::module &m) {
         });
 
   m.def(
-      "ttkernel_to_cpp_file",
-      [](MlirModule module, std::string &filepath, bool isTensixKernel) {
+      "ttkernel_to_cpp",
+      [](MlirModule module, bool isTensixKernel) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        std::error_code fileError;
-        llvm::raw_fd_ostream file(filepath, fileError);
         tt::ttkernel::ThreadType threadType =
             isTensixKernel ? tt::ttkernel::ThreadType::Tensix
                            : tt::ttkernel::ThreadType::Noc;
-        if (fileError) {
-          throw std::runtime_error("Failed to open file: " + filepath +
-                                   ". Error: " + fileError.message());
-        }
+        std::string output;
+        llvm::raw_string_ostream output_stream(output);
         if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
-                moduleOp, file, threadType))) {
-          throw std::runtime_error("Failed to write cpp to file: " + filepath);
+                moduleOp, output_stream, threadType))) {
+          throw std::runtime_error("Failed to generate cpp");
         }
+        output_stream.flush();
+        return output;
       },
-      py::arg("module"), py::arg("filepath") = "", py::arg("isTensixKernel"));
+      py::arg("module"), py::arg("isTensixKernel"));
 
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)

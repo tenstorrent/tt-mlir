@@ -21,10 +21,13 @@ class CircularBuffer:
 
 
 class Kernel:
-    def __init__(self, kernel_path):
-        self.kernel_path = kernel_path
-        self.kernel_name = os.path.splitext(os.path.basename(kernel_path))[0]
+    def __init__(self, kernel_name, kernel_string):
+        self.kernel_string = kernel_string
+        self.kernel_name = kernel_name
 
     def dump(self):
-        with open(self.kernel_path, "r") as f:
-            print(f.read())
+        print(self.kernel_string)
+
+    def dump_to_file(self, file_path):
+        with open(file_path, "w") as f:
+            f.write(self.kernel_string)
