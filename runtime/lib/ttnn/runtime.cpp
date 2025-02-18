@@ -70,11 +70,11 @@ static StorageType createStorage(void *ptr, std::uint32_t numElements,
   }
 }
 
-static ::ttnn::Tensor
-createOwnedTensor(std::shared_ptr<void> data,
-                  std::vector<std::uint32_t> const &shape,
-                  std::vector<std::uint32_t> const &stride,
-                  std::uint32_t itemsize, ::tt::target::DataType dataType) {
+::ttnn::Tensor createOwnedTensor(std::shared_ptr<void> data,
+                                 std::vector<std::uint32_t> const &shape,
+                                 std::vector<std::uint32_t> const &stride,
+                                 std::uint32_t itemsize,
+                                 ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
 
   return ::ttnn::Tensor(

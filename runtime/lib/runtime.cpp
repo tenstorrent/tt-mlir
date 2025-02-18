@@ -11,6 +11,7 @@
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/ttnn/utils.h"
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
@@ -131,6 +132,28 @@ std::pair<SystemDesc, DeviceIds>
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType) {
 #if defined(TT_RUNTIME_ENABLE_TTNN) || defined(TT_RUNTIME_ENABLE_TTMETAL)
   return system_desc::getCurrentSystemDesc(dispatchCoreType);
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Tensor createOwnedRuntimeTensor(std::shared_ptr<void> data,
+                                std::vector<std::uint32_t> const &shape,
+                                std::vector<std::uint32_t> const &stride,
+                                std::uint32_t itemsize,
+                                ::tt::target::DataType dataType) {
+  LOG_ASSERT(not shape.empty());
+  LOG_ASSERT(not stride.empty());
+  LOG_ASSERT(itemsize > 0);
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ttnn::utils::createRuntimeTensorFromTTNN(
+        ::tt::runtime::ttnn::createOwnedTensor(data, shape, stride, itemsize,
+                                               dataType));
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  LOG_FATAL("TT Metal runtime does not support creating owned tensors");
 #endif
   LOG_FATAL("runtime is not enabled");
 }
