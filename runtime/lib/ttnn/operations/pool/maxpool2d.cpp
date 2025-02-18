@@ -5,44 +5,12 @@
 #include "operations/pool/maxpool2d.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/types.hpp"
 #include <optional>
 
 namespace tt::runtime::ttnn::operations::pool {
-
-// TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
-// instead of adding a method in runtime
-template <typename DeviceType>
-static ::ttnn::Tensor
-preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
-                     DeviceType &device, const ::ttnn::Tensor &input) {
-  const ::ttnn::Shape inputShape =
-      ::tt::runtime::ttnn::operations::utils::toTTNNShape(
-          *op->in()->desc()->shape());
-  uint32_t output_height =
-      1 + (op->input_height() + 2 * op->padding_height() -
-           op->dilation_height() * (op->kernel_height() - 1) - 1) /
-              op->stride_height();
-  uint32_t output_width =
-      1 + (op->input_width() + 2 * op->padding_width() -
-           op->dilation_width() * (op->kernel_width() - 1) - 1) /
-              op->stride_width();
-
-  constexpr bool en_ch_padding = false;
-
-  auto parallel_config = ::ttnn::operations::conv::determine_parallel_config(
-      ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, op->batch_size(),
-      op->channels(), output_height, output_width, op->channels(),
-      device.compute_with_storage_grid_size(), ShardOrientation::ROW_MAJOR,
-      en_ch_padding);
-  auto sharded_memory_config = ::ttnn::operations::conv::
-      create_sharded_memory_config_from_parallel_config(inputShape,
-                                                        parallel_config, 1);
-  return ::ttnn::to_memory_config(input, sharded_memory_config, std::nullopt);
-}
 
 void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -53,15 +21,7 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor input = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(input.is_allocated());
-  if (workaround::Env::get().maxpool2dPreshard) {
-    DeviceVariant targetDevice =
-        context.getTargetDevice(op->device()->global_id());
-    input = std::visit(
-        [&](auto &&targetDevice) -> ::ttnn::Tensor {
-          return preshardForMaxPool2d(op, targetDevice.get(), input);
-        },
-        targetDevice);
-  }
+
   ::ttnn::MemoryConfig outMemConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
