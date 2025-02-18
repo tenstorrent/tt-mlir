@@ -112,7 +112,8 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
         The `tile_reduce_max` operation computes the max of all elements in the input tile over the specified reduction dim(s).
     }];
 
-    let arguments = (ins TT_Tile:$input,
+    let arguments = (ins TT_Tile:$a,
+                         TT_Tile:$b,
                          TTIR_ReduceDimAttr:$reduce_dim);
     let results = (outs TT_Tile:$result);
 }
