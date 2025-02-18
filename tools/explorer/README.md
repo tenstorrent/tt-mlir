@@ -2,6 +2,8 @@
 
 TT-explorer is a tool for MLIR graph visualization and applying optimizer overrides in order to easily experiment with model performance.
 
+Please check out our [Wiki](https://github.com/tenstorrent/tt-mlir/blob/main/docs/src/tt-explorer.md) and [Usage Page](https://github.com/tenstorrent/tt-mlir/blob/main/docs/src/tt-explorer-usage-api.md) for more details.
+
 TODO: add documentation from old tt-explorer repo
 
 ## Build
@@ -16,7 +18,7 @@ Start the server with:
 tt-explorer
 ```
 
-Then open http://localhost:8080 in the browser.
+Then open http://localhost:8080 in a browser.
 
 #### Port Forwarding
 P.S.
