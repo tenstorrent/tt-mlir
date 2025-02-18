@@ -12,8 +12,8 @@ include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 
-class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRegionOpTrait]> :
-    TTIR_Op<mnemonic, !listconcat([HasParent<"GenericOp">], traits)> {
+class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRegionOpTrait, TTIR_GenericParent]> :
+    TTIR_Op<mnemonic, traits> {
 }
 
 //===----------------------------------------------------------------------===//
@@ -22,7 +22,7 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRe
 
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 
-def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator, TTIR_GenericRegionOpTrait, ParentOneOf<["GenericOp", "ScatterOp"]>]> {
+def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator, TTIR_GenericRegionOpTrait]> {
     let summary = "Yield op.";
     let description = [{
       Yield operation, this is required by MLIR to mark the end of a dispatch region.
