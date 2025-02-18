@@ -150,15 +150,6 @@ def TT_StreamMode : I32BitEnumAttr<"StreamMode", "TT Stream Mode",
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_BufferAccess : I32BitEnumAttr<"BufferAccess", "TT Buffer Access",
-                           [
-                            TT_StreamModeAlias,
-                            TT_StreamModeStream,
-                           ]>, Deprecated<"use TT_StreamMode instead"> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
-}
-
 def TT_ReduceType_Sum  : I32EnumAttrCase<"Sum",  0, "sum">;
 def TT_ReduceType_Mean : I32EnumAttrCase<"Mean", 1, "mean">;
 def TT_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;

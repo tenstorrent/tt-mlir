@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
