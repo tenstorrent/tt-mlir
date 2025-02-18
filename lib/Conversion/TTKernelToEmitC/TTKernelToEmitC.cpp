@@ -33,9 +33,9 @@
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <cctype>
+#include <iostream>
 #include <string>
 #include <unordered_map>
-
 using namespace mlir;
 using namespace tt;
 
@@ -135,6 +135,7 @@ namespace {
 class TTKernelToEmitCTypeConverter : public NullTypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
+    std::cout << " Hello from TTKernelToEmitCTypeConverter" << std::endl;
     addConversion([](Type type) { return type; });
     addConversion([ctx](mlir::tt::ttkernel::NocAddrType type) -> Type {
       return Builder(ctx).getI64Type();
@@ -150,6 +151,14 @@ public:
         [ctx](mlir::tt::ttkernel::L1AddrPtrType type) -> emitc::PointerType {
           return emitc::PointerType::get(
               emitc::OpaqueType::get(ctx, "volatile tt_l1_ptr uint32_t"));
+        });
+    addConversion(
+        [ctx](mlir::tt::ttkernel::InterleavedAddrGenFastType type) -> Type {
+          std::cout << " Hello from type converter" << std::endl;
+          std::string opaque_name = "InterleavedAddrGenFast<";
+          opaque_name += type.getDRAM() ? "true" : "false";
+          opaque_name += ", " + std::to_string(type.getTileHw()) + ">";
+          return emitc::OpaqueType::get(ctx, opaque_name);
         });
   }
 };

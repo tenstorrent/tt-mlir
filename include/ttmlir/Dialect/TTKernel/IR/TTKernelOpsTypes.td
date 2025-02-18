@@ -147,8 +147,11 @@ def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "i
     let description = "InterleavedAddrGenFast type in TTKernel dialect";
     let parameters = (ins "uint32_t":$bank_base_address,
                           "uint32_t":$page_size,
-                          "DataFormat":$data_format);
-    let assemblyFormat =  "`<` $bank_base_address`,` $page_size`,` $data_format `>`";
+                          // "DataFormat":$data_format,
+                          DefaultValuedParameter<"bool", "true">:$DRAM,
+                          DefaultValuedParameter<"uint32_t", "1024">:$tile_hw);
+    // let assemblyFormat =  "`<` $bank_base_address `,` $page_size `,` $data_format `,` $DRAM `,` $tile_hw `>`";
+    let assemblyFormat =  "`<` $bank_base_address `,` $page_size `,` $DRAM `,` $tile_hw `>`";
 }
 
 #endif
