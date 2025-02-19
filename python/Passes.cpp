@@ -10,7 +10,6 @@
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
-#include <iostream>
 #include <pybind11/stl_bind.h>
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
