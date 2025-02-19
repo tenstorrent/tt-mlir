@@ -16,7 +16,7 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 GridAttr getOptimalGrid(MLIRContext *ctx, ArrayRef<int64_t> memref_shape,
-                               ArrayRef<int64_t> device_grid_shape) {
+                        ArrayRef<int64_t> device_grid_shape) {
   std::vector<int64_t> grid_shape;
   for (size_t i = 0; i < memref_shape.size(); i++) {
     int64_t dim = memref_shape[i];
@@ -40,9 +40,7 @@ GridAttr getOptimalGrid(MLIRContext *ctx, ArrayRef<int64_t> memref_shape,
 }
 
 RankedTensorType getLocalLayout(Value tensor, PatternRewriter &rewriter,
-                                       DeviceAttr &device) {
-  // llvm::errs() << "Assigning local layout for " << op->getName() << "\n";
-
+                                DeviceAttr &device) {
   RankedTensorType result_type =
       mlir::dyn_cast<RankedTensorType>(tensor.getType());
   auto result_encoding =
@@ -68,9 +66,11 @@ RankedTensorType getLocalLayout(Value tensor, PatternRewriter &rewriter,
 class TTIRGenericTensorLayoutRewriter : public RewritePattern {
 public:
   TTIRGenericTensorLayoutRewriter(MLIRContext *ctx)
-      : RewritePattern(ttir::GenericOp::getOperationName(), /*benefit=*/1, ctx) {}
+      : RewritePattern(ttir::GenericOp::getOperationName(), /*benefit=*/1,
+                       ctx) {}
 
-  LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
     auto device = getCurrentScopeDevice(op);
     assert(device && "Device not found");
     auto genericOp = mlir::cast<ttir::GenericOp>(op);
@@ -86,9 +86,10 @@ public:
     dpsOp.getDpsInits()[0].setType(optimal_layout);
 
     // Update generic grid (match worker cores to output grid)
-    genericOp.setGridAttr(mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid());    
+    genericOp.setGridAttr(
+        mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid());
 
-    return failure(); // need some better way to exit cond. the rewriter than 
+    return failure(); // need some better way to exit cond. the rewriter than
                       // always returning false!
   }
 };
@@ -96,9 +97,11 @@ public:
 class TTIRMemrefLayoutRewriter : public RewritePattern {
 public:
   TTIRMemrefLayoutRewriter(MLIRContext *ctx)
-      : RewritePattern(ttir::GenericOp::getOperationName(), /*benefit=*/1, ctx) {}
+      : RewritePattern(ttir::GenericOp::getOperationName(), /*benefit=*/1,
+                       ctx) {}
 
-  LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
     auto genericOp = mlir::cast<ttir::GenericOp>(op);
 
     Block *genericBlock = &genericOp.getRegion().front();
@@ -107,8 +110,10 @@ public:
            "operands");
     for (size_t i = 0; i < genericBlock->getNumArguments(); i++) {
       auto arg = genericBlock->getArgument(i);
-      auto operand = mlir::cast<RankedTensorType>(genericOp->getOperand(i).getType());
-      auto operand_encoding = mlir::cast<MetalLayoutAttr>(operand.getEncoding());
+      auto operand =
+          mlir::cast<RankedTensorType>(genericOp->getOperand(i).getType());
+      auto operand_encoding =
+          mlir::cast<MetalLayoutAttr>(operand.getEncoding());
       arg.setType(operand_encoding.getMemref());
     }
     return failure(); // need some better way to exit cond. the rewriter than
@@ -119,8 +124,7 @@ public:
 class TTIRFuncOperandsTensorLayoutRewriter : public RewritePattern {
 public:
   TTIRFuncOperandsTensorLayoutRewriter(MLIRContext *ctx)
-      : RewritePattern(func::FuncOp::getOperationName(), /*benefit=*/1, ctx) {
-  }
+      : RewritePattern(func::FuncOp::getOperationName(), /*benefit=*/1, ctx) {}
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
     auto device = getCurrentScopeDevice(op);
@@ -129,20 +133,30 @@ public:
     func::FuncOp funcOp = mlir::cast<func::FuncOp>(op);
 
     llvm::errs() << "Operand Rewriter hit\n";
-    rewriter.setInsertionPointToStart(&op->getRegion(0).front());;
+    rewriter.setInsertionPointToStart(&op->getRegion(0).front());
+    ;
     bool modified = false;
     for (Value operand : funcOp.getArguments()) {
       auto optimal_layout = getLocalLayout(operand, rewriter, device);
       auto tensor = mlir::cast<RankedTensorType>(operand.getType());
       auto encoding = mlir::cast<MetalLayoutAttr>(tensor.getEncoding());
-      if (mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid().getShape() == encoding.getGrid().getShape()||
-          (std::distance(operand.getUses().begin(), operand.getUses().end()) == 1 && mlir::isa<ttir::ToLayoutOp>(operand.getUses().begin().getUser()))) {
+      if (mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding())
+                  .getGrid()
+                  .getShape() == encoding.getGrid().getShape() ||
+          (std::distance(operand.getUses().begin(), operand.getUses().end()) ==
+               1 &&
+           mlir::isa<ttir::ToLayoutOp>(operand.getUses().begin().getUser()))) {
         continue;
       }
       modified = true;
-      auto emptyOp = rewriter.create<tensor::EmptyOp>(op->getLoc(), optimal_layout.getShape(), optimal_layout.getElementType(), optimal_layout.getEncoding());
-      auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(op->getLoc(), emptyOp.getType(), operand, emptyOp);
-      rewriter.replaceAllUsesExcept(operand, toLayoutOp.getResult(), llvm::SmallPtrSet<Operation *, 2>{op, toLayoutOp});
+      auto emptyOp = rewriter.create<tensor::EmptyOp>(
+          op->getLoc(), optimal_layout.getShape(),
+          optimal_layout.getElementType(), optimal_layout.getEncoding());
+      auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
+          op->getLoc(), emptyOp.getType(), operand, emptyOp);
+      rewriter.replaceAllUsesExcept(
+          operand, toLayoutOp.getResult(),
+          llvm::SmallPtrSet<Operation *, 2>{op, toLayoutOp});
     }
     return modified ? success() : failure();
   }
@@ -151,16 +165,20 @@ public:
 class TTIRFuncReturnTensorLayoutRewriter : public RewritePattern {
 public:
   TTIRFuncReturnTensorLayoutRewriter(MLIRContext *ctx)
-      : RewritePattern(func::ReturnOp::getOperationName(), /*benefit=*/1,
-                       ctx) {}
+      : RewritePattern(func::ReturnOp::getOperationName(), /*benefit=*/1, ctx) {
+  }
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
     if (mlir::isa<ttir::ToLayoutOp>(op->getOperand(0).getDefiningOp())) {
       return failure();
     }
-    auto returnTensorType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
-    auto emptyOp = rewriter.create<tensor::EmptyOp>(op->getLoc(), returnTensorType.getShape(), returnTensorType.getElementType(), returnTensorType.getEncoding());
-    auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(op->getLoc(), returnTensorType, op->getOperand(0), emptyOp);
+    auto returnTensorType =
+        mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+    auto emptyOp = rewriter.create<tensor::EmptyOp>(
+        op->getLoc(), returnTensorType.getShape(),
+        returnTensorType.getElementType(), returnTensorType.getEncoding());
+    auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
+        op->getLoc(), returnTensorType, op->getOperand(0), emptyOp);
     op->setOperand(0, toLayoutOp.getResult());
     return success();
   }
@@ -173,9 +191,7 @@ class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
   void runOnOperation() final {
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<
-          TTIRFuncReturnTensorLayoutRewriter>(
-          &getContext());
+      patterns.add<TTIRFuncReturnTensorLayoutRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();
@@ -188,8 +204,8 @@ class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
       patterns.add<TTIRGenericTensorLayoutRewriter>(&getContext());
       GreedyRewriteConfig config = GreedyRewriteConfig();
       FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(
-              applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
+                                              config))) {
         signalPassFailure();
         return;
       }
