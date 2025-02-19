@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <pybind11/stl_bind.h>
 
+// Make Opaque so Casts & Copies don't occur
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
 
@@ -254,22 +255,25 @@ void populatePassesModule(py::module &m) {
     return ::tt::target::DataType::MIN;
   });
 
-  py::class_<mlir::tt::GoldenTensor>(m, "GoldenTensor")
-      .def(py::init<std::string, std::vector<int64_t>, std::vector<int64_t>,
-                    ::tt::target::DataType, std::uint8_t *>())
+  // Preserve the Data by holding it in a SharedPtr.
+  py::class_<mlir::tt::GoldenTensor, std::shared_ptr<mlir::tt::GoldenTensor>>(
+      m, "GoldenTensor")
+      .def(py::init([](std::string name, std::vector<int64_t> shape,
+                       std::vector<int64_t> strides,
+                       ::tt::target::DataType dtype, std::uintptr_t ptr,
+                       std::size_t dataSize) {
+        // Create Golden Tensor and move ownership to GoldenTensor
+        auto *dataPtr = reinterpret_cast<std::uint8_t *>(ptr);
+
+        return std::make_shared<mlir::tt::GoldenTensor>(
+            name, shape, strides, dtype,
+            std::vector<std::uint8_t>(dataPtr, dataPtr + dataSize));
+      }))
       .def_readwrite("name", &mlir::tt::GoldenTensor::name)
       .def_readwrite("shape", &mlir::tt::GoldenTensor::shape)
       .def_readwrite("strides", &mlir::tt::GoldenTensor::strides)
       .def_readwrite("dtype", &mlir::tt::GoldenTensor::dtype)
       .def_readwrite("data", &mlir::tt::GoldenTensor::data);
-
-  m.def("create_golden_tensor",
-        [](std::string name, std::vector<int64_t> shape,
-           std::vector<int64_t> strides, ::tt::target::DataType dtype,
-           std::uintptr_t ptr) {
-          return mlir::tt::GoldenTensor(name, shape, strides, dtype,
-                                        reinterpret_cast<std::uint8_t *>(ptr));
-        });
 
   py::class_<mlir::tt::MLIRModuleLogger,
              std::shared_ptr<mlir::tt::MLIRModuleLogger>>(m, "MLIRModuleLogger")
