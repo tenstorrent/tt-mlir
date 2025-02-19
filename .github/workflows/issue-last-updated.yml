@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run issued last updated
-        uses: jmcgrathTT/tt-github-actions/.github/actions/add-last-updated@add-last-updated-workflow
+        uses: jmcgrathTT/tt-github-actions/.github/actions/issue_add_last_updated@add-last-updated-workflow
         with:
           project_id: ${{ env.project_id }}
           field_id: ${{ env.field_id }}
