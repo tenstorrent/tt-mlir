@@ -1522,6 +1522,12 @@ def TTNN_ConstantOp : TTNN_Op<"constant"> {
     let arguments = (ins ElementsAttr:$value);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
+      }
+    }];
 }
 
 #endif

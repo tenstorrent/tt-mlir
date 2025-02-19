@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -314,4 +315,13 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds systemMemoryWA =
+      TTNNOperandWorkarounds(BufferType::SystemMemory);
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addOutputOperandWorkaround(systemMemoryWA);
+}
+
 } // namespace mlir::tt::ttnn::wa

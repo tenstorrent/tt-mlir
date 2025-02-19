@@ -245,6 +245,8 @@ public:
   createSliceOpOperandsWorkarounds(ttnn::TTNNLayoutAttr layoutAttr,
                                    mlir::ArrayAttr begins,
                                    mlir::ArrayAttr step);
+
+  static TTNNOperandsWorkarounds createConstantOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa
