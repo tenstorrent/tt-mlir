@@ -251,6 +251,7 @@ table ConcatOp {
  inputs: [tt.target.TensorRef];
  out: tt.target.TensorRef;
  dim: int32;
+ memory_config: MemoryConfigDesc;
 }
 
 table ReshapeOp {
@@ -366,7 +367,8 @@ table AllGatherOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
   device: tt.target.DeviceRef;
-  dim: uint32;
+  all_gather_dim: int32;
+  cluster_axis: uint32;
   num_links: uint32;
 }
 

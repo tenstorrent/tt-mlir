@@ -424,8 +424,7 @@ private:
     }
 
     // These ops constrain to ROW_MAJOR on their operands
-    if (mlir::isa<ttir::Conv2dOp>(operation) ||
-        mlir::isa<ttir::SliceOp>(operation)) {
+    if (mlir::isa<ttir::Conv2dOp>(operation)) {
       return false;
     }
     return true;

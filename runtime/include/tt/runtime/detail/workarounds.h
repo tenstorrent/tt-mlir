@@ -15,21 +15,16 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
+  get(bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
-      bool toLayoutAPIAssumeSingleChip = true,
-      bool usePaddingPairSignatureWithQueueId = true)
+      bool toLayoutAPIAssumeSingleChip = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true);
+    return Env(true, true, true);
   }
 #endif
-  // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
-  // instead of adding a method in runtime
-  bool maxpool2dPreshard;
-
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
   // rhs operand). We should add this check in the compiler.
@@ -50,33 +45,18 @@ struct Env {
   // grid information to the tensorDesc.
   bool toLayoutAPIAssumeSingleChip;
 
-  // TODO(tt-metal issue #17388): We're currently using the signature of
-  // ttnn::pad which takes a sequence of padding pairs as input. We want to do
-  // this as it is more intuitive and matches stablehlo and even pytorch.
-  // However, we do not want to expose metal-specific details like queue_id in
-  // the runtime. The issue above is requesting they provide a signature for
-  // ttnn::padd which accepts padding pairs to define the padding, but does not
-  // require us to pass queue_id.
-  bool usePaddingPairSignatureWithQueueId;
-
 private:
-  constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
+  constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool toLayoutAPIAssumeSingleChip,
-                bool usePaddingPairSignatureWithQueueId)
-      : maxpool2dPreshard(maxpool2dPreshard),
-        swapBinaryOperands(swapBinaryOperands),
+                bool toLayoutAPIAssumeSingleChip)
+      : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip),
-        usePaddingPairSignatureWithQueueId(usePaddingPairSignatureWithQueueId) {
-  }
+        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "workaround::Env{\n";
-  os << "\t"
-     << "maxpool2dPreshard: " << env.maxpool2dPreshard << ",\n";
   os << "\t"
      << "swapBinaryOperands: " << env.swapBinaryOperands << ",\n";
   os << "\t"
@@ -85,9 +65,6 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "toLayoutAPIAssumeSingleChip: " << env.toLayoutAPIAssumeSingleChip
      << "\n";
-  os << "\t"
-     << "usePaddingPairSignatureWithQueueId: "
-     << env.usePaddingPairSignatureWithQueueId << "\n";
   os << "}";
   return os;
 }

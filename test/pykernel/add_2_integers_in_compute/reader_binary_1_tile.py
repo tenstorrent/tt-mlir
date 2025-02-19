@@ -9,7 +9,7 @@ from pykernel.pykernel_ast import *
 from pykernel.types import *
 
 
-@ttkernel_compile
+@ttkernel_noc_compile()
 def reader_binary_1_tile(cb_in0: CircularBuffer, cb_in1: CircularBuffer):
     src0_addr = get_arg_val(int, 0)
     src1_addr = get_arg_val(int, 1)
@@ -40,4 +40,6 @@ def reader_binary_1_tile(cb_in0: CircularBuffer, cb_in1: CircularBuffer):
 
 cb_in0 = CircularBuffer(0)
 cb_in1 = CircularBuffer(1)
-reader_binary_1_tile(cb_in0, cb_in1)
+kernel_string = reader_binary_1_tile(cb_in0, cb_in1)
+py_kernel = Kernel("reader_binary_1_tile", kernel_string)
+py_kernel.dump()

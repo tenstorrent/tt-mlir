@@ -34,6 +34,7 @@ inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
 // To layout pass
 //===----------------------------------------------------------------------===//
 
+namespace {
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
@@ -56,7 +57,9 @@ public:
         });
   }
 };
+} // namespace
 
+namespace {
 class TTIRLayoutTensorTypeRewriter : public RewritePattern {
 public:
   TTIRLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
@@ -124,6 +127,7 @@ public:
 
   const TypeConverter *converter;
 };
+} // namespace
 
 static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,

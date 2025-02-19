@@ -92,6 +92,8 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
     MemoryConfigAttr withBufferType(::mlir::MLIRContext *context, BufferType bufferType);
     MemoryConfigAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
   }];
+
+  let genVerifyDecl = 1;
 }
 
 def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {

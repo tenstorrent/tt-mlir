@@ -6,14 +6,12 @@
 
 namespace tt::runtime::workaround {
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
-const Env &Env::get(bool maxpool2dPreshard, bool swapBinaryOperands,
+const Env &Env::get(bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
-                    bool toLayoutAPIAssumeSingleChip,
-                    bool usePaddingPairSignatureWithQueueId) {
-  static const Env config(maxpool2dPreshard, swapBinaryOperands,
+                    bool toLayoutAPIAssumeSingleChip) {
+  static const Env config(swapBinaryOperands,
                           readUpdateIndexFromDeviceForKVCache,
-                          toLayoutAPIAssumeSingleChip,
-                          usePaddingPairSignatureWithQueueId);
+                          toLayoutAPIAssumeSingleChip);
   return config;
 }
 #endif

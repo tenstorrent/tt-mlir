@@ -10,6 +10,7 @@ include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -27,7 +28,7 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let results = (outs TT_Device:$device);
 }
 
-def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
+def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [HasMemoryConfigTrait]> {
     let summary = "ToMemoryConfig op.";
     let description = [{
       This op converts the memory config of the input tensor based on the given memory config.
@@ -859,7 +860,7 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
+def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat", [HasMemoryConfigTrait]> {
     let summary = "Concat op.";
     let description = [{
       Concat tensors along a given dimension.
@@ -867,7 +868,8 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dim);
+                         SI32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -958,6 +960,15 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+            getOutput().getType().getEncoding());
+        ::mlir::ArrayAttr begins = getBegins();
+        ::mlir::ArrayAttr step = getStep();
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSliceOpOperandsWorkarounds(layoutAttr, begins, step);
+      }
     }];
 
     let hasVerifier = 1;
@@ -1330,8 +1341,9 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         SI32Attr:$dim,
-                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+                         SI32Attr:$all_gather_dim,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 

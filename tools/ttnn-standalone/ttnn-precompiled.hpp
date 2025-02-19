@@ -13,6 +13,7 @@
 #include "operations/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
+#include "operations/data_movement/repeat_interleave/repeat_interleave.hpp"
 #include "operations/data_movement/transpose/transpose.hpp"
 #include "operations/eltwise/binary/binary.hpp"
 #include "operations/eltwise/binary/binary_composite.hpp"

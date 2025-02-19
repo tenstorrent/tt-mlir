@@ -11,6 +11,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
+#include <llvm/Support/Casting.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -600,6 +601,13 @@ MetalLayoutAttr::getShardShape(bool convertTileToScalar) const {
   return shardShape;
 }
 
+StreamMode MetalLayoutAttr::getStreamMode() const {
+  StreamLayoutAttr layout =
+      llvm::dyn_cast<StreamLayoutAttr>(getMemref().getLayout());
+  assert(layout != nullptr && "expected a StreamLayoutAttr layout");
+  return layout.getStreamMode();
+}
+
 mlir::Type MetalLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
@@ -825,19 +833,6 @@ MetalLayoutAttr::projectOnto(mlir::AffineMap linearMap,
          "Linear map and physical map must have same number of dimensions");
   return replaceMemoryMapSymbolsWithShardShape(physicalMemoryMap)
       .compose(linearMap);
-}
-
-mlir::Type BufferAttr::getElementType() const {
-  return getMemref().getElementType();
-}
-
-llvm::SmallVector<int64_t> BufferAttr::getShape() const {
-  SmallVector<int64_t> bufferShape(getMemref().getShape());
-  auto elementType = getElementType();
-  if (mlir::isa<TileType>(elementType)) {
-    return mlir::cast<TileType>(elementType).getScalarShape(bufferShape);
-  }
-  return bufferShape;
 }
 
 //

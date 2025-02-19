@@ -1337,9 +1337,9 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult AllGatherOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t dim = getDim();
+  int32_t gatherDim = getAllGatherDim();
 
-  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+  if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
     return emitOpError("Invalid dimension for all gather op.");
   }
 

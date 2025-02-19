@@ -219,9 +219,8 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
           ? ::flatbuffers::Optional<::tt::target::DataType>(
                 ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value()))
           : ::flatbuffers::nullopt,
-      memoryConfig.has_value()
-          ? cache.getOrCreate(memoryConfig.value(), memoryConfigToFlatbuffer)
-          : 0,
+      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
+                   : 0,
       device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
 }
 
@@ -558,7 +557,7 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateAllGatherOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      op.getDim(), op.getNumLinks());
+      op.getAllGatherDim(), op.getClusterAxis(), op.getNumLinks());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
@@ -922,7 +921,13 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
       getOperandThroughDPSOps(op.getResult()));
   int32_t dim = op.getDim();
 
-  return ::tt::target::ttnn::CreateConcatOpDirect(*cache.fbb, &ins, out, dim);
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+
+  return ::tt::target::ttnn::CreateConcatOpDirect(
+      *cache.fbb, &ins, out, dim,
+      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
+                   : 0);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
@@ -958,9 +963,8 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
           ? ::flatbuffers::Optional<::tt::target::DataType>(
                 ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value()))
           : ::flatbuffers::nullopt,
-      memoryConfig.has_value()
-          ? cache.getOrCreate(memoryConfig.value(), memoryConfigToFlatbuffer)
-          : 0,
+      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
+                   : 0,
       out);
 }
 
