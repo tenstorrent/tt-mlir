@@ -420,6 +420,13 @@ table UpsampleOp {
   out: tt.target.TensorRef;
 }
 
+table CpuOp {
+  ins: [tt.target.TensorRef];
+  out: tt.target.TensorRef;
+  func_name: string;
+  dylib_id: uint32;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -460,6 +467,7 @@ union OpType {
   RepeatOp,
   UpsampleOp,
   PadOp,
+  CpuOp,
 }
 
 table Operation {
@@ -473,5 +481,6 @@ table Program {
   inputs: [TensorRef];
   outputs: [TensorRef];
   operations: [Operation];
+  dylibs: [DynamicLib];
   debug_info: DebugInfo;
 }

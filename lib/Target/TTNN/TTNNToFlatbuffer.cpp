@@ -5,6 +5,7 @@
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -17,6 +18,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
+#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -34,6 +36,16 @@
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt {
+
+template <typename OpType>
+static OpType findOpAtTopLevel(mlir::ModuleOp module) {
+  for (auto &op : module.getBody()->getOperations()) {
+    if (auto targetOp = llvm::dyn_cast<OpType>(op)) {
+      return targetOp;
+    }
+  }
+  return nullptr;
+}
 
 ::tt::target::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &,
@@ -280,6 +292,29 @@ createOp(FlatbufferObjectCache &cache, FromDeviceOp op) {
                                   kHostAllocatedAddress, kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateFromDeviceOp(*cache.fbb, input, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::CpuOp>
+createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
+  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
+  for (auto input : op.getOperands()) {
+    ins.push_back(
+        cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
+  }
+
+  // For now, assume we will get exactly 1 result tensor from our call -- this
+  // is hardcoded assumption for all ops AFAICT.
+  auto output =
+      cache.getOrCreate(*op.getResults().begin(), tensorValueToFlatbuffer,
+                        kHostAllocatedAddress, kHostAllocatedSize);
+
+  std::string oldName = op.getCallee().str();
+  // Remove the "_decl" suffix and add the "_helper" suffix.
+  std::string funcName = oldName.substr(0, oldName.size() - 5) + "_helper";
+
+  return ::tt::target::ttnn::CreateCpuOp(
+      *cache.fbb, cache.fbb->CreateVector(ins), output,
+      cache.fbb->CreateString(funcName), dylib_id);
 }
 
 ::flatbuffers::Offset<::tt::target::DistributionStrategy>
@@ -1450,8 +1485,18 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
-  ModuleOp module = dyn_cast<ModuleOp>(op);
-  assert(module && "Expected ModuleOp as top level operation");
+  ModuleOp rootModule = dyn_cast<ModuleOp>(op);
+  assert(rootModule && "Expected ModuleOp as top level operation");
+
+  // If we have a nested module structure, we want to use nested module inside
+  // DeviceModule for most conversions.
+  ModuleOp module = rootModule;
+  if (auto deviceModule = findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
+    module = dyn_cast_or_null<mlir::ModuleOp>(
+        deviceModule.getBodyRegion().front().front());
+    assert(module && "Found tt::DeviceModuleOp but it didn't contain a single "
+                     "mlir::ModuleOp!");
+  }
 
   ::flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
@@ -1463,12 +1508,34 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
-
+  // Always get debug info for top-level module.
   auto mlir = toDebugInfo(fbb, "ttnn", module);
+
   std::string cpp;
   llvm::raw_string_ostream os(cpp);
   auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
   (void)result;
+
+  // Handle dylib creation and packaging, if needed.
+  // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
+  // vector here in case in the future we support more complex arrangements.
+  std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
+  if (auto cpuModule = findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
+      cpuModule != nullptr) {
+    mlir::ModuleOp cpuNestedModule = dyn_cast_or_null<mlir::ModuleOp>(
+        cpuModule.getBodyRegion().front().front());
+    llvm::SmallVector<char, 2048> binaryBuffer;
+    llvm::raw_svector_ostream dylibStream(binaryBuffer);
+    auto result = mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuNestedModule,
+                                                              dylibStream);
+    if (llvm::succeeded(result)) {
+      auto rawFileVector = fbb.CreateVector(
+          reinterpret_cast<const uint8_t *>(binaryBuffer.data()),
+          binaryBuffer.size());
+      dylibs.emplace_back(
+          ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
+    }
+  }
 
   std::vector<::flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
   goldenKVList.reserve(goldenMap.size());
@@ -1505,7 +1572,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
                                                        emitTTNNOperation);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        debugInfo));
+        &dylibs, debugInfo));
   });
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
