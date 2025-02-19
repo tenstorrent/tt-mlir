@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-tensor-layout %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-tensor-layout %s | FileCheck %s
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 #map2 = affine_map<(d0, d1) -> (d0, 0)>
