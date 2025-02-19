@@ -6,8 +6,9 @@
 
 #include "ttmlir/Utils.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
-#include <mlir/IR/BuiltinTypes.h>
 
 namespace mlir::tt::ttnn::wa {
 
@@ -214,5 +215,103 @@ TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds() {
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(sysMemWorkaround)
       .addOutputOperandWorkaround(sysMemWorkaround);
+}
+
+// Factory method to create a set of workaround for concat operation operands.
+// tt-metal applies padding (before concatenation) to the input tensors if the
+// layout is tile and the shape is not divisible by tile size along concatenated
+// dimension for any input tensor. Padding can only be applied for float or
+// bfloat16 tensors.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
+    mlir::Operation::operand_range inputs, int64_t numOperands, int32_t dim) {
+  mlir::RankedTensorType inputType =
+      mlir::cast<RankedTensorType>(inputs.front().getType());
+  ttnn::TTNNLayoutAttr layoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  mlir::Type elementType = inputType.getElementType();
+
+  // Check if the op is using tile layout.
+  bool isDataTypeWARequired = layoutAttr.isTiled();
+  // Check if the tensor data type is neither float32 nor bfloat16.
+  isDataTypeWARequired &= (!elementType.isF32() && !elementType.isBF16());
+  // Check if shape (for any input tensor) along concatenated dimension is not
+  // divisible by tileHeight (Assuming TileWidth and TileHeigh are same).
+  int32_t tileWidth = 1;
+  int32_t tileHeight = 1;
+  if (isDataTypeWARequired) {
+    TileType tile =
+        mlir::cast<TileType>(layoutAttr.getMemref().getElementType());
+    tileWidth = tile.getWidth();
+    tileHeight = tile.getHeight();
+  }
+  assert(tileHeight == tileWidth);
+  isDataTypeWARequired &= llvm::any_of(inputs, [&](mlir::Value value) {
+    RankedTensorType inputTensor =
+        mlir::dyn_cast<RankedTensorType>(value.getType());
+    return inputTensor.getShape()[dim] % tileHeight != 0;
+  });
+
+  TTNNOperandWorkarounds bf16Workaround;
+  if (isDataTypeWARequired) {
+    bf16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  }
+  auto workaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+  for (int64_t count = 0; count < numOperands; ++count) {
+    workaround.addInputOperandWorkaround(bf16Workaround);
+  }
+  return workaround.addOutputOperandWorkaround(bf16Workaround);
+}
+
+// Factory method to create a set of workarounds for slice op input operands.
+// ttnn::SliceOp requires bfloat16 data type for strided slice.
+// ttnn::SliceOp requires row major layout if 'begins' elements (corresponding
+// to Width and Height) are not divisible by tile width and height.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
+    ttnn::TTNNLayoutAttr layoutAttr, mlir::ArrayAttr begins,
+    mlir::ArrayAttr step) {
+  // Check if any element in 'step' is greater than 1, indicating a strided
+  // slice operation.
+  bool isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
+    mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
+    return intAttr.getInt() > 1;
+  });
+
+  // Compute Width Index.
+  int64_t idxWidth = begins.size() - 1;
+  // Compute Height Index; 0 if input tensor is 1D.
+  int64_t idxHeight = begins.size() > 1 ? begins.size() - 2 : 0;
+
+  // Determine if workaround for row major layout is required.
+  bool isLayoutWARequired = layoutAttr.isTiled();
+  int32_t tileWidth = 1;
+  int32_t tileHeight = 1;
+  if (isLayoutWARequired) {
+    TileType tile =
+        mlir::cast<TileType>(layoutAttr.getMemref().getElementType());
+    tileWidth = tile.getWidth();
+    tileHeight = tile.getHeight();
+  }
+  isLayoutWARequired &=
+      ((mlir::dyn_cast<mlir::IntegerAttr>(begins[idxWidth]).getInt() %
+            tileWidth !=
+        0) ||
+       (mlir::dyn_cast<mlir::IntegerAttr>(begins[idxHeight]).getInt() %
+            tileHeight !=
+        0));
+
+  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  if (isStridedSliceOp) {
+    rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  }
+  if (!isStridedSliceOp && isLayoutWARequired) {
+    rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  }
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 } // namespace mlir::tt::ttnn::wa

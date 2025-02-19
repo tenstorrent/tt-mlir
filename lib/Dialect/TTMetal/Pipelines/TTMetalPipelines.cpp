@@ -28,25 +28,28 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
   ttir::TTIRAttachMetalLayoutOptions attachMetalLayoutOptions;
   {
-    // TODO(vroubtsovTT): 'options.version' is WIP until once StreamLayout is ok
+    // TODO(vroubtsovTT): 'options.version' is WIP until StreamLayout is ok
     // to use end-to-end
     attachMetalLayoutOptions.useStreamLayout = options.version > 0;
   }
   pm.addPass(
       mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
-  pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
-  mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
-  {
-    layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-    layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-    layoutOptions.defaultDeviceMemoryLayout =
-        mlir::tt::TensorMemoryLayout::None;
+  // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
+  // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
+  if (options.version > 0) {
+
+  } else {
+    mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
+    {
+      layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
+      layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
+      layoutOptions.defaultDeviceMemoryLayout =
+          mlir::tt::TensorMemoryLayout::None;
+    }
+    pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
+    pm.addPass(mlir::tt::ttir::createTTIRAllocate());
+    pm.addPass(createConvertTTIRToTTMetalPass());
   }
-  pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
-  pm.addPass(mlir::tt::ttir::createTTIRGenericOpCBs());
-  pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
-  pm.addPass(mlir::tt::ttir::createTTIRAllocate());
-  pm.addPass(createConvertTTIRToTTMetalPass());
 }
 
 //===----------------------------------------------------------------------===//

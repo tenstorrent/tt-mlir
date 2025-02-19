@@ -14,5 +14,6 @@ add_mlir_dialect_library(MLIRTTNNPipelines
   MLIRTTNNTransforms
   MLIRTTNNAnalysis
   MLIRTTTransforms
-  MLIR
+  MLIRPass
+  MLIRTransforms
 )

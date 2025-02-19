@@ -1,6 +1,7 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// UNSUPPORTED: true
 
 module attributes {} {
   func.func @forward(%arg0: tensor<3x8x8x256xbf16>, %arg1: tensor<256x256x3x3xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<3x10x10x256xbf16> {

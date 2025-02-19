@@ -62,26 +62,14 @@ metallibs = []
 install_requires = []
 install_requires += ["pybind11"]
 
-linklibs = ["TTBinary"]
 if enable_ttnn:
     runlibs += ["_ttnn.so"]
-    linklibs += [
-        "TTRuntimeTTNN",
-        "TTRuntimeTTNNOps",
-        "TTRuntimeTTNNHelpers",
-        ":_ttnn.so",
-    ]
-
-if enable_ttnn and enable_runtime_tests:
-    linklibs += ["TTRuntimeTTNNTestHelpers"]
 
 if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
-    linklibs += ["TTRuntimeTTMetal", "tt_metal"]
 
 if enable_ttnn or enable_ttmetal:
     runlibs += ["libdevice.so"]
-    linklibs += ["TTRuntimeSysDesc", "TTRuntimeDebug", "TTRuntimeWorkarounds"]
 
 if enable_perf:
     runlibs += ["libtracy.so.0.10.0"]
@@ -90,6 +78,11 @@ if enable_perf:
 
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
+
+    shutil.copy(
+        f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
+    )
 
     for dylib in runlibs:
         shutil.copy(
@@ -235,20 +228,23 @@ if enable_runtime:
             include_dirs=[
                 f"{toolchain}/include",
                 f"{src_dir}/runtime/include",
+                f"{src_dir}/runtime/test/include",
                 f"{ttmlir_build_dir}/include",
                 f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
             ],
-            libraries=["TTRuntime"] + linklibs + ["flatbuffers"],
+            libraries=[
+                "TTMLIRRuntime",
+                "TTRuntimeTTNNTypes",
+                "TTRuntimeTTNNUtils",
+                "flatbuffers",
+            ]
+            + (["TTRuntimeTTNNTestLib"] if enable_runtime_tests else []),
             library_dirs=[
                 f"{ttmlir_build_dir}/runtime/lib",
-                f"{ttmlir_build_dir}/runtime/lib/common",
-                f"{ttmlir_build_dir}/runtime/lib/ttnn",
-                f"{ttmlir_build_dir}/runtime/lib/ttnn/operations",
-                f"{ttmlir_build_dir}/runtime/lib/ttmetal",
-                f"{ttmlir_build_dir}/runtime/test",
+                f"{ttmlir_build_dir}/runtime/lib/ttnn/types",
+                f"{ttmlir_build_dir}/runtime/lib/ttnn/utils",
+                f"{ttmlir_build_dir}/runtime/test/ttnn",
                 f"{toolchain}/lib",
-                f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
-                f"{metaldir}/lib",
             ],
             define_macros=[
                 ("VERSION_INFO", __version__),
@@ -262,6 +258,7 @@ if enable_runtime:
         )
     )
 
+dylibs += ["libTTMLIRRuntime.so"]
 dylibs += runlibs
 dylibs += perflibs
 dylibs += metallibs

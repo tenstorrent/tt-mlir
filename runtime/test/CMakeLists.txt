@@ -1,30 +1,5 @@
-if (NOT TTMLIR_ENABLE_RUNTIME_TESTS)
-  add_library(TTRuntimeTTNNTestHelpers INTERFACE)
-  return()
-endif()
-
 if (NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL))
-  message(FATAL_ERROR "Runtime tests require -DTTMLIR_ENABLE_RUNTIME=ON and at least one backend runtime to be enabled")
-endif()
-
-if (NOT TT_RUNTIME_ENABLE_TTNN)
-  add_library(TTRuntimeTTNNTestHelpers INTERFACE)
-else()
-  add_library(TTRuntimeTTNNTestHelpers
-    STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/test/utils.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/test/dylib.cpp
-  )
-  set_property(TARGET TTRuntimeTTNNTestHelpers PROPERTY CXX_STANDARD 20)
-  target_compile_options(TTRuntimeTTNNTestHelpers PUBLIC -mavx -mavx2 -fsized-deallocation)
-  target_include_directories(TTRuntimeTTNNTestHelpers PUBLIC
-    ${PROJECT_SOURCE_DIR}/runtime/include
-    ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/include
-    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
-  )
-  target_include_directories(TTRuntimeTTNNTestHelpers SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-  add_dependencies(TTRuntimeTTNNTestHelpers TTRuntime tt-metal FBS_GENERATION)
-  target_link_libraries(TTRuntimeTTNNTestHelpers PUBLIC TTRuntime TTNN_LIBRARY)
+  message(FATAL_ERROR "Runtime tests require at least one backend runtime to be enabled")
 endif()
 
 enable_testing()
@@ -52,37 +27,33 @@ if (NOT FLATBUFFERS_LIB)
   message(FATAL_ERROR "flatbuffers library not found")
 endif()
 
-add_library(TTRuntimeTEST INTERFACE)
-add_dependencies(TTRuntimeTEST TTRuntimeTTNN TTRuntimeTTMetal TTRuntime TTRuntimeDebug TTRuntimeWorkarounds TTMETAL_LIBRARY)
-target_include_directories(TTRuntimeTEST INTERFACE
+add_library(TTRuntimeGTestLib INTERFACE)
+target_include_directories(TTRuntimeGTestLib INTERFACE
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
     ${TTMLIR_TOOLCHAIN}/include
 )
 
-target_link_libraries(TTRuntimeTEST INTERFACE
+target_link_libraries(TTRuntimeGTestLib INTERFACE
+    TTBinary
+    TTMLIRRuntime
+    TTNN_LIBRARY
     TTMETAL_LIBRARY
     DEVICE_LIBRARY
-    TTBinary
-    TTRuntime
-    TTRuntimeTTNN
-    TTRuntimeTTMetal
-    TTRuntimeDebug
-    TTRuntimeWorkarounds
     ${Python3_LIBRARIES}
     ${FLATBUFFERS_LIB}
     GTest::gtest_main
 )
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  list(APPEND TTRuntimeTEST TRACY_LIBRARY)
+  target_link_libraries(TTRuntimeGTestLib INTERFACE TRACY_LIBRARY)
 endif()
 
 function(add_runtime_gtest test_name)
   add_executable(${test_name} ${ARGN})
   set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 20)
-  add_dependencies(${test_name} TTRuntimeTEST)
-  target_link_libraries(${test_name} PRIVATE TTRuntimeTEST)
+  add_dependencies(${test_name} TTRuntimeGTestLib)
+  target_link_libraries(${test_name} PRIVATE TTRuntimeGTestLib)
   gtest_discover_tests(${test_name})
 endfunction()
 

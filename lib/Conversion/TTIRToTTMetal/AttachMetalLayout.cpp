@@ -47,12 +47,14 @@ public:
         uint32_t numBuffers;
         std::tie(streamMode, numBuffers) =
             StreamLayoutAttr::getDefaults(initMemorySpace);
+        auto tileType = TileType::get(ctx, type.getElementType());
 
-        return layout.withOuterScale(ctx, outerScale, streamMode, numBuffers);
+        return layout.withElementType(ctx, tileType)
+            .withOuterScale(ctx, outerScale, streamMode, numBuffers);
       }();
 
-      return RankedTensorType::get(type.getShape(), type.getElementType(),
-                                   newLayout);
+      return RankedTensorType::get(newLayout.getShardShape(false),
+                                   newLayout.getElementType(), newLayout);
     });
   }
 };

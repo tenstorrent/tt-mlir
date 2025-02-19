@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/test/utils.h"
+#include "tt/runtime/ttnn/test/utils.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/ttnn/types.h"
@@ -21,7 +21,7 @@ Layout getDramInterleavedTileLayout(::tt::target::DataType dataType) {
   return Layout(
       std::static_pointer_cast<void>(
           std::make_shared<::tt::runtime::ttnn::LayoutDesc>(layoutDesc)),
-      ::tt::runtime::DeviceRuntime::TTNN);
+      DeviceRuntime::TTNN);
 }
 Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
@@ -33,7 +33,7 @@ Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
   return Layout(
       std::static_pointer_cast<void>(
           std::make_shared<::tt::runtime::ttnn::LayoutDesc>(layoutDesc)),
-      ::tt::runtime::DeviceRuntime::TTNN);
+      DeviceRuntime::TTNN);
 }
 ::tt::runtime::Layout getHostRowMajorLayout(::tt::target::DataType dataType) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
@@ -45,6 +45,6 @@ Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
   return Layout(
       std::static_pointer_cast<void>(
           std::make_shared<::tt::runtime::ttnn::LayoutDesc>(layoutDesc)),
-      ::tt::runtime::DeviceRuntime::TTNN);
+      DeviceRuntime::TTNN);
 }
 } // namespace tt::runtime::ttnn::test

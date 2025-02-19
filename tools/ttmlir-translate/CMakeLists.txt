@@ -1,11 +1,7 @@
 add_llvm_executable(ttmlir-translate ttmlir-translate.cpp)
 
 llvm_update_compile_flags(ttmlir-translate)
-target_link_libraries(ttmlir-translate PRIVATE
-  MLIR
-  LLVM
-  TTMLIRCompiler
-)
+target_link_libraries(ttmlir-translate PRIVATE TTMLIRCompilerStatic MLIRTranslateLib)
 
 mlir_check_link_libraries(ttmlir-translate)
 

@@ -61,7 +61,7 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
     $ENV{TT_METAL_HOME}/.cpmcache/magic_enum/4d76fe0a5b27a0e62d6c15976d02b33c54207096/include
     $ENV{TT_METAL_HOME}/.cpmcache/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
-    $ENV{TT_METAL_HOME}/.cpmcache/json/798e0374658476027d9723eeb67a262d0f3c8308/include
+    $ENV{TT_METAL_HOME}/.cpmcache/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
 
     # Metalium
     $ENV{TT_METAL_HOME}
@@ -71,6 +71,7 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
     $ENV{TT_METAL_HOME}/tt_metal/include
+    $ENV{TT_METAL_HOME}/tt_metal/tt_stl
     $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
     $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
     $ENV{TT_METAL_HOME}/tt_metal/third_party/taskflow
