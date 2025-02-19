@@ -5,7 +5,6 @@ add_mlir_dialect_library(MLIRTTNNPipelines
   ${PROJECT_SOURCE_DIR}/include/ttmlir
 
   LINK_LIBS PUBLIC
-  TTMLIRConversions
   MLIRLLVMTransforms
   MLIRTTIRDialect
   MLIRTTNNDialect
