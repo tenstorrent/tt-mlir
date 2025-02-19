@@ -153,7 +153,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       opToHoist->getLoc(), localFunc, opToHoist->getOperands());
 
   // Add the hoisted_call attribute
-  callOp->setAttr("ttir.hoisted_call", UnitAttr::get(opToHoist->getContext()));
+  callOp->setAttr(HoistedCallAttr::name,
+                  UnitAttr::get(opToHoist->getContext()));
 
   // Replace all results of the original operation with the call results.
   opToHoist->replaceAllUsesWith(callOp);
