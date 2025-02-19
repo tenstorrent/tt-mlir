@@ -50,9 +50,6 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   mlir::stablehlo::registerAllDialects(registry);
   mlir::sdy::registerAllDialects(registry);
 #endif
-}
-
-void mlir::tt::registerAllExternalInterfaces(mlir::DialectRegistry &registry) {
   // Registering BufferizableOpInterface for each dialect (including
   // intermediate dialects) is required to convert types to memrefs during
   // lowering.

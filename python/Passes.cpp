@@ -107,7 +107,6 @@ void populatePassesModule(py::module &m) {
 
         mlir::DialectRegistry registry;
         mlir::tt::registerAllDialects(registry);
-        mlir::tt::registerAllExternalInterfaces(registry);
         mlir::tt::registerAllExtensions(registry);
         mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
         ctx->appendDialectRegistry(registry);
