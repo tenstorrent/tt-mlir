@@ -146,14 +146,15 @@ Tensor createOwnedRuntimeTensor(std::shared_ptr<void> data,
   LOG_ASSERT(itemsize > 0);
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ttnn::utils::createRuntimeTensorFromTTNN(
-        ::tt::runtime::ttnn::createOwnedTensor(data, shape, stride, itemsize,
-                                               dataType));
+    return ::tt::runtime::ttnn::createOwnedTensor(data, shape, stride, itemsize,
+                                                  dataType);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  LOG_FATAL("TT Metal runtime does not support creating owned tensors");
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("TT Metal runtime does not support creating owned tensors");
+  }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
