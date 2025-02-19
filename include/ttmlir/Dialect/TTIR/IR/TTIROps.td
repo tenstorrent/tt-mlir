@@ -706,6 +706,40 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     let hasVerifier = 1;
 }
 
+def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
+  let summary = "Argmax reduction op.";
+  let description = [{
+    Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `dim`: Specifies the dimension along which the argmax is applied.
+      - `keep_dim`: Whether to keep the reduce dimension or not.
+
+    ### Example IR Usage:
+    ```mlir
+    // Input tensor of shape (128, 28, 28)
+    %input = ... : tensor<128x28x28xbf16>
+
+    %empty = tensor.empty() : tensor<128x28xi32>
+    %argmax = "ttir.argmax"(%arg0, %0) <{dim_arg = [0: i32, 2 : i32], keep_dim = false}> : (tensor<128x28x28xbf16>, tensor<128x28xi32>) -> tensor<128x28xi32>
+    ```
+
+    Example:
+      input: [[1, 5, 3],
+              [2, 4, 6]]
+
+      // Computing along dim 0
+      output: [1, 0, 1]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 5
+  }];
+}
+
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
     let summary = "Sum reduction op.";
     let description = [{

@@ -202,6 +202,14 @@ table ReductionOp {
   keep_dim: bool;
 }
 
+table ReductionArgMaxOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim: int32 = null;
+  use_multicore: bool;
+  memcfg: tt.target.MemoryConfigDesc;
+}
+
 table ReductionProdOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -444,6 +452,7 @@ union OpType {
   MatmulOp,
   MorehCumSumOp,
   ReductionOp,
+  ReductionArgMaxOp,
   ReductionProdOp,
   EmbeddingOp,
   EmbeddingBackwardOp,

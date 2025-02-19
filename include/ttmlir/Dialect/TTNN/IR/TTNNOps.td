@@ -665,6 +665,50 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   }];
 }
 
+def TTNN_ArgMaxOp : TTNN_NamedDPSOp<"argmax"> {
+  let summary = "Argmax reduction op.";
+  let description = [{
+    Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `dim`: Specifies the dimension along which the argmax is applied.
+      - `use_multicore`: Whether to use multiple cores or not.
+
+    IR usage:
+    // Input tensor of shape (128, 28, 28, 64)
+    %input = ... : tensor<128x28x28x64xbf16>
+
+    %empty = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<u32>, ....}> : -> tensor<128x28x28xi32>
+    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32, use_multicore = false}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
+
+    Example:
+      input: [[1, 5, 3],
+              [2, 4, 6]]
+
+      // Computing along dim 0
+      output: [1, 0, 1]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 5
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       OptionalAttr<I32Attr>:$dim,
+                       BoolAttr:$use_multicore,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       AnyRankedTensor:$output);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_ProdOp : TTNN_Op<"prod"> {
   let summary = "Product reduction op.";
   let description = [{

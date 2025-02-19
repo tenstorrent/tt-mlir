@@ -2471,6 +2471,29 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 }
 
 //===----------------------------------------------------------------------===//
+// Reduce ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+// ArgMaxOp kernel builder.
+void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                  ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "argmax");
+}
+
+// ArgMaxOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
+  auto dimArg = getDimArg();
+  if (dimArg && dimArg->size() > 1) {
+    return getOperation()->emitOpError()
+           << "can only reduce one dimension; number of specified dimensions: "
+           << dimArg->size() << ".";
+  }
+
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
 // CumSumOp
 //===----------------------------------------------------------------------===//
 

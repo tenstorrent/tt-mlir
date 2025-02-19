@@ -917,6 +917,25 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
 }
 
 template <typename ReductionOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReductionArgMaxOp>
+createReductionArgMaxOp(FlatbufferObjectCache &cache, ReductionOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto memoryConfigDesc =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
+
+  ::flatbuffers::Optional<int32_t> dim =
+      op.getDim() ? std::make_optional(*op.getDim()) : ::flatbuffers::nullopt;
+
+  return ::tt::target::ttnn::CreateReductionArgMaxOp(
+      *cache.fbb, in, output, dim, op.getUseMulticore(), memoryConfigDesc);
+}
+
+template <typename ReductionOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ReductionProdOp>
 createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
   auto in =
@@ -1351,6 +1370,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto minOp = dyn_cast<MinOp>(op); minOp) {
     return createOperation(cache, createReductionOp(cache, minOp), debugString,
                            locInfo);
+  }
+  if (auto argMaxOp = dyn_cast<ArgMaxOp>(op); argMaxOp) {
+    return createOperation(cache, createReductionArgMaxOp(cache, argMaxOp),
+                           debugString, locInfo);
   }
   if (auto prodOp = dyn_cast<ProdOp>(op); prodOp) {
     return createOperation(cache, createReductionProdOp(cache, prodOp),
