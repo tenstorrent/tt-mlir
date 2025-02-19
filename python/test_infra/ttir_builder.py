@@ -683,6 +683,17 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
         )
 
+    def transpose(self, in0: Operand, dim0: int = 0, dim1: int = 1) -> OpView:
+        kwargs = {"dim0": dim0, "dim1": dim1}
+        return self.op_proxy(
+            torch.transpose,
+            ttir.TransposeOp,
+            [in0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
     def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
         return self.op_proxy(
             torch.softmax,
