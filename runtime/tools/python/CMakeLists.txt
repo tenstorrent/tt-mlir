@@ -6,20 +6,6 @@ foreach (filename ${TTRT_FILES})
     list(APPEND TTRT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/${relative_filename}")
 endforeach (filename)
 
-function(get_all_deps target deps)
-    get_target_property(libs ${target} LINK_LIBRARIES)
-    if (libs)
-        foreach(lib IN LISTS libs)
-            list(APPEND ${deps} ${lib})
-            get_all_deps(${lib} ${deps})
-        endforeach()
-    endif()
-    set(${deps} ${${deps}} PARENT_SCOPE)
-endfunction()
-
-set(TTRuntime_DEPS TTRuntime)
-get_all_deps(TTRuntime TTRuntime_DEPS)
-
 add_custom_command(
   COMMAND rm -rf build
   COMMAND python -m pip install -r "${CMAKE_CURRENT_BINARY_DIR}/requirements.txt"
@@ -39,11 +25,10 @@ add_custom_command(
   COMMAND python -m pip install build/*.whl --force-reinstall
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  DEPENDS ${TTRT_SOURCES} ${TTRuntime_DEPS}
+  DEPENDS ${TTRT_SOURCES} ${TTRT_FILES} TTMLIRRuntime TTRuntimeTTNNTypes TTRuntimeTTNNUtils TTRuntimeTTNNTestLib
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
 )
 
 add_custom_target(ttrt
   COMMENT "python ttrt package"
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed)
-add_dependencies(ttrt TTRuntime)

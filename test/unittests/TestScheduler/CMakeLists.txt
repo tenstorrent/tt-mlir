@@ -4,7 +4,6 @@ add_mlir_unittest(SchedulerTests
 
 target_link_libraries(SchedulerTests
     PRIVATE
-    MLIR
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTNNPipelines

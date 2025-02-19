@@ -18,7 +18,7 @@ target_include_directories(TTRuntimeTTNNTestLib PUBLIC
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 target_include_directories(TTRuntimeTTNNTestLib SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-add_dependencies(TTRuntimeTTNNTestLib TTRuntimeTTNNUtils TTNN_LIBRARY FBS_GENERATION)
-target_link_libraries(TTRuntimeTTNNTestLib PUBLIC TTRuntimeTTNNUtils TTNN_LIBRARY)
+add_dependencies(TTRuntimeTTNNTestLib TTRuntimeTTNNUtils FBS_GENERATION)
+target_link_libraries(TTRuntimeTTNNTestLib PUBLIC TTRuntimeTTNNUtils)
 
 add_subdirectory(gtest)

@@ -28,7 +28,6 @@ if (NOT FLATBUFFERS_LIB)
 endif()
 
 add_library(TTRuntimeGTestLib INTERFACE)
-add_dependencies(TTRuntimeGTestLib TTRuntimeTTNN TTRuntimeTTMetal TTRuntime TTRuntimeDebug TTRuntimeWorkarounds TTMETAL_LIBRARY)
 target_include_directories(TTRuntimeGTestLib INTERFACE
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
@@ -36,21 +35,18 @@ target_include_directories(TTRuntimeGTestLib INTERFACE
 )
 
 target_link_libraries(TTRuntimeGTestLib INTERFACE
+    TTBinary
+    TTMLIRRuntime
+    TTNN_LIBRARY
     TTMETAL_LIBRARY
     DEVICE_LIBRARY
-    TTBinary
-    TTRuntime
-    TTRuntimeTTNN
-    TTRuntimeTTMetal
-    TTRuntimeDebug
-    TTRuntimeWorkarounds
     ${Python3_LIBRARIES}
     ${FLATBUFFERS_LIB}
     GTest::gtest_main
 )
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  list(APPEND TTRuntimeGTestLib TRACY_LIBRARY)
+  target_link_libraries(TTRuntimeGTestLib INTERFACE TRACY_LIBRARY)
 endif()
 
 function(add_runtime_gtest test_name)
