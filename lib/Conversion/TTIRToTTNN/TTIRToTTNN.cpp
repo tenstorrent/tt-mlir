@@ -1301,18 +1301,13 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllReduceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    size_t scatter_dim = adaptor.getDim();
-    // scatter_num is needed when determining the output shape of workaround
-    // pass of reduce_scatter output and all_gather input
-    int32_t scatter_num =
-        replicaGroupsShape[scatter_dim % replicaGroupsShape.size()];
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
         op, this->getTypeConverter()->convertType(op.getType(0)),
-        adaptor.getInputs().front(), device, scatter_dim, scatter_num,
-        adaptor.getReduceType());
+        adaptor.getInputs()[0], device, adaptor.getReduceType(),
+        adaptor.getScatterDim(), adaptor.getAllGatherDim(),
+        adaptor.getClusterAxis());
 
     return success();
   }
