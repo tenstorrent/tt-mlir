@@ -29,7 +29,7 @@ struct TTIRToTTMetalBackendPipelineOptions
   Option<std::size_t> version{
       *this, "version",
       llvm::cl::desc("Select pipeline implementation version (default: 0)."),
-      llvm::cl::init(0)};
+      llvm::cl::init(1)};
 };
 
 void createTTIRToTTMetalBackendPipeline(

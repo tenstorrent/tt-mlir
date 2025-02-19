@@ -1213,23 +1213,19 @@ public:
     for (auto srcAttr : srcAttrs) {
       StringAttr srcName = srcAttr.getName();
       if (srcName == "channel_handle") {
-        auto srcChannelHandleAttr =
-            dyn_cast<mlir::stablehlo::ChannelHandleAttr>(srcAttr.getValue());
-        if (!srcChannelHandleAttr) {
-          return failure();
-        }
+        auto channelHandle = srcOp.getChannelHandle().value();
 
         // channelType is supposed to be DEVICE_TO_DEVICE for CCL ops.
         // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
         // Consider preserving this information in the future if the attribute
         // is non-DEVICE_TO_DEVICE values.
-        auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
+        auto channelType = static_cast<int32_t>(channelHandle.getType());
         if (channelType != kChannelTypeDeviceToDevice) {
           return failure();
         }
 
         IntegerAttr channelHandleAttr = rewriter.getSI32IntegerAttr(
-            static_cast<int32_t>(srcChannelHandleAttr.getHandle()));
+            static_cast<int32_t>(channelHandle.getHandle()));
         if (!channelHandleAttr) {
           return failure();
         }
@@ -1325,17 +1321,57 @@ public:
     auto ttirOperands = srcOp.getOperandsMutable();
     ttirOperands.append(ValueRange(outputTensor));
 
-    SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
-    SmallVector<NamedAttribute> ttirAttrs;
-    StringAttr dimAttrName = StringAttr::get(this->getContext(), "dim");
-    IntegerAttr allGatherDimAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(adaptor.getAllGatherDim()));
-    ttirAttrs.push_back({dimAttrName, allGatherDimAttr});
+    /*
+    We need to figure out what the cluster axis is based on replica_groups.
+    Replica groups define which device axis we are performing all_gather on.
+    It is a 2D vector. Each element in replica_groups contains a list of devices
+    that will perform all_gather with each other. Currently we only support 2D
+    meshes, but this algorithm can be expanded for ND.
 
-    auto ttirAllGatherOp = rewriter.create<mlir::tt::ttir::AllGatherOp>(
-        srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
-        ttirAttrs);
-    rewriter.replaceOp(srcOp, ttirAllGatherOp);
+    ex.
+    mesh = [2, 4]
+    replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
+    0 1 2 3
+    4 5 6 7
+
+    all_gather happens on (0, 1, 2, 3) and (4, 5, 6, 7) so cluster_axis = 1
+    (mesh[1])
+
+    mesh = [2, 4]
+    replica_groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
+    0 1 2 3
+    4 5 6 7
+
+    all_gather happens on (0, 4), (1, 5), (2, 6), (3, 7) so cluster_axis = 0
+    (mesh[0])
+
+    */
+
+    uint32_t clusterAxis = 0;
+    auto replicaGroups = adaptor.getReplicaGroups();
+    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
+
+    if (replicaGroupsShape.size() == 0) {
+      // Cannot have replicas of size 0, this means we are not performing the
+      // all_gather across any device.
+      return failure();
+    }
+
+    // Case where we have single devices in each replica_group (ie perform
+    // all_gather against itself which should be optimized away).
+    // We also assume we are only using our constrained mesh types (ie 1x8, 1x32
+    // etc) and cannot have (32x1, 8x1).
+    if (replicaGroupsShape[1] != 1) {
+      auto firstElementIt = replicaGroups.begin();
+      auto secondElementIt = firstElementIt + 1;
+
+      clusterAxis = (((*firstElementIt) + 1) == *secondElementIt);
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::AllGatherOp>(
+        srcOp, outputType, adaptor.getOperands()[0], outputTensor,
+        adaptor.getAllGatherDim(), clusterAxis);
+
     return success();
   }
 

@@ -234,6 +234,17 @@ public:
 
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds createMeshShardOpOperandsWorkarounds();
+
+  // Create workarounds for concat op operands.
+  static TTNNOperandsWorkarounds
+  createConcatOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
+                                    int64_t numOperands, int32_t dim);
+
+  // Create workarounds for slice op operands.
+  static TTNNOperandsWorkarounds
+  createSliceOpOperandsWorkarounds(ttnn::TTNNLayoutAttr layoutAttr,
+                                   mlir::ArrayAttr begins,
+                                   mlir::ArrayAttr step);
 };
 
 } // namespace mlir::tt::ttnn::wa

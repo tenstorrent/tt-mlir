@@ -1337,9 +1337,9 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult AllGatherOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t dim = getDim();
+  int32_t gatherDim = getAllGatherDim();
 
-  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+  if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
     return emitOpError("Invalid dimension for all gather op.");
   }
 
@@ -1682,14 +1682,6 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
   }
 
   int64_t inputTensorRank = inputType.getRank();
-
-  // TODO(mrakita): Only last two dimensions can be reduced, check for that
-  // too.
-  if (reduceDims && reduceDims->size() > 2 &&
-      static_cast<int64_t>(reduceDims->size()) != inputTensorRank) {
-    return reduceOp->emitOpError("Reduce on more than two dimensions is not "
-                                 "currently supported by TTNN");
-  }
 
   // Calculate output shape for given args.
   //

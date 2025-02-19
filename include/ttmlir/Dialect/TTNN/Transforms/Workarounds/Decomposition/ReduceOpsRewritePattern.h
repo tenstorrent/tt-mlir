@@ -123,47 +123,6 @@ private:
     return false;
   }
 };
-
-// This workaround addresses the next Metal issue:
-// https://github.com/tenstorrent/tt-metal/issues/16118
-//
-// TODO(mrakita): Remove this workaround once these Metal issues are fixed
-// (tracked by https://github.com/tenstorrent/tt-mlir/issues/1624).
-//
-template <typename ReduceOp>
-class ReduceOpsAllDimsRewritePattern : public OpRewritePattern<ReduceOp> {
-public:
-  using OpRewritePattern<ReduceOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ReduceOp srcOp,
-                                PatternRewriter &rewriter) const override {
-    if (!srcOp.getDimArg() || srcOp.getDimArg()->empty()) {
-      return failure();
-    }
-
-    llvm::SmallVector<int64_t> reduceDims = getReduceDims(srcOp.getDimArg());
-    llvm::SmallSet<int64_t, 4> uniqueReduceDims(reduceDims.begin(),
-                                                reduceDims.end());
-
-    // Check if reduce is done over all dimensions of the input tensor.
-    if (uniqueReduceDims.size() !=
-        srcOp.getInput().getType().getShape().size()) {
-      return failure();
-    }
-
-    // In case when reduce is done over all dimensions of the input we need to
-    // unset the dimensions attribute, because Metal supports reduce over all
-    // dimensions for any tensor rank when reduce dimensions are not specified,
-    // but it doesn't support reduce for tensors with rank larger than 2 when
-    // reduce dimensions are specified.
-    rewriter.replaceOpWithNewOp<ReduceOp>(srcOp, srcOp.getResult().getType(),
-                                          srcOp.getInput(), srcOp.getKeepDim(),
-                                          nullptr);
-
-    return success();
-  }
-};
-
 } // namespace mlir::tt::ttnn::workarounds::decomposition
 
 #endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_DECOMPOSITION_REDUCEOPSREWRITEPATTERN_H

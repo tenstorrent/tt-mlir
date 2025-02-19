@@ -6,6 +6,7 @@
 #include "mlir/InitAllTranslations.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
@@ -215,6 +216,24 @@ void populatePassesModule(py::module &m) {
                                      filepath);
           }
         });
+
+  m.def(
+      "ttkernel_to_cpp",
+      [](MlirModule module, bool isTensixKernel) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        tt::ttkernel::ThreadType threadType =
+            isTensixKernel ? tt::ttkernel::ThreadType::Tensix
+                           : tt::ttkernel::ThreadType::Noc;
+        std::string output;
+        llvm::raw_string_ostream output_stream(output);
+        if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
+                moduleOp, output_stream, threadType))) {
+          throw std::runtime_error("Failed to generate cpp");
+        }
+        output_stream.flush();
+        return output;
+      },
+      py::arg("module"), py::arg("isTensixKernel"));
 
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)

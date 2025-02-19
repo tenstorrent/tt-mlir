@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import subprocess
 import os
-import tempfile
+import logging
 
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
@@ -56,14 +56,14 @@ class ModelRunner:
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
-            print("Creating a new ModelRunner instance.")
+            logging.info("Creating a new ModelRunner instance.")
             cls._instance = super(ModelRunner, cls).__new__(cls, *args, **kwargs)
             cls._instance.initialize()
         return cls._instance
 
     def initialize(self):
         # Initialize machine to generate SystemDesc and load up functionality to begin
-        print("Running ttrt initialization.")
+        logging.info("Running ttrt initialization.")
         ttrt.initialize_apis()
 
         if "TT_MLIR_HOME" not in os.environ:
@@ -84,7 +84,7 @@ class ModelRunner:
             }
         )()
 
-        print("ModelRunner initialized.")
+        logging.info("ModelRunner initialized.")
 
     def get_optimized_model_path(self, model_path):
         if model_path in self.model_state:
@@ -127,8 +127,8 @@ class ModelRunner:
         if model_path in self.model_state:
             del self.model_state[model_path]
 
-    def log(self, message):
-        print(message)
+    def log(self, message, severity=logging.info):
+        severity(message)
         self.log_queue.put(message)
 
     def get_perf_trace(self, model_path):
@@ -166,7 +166,7 @@ class ModelRunner:
             raise e
         except Exception as e:
             self.runner_error = "An unexpected error occurred: " + str(e)
-            self.log(self.runner_error)
+            self.log(self.runner_error, severity=logging.error)
             raise e
         finally:
             self.progress = 100
@@ -224,7 +224,7 @@ class ModelRunner:
         compile_process = self.run_in_subprocess(compile_command)
         if compile_process.returncode != 0:
             error = "Error running compile TTIR to TTNN Backend Pipeline"
-            self.log(error)
+            self.log(error, severity=logging.error)
             raise ExplorerRunException(error)
         self.progress = 20
 
@@ -288,7 +288,7 @@ class ModelRunner:
             translate_process = self.run_in_subprocess(to_flatbuffer_command)
             if translate_process.returncode != 0:
                 error = "Error while running TTNN to Flatbuffer File"
-                self.log(error)
+                self.log(error, severtity=logging.error)
                 raise ExplorerRunException(error)
 
         self.progress = 30
@@ -306,7 +306,7 @@ class ModelRunner:
 
         if ttrt_process.returncode != 0:
             error = "Error while running TTRT perf"
-            self.log(error)
+            self.log(error, severity=logging.error)
             raise ExplorerRunException(error)
 
         perf = self.get_perf_trace(model_path)
@@ -319,9 +319,11 @@ class ModelRunner:
             "LOC",
         ]
         perf = perf[columns]
-        print(perf)
+        logging.info(perf)
 
-        print("Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns")
+        logging.info(
+            "Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns"
+        )
 
         # TTNN_IR_FILE from flatbuffer is still relevant since model_path is the FB with golden data and it will rented optimized_model_path instead
         state.optimized_model_path = ttnn_ir_file

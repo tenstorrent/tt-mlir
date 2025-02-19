@@ -120,13 +120,6 @@ class Run:
             help="enable async mode device execution for TTNN runtime",
         )
         Run.register_arg(
-            name="--disable-maxpool2d-preshard",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable maxpool2d preshard workaround",
-        )
-        Run.register_arg(
             name="--disable-swap-binary-operands",
             type=bool,
             default=False,
@@ -146,13 +139,6 @@ class Run:
             default=False,
             choices=[True, False],
             help="disable runtime to_layout api assume single chip workaround",
-        )
-        Run.register_arg(
-            name="--disable-pad-op-padding-pairs-signature",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable pad op padding pairs signature workaround",
         )
         Run.register_arg(
             name="--result-file",
@@ -421,11 +407,9 @@ class Run:
             debug_env = ttrt.runtime.DebugEnv.get(self["--load-kernels-from-disk"])
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
-                not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-to-layout-api-assume-single-chip"],
-                not self["--disable-pad-op-padding-pairs-signature"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
