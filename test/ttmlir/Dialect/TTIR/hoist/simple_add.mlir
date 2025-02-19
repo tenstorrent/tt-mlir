@@ -6,13 +6,13 @@
 // CHECK: func.func @add1
 func.func @add1(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
   %0 = tensor.empty() : tensor<32x32xbf16>
-  // CHECK: %{{.*}} = tensor.empty()
+  // CHECK: %{{.*}} = tensor.empty() : tensor<{{.*}}xf32>
   // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
-  // CHECK: %{{.*}} = tensor.empty()
+  // CHECK: %{{.*}} = tensor.empty() : tensor<{{.*}}xf32>
   // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
   // CHECK: %{{.*}} = call @hoisted_ttir_add_32x32_32x32_32x32_func_decl
   %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> {should_hoist} : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-  // CHECK: %{{.*}} = tensor.empty()
+  // CHECK: %{{.*}} = tensor.empty() : tensor<{{.*}}xbf16>
   // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
   return %1 : tensor<32x32xbf16>
 }
@@ -36,13 +36,13 @@ func.func @add3(%arg0: tensor<32x3xf32>, %arg1: tensor<32x3xf32>) -> tensor<32x3
 // CHECK: func.func @add4
 func.func @add4(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
   %0 = tensor.empty() : tensor<32x32xbf16>
-  // CHECK: %{{.*}} = tensor.empty()
+  // CHECK: %{{.*}} = tensor.empty() : tensor<{{.*}}xf32>
   // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
-  // CHECK: %{{.*}} = tensor.empty()
+  // CHECK: %{{.*}} = tensor.empty() : tensor<{{.*}}xf32>
   // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
   // CHECK: %{{.*}} = call @hoisted_ttir_add_32x32_32x32_32x32_func_decl
   %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> {should_hoist} : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-  // CHECK: %{{.*}} = tensor.empty()
+  // CHECK: %{{.*}} = tensor.empty() : tensor<{{.*}}xbf16>
   // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
   return %1 : tensor<32x32xbf16>
 }
