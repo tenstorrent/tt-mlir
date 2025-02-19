@@ -442,7 +442,7 @@ public:
   // Match and rewrite the CallOp.
   LogicalResult matchAndRewrite(func::CallOp callOp,
                                 PatternRewriter &rewriter) const override {
-    if (!callOp->hasAttr("hoisted_call")) {
+    if (!callOp->hasAttr("ttir.hoisted_call")) {
       return failure();
     }
 
