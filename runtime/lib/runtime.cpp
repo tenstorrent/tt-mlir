@@ -11,7 +11,6 @@
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/types.h"
-#include "tt/runtime/ttnn/utils.h"
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
@@ -136,11 +135,11 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType) {
   LOG_FATAL("runtime is not enabled");
 }
 
-Tensor createOwnedRuntimeTensor(std::shared_ptr<void> data,
-                                std::vector<std::uint32_t> const &shape,
-                                std::vector<std::uint32_t> const &stride,
-                                std::uint32_t itemsize,
-                                ::tt::target::DataType dataType) {
+Tensor createOwnedTensor(std::shared_ptr<void> data,
+                         std::vector<std::uint32_t> const &shape,
+                         std::vector<std::uint32_t> const &stride,
+                         std::uint32_t itemsize,
+                         ::tt::target::DataType dataType) {
   LOG_ASSERT(not shape.empty());
   LOG_ASSERT(not stride.empty());
   LOG_ASSERT(itemsize > 0);

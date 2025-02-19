@@ -47,11 +47,11 @@ void setCompatibleRuntime(const Binary &binary);
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
 
-Tensor createOwnedRuntimeTensor(std::shared_ptr<void> data,
-                                std::vector<std::uint32_t> const &shape,
-                                std::vector<std::uint32_t> const &stride,
-                                std::uint32_t itemsize,
-                                ::tt::target::DataType dataType);
+Tensor createOwnedTensor(std::shared_ptr<void> data,
+                         std::vector<std::uint32_t> const &shape,
+                         std::vector<std::uint32_t> const &stride,
+                         std::uint32_t itemsize,
+                         ::tt::target::DataType dataType);
 
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
