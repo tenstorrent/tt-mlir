@@ -109,9 +109,6 @@ public:
       auto arg = genericBlock->getArgument(i);
       auto operand = mlir::cast<RankedTensorType>(genericOp->getOperand(i).getType());
       auto operand_encoding = mlir::cast<MetalLayoutAttr>(operand.getEncoding());
-      if (operand.getEncoding() == operand_encoding) {
-        continue;
-      }
       arg.setType(operand_encoding.getMemref());
     }
     return failure(); // need some better way to exit cond. the rewriter than
