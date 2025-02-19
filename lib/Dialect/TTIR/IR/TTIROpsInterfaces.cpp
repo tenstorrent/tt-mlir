@@ -51,13 +51,8 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
 
 mlir::LogicalResult
 mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
-  mlir::Operation *parent = op->getParentOp();
-  while (parent) {
-    if (llvm::dyn_cast<ttir::GenericOp>(parent)) {
-      return success();
-    }
-    parent = parent->getParentOp();
-  }
-
-  return op->emitOpError("TTIR Generic Ops must be inside a generic region");
+  return op->getParentOfType<ttir::GenericOp>()
+             ? success()
+             : op->emitOpError(
+                   "TTIR Generic Ops must be inside a generic region");
 }
