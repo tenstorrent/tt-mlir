@@ -474,11 +474,6 @@ table Operation {
   loc_info: string;
 }
 
-table DynamicLib {
-  dylib_id: uint32;
-  raw_file: [uint8];
-}
-
 table Program {
   name: string;
   inputs: [TensorRef];

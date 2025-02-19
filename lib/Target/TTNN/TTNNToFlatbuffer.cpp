@@ -1515,7 +1515,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
   // vector here in case in the future we support more complex arrangements.
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::DynamicLib>> dylibs;
+  std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
   if (auto cpuModule = findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
     mlir::ModuleOp cpuNestedModule = dyn_cast_or_null<mlir::ModuleOp>(
@@ -1529,7 +1529,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
           reinterpret_cast<const uint8_t *>(binaryBuffer.data()),
           binaryBuffer.size());
       dylibs.emplace_back(
-          ::tt::target::ttnn::CreateDynamicLib(fbb, 0, rawFileVector));
+          ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
     }
   }
 
