@@ -117,10 +117,12 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
-std::vector<float> getTensorData(Tensor tensor);
+std::unordered_map<std::uint32_t, std::vector<float>>
+getTensorData(std::unordered_map<std::uint32_t, Tensor> tensor_map);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

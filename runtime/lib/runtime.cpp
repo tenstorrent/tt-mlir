@@ -437,8 +437,9 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   throw std::runtime_error("runtime is not enabled");
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::getOpOutputTensor(opContextHandle,
@@ -455,16 +456,17 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   LOG_FATAL("runtime is not enabled");
 }
 
-std::vector<float> getTensorData(Tensor tensor) {
+std::unordered_map<std::uint32_t, std::vector<float>>
+getTensorData(std::unordered_map<std::uint32_t, Tensor> tensor_map) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getTensorData(tensor);
+    return ::tt::runtime::ttnn::getTensorData(tensor_map);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getTensorData(tensor);
+    return ::tt::runtime::ttmetal::getTensorData(tensor_map);
   }
 #endif
 

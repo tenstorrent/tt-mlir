@@ -175,8 +175,7 @@ void populatePassesModule(py::module &m) {
   m.def(
       "ttnn_to_flatbuffer_file",
       [](MlirModule module, std::string &filepath,
-         const std::unordered_map<std::string, mlir::tt::GoldenTensor>
-             &goldenMap = {},
+         const std::unordered_map<std::string, std::unordered_map<std::uint32_t, mlir::tt::GoldenTensor>> &goldenMap = {},
          const std::vector<std::pair<std::string, std::string>> &moduleCache =
              {}) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
@@ -201,7 +200,10 @@ void populatePassesModule(py::module &m) {
 
   m.def("ttmetal_to_flatbuffer_file",
         [](MlirModule module, std::string &filepath,
-           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
+           std::unordered_map<
+               std::string,
+               std::unordered_map<std::uint32_t, mlir::tt::GoldenTensor>>
+               &goldenMap) {
           mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
           std::error_code fileError;
           llvm::raw_fd_ostream file(filepath, fileError);

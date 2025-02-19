@@ -258,7 +258,10 @@ Value getOperandThroughDPSOps(Value value) {
 }
 
 static std::shared_ptr<void> translateModuleToFlatbuffer(
-    Operation *op, std::unordered_map<std::string, GoldenTensor> goldenMap) {
+    Operation *op,
+    std::unordered_map<std::string,
+                       std::unordered_map<std::uint32_t, GoldenTensor>>
+        goldenMap) {
   ::flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
 
@@ -452,7 +455,9 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
 LogicalResult translateTTMetalToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    std::unordered_map<std::string, GoldenTensor> goldenMap) {
+    std::unordered_map<std::string,
+                       std::unordered_map<std::uint32_t, GoldenTensor>>
+        goldenMap) {
   std::shared_ptr<void> data = translateModuleToFlatbuffer(op, goldenMap);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
