@@ -1349,9 +1349,11 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getDim());
+        adaptor.getInput(), device, adaptor.getAllGatherDim(),
+        static_cast<uint32_t>(adaptor.getClusterAxis()));
     return success();
   }
 };

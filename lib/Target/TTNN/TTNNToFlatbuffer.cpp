@@ -557,7 +557,7 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateAllGatherOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      op.getDim(), op.getNumLinks());
+      op.getAllGatherDim(), op.getClusterAxis(), op.getNumLinks());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
