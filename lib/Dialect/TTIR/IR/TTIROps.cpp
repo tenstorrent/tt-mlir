@@ -1885,10 +1885,34 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 ::mlir::LogicalResult mlir::tt::ttir::AllReduceOp::verify() {
   ::mlir::RankedTensorType inputType =
       mlir::cast<RankedTensorType>(getInputs().front().getType());
-  int32_t dim = getDim();
+  int32_t gatherDim = getAllGatherDim();
+  int32_t scatterDim = getScatterDim();
 
-  if (dim >= inputType.getRank()) {
-    return emitOpError("Invalid dimension for all_reduce op.");
+  // Currently, TTNN doesn't support all_reduce op as a first class citizen.
+  // Therefore, we have to decompose all_reduce into a reduce_scatter and then
+  // an all_gather. It doesn't really matter which tensor dimension we do the
+  // reduce scatter and the all gather on but they must be equal to each other
+  // and within the constraints of the rank of the tensor.
+  if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid gather dimension for all reduce op. Gather dimension "
+               "must be >= to "
+               "input tensor rank or < -input tensor rank, got gather_dim = ")
+           << gatherDim;
+  }
+
+  if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid scatter dimension for all reduce op. Scatter dimension "
+               "must be >= to "
+               "input tensor rank or < -input tensor rank, got scatter_dim = ")
+           << scatterDim;
+  }
+
+  if (gatherDim != scatterDim) {
+    return emitOpError("Scatter tensor dimension must each gather tensor "
+                       "dimension. Currently, scatter dim = ")
+           << scatterDim << " and gather dim = " << gatherDim;
   }
 
   return success();

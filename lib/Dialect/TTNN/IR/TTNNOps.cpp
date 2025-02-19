@@ -1340,7 +1340,11 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   int32_t gatherDim = getAllGatherDim();
 
   if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for all gather op.");
+    return emitOpError(
+               "Invalid gather dimension for all reduce op. Gather dimension "
+               "must be >= to "
+               "input tensor rank or < -input tensor rank, got gather_dim = ")
+           << gatherDim;
   }
 
   return success();
@@ -1352,19 +1356,24 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult ReduceScatterOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t scatterSplitDim = getScatterSplitDim();
-  auto mathOp = getMathOp();
+  int32_t scatterDim = getScatterDim();
+  ::mlir::tt::ReduceType reduceType = getReduceType();
 
-  if (scatterSplitDim >= inputType.getRank() ||
-      scatterSplitDim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for reduce scatter op.");
+  if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid scatter dimension for all reduce op. Scatter dimension "
+               "must be >= to "
+               "input tensor rank or < -input tensor rank, got scatter_dim = ")
+           << scatterDim;
   }
 
-  // Check reduction op that we currently support in tt_nn
-  if (mathOp != ::mlir::tt::ReduceType::Sum &&
-      mathOp != ::mlir::tt::ReduceType::Max &&
-      mathOp != ::mlir::tt::ReduceType::Min) {
-    return emitOpError("Invalid reduction op for reduce scatter op.");
+  // Currently TTNN only supports the following reduce types. Compiler is able
+  // to model the full ReduceType list but only the following can be lowered
+  // into TTNN.
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min) {
+    return emitOpError("Invalid reduction op for all reduce op.");
   }
 
   return success();
@@ -1376,17 +1385,43 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult AllReduceOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t dim = getScatterDim();
-  auto mathOp = getMathOp();
+  int32_t gatherDim = getAllGatherDim();
+  int32_t scatterDim = getScatterDim();
+  ::mlir::tt::ReduceType reduceType = getReduceType();
 
-  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for all reduce op.");
+  // Currently, TTNN doesn't support all_reduce op as a first class citizen.
+  // Therefore, we have to decompose all_reduce into a reduce_scatter and then
+  // an all_gather. It doesn't really matter which tensor dimension we do the
+  // reduce scatter and the all gather on but they must be equal to each other
+  // and within the constraints of the rank of the tensor.
+  if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid gather dimension for all reduce op. Gather dimension "
+               "must be >= to "
+               "input tensor rank or < -input tensor rank, got gather_dim = ")
+           << gatherDim;
   }
 
-  // Check reduction op that we currently support in tt_nn
-  if (mathOp != ::mlir::tt::ReduceType::Sum &&
-      mathOp != ::mlir::tt::ReduceType::Max &&
-      mathOp != ::mlir::tt::ReduceType::Min) {
+  if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid scatter dimension for all reduce op. Scatter dimension "
+               "must be >= to "
+               "input tensor rank or < -input tensor rank, got scatter_dim = ")
+           << scatterDim;
+  }
+
+  if (gatherDim != scatterDim) {
+    return emitOpError("Scatter tensor dimension must each gather tensor "
+                       "dimension. Currently, scatter dim = ")
+           << scatterDim << " and gather dim = " << gatherDim;
+  }
+
+  // Currently TTNN only supports the following reduce types. Compiler is able
+  // to model the full ReduceType list but only the following can be lowered
+  // into TTNN.
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min) {
     return emitOpError("Invalid reduction op for all reduce op.");
   }
 
