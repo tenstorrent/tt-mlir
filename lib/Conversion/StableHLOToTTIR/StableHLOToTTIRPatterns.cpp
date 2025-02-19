@@ -1274,15 +1274,6 @@ public:
           return failure();
         }
 
-        // channelType is supposed to be DEVICE_TO_DEVICE for CCL ops.
-        // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
-        // Consider preserving this information in the future if the attribute
-        // is non-DEVICE_TO_DEVICE values.
-        auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
-        if (channelType != kChannelTypeDeviceToDevice) {
-          return failure();
-        }
-
         IntegerAttr channelHandleAttr = rewriter.getSI32IntegerAttr(
             static_cast<int32_t>(srcChannelHandleAttr.getHandle()));
         if (!channelHandleAttr) {
