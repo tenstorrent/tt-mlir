@@ -756,8 +756,8 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateReduceScatterOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      op.getScatterSplitDim(), static_cast<uint32_t>(op.getMathOp()),
-      op.getNumLinks());
+      op.getScatterDim(), static_cast<uint32_t>(op.getReduceType()),
+      op.getClusterAxis(), op.getNumLinks());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MeshShardOp>

@@ -1883,11 +1883,16 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 
 // AllReduceOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllReduceOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t dim = getDim();
+  ::mlir::tt::ReduceType reduceType = getReduceType();
 
-  if (dim >= inputType.getRank()) {
-    return emitOpError("Invalid dimension for all_reduce op.");
+  // Currently TTIR only supports the following reduce types.
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Mean &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min &&
+      reduceType != ::mlir::tt::ReduceType::Std &&
+      reduceType != ::mlir::tt::ReduceType::Var) {
+    return emitOpError("Invalid reduction op for all reduce op.");
   }
 
   return success();
