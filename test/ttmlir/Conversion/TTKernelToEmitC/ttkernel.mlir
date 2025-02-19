@@ -73,7 +73,8 @@ module attributes {} {
       // CHECK: emitc.call_opaque "copy_tile"(%[[CB]], %[[CB_INDEX]], %[[DST_INDEX]])
       "ttkernel.copy_tile"(%cb, %cb_index, %dst_index) : (!cb0_type, i32, i32) -> ()
       return
-    }    
+    }
+
   } // module
 
   //===----------------------------------------------------------------------===//
@@ -197,7 +198,7 @@ module attributes {} {
       // CHECK: emitc.call_opaque "reduce_init"(%[[IN_CB]], %[[SCALING_CB]], %[[OUT_CB]]) {{.+}}SUM{{.+}}REDUCE_SCALAR
       "ttkernel.reduce_init"(%in_cb, %scaling_cb, %out_cb) <{reduce_dim = #ttkernel.reduce_dim<reduce_dim_scalar>, reduce_type = #ttkernel.reduce_type<reduce_sum>}> : (!cb0_type, !cb1_type, !cb2_type) -> ()
       return
-    }    
+    }
 
     // CHECK-LABEL: func @reduce_tile
     func.func @reduce_tile(%in_cb: !cb0_type, %scaling_cb: !cb1_type) -> () {
@@ -215,6 +216,7 @@ module attributes {} {
         }> : (!cb0_type, !cb1_type, i32, i32, i32) -> ()
       return
     }
+
   } // module
 
   //===----------------------------------------------------------------------===//
@@ -222,7 +224,7 @@ module attributes {} {
   //===----------------------------------------------------------------------===//
 
   // CHECK-LABEL: ttkernel_sfpu_operations
-  module @ttkernel_sfpu_operations attributes {} {  
+  module @ttkernel_sfpu_operations attributes {} {
 
     // CHECK-LABEL: func @max_tile_init
     func.func @max_tile_init() -> () {
@@ -243,6 +245,60 @@ module attributes {} {
     }
 
   } // module
+
+  //===----------------------------------------------------------------------===//
+  // TTKernel CB operations
+  //===----------------------------------------------------------------------===//
+
+  // CHECK-LABEL: ttkernel_cb_operations
+  module @ttkernel_cb_operations attributes {} {
+
+    // CHECK-LABEL: func @cb_push_back
+    func.func @cb_push_back(%cb: !cb0_type) -> () {
+      // CHECK: %[[CB:.*]] = emitc.load{{.+}}<"::tt::CB">
+      // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
+      %num_pages = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "cb_push_back"(%[[CB]], %[[NUM_PAGES]])
+      "ttkernel.cb_push_back"(%cb, %num_pages) : (!cb0_type, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @cb_pop_front
+    func.func @cb_pop_front(%cb: !cb0_type) -> () {
+      // CHECK: %[[CB:.*]] = emitc.load{{.+}}<"::tt::CB">
+      // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
+      %num_pages = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "cb_pop_front"(%[[CB]], %[[NUM_PAGES]])
+      "ttkernel.cb_pop_front"(%cb, %num_pages) : (!cb0_type, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @cb_reserve_back
+    func.func @cb_reserve_back(%cb: !cb0_type) -> () {
+      // CHECK: %[[CB:.*]] = emitc.load{{.+}}<"::tt::CB">
+      // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
+      %num_pages = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "cb_reserve_back"(%[[CB]], %[[NUM_PAGES]])
+      "ttkernel.cb_reserve_back"(%cb, %num_pages) : (!cb0_type, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @cb_wait_front
+    func.func @cb_wait_front(%cb: !cb0_type) -> () {
+      // CHECK: %[[CB:.*]] = emitc.load{{.+}}<"::tt::CB">
+      // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
+      %num_pages = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "cb_wait_front"(%[[CB]], %[[NUM_PAGES]])
+      "ttkernel.cb_wait_front"(%cb, %num_pages) : (!cb0_type, i32) -> ()
+      return
+    }
+
+  } // module
+
+
+
+
+
 
   func.func @ttkernel_noc() -> () {
     // CHECK: = "emitc.constant"
