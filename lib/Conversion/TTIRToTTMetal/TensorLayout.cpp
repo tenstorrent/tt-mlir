@@ -109,6 +109,9 @@ public:
       auto arg = genericBlock->getArgument(i);
       auto operand = mlir::cast<RankedTensorType>(genericOp->getOperand(i).getType());
       auto operand_encoding = mlir::cast<MetalLayoutAttr>(operand.getEncoding());
+      if (operand.getEncoding() == operand_encoding) {
+        continue;
+      }
       arg.setType(operand_encoding.getMemref());
     }
     return failure(); // need some better way to exit cond. the rewriter than
@@ -135,7 +138,8 @@ public:
       auto optimal_layout = getLocalLayout(operand, rewriter, device);
       auto tensor = mlir::cast<RankedTensorType>(operand.getType());
       auto encoding = mlir::cast<MetalLayoutAttr>(tensor.getEncoding());
-      if (mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid().getShape() == encoding.getGrid().getShape()) {
+      if (mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid().getShape() == encoding.getGrid().getShape()||
+          (std::distance(operand.getUses().begin(), operand.getUses().end()) == 1 && mlir::isa<ttir::ToLayoutOp>(operand.getUses().begin().getUser()))) {
         continue;
       }
       modified = true;
@@ -198,6 +202,7 @@ class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTIRFuncOperandsTensorLayoutRewriter>(&getContext());
       GreedyRewriteConfig config = GreedyRewriteConfig();
+      config.strictMode = GreedyRewriteStrictness::ExistingOps;
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
                                               config))) {
