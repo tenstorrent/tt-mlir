@@ -71,16 +71,26 @@ static StorageType createStorage(void *ptr, std::uint32_t numElements,
 }
 
 static ::ttnn::Tensor
-createOwnedTensor(std::shared_ptr<void> data,
-                  std::vector<std::uint32_t> const &shape,
-                  std::vector<std::uint32_t> const &stride,
-                  std::uint32_t itemsize, ::tt::target::DataType dataType) {
+createOwnedTTNNTensor(std::shared_ptr<void> data,
+                      std::vector<std::uint32_t> const &shape,
+                      std::vector<std::uint32_t> const &stride,
+                      std::uint32_t itemsize, ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
 
   return ::ttnn::Tensor(
       createStorage<OwnedStorage>(data.get(), numElements, dataType),
       ::ttnn::Shape(shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
+}
+
+Tensor createOwnedTensor(std::shared_ptr<void> data,
+                         std::vector<std::uint32_t> const &shape,
+                         std::vector<std::uint32_t> const &stride,
+                         std::uint32_t itemsize,
+                         ::tt::target::DataType dataType) {
+
+  return utils::createRuntimeTensorFromTTNN(
+      createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
 }
 
 static Tensor createNullTensor() {
@@ -140,8 +150,8 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
   tensorShards.reserve(data.size());
   std::transform(data.begin(), data.end(), std::back_inserter(tensorShards),
                  [&](std::shared_ptr<void> &dataShard) -> ::ttnn::Tensor {
-                   return createOwnedTensor(dataShard, shape, stride, itemsize,
-                                            dataType);
+                   return createOwnedTTNNTensor(dataShard, shape, stride,
+                                                itemsize, dataType);
                  });
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
@@ -161,8 +171,8 @@ Tensor createTensor(Device device, Layout layout,
   const LayoutDesc &layoutDesc = layout.as<LayoutDesc>(DeviceRuntime::TTNN);
   if (layoutDesc.isOnHost()) {
     ::ttnn::Tensor tensor =
-        createOwnedTensor(nullptr, shape, stride, itemsize,
-                          utils::fromTTNNDataType(layoutDesc.dataType));
+        createOwnedTTNNTensor(nullptr, shape, stride, itemsize,
+                              utils::fromTTNNDataType(layoutDesc.dataType));
     Tensor out = utils::createRuntimeTensorFromTTNN(tensor);
     return ::tt::runtime::ttnn::toLayout(out, device, layout);
   }
