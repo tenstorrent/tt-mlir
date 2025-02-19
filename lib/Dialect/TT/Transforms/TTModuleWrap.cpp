@@ -85,6 +85,13 @@ public:
     topLevelBody.getOperations().splice(topLevelBody.end(),
                                         innerBody.getOperations());
 
+    // Also transfer any attributes, e.g. system_desc, device
+    for (const auto &attr : innerModule->getAttrs()) {
+      if (!rootModule->hasAttr(attr.getName())) {
+        rootModule->setAttr(attr.getName(), attr.getValue());
+      }
+    }
+
     deviceOp->erase();
   }
 };
