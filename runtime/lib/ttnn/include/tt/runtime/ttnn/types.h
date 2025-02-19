@@ -165,7 +165,8 @@ public:
 
   ::ttnn::IDevice &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
 
-  ::ttnn::IDevice &getDeviceIndexFromSubMesh(uint32_t meshId, int deviceIndex);
+  ::ttnn::IDevice &getDeviceIndexFromSubMesh(
+      uint32_t meshId, ::tt::tt_metal::distributed::MeshCoordinate meshCoords);
 
   DeviceVariant getTargetDevice(uint32_t meshId);
 
