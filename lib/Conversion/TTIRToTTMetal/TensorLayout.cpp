@@ -132,7 +132,6 @@ public:
 
     func::FuncOp funcOp = mlir::cast<func::FuncOp>(op);
 
-    llvm::errs() << "Operand Rewriter hit\n";
     rewriter.setInsertionPointToStart(&op->getRegion(0).front());
     ;
     bool modified = false;
