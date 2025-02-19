@@ -118,15 +118,20 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block">{
+def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
+  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
     let arguments = (ins AnyNon0RankedMemRef:$a,
-                         AnyNon0RankedMemRef:$b);
-    let results = (outs AnyNon0RankedMemRef:$result);
+                         AnyNon0RankedMemRef:$b,
+                         AnyNon0RankedMemRef:$output);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 
     let hasVerifier = 1;
 }
