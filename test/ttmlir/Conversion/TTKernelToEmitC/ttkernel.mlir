@@ -8,6 +8,10 @@
 
 module attributes {} {
 
+  //===----------------------------------------------------------------------===//
+  // TTKernel Register operations
+  //===----------------------------------------------------------------------===//
+
   // CHECK-LABEL: ttkernel_register_operations
   module @ttkernel_register_operations attributes {} {
 
@@ -70,7 +74,11 @@ module attributes {} {
       "ttkernel.copy_tile"(%cb, %cb_index, %dst_index) : (!cb0_type, i32, i32) -> ()
       return
     }    
-  }
+  } // module
+
+  //===----------------------------------------------------------------------===//
+  // TTKernel FPU operations
+  //===----------------------------------------------------------------------===//
 
   // CHECK-LABEL: ttkernel_fpu_operations
   module @ttkernel_fpu_operations attributes {} {
@@ -207,7 +215,34 @@ module attributes {} {
         }> : (!cb0_type, !cb1_type, i32, i32, i32) -> ()
       return
     }
-  }  
+  } // module
+
+  //===----------------------------------------------------------------------===//
+  // TTKernel SFPU operations
+  //===----------------------------------------------------------------------===//
+
+  // CHECK-LABEL: ttkernel_sfpu_operations
+  module @ttkernel_sfpu_operations attributes {} {  
+
+    // CHECK-LABEL: func @max_tile_init
+    func.func @max_tile_init() -> () {
+      // CHECK: emitc.call_opaque "max_tile_init"()
+      "ttkernel.max_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @max_tile
+    func.func @max_tile() -> () {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "max_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]])
+      "ttkernel.max_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
+      return
+    }
+
+  } // module
 
   func.func @ttkernel_noc() -> () {
     // CHECK: = "emitc.constant"
