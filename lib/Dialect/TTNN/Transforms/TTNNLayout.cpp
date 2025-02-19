@@ -374,10 +374,10 @@ public:
       }
 
       // TTNN mesh shard expects host input and output
-      // TODO(#2102): This can be removed once the workaround pass can correctly
-      // handle cannonicalization of toLayout ops. Currently the workaround pass
-      // cannot detect redundant toLayout ops as a result of forcing the output
-      // layout and removing them.
+      // TODO(#2291): This can be removed once the workaround pass can correctly
+      // handle canonicalization of toLayout ops (#2102). Currently the
+      // workaround pass cannot detect redundant toLayout ops as a result of
+      // forcing the output layout and removing them.
       if (mlir::isa<ttir::MeshShardOp>(op.getOperation())) {
         modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
         continue;

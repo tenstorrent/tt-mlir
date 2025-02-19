@@ -12,7 +12,6 @@
 
 #include "mlir/Dialect/Traits.h"
 
-#include <llvm/ADT/ArrayRef.h>
 #include <numeric>
 #include <optional>
 
@@ -1052,60 +1051,92 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 //===----------------------------------------------------------------------===//
 
 // ToLayoutOp canonicalization
-// ToLayoutOp can be canonicalized if the previous op is also a ToLayoutOp. The
-// previous op can be merged with the current ToLayoutOp op if the previous op
-// has only one use. df - data format, l - layout, ms - memory space, tml -
-// tensor memory layout
-//
-//                |
-//      -----------------------
-//      |     ToLayoutOp      |                     |
-//      | df1, l1, ms1, tml1  |          -----------------------
-//      -----------------------          |     ToLayoutOp      |
-//                |                 -->  | df2, l1, ms2, tml1  |
-//                |                      -----------------------
-//      -----------------------                     |
-//      |     ToLayoutOp      |
-//      |      df2, ms2       |
-//      -----------------------
-//                |
-//
-::mlir::LogicalResult
-mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
-                                         PatternRewriter &rewriter) {
-  // Get the input operand and verify that the previous op is toLayoutOp
-  ToLayoutOp previousToLayoutOp =
-      toLayoutOp.getOperand(0).getDefiningOp<ToLayoutOp>();
+void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // ToLayoutOp can be folded if its input has the same layout as the output of
+  // toLayoutOp.
+  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+                   mlir::PatternRewriter &rewriter) {
+    RankedTensorType previousType = toLayoutOp.getInput().getType();
+    TTNNLayoutAttr previousLayout =
+        mlir::dyn_cast<TTNNLayoutAttr>(previousType.getEncoding());
+    // Verify if input tensor has layout attribute.
+    if (!previousLayout) {
+      return mlir::failure();
+    }
 
-  // NOLINTNEXTLINE
-  if (!previousToLayoutOp) {
-    return mlir::failure();
-  }
+    RankedTensorType currentType = toLayoutOp.getType();
+    TTNNLayoutAttr currentLayout =
+        mlir::dyn_cast<TTNNLayoutAttr>(currentType.getEncoding());
+    // Verify if the output tensor has layout attribute.
+    if (!currentLayout) {
+      return mlir::failure();
+    }
 
-  // Check if the previous op has only one use. We can only merge if the
-  // previous op has single use.
-  if (!previousToLayoutOp->hasOneUse()) {
-    return mlir::failure();
-  }
+    // Verify that the layouts are the same.
+    if (previousLayout != currentLayout) {
+      return mlir::failure();
+    }
 
-  // Replace the previous op with the merged ToLayoutOp
-  Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
-      previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
-      toLayoutOp.getLayoutAttr(),
-      toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
-                                : previousToLayoutOp.getDtypeAttr(),
-      toLayoutOp.getMemoryConfigAttr()
-          ? toLayoutOp.getMemoryConfigAttr()
-          : previousToLayoutOp.getMemoryConfigAttr(),
-      toLayoutOp.getDevice());
+    rewriter.replaceAllUsesWith(toLayoutOp, toLayoutOp->getOperand(0));
+    rewriter.eraseOp(toLayoutOp);
+    return mlir::success();
+  });
 
-  // Replace all uses of the current op with the merged ToLayoutOp
-  rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+  // Two consecutive ToLayoutOps can be merged if the previous op has only one
+  // use.
+  // df - data format, l - layout, ms - memory
+  // space, tml - tensor memory layout
+  //
+  //                |
+  //      -----------------------
+  //      |     ToLayoutOp      |                     |
+  //      | df1, l1, ms1, tml1  |          -----------------------
+  //      -----------------------          |     ToLayoutOp      |
+  //                |                 -->  | df2, l1, ms2, tml1  |
+  //                |                      -----------------------
+  //      -----------------------                     |
+  //      |     ToLayoutOp      |
+  //      |      df2, ms2       |
+  //      -----------------------
+  //                |
+  //
+  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+                   mlir::PatternRewriter &rewriter) {
+    // Get the input operand and verify that the previous op is toLayoutOp.
+    ToLayoutOp previousToLayoutOp =
+        toLayoutOp.getInput().getDefiningOp<ToLayoutOp>();
 
-  // Erase the current op
-  rewriter.eraseOp(toLayoutOp);
+    // NOLINTNEXTLINE
+    if (!previousToLayoutOp) {
+      return mlir::failure();
+    }
 
-  return mlir::success();
+    // Check if the previous op has only one use. We can only merge if the
+    // previous op has single use.
+    if (!previousToLayoutOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Replace the previous op with the merged ToLayoutOp.
+    Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
+        previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
+        toLayoutOp.getLayoutAttr(),
+        toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
+                                  : previousToLayoutOp.getDtypeAttr(),
+        toLayoutOp.getMemoryConfigAttr()
+            ? toLayoutOp.getMemoryConfigAttr()
+            : previousToLayoutOp.getMemoryConfigAttr(),
+        toLayoutOp.getDevice());
+
+    // Replace all uses of the current op with the merged ToLayoutOp.
+    rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+
+    // Erase the current op.
+    rewriter.eraseOp(toLayoutOp);
+
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
