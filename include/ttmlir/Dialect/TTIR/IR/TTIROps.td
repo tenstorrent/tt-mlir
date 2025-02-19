@@ -140,6 +140,8 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_AllocOp : TTIR_Op<"alloc"> {

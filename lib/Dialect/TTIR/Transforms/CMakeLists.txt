@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRTTIRTransforms
+        PARTIAL_SOURCES_INTENDED
         Allocate.cpp
         Broadcast.cpp
         Constant.cpp

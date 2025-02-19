@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-wrap-device-module --ttir-cpu-hoist-transform %s | FileCheck %s
+// RUN: ttmlir-opt --tt-wrap-device-module --ttir-cpu-hoist-transform --canonicalize %s | FileCheck %s
 
 // CHECK: tt.device_module {
 // CHECK: builtin.module {
@@ -6,8 +6,6 @@
 // CHECK: func.func @add1
 func.func @add1(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
   %0 = tensor.empty() : tensor<32x32xbf16>
-  // CHECK: %{{.*}} = tensor.empty()
-  // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
   // CHECK: %{{.*}} = tensor.empty()
   // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
   // CHECK: %{{.*}} = tensor.empty()
@@ -38,8 +36,6 @@ func.func @add3(%arg0: tensor<32x3xf32>, %arg1: tensor<32x3xf32>) -> tensor<32x3
 // CHECK: func.func @add4
 func.func @add4(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
   %0 = tensor.empty() : tensor<32x32xbf16>
-  // CHECK: %{{.*}} = tensor.empty()
-  // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
   // CHECK: %{{.*}} = tensor.empty()
   // CHECK: %{{.*}} = "ttir.to_layout"(%{{.*}}, %{{.*}})
   // CHECK: %{{.*}} = tensor.empty()
