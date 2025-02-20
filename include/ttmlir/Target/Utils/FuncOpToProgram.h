@@ -24,15 +24,11 @@ struct Program {
 };
 
 inline std::string getOpDebugString(mlir::Operation *op,
-                                    OpPrintingFlags printFlags) {
-#ifdef TTMLIR_ENABLE_DEBUG_STRINGS
+                                    mlir::AsmState &printState) {
   std::string str;
   llvm::raw_string_ostream os(str);
-  op->print(os, printFlags);
+  op->print(os, printState);
   return str;
-#else
-  return "";
-#endif
 };
 
 inline std::string getOpLocInfo(mlir::Operation *op) {
@@ -80,6 +76,7 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
                                                kHostAllocatedSize));
   }
 
+  mlir::AsmState printState(entry, printFlags);
   entry.getBody().walk([&](mlir::Operation *op) {
     if (auto returnOp = dyn_cast_or_null<func::ReturnOp>(op); returnOp) {
       for (auto output : returnOp.getOperands()) {
@@ -87,7 +84,7 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
             cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(output)));
       }
     } else {
-      std::string debugStr = getOpDebugString(op, printFlags);
+      std::string debugStr = getOpDebugString(op, printState);
       std::string locInfo = getOpLocInfo(op);
       program.ops.push_back(fn(cache, op, debugStr, locInfo));
     }
