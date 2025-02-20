@@ -1507,7 +1507,7 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConstantOp : TTNN_Op<"constant"> {
+def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
     let description = [{
       Produces tensor filled with given constant value.
