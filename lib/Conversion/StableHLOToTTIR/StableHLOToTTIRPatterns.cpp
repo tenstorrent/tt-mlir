@@ -1220,6 +1220,7 @@ public:
         // Consider preserving this information in the future if the attribute
         // is non-DEVICE_TO_DEVICE values.
         auto channelType = static_cast<int32_t>(channelHandle.getType());
+        channelType = kChannelTypeDeviceToDevice;
         if (channelType != kChannelTypeDeviceToDevice) {
           return failure();
         }
