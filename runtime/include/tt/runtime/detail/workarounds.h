@@ -17,12 +17,12 @@ struct Env {
 #endif
   get(bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
-      bool toLayoutAPIAssumeSingleChip = true)
+      bool toLayoutAPIAssumeSingleChip = false)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true);
+    return Env(true, true, false);
   }
 #endif
   // TODO(bug #1124): We're currently swapping the operands for binary ops
