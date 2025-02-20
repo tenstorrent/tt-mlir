@@ -202,6 +202,14 @@ table ReductionOp {
   keep_dim: bool;
 }
 
+table ReductionArgMaxOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim: int32 = null;
+  use_multicore: bool;
+  memcfg: tt.target.MemoryConfigDesc;
+}
+
 table ReductionProdOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -420,6 +428,18 @@ table UpsampleOp {
   out: tt.target.TensorRef;
 }
 
+table CpuOp {
+  ins: [tt.target.TensorRef];
+  out: tt.target.TensorRef;
+  func_name: string;
+  dylib_id: uint32;
+}
+
+table ConstantOp {
+  out: tt.target.TensorRef;
+  data: [ubyte];
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -437,6 +457,7 @@ union OpType {
   MatmulOp,
   MorehCumSumOp,
   ReductionOp,
+  ReductionArgMaxOp,
   ReductionProdOp,
   EmbeddingOp,
   EmbeddingBackwardOp,
@@ -460,6 +481,8 @@ union OpType {
   RepeatOp,
   UpsampleOp,
   PadOp,
+  CpuOp,
+  ConstantOp,
 }
 
 table Operation {
@@ -473,5 +496,6 @@ table Program {
   inputs: [TensorRef];
   outputs: [TensorRef];
   operations: [Operation];
+  dylibs: [DynamicLib];
   debug_info: DebugInfo;
 }

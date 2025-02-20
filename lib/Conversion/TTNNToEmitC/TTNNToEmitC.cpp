@@ -469,6 +469,39 @@ public:
   }
 };
 
+// Argmax op conversion pattern
+//
+class ArgMaxOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ArgMaxOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::ArgMaxOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::ArgMaxOp srcOp, ttnn::ArgMaxOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
+    // an ArrayAttr object holding IndexTypes is created to denote this.
+    //
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(0),
+        srcOp.getDimAttr(),
+        ttnn_to_emitc::utils::convertBoolAttr(rewriter,
+                                              srcOp.getUseMulticoreAttr()),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
 // ReshapeOp conversion pattern
 //
 class ReshapeOpConversionPattern
@@ -1302,7 +1335,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                ZerosOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<ttnn::FullOp>,
-               DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::ArangeOp>,
+               DefaultOpConversionPattern<ttnn::ConstantOp>>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops
@@ -1375,10 +1409,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Reduction ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::SumOp>, MeanOpConversionPattern,
-               DefaultOpConversionPattern<ttnn::MaxOp>,
-               DefaultOpConversionPattern<ttnn::MinOp>,
-               DefaultOpConversionPattern<ttnn::ProdOp>>(typeConverter, ctx);
+  patterns
+      .add<DefaultOpConversionPattern<ttnn::SumOp>, MeanOpConversionPattern,
+           DefaultOpConversionPattern<ttnn::MaxOp>,
+           DefaultOpConversionPattern<ttnn::MinOp>,
+           DefaultOpConversionPattern<ttnn::ProdOp>, ArgMaxOpConversionPattern>(
+          typeConverter, ctx);
 
   // Conv ops
   //

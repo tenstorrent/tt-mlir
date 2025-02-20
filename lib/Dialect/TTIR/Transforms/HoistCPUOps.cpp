@@ -214,6 +214,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
   }
 
+  // Add the hoisted_call attribute
+  callOp->setAttr(HoistedCallAttr::name,
+                  UnitAttr::get(opToHoist->getContext()));
+
   // Replace original op with the converted results
   opToHoist->replaceAllUsesWith(finalResults);
 

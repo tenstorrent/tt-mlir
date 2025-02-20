@@ -242,3 +242,8 @@ enum MathFidelity : uint8 {
   HiFi3 = 3,
   HiFi4 = 4,
 }
+
+table DynamicLib {
+  dylib_id: uint32;
+  raw_file: [uint8];
+}

@@ -65,6 +65,8 @@ static StorageType createStorage(void *ptr, std::uint32_t numElements,
   case ::tt::target::DataType::UInt16:
     return createStorage<StorageType>(static_cast<uint16_t *>(ptr),
                                       numElements);
+  case ::tt::target::DataType::UInt8:
+    return createStorage<StorageType>(static_cast<uint8_t *>(ptr), numElements);
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -99,7 +101,8 @@ static Tensor createNullTensor() {
 
 static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
   if (meshDevice.num_devices() == 1) {
-    return std::ref(*(meshDevice.get_device_index(0)));
+    return std::ref(*(meshDevice.get_device(
+        ::tt::tt_metal::distributed::MeshCoordinate(0, 0))));
   }
   return std::ref(meshDevice);
 }
@@ -331,7 +334,8 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout) {
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   DeviceVariant targetDevice = getTargetDevice(meshDevice);
   if (workaround::Env::get().toLayoutAPIAssumeSingleChip) {
-    targetDevice = std::ref(*(meshDevice.get_device_index(0)));
+    targetDevice = std::ref(*meshDevice.get_device(
+        ::tt::tt_metal::distributed::MeshCoordinate(0, 0)));
   }
   LayoutConverter converter(inputLayoutDesc, outputLayoutDesc);
   std::shared_ptr<::ttnn::Tensor> out = std::make_shared<::ttnn::Tensor>(

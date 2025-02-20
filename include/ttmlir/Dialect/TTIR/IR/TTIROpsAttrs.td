@@ -45,4 +45,13 @@ def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], 
   }];
 }
 
+def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Attribute"> {
+  let mnemonic = "hoisted_call";
+  let summary = "Indicates that this call operation has been hoisted";
+  let description = [{
+    This attribute marks call operations that have been hoisted during optimization.
+    It is used as a marker and doesn't carry any additional data.
+  }];
+}
+
 #endif // TTMLIR_TTIR_ATTRS_TD

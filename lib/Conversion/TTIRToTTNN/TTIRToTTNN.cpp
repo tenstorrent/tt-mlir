@@ -27,10 +27,9 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
+#include <optional>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -360,6 +359,30 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), allDimensions, adaptor.getKeepDim(), dimension,
         /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ReductionArgMaxOpConversionPattern
+    : public OpConversionPattern<ttir::ArgMaxOp> {
+public:
+  using OpConversionPattern<ttir::ArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto dimArg = op.getDimArg();
+
+    rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(),
+        (dimArg && dimArg->size())
+            ? mlir::cast<mlir::IntegerAttr>(dimArg->getValue().front())
+            : nullptr,
+        /*use_multicore*/ false, // Default tt-metal value.
+        /*memoryConfig*/ nullptr, adaptor.getOutput());
     return success();
   }
 };
@@ -854,22 +877,29 @@ public:
       return legalityResult;
     }
 
+    // If the value is a splat (i.e. single value), we can use the ttnn::FullOp
+    // to create the tensor.
     if (valueAttr.isSplat()) {
-      Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-      float fillValue =
-          valueAttr.getElementType().isInteger()
-              ? getFloatFromIntegerValue(valueAttr)
-              : valueAttr.getSplatValue<mlir::APFloat>().convertToFloat();
+      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-      ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
+      mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
+      if (valueAttr.getElementType().isInteger()) {
+        fillValue.convertFromAPInt(valueAttr.getSplatValue<llvm::APInt>(),
+                                   valueAttr.getElementType().isSignedInteger(),
+                                   llvm::RoundingMode::TowardZero);
+      } else {
+        fillValue = valueAttr.getSplatValue<mlir::APFloat>();
+      }
+
       rewriter.replaceOpWithNewOp<ttnn::FullOp>(
           op, this->getTypeConverter()->convertType(op.getType()), device,
-          fillValueAttr);
+          rewriter.getF32FloatAttr(fillValue.convertToFloat()));
 
+      // Otherwise, we use the ttnn::ConstantOp to create the tensor.
     } else {
-      return rewriter.notifyMatchFailure(
-          op, "TTNN doesn't currently support tensor creation from multiple "
-              "given values (issue #685)");
+      rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getValue());
     }
 
     return success();
@@ -886,33 +916,6 @@ private:
     }
 
     return success();
-  }
-
-  float getFloatFromIntegerValue(mlir::ElementsAttr valueAttr) const {
-    size_t bitWidth = valueAttr.getElementType().getIntOrFloatBitWidth();
-    Type elementType = valueAttr.getElementType();
-
-    switch (bitWidth) {
-    case 1:
-      return static_cast<float>(valueAttr.getSplatValue<bool>());
-    case 8:
-      return elementType.isUnsignedInteger()
-                 ? static_cast<float>(valueAttr.getSplatValue<uint8_t>())
-                 : static_cast<float>(valueAttr.getSplatValue<int8_t>());
-    case 16:
-      return elementType.isUnsignedInteger()
-                 ? static_cast<float>(valueAttr.getSplatValue<uint16_t>())
-                 : static_cast<float>(valueAttr.getSplatValue<int16_t>());
-    case 32:
-      return elementType.isUnsignedInteger()
-                 ? static_cast<float>(valueAttr.getSplatValue<uint32_t>())
-                 : static_cast<float>(valueAttr.getSplatValue<int32_t>());
-    case 64:
-      return elementType.isUnsignedInteger()
-                 ? static_cast<float>(valueAttr.getSplatValue<uint64_t>())
-                 : static_cast<float>(valueAttr.getSplatValue<int64_t>());
-    }
-    assert(false && "Unsupported integer type.");
   }
 };
 } // namespace
@@ -1514,6 +1517,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            ReductionOpConversionPattern<ttir::MinOp, ttnn::MinOp>,
            ReductionProdOpConversionPattern,
+           ReductionArgMaxOpConversionPattern,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
            PadOpConversionPattern,
