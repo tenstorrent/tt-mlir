@@ -1919,6 +1919,28 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// ReduceScatterOp
+//===----------------------------------------------------------------------===//
+
+// ReduceScatterOp verification
+::mlir::LogicalResult mlir::tt::ttir::ReduceScatterOp::verify() {
+  ::mlir::RankedTensorType inputType =
+      mlir::cast<RankedTensorType>(getInput().getType());
+  int32_t scatterDim = getScatterDim();
+
+  if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid scatter dimension for reduce scatter op. Scatter "
+               "dimension "
+               "must be >= to "
+               "input tensor rank or < -input tensor rank, got scatter_dim = ")
+           << scatterDim;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
 

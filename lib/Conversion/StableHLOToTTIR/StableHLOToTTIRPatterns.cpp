@@ -1467,7 +1467,9 @@ private:
 
 template <typename SrcOpTy>
 LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
-  if constexpr (!std::is_same<SrcOpTy, mlir::stablehlo::AllReduceOp>::value) {
+  if constexpr (!std::is_same<SrcOpTy, mlir::stablehlo::AllReduceOp>::value &&
+                !std::is_same<SrcOpTy,
+                              mlir::stablehlo::ReduceScatterOp>::value) {
     return failure();
   }
   // Check operations in the first block and determine reduce type for now
@@ -1576,9 +1578,6 @@ public:
       return failure();
     }
 
-    auto ttirOperands = srcOp.getOperandsMutable();
-    ttirOperands.append(ValueRange(outputTensor));
-
     // Determine cluster axis based on replica groups
     uint32_t clusterAxis;
     if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
@@ -1588,7 +1587,8 @@ public:
 
     // Convert reduceType shlo attribute into ttir attribute
     ReduceType reduceType;
-    if (failed(getReduceType(srcOp, reduceType))) {
+    if (failed(
+            getReduceType<mlir::stablehlo::AllReduceOp>(srcOp, reduceType))) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp cannot specify reduce type.");
     }
@@ -1647,6 +1647,55 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRReduceScatterOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ReduceScatterOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::ReduceScatterOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ReduceScatterOp srcOp,
+                  mlir::stablehlo::ReduceScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    SmallVector<Type> ttirTypes;
+    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
+                                                      ttirTypes))) {
+      return failure();
+    }
+
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ReduceScatterOp cannot specify cluster axis.");
+    }
+
+    // Convert reduceType shlo attribute into ttir attribute
+    ReduceType reduceType;
+    if (failed(getReduceType<mlir::stablehlo::ReduceScatterOp>(srcOp,
+                                                               reduceType))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ReduceScatterOp cannot specify reduce type.");
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReduceScatterOp>(
+        srcOp, outputType, adaptor.getOperands()[0], outputTensor, reduceType,
+        adaptor.getScatterDimension(), clusterAxis);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRAllGatherOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::AllGatherOp> {
   using OpConversionPattern<mlir::stablehlo::AllGatherOp>::OpConversionPattern;
@@ -1675,9 +1724,6 @@ public:
                                                       ttirTypes))) {
       return failure();
     }
-
-    auto ttirOperands = srcOp.getOperandsMutable();
-    ttirOperands.append(ValueRange(outputTensor));
 
     // Determine cluster axis based on replica groups
     uint32_t clusterAxis;
@@ -2354,6 +2400,8 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRAllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRAllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRReduceScatterOpConversionPattern>(typeConverter,
+                                                                ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }
