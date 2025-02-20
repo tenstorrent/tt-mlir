@@ -6,3 +6,5 @@ wheel
 setuptools
 black
 pre-commit
+pybind11
+nanobind
