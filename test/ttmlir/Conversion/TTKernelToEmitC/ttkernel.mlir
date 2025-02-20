@@ -527,7 +527,7 @@ module {
       %dst_mcast_addr = "ttkernel.get_noc_addr"(%temp2) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr TODO use mcast getter
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // TODO(): emitc lowering ignores 'linked' and 'multicast_path_reserve'
+      // TODO(#2229): emitc lowering ignores 'linked' and 'multicast_path_reserve'
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast"(%src_addr, %dst_mcast_addr, %num_dsts) <{
           linked = false, multicast_path_reserve = true
@@ -545,7 +545,7 @@ module {
       %dst_mcast_addr = "ttkernel.get_noc_addr"(%temp2) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr TODO use mcast getter
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // TODO(): emitc lowering ignores 'linked' and 'multicast_path_reserve'
+      // TODO(#2229): emitc lowering ignores 'linked' and 'multicast_path_reserve'
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast_loopback_src"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast_loopback_src"(%src_addr, %dst_mcast_addr, %num_dsts) <{
           linked = false, multicast_path_reserve = true
@@ -553,14 +553,14 @@ module {
       return
     }
 
-    // TODO(): without a use like the commented out part below the noc table def will be simply elided; however,
+    // TODO(#2230): without a use like the commented out part below the noc table def will be simply elided; however,
     // the current lowering doesn't seem to work with nested modules, so just testing the elision for now:
 
     // CHECK-LABEL: func @noc_transactions_table
     func.func @noc_transactions_table() -> () {
       // CHECK: %{{.+}} = "emitc.constant"
       %unused = arith.constant 0 : i32
-      // CHECK-NOT: ttkernel
+      // CHECK-NOT: emitc
       %table = "ttkernel.noc_transactions_table"() <{
           entries = array<i32: 99360, 99104, 32, 1179666, 99392, 99168, 32, 1179666>
         }> : () -> memref<2x4xi32>
