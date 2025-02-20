@@ -36,8 +36,7 @@ ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == 1);
 
   const auto inputShape =
-      mlir::cast<RankedTensorType>(getDpsInputOperand(0)->get().getType())
-          .getShape();
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
 
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
@@ -58,8 +57,7 @@ ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == 1);
 
   const auto inputShape =
-      mlir::cast<RankedTensorType>(getDpsInputOperand(0)->get().getType())
-          .getShape();
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
 
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();

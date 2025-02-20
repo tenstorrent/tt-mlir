@@ -127,10 +127,9 @@ class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments])> {
+    TTNN_Op<mnemonic, traits> {
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs);
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs);
     let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
@@ -143,9 +142,9 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out),
+      OpBuilder<(ins "Value": $in),
       [{
-        build($_builder, $_state, {out.getType()}, in, out);
+        build($_builder, $_state, {in.getType()}, in);
       }]>
     ];
 }
@@ -159,9 +158,13 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Type": $outputType),
       [{
-        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
+        build($_builder, $_state, {outputType}, {lhs, rhs});
+      }]>,
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs),
+      [{
+        build($_builder, $_state, lhs, rhs, lhs.getType());
       }]>
     ];
 }
@@ -175,9 +178,9 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third),
       [{
-        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
+        build($_builder, $_state, {first.getType()}, {first, second, third});
       }]>
     ];
 }
@@ -391,14 +394,13 @@ class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
                          F32Attr:$parameter);
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter),
+      OpBuilder<(ins "Value": $in, "FloatAttr":$parameter),
       [{
-        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
+        build($_builder, $_state, {in.getType()}, {in}, parameter);
       }]>
     ];
 }
