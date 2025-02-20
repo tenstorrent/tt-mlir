@@ -190,7 +190,9 @@ class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
   void runOnOperation() final {
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRFuncReturnTensorLayoutRewriter>(&getContext());
+      patterns.add<TTIRFuncReturnTensorLayoutRewriter,
+                   TTIRGenericTensorLayoutRewriter,
+                   TTIRFuncOperandsTensorLayoutRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();
@@ -198,30 +200,30 @@ class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
       }
     }
 
-    {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRGenericTensorLayoutRewriter>(&getContext());
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
-        signalPassFailure();
-        return;
-      }
-    }
+    // {
+    //   RewritePatternSet patterns(&getContext());
+    //   patterns.add<TTIRGenericTensorLayoutRewriter>(&getContext());
+    //   GreedyRewriteConfig config = GreedyRewriteConfig();
+    //   FrozenRewritePatternSet patternSet(std::move(patterns));
+    //   if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
+    //                                           config))) {
+    //     signalPassFailure();
+    //     return;
+    //   }
+    // }
 
-    {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRFuncOperandsTensorLayoutRewriter>(&getContext());
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      config.strictMode = GreedyRewriteStrictness::ExistingOps;
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
-        signalPassFailure();
-        return;
-      }
-    }
+    // {
+    //   RewritePatternSet patterns(&getContext());
+    //   patterns.add<TTIRFuncOperandsTensorLayoutRewriter>(&getContext());
+    //   GreedyRewriteConfig config = GreedyRewriteConfig();
+    //   config.strictMode = GreedyRewriteStrictness::ExistingOps;
+    //   FrozenRewritePatternSet patternSet(std::move(patterns));
+    //   if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
+    //                                           config))) {
+    //     signalPassFailure();
+    //     return;
+    //   }
+    // }
 
     {
       RewritePatternSet patterns(&getContext());
