@@ -10,14 +10,14 @@
 !cb1_tiles = !ttkernel.cb<cb_in1, 299008, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>
 !cb2_tiles = !ttkernel.cb<cb_in2, 303104, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>
 
-module attributes {} {
+module {
 
   //===----------------------------------------------------------------------===//
   // TTKernel Register operations
   //===----------------------------------------------------------------------===//
 
   // CHECK-LABEL: ttkernel_register_operations
-  module @ttkernel_register_operations attributes {} {
+  module @ttkernel_register_operations {
 
     // CHECK-LABEL: func @tile_regs_acquire
     func.func @tile_regs_acquire() -> () {
@@ -86,7 +86,7 @@ module attributes {} {
   //===----------------------------------------------------------------------===//
 
   // CHECK-LABEL: ttkernel_fpu_operations
-  module @ttkernel_fpu_operations attributes {} {
+  module @ttkernel_fpu_operations {
 
     // CHECK-LABEL: func @binary_op_init_common
     func.func @binary_op_init_common(%cb0: !cb0_tiles, %cb1: !cb1_tiles, %out_cb: !cb2_tiles) -> () {
@@ -228,7 +228,7 @@ module attributes {} {
   //===----------------------------------------------------------------------===//
 
   // CHECK-LABEL: ttkernel_sfpu_operations
-  module @ttkernel_sfpu_operations attributes {} {
+  module @ttkernel_sfpu_operations {
 
     // CHECK-LABEL: func @max_tile_init
     func.func @max_tile_init() -> () {
@@ -255,7 +255,7 @@ module attributes {} {
   //===----------------------------------------------------------------------===//
 
   // CHECK-LABEL: ttkernel_cb_operations
-  module @ttkernel_cb_operations attributes {} {
+  module @ttkernel_cb_operations {
 
     // CHECK-LABEL: func @cb_push_back
     func.func @cb_push_back(%cb: !cb0_tiles) -> () {
@@ -304,7 +304,7 @@ module attributes {} {
   //===----------------------------------------------------------------------===//
 
   // CHECK-LABEL: ttkernel_tile_operations
-  module @ttkernel_tile_operations attributes {} {
+  module @ttkernel_tile_operations {
 
     // CHECK-LABEL: func @tilize_init
     func.func @tilize_init(%in_cb: !cb0_scalar, %out_cb: !cb1_tiles) -> () {
@@ -350,55 +350,227 @@ module attributes {} {
 
   } // module
 
+  //===----------------------------------------------------------------------===//
+  // TTKernel NOC operations
+  //===----------------------------------------------------------------------===//
 
-  func.func @ttkernel_noc() -> () {
-    // CHECK: = "emitc.constant"
-    %c262432_i32 = arith.constant 262432 : i32
-    // CHECK: = "emitc.constant"
-    %c262208_i32 = arith.constant 262208 : i32
-    // CHECK: = "emitc.constant"
-    %c32_i32 = arith.constant 32 : i32
-    // CHECK: = "emitc.constant"
-    %c262400_i32 = arith.constant 262400 : i32
-    // CHECK: = "emitc.constant"
-    %c0_i32 = arith.constant 0 : i32
-    // CHECK: = "emitc.constant"
-    %c262144_i32 = arith.constant 262144 : i32
-    // CHECK: = emitc.call_opaque "get_noc_addr"
-    %3 = "ttkernel.get_noc_addr_xy"(%c0_i32, %c0_i32, %c262144_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
-    // CHECK: emitc.call_opaque "noc_async_read"
-    "ttkernel.noc_async_read"(%3, %c262400_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
-    // CHECK: = emitc.call_opaque "get_noc_addr"
-    %4 = "ttkernel.get_noc_addr_xy"(%c0_i32, %c0_i32, %c262208_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
-    // CHECK: emitc.call_opaque "noc_async_read"
-    "ttkernel.noc_async_read"(%4, %c262432_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
-    %bank_id = arith.constant 1 : i32
-    %addr_offset = arith.constant 262400 : i32
-    %noc_addr = "ttkernel.get_noc_addr_from_bank_id"(%bank_id, %addr_offset) : (i32, i32) -> !ttkernel.noc_addr
-    // CHECK: = emitc.call_opaque "get_noc_addr_from_bank_id"({{.*}}) {template_args = [#emitc.opaque<"true">]}
-    // CHECK: emitc.call_opaque "noc_async_read_barrier"
-    "ttkernel.noc_async_read_barrier"() : () -> ()
-    "ttkernel.return"() : () -> ()
-  }
+  // CHECK-LABEL: ttkernel_noc_operations
+  module @ttkernel_noc_operations {
 
-  func.func @ttkernel_tensix(%arg1: !ttkernel.cb<cb_in0, 294912, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>,
-                             %arg2: !ttkernel.cb<cb_out0, 327680, memref<64x128xf32, #l1_>, 4096, 1>) -> () {
-      %c4_i32 = arith.constant 4 : i32
-      // CHECK: emitc.call_opaque "untilize_init"
-      "ttkernel.untilize_init"(%arg1, %arg2) : (!ttkernel.cb<cb_in0, 294912, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, !ttkernel.cb<cb_out0, 327680, memref<64x128xf32, #l1_>, 4096, 1>) -> ()
-      // CHECK: emitc.call_opaque "untilize_block"
-      "ttkernel.untilize_block"(%arg1, %c4_i32, %arg2) : (!ttkernel.cb<cb_in0, 294912, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, i32, !ttkernel.cb<cb_out0, 327680, memref<64x128xf32, #l1_>, 4096, 1>) -> ()
-      // CHECK: emitc.call_opaque "cb_pop_front"
-      "ttkernel.cb_pop_front"(%arg1, %c4_i32) : (!ttkernel.cb<cb_in0, 294912, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, i32) -> ()
-      // CHECK: emitc.call_opaque "cb_push_back"
-      "ttkernel.cb_push_back"(%arg2, %c4_i32) : (!ttkernel.cb<cb_out0, 327680, memref<64x128xf32, #l1_>, 4096, 1>, i32) -> ()
-      // CHECK: emitc.call_opaque "untilize_block"
-      "ttkernel.untilize_block"(%arg1, %c4_i32, %arg2) : (!ttkernel.cb<cb_in0, 294912, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, i32, !ttkernel.cb<cb_out0, 327680, memref<64x128xf32, #l1_>, 4096, 1>) -> ()
-      // CHECK: emitc.call_opaque "cb_pop_front"
-      "ttkernel.cb_pop_front"(%arg1, %c4_i32) : (!ttkernel.cb<cb_in0, 294912, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>, i32) -> ()
-      // CHECK: emitc.call_opaque "cb_push_back"
-      "ttkernel.cb_push_back"(%arg2, %c4_i32) : (!ttkernel.cb<cb_out0, 327680, memref<64x128xf32, #l1_>, 4096, 1>, i32) -> ()
-      // CHECK: return
-      "ttkernel.return"() : () -> ()
-  }
-}
+    // CHECK-LABEL: func @get_noc_addr_xy
+    func.func @get_noc_addr_xy() -> () {
+      // CHECK: %[[X:.*]] = "emitc.constant"
+      %x = arith.constant 1 : i32
+      // CHECK: %[[Y:.*]] = "emitc.constant"
+      %y = arith.constant 2 : i32
+      // CHECK: %[[ADDR:.*]] = "emitc.constant"
+      %addr = arith.constant 262400 : i32
+      // note: ttkernel.get_noc_addr_xy() converts to one of metallium get_noc_addr() overloads
+      // CHECK: emitc.call_opaque "get_noc_addr"(%[[X]], %[[Y]], %[[ADDR]])
+      "ttkernel.get_noc_addr_xy"(%x, %y, %addr) : (i32, i32, i32) -> (!ttkernel.noc_addr)
+      return
+    }
+
+    // CHECK-LABEL: func @get_noc_addr_from_bank_id
+    func.func @get_noc_addr_from_bank_id() -> () {
+      // CHECK: %[[BANK_ID:.*]] = "emitc.constant"
+      %bank_id = arith.constant 1 : i32
+      // CHECK: %[[ADDR_OFFSET:.*]] = "emitc.constant"
+      %addr_offset = arith.constant 262400 : i32
+      // CHECK: emitc.call_opaque "get_noc_addr_from_bank_id"(%[[BANK_ID]], %[[ADDR_OFFSET]])
+      "ttkernel.get_noc_addr_from_bank_id"(%bank_id, %addr_offset) : (i32, i32) -> (!ttkernel.noc_addr)
+      return
+    }
+
+    // CHECK-LABEL: func @get_noc_addr
+    func.func @get_noc_addr() -> () {
+      // CHECK: %[[ADDR:.*]] = "emitc.constant"
+      %addr = arith.constant 262400 : i32
+      // CHECK: emitc.call_opaque "get_noc_addr"(%[[ADDR]])
+      "ttkernel.get_noc_addr"(%addr) : (i32) -> (!ttkernel.noc_addr)
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_read
+    func.func @noc_async_read() -> () {
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %temp = arith.constant 262400 : i32
+      %src_addr = "ttkernel.get_noc_addr"(%temp) : (i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
+      %dst_addr = arith.constant 303104 : i32
+      // CHECK: %[[SIZE:.*]] = "emitc.constant"
+      %size = arith.constant 2048 : i32
+      // CHECK: emitc.call_opaque "noc_async_read"(%[[SRC_ADDR]], %[[DST_ADDR]], %[[SIZE]])
+      "ttkernel.noc_async_read"(%src_addr, %dst_addr, %size) : (!ttkernel.noc_addr, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_read_one_packet_set_state
+    func.func @noc_async_read_one_packet_set_state() -> () {
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %temp = arith.constant 262400 : i32
+      %src_addr = "ttkernel.get_noc_addr"(%temp) : (i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[SIZE:.*]] = "emitc.constant"
+      %size = arith.constant 2048 : i32
+      // CHECK: emitc.call_opaque "noc_async_read_one_packet_set_state"(%[[SRC_ADDR]], %[[SIZE]])
+      "ttkernel.noc_async_read_one_packet_set_state"(%src_addr, %size) : (!ttkernel.noc_addr, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_read_one_packet_with_state
+    func.func @noc_async_read_one_packet_with_state() -> () {
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %temp1 = arith.constant 262400 : i32
+      %src_addr = "ttkernel.get_noc_addr"(%temp1) : (i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
+      %dst_addr = arith.constant 327680 : i32
+      // CHECK: emitc.call_opaque "noc_async_read_one_packet_with_state"(%[[SRC_ADDR]], %[[DST_ADDR]])
+      "ttkernel.noc_async_read_one_packet_with_state"(%src_addr, %dst_addr) : (!ttkernel.noc_addr, i32) -> ()
+      // TODO: test %dst_addr of type TTKernel_L1Addr?
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_read_barrier
+    func.func @noc_async_read_barrier() -> () {
+      // CHECK: emitc.call_opaque "noc_async_read_barrier"()
+      "ttkernel.noc_async_read_barrier"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_write
+    func.func @noc_async_write() -> () {
+      // CHECK: %[[SRC_ADDR:.*]] = "emitc.constant"
+      %src_addr = arith.constant 303104 : i32
+      // CHECK: %[[DST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %temp = arith.constant 262400 : i32
+      %dst_addr = "ttkernel.get_noc_addr"(%temp) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr
+      // CHECK: %[[SIZE:.*]] = "emitc.constant"
+      %size = arith.constant 2048 : i32
+      // CHECK: emitc.call_opaque "noc_async_write"(%[[SRC_ADDR]], %[[DST_ADDR]], %[[SIZE]])
+      "ttkernel.noc_async_write"(%src_addr, %dst_addr, %size) : (i32, !ttkernel.noc_addr, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_write_barrier
+    func.func @noc_async_write_barrier() -> () {
+      // CHECK: emitc.call_opaque "noc_async_write_barrier"()
+      "ttkernel.noc_async_write_barrier"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @get_semaphore
+    func.func @get_semaphore() -> () {
+      // CHECK: %[[SEMAPHORE_ID:.*]] = "emitc.constant"
+      %semaphore_id = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "get_semaphore"(%[[SEMAPHORE_ID]])
+      "ttkernel.get_semaphore"(%semaphore_id) : (i32) -> (!ttkernel.l1_addr)
+      return
+    }
+
+    // CHECK-LABEL: func @noc_semaphore_inc
+    func.func @noc_semaphore_inc() -> () {
+      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %temp = arith.constant 262400 : i32
+      %addr = "ttkernel.get_noc_addr"(%temp) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr
+      // CHECK: %[[INCR:.*]] = "emitc.constant"
+      %incr = arith.constant 1 : i32
+      // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
+      %noc_id = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "noc_semaphore_inc"(%[[ADDR]], %[[INCR]], %[[NOC_ID]])
+      "ttkernel.noc_semaphore_inc"(%addr, %incr, %noc_id) : (!ttkernel.noc_addr, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_semaphore_set
+    func.func @noc_semaphore_set() -> () {
+      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
+      %temp = arith.constant 262400 : i32
+      %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      // CHECK: %[[VAL:.*]] = "emitc.constant"
+      %val = arith.constant 123 : i32
+      // CHECK: emitc.call_opaque "noc_semaphore_set"(%[[ADDR]], %[[VAL]])
+      "ttkernel.noc_semaphore_set"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_semaphore_wait
+    func.func @noc_semaphore_wait() -> () {
+      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
+      %temp = arith.constant 262400 : i32
+      %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      // CHECK: %[[VAL:.*]] = "emitc.constant"
+      %val = arith.constant 123 : i32
+      // CHECK: emitc.call_opaque "noc_semaphore_wait"(%[[ADDR]], %[[VAL]])
+      "ttkernel.noc_semaphore_wait"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_semaphore_wait_min
+    func.func @noc_semaphore_wait_min() -> () {
+      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
+      %temp = arith.constant 262400 : i32
+      %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      // CHECK: %[[VAL:.*]] = "emitc.constant"
+      %val = arith.constant 123 : i32
+      // CHECK: emitc.call_opaque "noc_semaphore_wait_min"(%[[ADDR]], %[[VAL]])
+      "ttkernel.noc_semaphore_wait_min"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_semaphore_set_multicast
+    func.func @noc_semaphore_set_multicast() -> () {
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
+      %temp1 = arith.constant 2 : i32
+      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.l1_addr) // a dummy l1 addr
+      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %temp2 = arith.constant 303104 : i32
+      %dst_mcast_addr = "ttkernel.get_noc_addr"(%temp2) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr TODO use mcast getter
+      // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
+      %num_dsts = arith.constant 8 : i32
+      // TODO(): emitc lowering ignores 'linked' and 'multicast_path_reserve'
+      // CHECK: emitc.call_opaque "noc_semaphore_set_multicast"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
+      "ttkernel.noc_semaphore_set_multicast"(%src_addr, %dst_mcast_addr, %num_dsts) <{
+          linked = false, multicast_path_reserve = true
+        }> : (!ttkernel.l1_addr, !ttkernel.noc_addr, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_semaphore_set_multicast_loopback_src
+    func.func @noc_semaphore_set_multicast_loopback_src() -> () {
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
+      %temp1 = arith.constant 2 : i32
+      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.l1_addr) // a dummy l1 addr
+      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %temp2 = arith.constant 303104 : i32
+      %dst_mcast_addr = "ttkernel.get_noc_addr"(%temp2) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr TODO use mcast getter
+      // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
+      %num_dsts = arith.constant 8 : i32
+      // TODO(): emitc lowering ignores 'linked' and 'multicast_path_reserve'
+      // CHECK: emitc.call_opaque "noc_semaphore_set_multicast_loopback_src"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
+      "ttkernel.noc_semaphore_set_multicast_loopback_src"(%src_addr, %dst_mcast_addr, %num_dsts) <{
+          linked = false, multicast_path_reserve = true
+        }> : (!ttkernel.l1_addr, !ttkernel.noc_addr, i32) -> ()
+      return
+    }
+
+    // TODO(): without a use like the commented out part below the noc table def will be simply elided; however,
+    // the current lowering doesn't seem to work with nested modules, so just testing the elision for now:
+
+    // CHECK-LABEL: func @noc_transactions_table
+    func.func @noc_transactions_table() -> () {
+      // CHECK: %{{.+}} = "emitc.constant"
+      %unused = arith.constant 0 : i32
+      // CHECK-NOT: ttkernel
+      %table = "ttkernel.noc_transactions_table"() <{
+          entries = array<i32: 99360, 99104, 32, 1179666, 99392, 99168, 32, 1179666>
+        }> : () -> memref<2x4xi32>
+      // %i = arith.constant 1 : index
+      // %j = arith.constant 0 : index
+      // %entry = memref.load %table[%i, %j] : memref<2x4xi32>
+      // CHECK-NEXT: return
+      return
+    }
+
+  } // module
+
+} // module
