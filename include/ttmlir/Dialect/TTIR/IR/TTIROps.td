@@ -117,7 +117,16 @@ def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
   let hasFolder = 1;
 }
 
-def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
+def TTIR_ToLayoutOp : TTIR_Op<"to_layout",
+  [ DestinationStyleOpInterface
+  , TTIROpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "Layout op.";
     let description = [{
       ToLayout operation, transition tensors from one layout to another.  Some examples include:
@@ -134,9 +143,9 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
       ```
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
-    let results = (outs AnyRankedTensor:$result);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -156,6 +165,40 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
     let hasVerifier = 1;
 
     let hasCanonicalizeMethod = 1;
+}
+
+def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
+  [ Pure
+  , TTIROpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+    let summary = "View Layout op.";
+    let description = [{
+      ViewLayout operation, nearly identical to ToLayout operation, but with the difference that this op is not
+      eagerly evaluated.  It is also not capable of changing the data type / tile type of the tensor.
+
+      It's primary usecase is to allow generic ops to take a view of some remote memory as a means of forming a
+      stream.  This is useful for streaming data in small chunks, when a tensor is too large to wholly fit in L1
+      memory space.
+
+      All ViewLayout ops can trivially be converted to ToLayout ops.
+
+      ```llvm
+      #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTIR_AllocOp : TTIR_Op<"alloc"> {

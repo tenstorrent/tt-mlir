@@ -245,7 +245,8 @@ public:
            "Expected RankedTensorType for ToLayoutOp input");
 
     auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
+        mlir::cast<mlir::RankedTensorType>(op.getResult(0).getType())
+            .getEncoding());
 
     // Determine the output data type
     DataType dtype = outputLayoutAttr.getDataType();
@@ -259,7 +260,7 @@ public:
 
     bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
 
-    RankedTensorType result = mlir::cast<RankedTensorType>(op.getType());
+    RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);

@@ -58,6 +58,59 @@ static MemRefType getGenericMemrefBlockArgType(Type type) {
   return shardMemrefType;
 }
 
+static bool
+indexingMapParticipatesInReduction(AffineMap indexingMap,
+                                   SmallVector<unsigned> reductionDims) {
+  if (reductionDims.empty()) {
+    return false;
+  }
+
+  for (unsigned i = 0; i < indexingMap.getNumResults(); i++) {
+    AffineExpr expr = indexingMap.getResult(i);
+    if (llvm::any_of(reductionDims,
+                     [&](unsigned dim) { return expr.isFunctionOfDim(dim); })) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static SmallVector<Value> reductionViews(PatternRewriter &rewriter,
+                                         Location loc, ValueRange dpsInputs,
+                                         ArrayAttr indexingMaps,
+                                         ArrayAttr iteratorTypes) {
+  SmallVector<Value> inputs(dpsInputs);
+  assert(
+      inputs.size() <= indexingMaps.size() &&
+      "Number of inputs must be less or equal to the number of indexing maps");
+  SmallVector<unsigned> reductionDims = llvm::to_vector(llvm::make_filter_range(
+      llvm::seq<unsigned>(0, iteratorTypes.size()), [&](unsigned i) {
+        return mlir::cast<IteratorTypeAttr>(iteratorTypes[i]).getValue() ==
+               IteratorType::Reduction;
+      }));
+  for (unsigned i = 0; i < inputs.size(); i++) {
+    if (indexingMapParticipatesInReduction(
+            mlir::cast<AffineMapAttr>(indexingMaps[i]).getValue(),
+            reductionDims)) {
+      auto inputTy = mlir::cast<RankedTensorType>(inputs[i].getType());
+      auto inputLayout = mlir::cast<MetalLayoutAttr>(inputTy.getEncoding());
+      auto streamLayout = rewriter.getAttr<StreamLayoutAttr>(
+          mlir::cast<StreamLayoutAttr>(inputLayout.getMemref().getLayout())
+              .getAffineMap(),
+          StreamMode::Stream, 1);
+      auto resultType = RankedTensorType::get(
+          inputTy.getShape(), inputTy.getElementType(),
+          inputLayout.withStreamLayout(rewriter.getContext(), streamLayout));
+
+      inputs[i] =
+          rewriter.create<ttir::ViewLayoutOp>(loc, resultType, inputs[i])
+              ->getResult(0);
+    }
+  }
+  return inputs;
+}
+
 std::pair<ttir::GenericOp, Block *> buildGenericOp(GenericRegionOp op,
                                                    PatternRewriter &rewriter) {
   auto dps = cast<DestinationStyleOpInterface>(op.getOperation());
@@ -76,10 +129,13 @@ std::pair<ttir::GenericOp, Block *> buildGenericOp(GenericRegionOp op,
     gridAttr = resLayout.getGrid();
   }
 
+  SmallVector<Value> inputs = reductionViews(
+      rewriter, op.getLoc(), dps.getDpsInputs(), indexingMaps, iteratorTypes);
+
   auto genericOp = rewriter.create<ttir::GenericOp>(
-      op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
-      ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
-      iteratorTypes, ::llvm::ArrayRef<int64_t>(), 1 /*numRegions*/);
+      op.getLoc(), op->getResults().getTypes(), inputs, ValueRange() /* cbs */,
+      dps.getDpsInits(), gridAttr, indexingMaps, iteratorTypes,
+      ::llvm::ArrayRef<int64_t>(), 1 /*numRegions*/);
 
   // Create a new basic block for the generic op and create block arguments.
   Block *block = rewriter.createBlock(&genericOp.getRegion(0));

@@ -46,20 +46,30 @@ void createTTIRToTTMetalBackendPipeline(
     {
       bufferizationOptions.bufferizeFunctionBoundaries = true;
       bufferizationOptions.functionArgTypeConverterFn =
-        [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
-            mlir::FunctionOpInterface functionOp,
-            const bufferization::BufferizationOptions &bufferizationOptions) {
-          auto rankedTensorType =
+          [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
+             mlir::FunctionOpInterface functionOp,
+             const bufferization::BufferizationOptions &bufferizationOptions)
+          -> ::mlir::BaseMemRefType {
+        tensorType.dump();
+        auto rankedTensorType =
             mlir::cast<::mlir::RankedTensorType>(tensorType);
-          mlir::Type memrefResultType =
+        if (!rankedTensorType.getEncoding()) {
+          return bufferization::getMemRefTypeWithStaticIdentityLayout(
+              tensorType, memorySpace);
+        }
+        mlir::Type memrefResultType =
             mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-            .getMemref();
-          return mlir::cast<::mlir::BaseMemRefType>(memrefResultType);
-        };
+                .getMemref();
+        return mlir::cast<::mlir::BaseMemRefType>(memrefResultType);
+      };
       bufferizationOptions.defaultMemorySpaceFn =
         [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
-          auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-          return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+        auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
+        if (!rankedTensorType.getEncoding()) {
+          return mlir::tt::MemorySpaceAttr::get(
+              tensorType.getContext(), mlir::tt::MemorySpace::DeviceL1);
+        }
+        return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
             .getMemref()
             .getMemorySpace();
         };

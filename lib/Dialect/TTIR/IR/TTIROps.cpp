@@ -1291,36 +1291,93 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
+static ::mlir::LogicalResult
+verifyLayoutOrViewOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
+                     mlir::Type outputTensorOrMemrefTy) {
+  if (mlir::isa<mlir::RankedTensorType>(inputTensorOrMemrefTy)) {
+    if (!mlir::isa<mlir::RankedTensorType>(outputTensorOrMemrefTy)) {
+      return op->emitOpError("Input and output types must be the same");
+    }
+
+    ::mlir::RankedTensorType inputTy =
+        mlir::cast<mlir::RankedTensorType>(inputTensorOrMemrefTy);
+    ::mlir::RankedTensorType outputTy =
+        mlir::cast<mlir::RankedTensorType>(outputTensorOrMemrefTy);
+    if (inputTy.getShape() != outputTy.getShape()) {
+      return op->emitOpError("Input and output shapes must be the same");
+    }
+
+    auto inputLayout =
+        mlir::cast<mlir::tt::MetalLayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());
+    bool isFormatChange =
+      inputLayout.getElementType() != outputLayout.getElementType();
+    if (isFormatChange) {
+      return op->emitOpError(
+          "Input and output layout element types must be the same");
+    }
+    return mlir::success();
+  } else if (mlir::isa<mlir::MemRefType>(inputTensorOrMemrefTy)) {
+    if (!mlir::isa<mlir::MemRefType>(outputTensorOrMemrefTy)) {
+      return op->emitOpError("Input and output types must be the same");
+    }
+    mlir::MemRefType inputTy = mlir::cast<mlir::MemRefType>(inputTensorOrMemrefTy);
+    mlir::MemRefType outputTy =
+        mlir::cast<mlir::MemRefType>(outputTensorOrMemrefTy);
+
+    bool isFormatChange = inputTy.getElementType() != outputTy.getElementType();
+    if (isFormatChange) {
+      return op->emitOpError(
+          "Input and output layout element types must be the same");
+    }
+    return mlir::success();
+  }
+
+  return op->emitOpError("Unsupported input type for view");
+}
+
 // ToLayoutOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::verify() {
-  ::mlir::RankedTensorType inputTy = getInput().getType();
-  ::mlir::RankedTensorType outputTy = getOutput().getType();
-  if (inputTy.getShape() != outputTy.getShape()) {
-    return emitOpError("Input and output shapes must be the same");
-  }
-  return success();
+  return verifyLayoutOrViewOp(*this, getInput().getType(),
+                              getOutput().getType());
 }
 
 // ToLayoutOp utility methods
 mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
-  auto inputLayout =
-      mlir::cast<tt::MetalLayoutAttr>(getInput().getType().getEncoding());
-  auto outputLayout =
-      mlir::cast<tt::MetalLayoutAttr>(getOutput().getType().getEncoding());
-  bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
-  bool isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
-  bool isShardChange =
-      inputLayout.getShardShape() != outputLayout.getShardShape();
-  assert(isGridChange == isShardChange);
-  bool isFormatChange =
-      inputLayout.getElementType() != outputLayout.getElementType();
-  bool isMemorySpaceChange =
-      inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-  bool isMemoryLayoutChange =
-      inputLayout.getMemLayout() != outputLayout.getMemLayout();
-  return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
-          isMemoryLayoutChange};
+  if (mlir::isa<mlir::RankedTensorType>(getInput().getType())) {
+    auto inputLayout = mlir::cast<tt::MetalLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding());
+    auto outputLayout = mlir::cast<tt::MetalLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+            .getEncoding());
+    bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
+    bool isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
+    bool isShardChange =
+        inputLayout.getShardShape() != outputLayout.getShardShape();
+    assert(isGridChange == isShardChange);
+    bool isFormatChange =
+        inputLayout.getElementType() != outputLayout.getElementType();
+    bool isMemorySpaceChange =
+        inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
+    bool isMemoryLayoutChange =
+        inputLayout.getMemLayout() != outputLayout.getMemLayout();
+    return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
+            isMemoryLayoutChange};
+  } else {
+    auto inputMemref = mlir::cast<mlir::MemRefType>(getInput().getType());
+    auto outputMemref = mlir::cast<mlir::MemRefType>(getOutput().getType());
+    bool isLayoutChange = false;
+    bool isShapeChange = inputMemref.getShape() != outputMemref.getShape();
+    bool isGridChange = isShapeChange;
+    bool isFormatChange =
+        inputMemref.getElementType() != outputMemref.getElementType();
+    bool isMemorySpaceChange =
+        inputMemref.getMemorySpace() != outputMemref.getMemorySpace();
+    bool isMemoryLayoutChange = false;
+    return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
+            isMemoryLayoutChange};
+  }
 }
 
 ::mlir::LogicalResult
@@ -1334,6 +1391,132 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
   }
 
   return mlir::failure();
+}
+
+bool mlir::tt::ttir::ToLayoutOp::bufferizesToMemoryRead(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is a bufferized to a memory read.
+  return operand.getOperandNumber() == 0;
+}
+
+bool mlir::tt::ttir::ToLayoutOp::bufferizesToMemoryWrite(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is a bufferized to a memory write.
+  return operand.getOperandNumber() == 1;
+}
+
+::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
+    ::mlir::RewriterBase &rewriter,
+    const ::mlir::bufferization::BufferizationOptions &options) {
+  if (getNumResults() == 0) {
+    return ::mlir::failure();
+  }
+
+  assert(getNumResults() == 1 &&
+         "ToLayoutOp should have exactly one result");
+
+  if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
+    return ::mlir::failure();
+  }
+
+  auto maybeInput =
+      ::mlir::bufferization::getBuffer(rewriter, getInput(), options);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  auto maybeOutput =
+      ::mlir::bufferization::getBuffer(rewriter, getOutput(), options);
+  if (failed(maybeOutput)) {
+    return maybeOutput;
+  }
+
+  rewriter.create<::mlir::tt::ttir::ToLayoutOp>(getLoc(), ValueRange(),
+                                                *maybeInput, *maybeOutput);
+  ::mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                       *maybeOutput);
+  return ::mlir::success();
+}
+
+::mlir::bufferization::AliasingValueList
+mlir::tt::ttir::ToLayoutOp::getAliasingValues(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+::mlir::FailureOr<::mlir::BaseMemRefType>
+mlir::tt::ttir::ToLayoutOp::getBufferType(
+    ::mlir::Value value, const ::mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<::mlir::Value> &) {
+  auto rankedTensorType =
+      mlir::cast<::mlir::RankedTensorType>(value.getType());
+  mlir::Type memrefResultType =
+      mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+          .getMemref();
+  return mlir::cast<::mlir::BaseMemRefType>(memrefResultType);
+}
+
+//===----------------------------------------------------------------------===//
+// ViewLayoutOp
+//===----------------------------------------------------------------------===//
+
+// ViewLayoutOp verification
+::mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
+  return verifyLayoutOrViewOp(*this, getInput().getType(),
+                              getResult().getType());
+}
+
+bool mlir::tt::ttir::ViewLayoutOp::bufferizesToMemoryRead(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is a bufferized to a memory read.
+  return false;
+}
+
+bool mlir::tt::ttir::ViewLayoutOp::bufferizesToMemoryWrite(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is a bufferized to a memory write.
+  return false;
+}
+
+::mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
+    ::mlir::RewriterBase &rewriter,
+    const ::mlir::bufferization::BufferizationOptions &options) {
+  if (mlir::isa<::mlir::MemRefType>(getInput().getType())) {
+    return ::mlir::failure();
+  }
+
+  auto maybeInput =
+      ::mlir::bufferization::getBuffer(rewriter, getInput(), options);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  ::llvm::SmallVector<::mlir::Value> invocationStack;
+  ::mlir::bufferization::replaceOpWithNewBufferizedOp<
+      ::mlir::tt::ttir::ViewLayoutOp>(
+      rewriter, *this, *getBufferType(getResult(), options, invocationStack),
+      *maybeInput);
+  return ::mlir::success();
+}
+
+::mlir::bufferization::AliasingValueList
+mlir::tt::ttir::ViewLayoutOp::getAliasingValues(
+    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+::mlir::FailureOr<::mlir::BaseMemRefType>
+mlir::tt::ttir::ViewLayoutOp::getBufferType(
+    ::mlir::Value value, const ::mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<::mlir::Value> &) {
+  auto rankedTensorType =
+      mlir::cast<::mlir::RankedTensorType>(value.getType());
+  mlir::Type memrefResultType =
+      mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+          .getMemref();
+  return mlir::cast<::mlir::BaseMemRefType>(memrefResultType);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2360,22 +2543,14 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 
 bool mlir::tt::ttir::GenericOp::bufferizesToMemoryRead(
     ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
-  // If the operand is an output, it is not bufferized to a memory read.
-  if (operand.getOperandNumber() >= getInputs().size()) {
-    return false;
-  }
-
-  return true;
+  // If the operand is an input, it is a bufferized to a memory read.
+  return operand.getOperandNumber() < getInputs().size();
 }
 
 bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
     ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
-  // If the operand is an input, it is not bufferized to a memory write.
-  if (operand.getOperandNumber() < getInputs().size()) {
-    return false;
-  }
-
-  return true;
+  // If the operand is an output, it is a bufferized to a memory write.
+  return operand.getOperandNumber() >= getInputs().size();
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
@@ -2420,8 +2595,8 @@ bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
-  rewriter.replaceAllUsesWith(getResult(0), getOutputs()[0]);
-  rewriter.eraseOp(*this);
+  ::mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                       bufferOutputs);
   return ::mlir::success();
 }
 
