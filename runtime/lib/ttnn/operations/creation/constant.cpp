@@ -28,13 +28,10 @@ makeBuffer(const ::flatbuffers::Vector<uint8_t> *data) {
     LOG_ASSERT(data->size() % sizeof(T) == 0, "Invalid data size");
 
     ::tt::tt_metal::owned_buffer::Buffer<T> ownedBuffer =
-        tt::tt_metal::owned_buffer::create<T>(32 * 32);
+        tt::tt_metal::owned_buffer::create<T>(size);
 
     for (size_t i = 0; i < size; ++i) {
       ownedBuffer[i] = getElement<T>(data, i);
-    }
-    for (size_t i = 4; i < 32 * 32; ++i) {
-      ownedBuffer[i] = T{};
     }
     return ownedBuffer;
   }
@@ -76,11 +73,13 @@ void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
   ::ttnn::DataType dtype =
       ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
 
-  ::ttnn::Tensor out(
-      ::tt::tt_metal::OwnedStorage(ownedBuffer), shape, dtype,
-      ::tt::runtime::ttnn::operations::utils::isTilized(op->out())
-          ? ::ttnn::Layout::TILE
-          : ::ttnn::Layout::ROW_MAJOR);
+  LOG_ASSERT(::tt::runtime::ttnn::operations::utils::inSystemMemory(op->out()),
+             "Output tensor is expected to be in system memory");
+  LOG_ASSERT(!::tt::runtime::ttnn::operations::utils::isTilized(op->out()),
+             "Output tensor is expected to be in ROW_MAJOR layout");
+
+  ::ttnn::Tensor out(::tt::tt_metal::OwnedStorage(ownedBuffer), shape, dtype,
+                     ::ttnn::Layout::ROW_MAJOR);
 
   context.getTensorPool().insert_or_assign(op->out()->global_id(), out);
 }
