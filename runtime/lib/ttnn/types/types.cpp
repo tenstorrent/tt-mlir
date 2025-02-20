@@ -421,18 +421,19 @@ size_t ProgramContext::subMeshSize(uint32_t meshId) const {
   return *subMesh.get_device(physicalDeviceId);
 }
 
-::ttnn::IDevice &ProgramContext::getDeviceIndexFromSubMesh(uint32_t meshId,
-                                                           int deviceIndex) {
+::ttnn::IDevice &ProgramContext::getDeviceIndexFromSubMesh(
+    uint32_t meshId, ::tt::tt_metal::distributed::MeshCoordinate meshCoords) {
   LOG_ASSERT(subMeshes.contains(meshId));
   auto &subMesh = *subMeshes.at(meshId);
-  return *subMesh.get_device_index(deviceIndex);
+  return *subMesh.get_device(meshCoords);
 }
 
 DeviceVariant ProgramContext::getTargetDevice(uint32_t meshId) {
   LOG_ASSERT(subMeshes.contains(meshId));
   auto &subMesh = *subMeshes.at(meshId);
   if (subMesh.num_devices() == 1) {
-    return std::ref(*subMesh.get_device_index(0));
+    return std::ref(
+        *subMesh.get_device(::tt::tt_metal::distributed::MeshCoordinate(0, 0)));
   }
   return std::ref(subMesh);
 }

@@ -81,7 +81,8 @@ createFullOnSingleDevice(ProgramContext &context, FullTensorConfig &config,
     ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
     LOG_ASSERT(subMesh.num_devices() == 1);
     LOG_ASSERT(config.memoryConfig.has_value());
-    device = std::make_optional(std::ref(*subMesh.get_device_index(0)));
+    device = std::make_optional(std::ref(*subMesh.get_device(
+        ::tt::tt_metal::distributed::MeshCoordinate(0, 0))));
   }
   return ::ttnn::full(config.shape, config.fillValue, config.dtype,
                       config.layout, device, config.memoryConfig);
