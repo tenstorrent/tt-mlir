@@ -739,6 +739,18 @@ createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
                                                op.getBatchOffset());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ConstantOp>
+createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  auto rawData =
+      mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue()).getRawData();
+  auto rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+  return ::tt::target::ttnn::CreateConstantOpDirect(*cache.fbb, output,
+                                                    &rawVector);
+}
+
 template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
@@ -1498,6 +1510,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
     return createOperation(cache, createOp(cache, upsampleOp), debugString,
+                           locInfo);
+  }
+  if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {
+    return createOperation(cache, createOp(cache, constantOp), debugString,
                            locInfo);
   }
 

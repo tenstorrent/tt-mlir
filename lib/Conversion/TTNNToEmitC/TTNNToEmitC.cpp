@@ -1335,7 +1335,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                ZerosOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<ttnn::FullOp>,
-               DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::ArangeOp>,
+               DefaultOpConversionPattern<ttnn::ConstantOp>>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops

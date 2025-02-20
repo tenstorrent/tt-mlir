@@ -48,6 +48,51 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef);
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor);
 
+// TODO: (#1435): Fix int types across shapes
+//
+inline std::vector<uint32_t>
+toShapeFromFBShape(const flatbuffers::Vector<int32_t> &vec) {
+  return std::vector<uint32_t>(vec.begin(), vec.end());
+}
+
+// Translates a flatbuffer DataType to the native (C++) type.
+template <::tt::target::DataType DataType>
+struct NativeDType {
+  using type = std::monostate;
+};
+template <>
+struct NativeDType<::tt::target::DataType::Float32> {
+  using type = float;
+};
+template <>
+struct NativeDType<::tt::target::DataType::BFloat16> {
+  using type = bfloat16;
+};
+template <>
+struct NativeDType<::tt::target::DataType::UInt32> {
+  using type = uint32_t;
+};
+template <>
+struct NativeDType<::tt::target::DataType::UInt16> {
+  using type = uint16_t;
+};
+template <>
+struct NativeDType<::tt::target::DataType::UInt8> {
+  using type = uint8_t;
+};
+
+template <::tt::target::DataType DataType>
+using NativeDTypeT = typename NativeDType<DataType>::type;
+
+template <typename T>
+constexpr bool IsHostTypeV =
+    std::is_constructible_v<::tt::tt_metal::OwnedBuffer,
+                            ::tt::tt_metal::owned_buffer::Buffer<T>>;
+
+constexpr size_t DTypeMinV = static_cast<size_t>(tt::target::DataType::MIN);
+constexpr size_t DTypeMaxV = static_cast<size_t>(tt::target::DataType::MAX);
+constexpr size_t DTypeCountV = DTypeMaxV - DTypeMinV + 1;
+
 } // namespace tt::runtime::ttnn::utils
 
 #endif

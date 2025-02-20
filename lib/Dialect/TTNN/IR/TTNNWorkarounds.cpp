@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -314,4 +315,17 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
+
+// ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
+// tensors. Tensor is expected to be on host in ROW_MAJOR layout. This
+// workaround is used to gurantee those ivariants.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds hostRowMajorWorkaround = TTNNOperandWorkarounds();
+  hostRowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addOutputOperandWorkaround(hostRowMajorWorkaround);
+}
+
 } // namespace mlir::tt::ttnn::wa

@@ -8,6 +8,7 @@
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/creation/arange.h"
+#include "operations/creation/constant.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
@@ -281,6 +282,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ConstantOp: {
+    return operations::creation::run(op->type_as_ConstantOp(), context);
   }
   default: {
     LOG_FATAL("Unsupported operation type");
