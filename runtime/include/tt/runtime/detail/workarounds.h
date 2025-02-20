@@ -18,12 +18,12 @@ struct Env {
   get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
       bool toDtypeOnHost = true, bool defaultStrideComputation = true,
-      bool toLayoutAPIAssumeSingleChip = true)
+      bool toLayoutAPIAssumeSingleChip = false)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true, true);
+    return Env(true, true, true, true, true, false);
   }
 #endif
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
