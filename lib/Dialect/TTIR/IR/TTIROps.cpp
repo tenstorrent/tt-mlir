@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Utils.h"
 

@@ -12,6 +12,8 @@ include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 
 def TTIR_PoolingMethodAttr : EnumAttr<TTIR_Dialect, TTIR_PoolingMethod, "pooling_method">;
 
+def TTIR_ReduceDimAttr : EnumAttr<TTIR_Dialect, TTIR_ReduceDim, "reduce_dim">;
+
 def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], "::mlir::Attribute"> {
   let mnemonic = "convolution_layout";
   let summary = "Structure of dimension information for convolution op";
