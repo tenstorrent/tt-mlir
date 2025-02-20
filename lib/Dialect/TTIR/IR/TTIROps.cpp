@@ -1320,6 +1320,19 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
           isMemoryLayoutChange};
 }
 
+::mlir::LogicalResult
+mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
+                                         mlir::PatternRewriter &rewriter) {
+  // Check if input is an empty tensor.
+  if (auto emptyOp = op.getInput().getDefiningOp<tensor::EmptyOp>()) {
+    // Since the input is empty, we can just return the output tensor.
+    rewriter.replaceOp(op, {op.getOutput()});
+    return mlir::success();
+  }
+
+  return mlir::failure();
+}
+
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
