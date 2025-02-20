@@ -88,7 +88,7 @@ public:
 
   void execute(const ::tt::target::ttnn::Program *program) {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-      LOG_DEBUG(LogType::LogRuntimeTTNN,
+      LOG_INFO(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
       runOperation(op);
