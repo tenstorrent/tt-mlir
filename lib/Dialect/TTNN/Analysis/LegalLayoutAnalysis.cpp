@@ -117,8 +117,8 @@ bool LegalLayoutAnalysis::applyOverrides() {
   // Create element type for the new layout.
   Type elementType = layout.getScalarElementType();
   if (layoutOverride.dataType.has_value()) {
-    elementType = utils::dataTypeToElementType(op->getContext(),
-                                               layoutOverride.dataType.value());
+    elementType = mlir::tt::dataTypeToElementType(
+        op->getContext(), layoutOverride.dataType.value());
   }
 
   if (layoutOverride.memoryLayout == Layout::Tile) {
@@ -201,7 +201,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
         overrideIt != analysisInput.outputLayoutOverrides->end()) {
       override = overrideIt->getValue();
       if (override->dataType.has_value()) {
-        scalarElementType = {utils::dataTypeToElementType(
+        scalarElementType = {mlir::tt::dataTypeToElementType(
             op->getContext(), override->dataType.value())};
       }
     }

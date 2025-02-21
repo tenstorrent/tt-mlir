@@ -334,9 +334,7 @@ class Perf:
         tracy_file_path = "tracy_profile_log_host.tracy"
         tracy_ops_times_file_path = "tracy_ops_times.csv"
         tracy_ops_data_file_path = "tracy_ops_data.csv"
-        profiler_device_side_log_path = (
-            f"{os.getcwd()}/generated/profiler/.logs/profile_log_device.csv"
-        )
+        profiler_device_side_log_path = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/profile_log_device.csv"
         profiler_csv_file_path = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/reports/ops_perf_results.csv"
 
         self.file_manager.remove_directory(profiler_logs_dir)
@@ -468,11 +466,6 @@ class Perf:
                     self.file_manager.copy_file(
                         profiler_logs_dir, tracy_ops_data_file_path
                     )
-
-                    if not self["--host-only"]:
-                        self.file_manager.copy_file(
-                            profiler_logs_dir, profiler_device_side_log_path
-                        )
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)

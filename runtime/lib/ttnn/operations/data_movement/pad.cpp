@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 #include <optional>
 
@@ -26,10 +27,8 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
     padding.emplace_back(op->padding()->Get(i), op->padding()->Get(i + 1));
   }
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      op->memcfg() ? std::make_optional(
-                         utils::createMemoryConfig(op->memcfg(), op->out()))
-                   : std::nullopt;
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   out = ::ttnn::pad(in, padding, padValue, op->use_multicore(),
                     outputMemoryConfig);

@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
@@ -95,11 +96,20 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
           srcOp, adaptor, rewriter);
     }
+    if (isArgMax(srcOp, adaptor, rewriter)) {
+      return matchAndRewriteInternalArgMax(srcOp, adaptor, rewriter);
+    }
 
     return failure();
   }
 
 private:
+  // Typical initialization values for reduction ops.
+  enum TypicalInitReductionValue {
+    NEG_INF, // It is also used for minimum integer value.
+    ZERO,
+  };
+
   LogicalResult checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp,
                                    mlir::stablehlo::ReduceOp::Adaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
@@ -149,6 +159,331 @@ private:
                                                  /*keep_dim=*/false, dimArg);
 
     return success();
+  }
+
+  LogicalResult
+  matchAndRewriteInternalArgMax(mlir::stablehlo::ReduceOp &srcOp,
+                                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    // Can't reuse the original dimensions attribute because it uses i64 type.
+    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(srcOp.getDimensions()));
+
+    // stablehlo.reduce op generates two results; the first output is maximum
+    // value which is not consumed in subsequent graph and the second out is the
+    // index of maximum value which is consumend in subsequent graph. On other
+    // hand ttir.argmax generates one result only.
+    // So 'rewriter.replaceOpWithNewOp' will not work due to difference in
+    // number of outputs.
+    // We are creating the new ttir op explicitly here, then replace the
+    // original op uses with the new op, and finally, erase the original op
+    // explicitly.
+    ttir::ArgMaxOp newOp = rewriter.create<tt::ttir::ArgMaxOp>(
+        srcOp->getLoc(), outputType, adaptor.getInputs().front(), outputTensor,
+        false /* keep_dim */, dimArg);
+
+    srcOp->getResults().back().replaceAllUsesWith(newOp->getResults().front());
+    rewriter.eraseOp(srcOp);
+
+    return success();
+  }
+
+  // This function verify all the required conditions to convert stablehlo
+  // reduce op to TTIR argmax op
+  // 1. Two inputs values ot the op.
+  //   a. first input is the input tensor.
+  //   b. second input is defined with stablehlo.iota
+  // 2. Two init values
+  //   a. first init value is -inf (for float) or int_min (for integer input)
+  //   b. second init value is 0
+  // 3. Two results generated; the first result is maximum value which is not
+  //    consumed in subsequent graph and the second result is index of maximum
+  //    value which is consumend in subsequent graph.
+  // 4. One block in reducer body.
+  // 5. Pattern match the ops of reducer body; tt-torch and tt-xla generates
+  //    different pattern. So pattern matching is performed separately.
+  bool isArgMax(mlir::stablehlo::ReduceOp &srcOp,
+                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                ConversionPatternRewriter &rewriter) const {
+    if (!hasValidArgMaxInputs(srcOp.getInputs())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxOutputs(srcOp.getResults())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxInitValues(srcOp.getInitValues())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxReducerBody(srcOp.getBody())) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Validate the inputs.
+  bool hasValidArgMaxInputs(mlir::OperandRange inputs) const {
+    if (inputs.size() != 2) {
+      return false;
+    }
+
+    return isa<stablehlo::IotaOp>(inputs.back().getDefiningOp()) ? true : false;
+  }
+
+  // Validate the outputs.
+  bool hasValidArgMaxOutputs(mlir::ResultRange results) const {
+    if (results.size() != 2) {
+      return false;
+    }
+
+    if (!results.front().getUsers().empty() ||
+        results.back().getUsers().empty()) {
+      return false;
+    }
+    return true;
+  }
+
+  // Validate initialization values.
+  bool hasValidArgMaxInitValues(mlir::OperandRange initValues) const {
+    if (initValues.size() != 2) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.front(),
+                         TypicalInitReductionValue::NEG_INF)) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.back(), TypicalInitReductionValue::ZERO)) {
+      return false;
+    }
+    return true;
+  }
+
+  // Validate reducer body.
+  bool hasValidArgMaxReducerBody(mlir::Region &body) const {
+    auto &blocks = body.getBlocks();
+    if (blocks.size() != 1) {
+      return false;
+    }
+
+    auto &operations = blocks.front().getOperations();
+    if (operations.size() == 7) {
+      if (verifyTorchOpArgMaxPattern(operations.front())) {
+        return true;
+      }
+    } else if (operations.size() == 10) {
+      if (verifyJaxOpArgMaxPattern(operations.front())) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Pattern match the ops for tt-torch ArgMax op.
+  bool verifyTorchOpArgMaxPattern(mlir::Operation &operation) const {
+    mlir::Operation *op = &operation;
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    stablehlo::CompareOp compareOp = mlir::cast<stablehlo::CompareOp>(op);
+    if (compareOp.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::GE) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::MinOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::ReturnOp>(op)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Pattern match the ops for tt-xla ArgMax op.
+  bool verifyJaxOpArgMaxPattern(mlir::Operation &operation) const {
+    mlir::Operation *op = &operation;
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    stablehlo::CompareOp compareOp = mlir::cast<stablehlo::CompareOp>(op);
+    if (compareOp.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::GT) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::OrOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::AndOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::OrOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::ReturnOp>(op)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Verify that the init value is defined by a constant op and initialize with
+  // desired value.
+  bool verifyInitValue(mlir::Value val,
+                       TypicalInitReductionValue desired) const {
+    Operation *initValue = val.getDefiningOp();
+    while (initValue->getOpOperands().size() == 1) {
+      initValue = initValue->getOpOperand(0).get().getDefiningOp();
+    }
+    if (!isa<stablehlo::ConstantOp>(initValue)) {
+      return false;
+    }
+
+    stablehlo::ConstantOp initValueOp =
+        mlir::cast<stablehlo::ConstantOp>(initValue);
+
+    if (!checkInitValue(initValueOp, desired)) {
+      return false;
+    }
+    return true;
+  }
+
+  // Check if the constant op is initialized with the desired init value.
+  bool checkInitValue(stablehlo::ConstantOp initValueOp,
+                      TypicalInitReductionValue desired) const {
+    if (initValueOp.getValueAttr().size() != 1) {
+      return false;
+    }
+
+    float desiredF32;
+    double desiredF64;
+    uint16_t desiredBF16;
+    int32_t desiredI32;
+    int64_t desiredI64;
+    if (desired == TypicalInitReductionValue::NEG_INF) {
+      desiredF32 = -std::numeric_limits<float>::infinity();
+      desiredF64 = -std::numeric_limits<double>::infinity();
+      desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
+      desiredI32 = std::numeric_limits<int32_t>::min();
+      desiredI64 = std::numeric_limits<int64_t>::min();
+    } else if (desired == TypicalInitReductionValue::ZERO) {
+      desiredF32 = 0.0;
+      desiredF64 = 0.0;
+      desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
+      desiredI32 = 0;
+      desiredI64 = 0;
+    } else {
+      return false;
+    }
+
+    // Constant operand must be -inf if this is to be a max pool
+    // since bfloat16 is not a type we actually have I must compare the raw
+    // bits
+    if (initValueOp.getResult().getType().getElementType().isBF16()) {
+      // Collect the values into a vector
+      std::vector<mlir::Attribute> values;
+      for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
+        values.push_back(
+            initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
+      }
+
+      auto denseValues = ::mlir::DenseElementsAttr::get(
+          initValueOp.getValueAttr().getShapedType(), values);
+      uint16_t bfloat_bits =
+          static_cast<uint16_t>(*denseValues.getRawData().data());
+      if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isF32()) {
+      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isF64()) {
+      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isInteger(
+                   32)) {
+      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isInteger(
+                   64)) {
+      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+
+    return true;
   }
 };
 } // namespace
@@ -1216,7 +1551,7 @@ public:
         auto channelHandle = srcOp.getChannelHandle().value();
 
         // channelType is supposed to be DEVICE_TO_DEVICE for CCL ops.
-        // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+        // Currently, we ensure if it is DEVICE_TO_DEVICE communication.
         // Consider preserving this information in the future if the attribute
         // is non-DEVICE_TO_DEVICE values.
         auto channelType = static_cast<int32_t>(channelHandle.getType());

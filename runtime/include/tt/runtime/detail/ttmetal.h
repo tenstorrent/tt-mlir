@@ -19,9 +19,6 @@
 
 namespace tt::runtime::ttmetal {
 
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
-    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
-
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
@@ -104,10 +101,10 @@ inline CoreRangeSet toCoreRangeSet(
 
 inline std::shared_ptr<::tt::tt_metal::Buffer>
 createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
-                          ::tt::target::TensorRef const *tensorRef) {
-  ::tt::target::TensorDesc const *tensorDesc = tensorRef->desc();
-  ::tt::target::LayoutDesc const *layout = tensorDesc->layout();
-  ::tt::target::MemoryDesc const *memoryDesc = layout->memory_desc();
+                          ::tt::target::metal::TensorRef const *tensorRef) {
+  ::tt::target::metal::TensorDesc const *tensorDesc = tensorRef->desc();
+  ::tt::target::metal::LayoutDesc const *layout = tensorDesc->layout();
+  ::tt::target::metal::MemoryDesc const *memoryDesc = layout->memory_desc();
   CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
   auto shardRank = memoryDesc->shape()->size();
   ::tt::target::Dim2d const *tile_shape = memoryDesc->tile_shape();

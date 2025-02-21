@@ -26,13 +26,13 @@ static std::string asJson(void const *fbb, uint8_t const *binarySchema,
   opts.output_default_scalars_in_json = true;
   flatbuffers::Parser parser(opts);
 
-  if (not parser.Deserialize(binarySchema, schemaSize)) {
+  if (!parser.Deserialize(binarySchema, schemaSize)) {
     LOG_FATAL("Failed to deserialize schema");
   }
 
   std::string text;
   const char *err = ::flatbuffers::GenerateText(parser, fbb, &text);
-  LOG_ASSERT(not err, "Failed to generate JSON: ", err);
+  LOG_ASSERT(!err, "Failed to generate JSON: ", err);
   return text;
 }
 

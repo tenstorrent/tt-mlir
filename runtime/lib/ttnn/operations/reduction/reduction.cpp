@@ -14,11 +14,17 @@ static void runReductionOp(
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
         const std::optional<std::variant<int, ::ttnn::SmallVector<int>>> &,
-        const bool, const std::optional<::tt::tt_metal::MemoryConfig> &,
+        const bool, const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
         &ttnnOp) {
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
 

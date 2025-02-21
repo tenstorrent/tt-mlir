@@ -12,6 +12,8 @@ include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 
 def TTIR_PoolingMethodAttr : EnumAttr<TTIR_Dialect, TTIR_PoolingMethod, "pooling_method">;
 
+def TTIR_ReduceDimAttr : EnumAttr<TTIR_Dialect, TTIR_ReduceDim, "reduce_dim">;
+
 def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], "::mlir::Attribute"> {
   let mnemonic = "convolution_layout";
   let summary = "Structure of dimension information for convolution op";
@@ -42,6 +44,15 @@ def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], 
         `output_batch` `=` $outputBatchDimension `,`
         `output_feature` `=` $outputFeatureDimension `,`
         `output_spatial_dimensions` `=` custom<DimensionList>($outputSpatialDimensions)
+  }];
+}
+
+def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Attribute"> {
+  let mnemonic = "hoisted_call";
+  let summary = "Indicates that this call operation has been hoisted";
+  let description = [{
+    This attribute marks call operations that have been hoisted during optimization.
+    It is used as a marker and doesn't carry any additional data.
   }];
 }
 

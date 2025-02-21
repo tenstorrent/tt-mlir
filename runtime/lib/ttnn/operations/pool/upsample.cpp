@@ -6,6 +6,7 @@
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::pool {
 void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
@@ -29,10 +30,9 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
   }
 
   std::string mode = op->mode()->str();
-  std::optional<tt::tt_metal::MemoryConfig> memoryConfig =
-      op->memory_config() ? std::make_optional(utils::createMemoryConfig(
-                                op->memory_config(), op->out()))
-                          : std::nullopt;
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
 
   ::ttnn::Tensor output =
       ::ttnn::upsample(input, scaleFactor, mode, memoryConfig);

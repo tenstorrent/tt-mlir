@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Utils.h"
 
@@ -1320,6 +1321,19 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
           isMemoryLayoutChange};
 }
 
+::mlir::LogicalResult
+mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
+                                         mlir::PatternRewriter &rewriter) {
+  // Check if input is an empty tensor.
+  if (auto emptyOp = op.getInput().getDefiningOp<tensor::EmptyOp>()) {
+    // Since the input is empty, we can just return the output tensor.
+    rewriter.replaceOp(op, {op.getOutput()});
+    return mlir::success();
+  }
+
+  return mlir::failure();
+}
+
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
@@ -2467,6 +2481,29 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 
 // ReduceAndOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ReduceAndOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// Reduce ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+// ArgMaxOp kernel builder.
+void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                  ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "argmax");
+}
+
+// ArgMaxOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
+  auto dimArg = getDimArg();
+  if (dimArg && dimArg->size() > 1) {
+    return getOperation()->emitOpError()
+           << "can only reduce one dimension; number of specified dimensions: "
+           << dimArg->size() << ".";
+  }
+
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
 

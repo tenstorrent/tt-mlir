@@ -12,20 +12,20 @@
 
 namespace tt::mlir::ttnn::utils {
 
-::tt::target::TensorMemoryLayout toTargetTensorMemoryLayout(
+::tt::target::ttnn::TensorMemoryLayout toTargetTensorMemoryLayout(
     ::mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout) {
 
   switch (tensorMemoryLayout) {
   case ::mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
-    return ::tt::target::TensorMemoryLayout::Interleaved;
+    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
   case ::mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::target::TensorMemoryLayout::SingleBank;
+    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
   case ::mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
-    return ::tt::target::TensorMemoryLayout::HeightSharded;
+    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
   case ::mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
-    return ::tt::target::TensorMemoryLayout::WidthSharded;
+    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
   case ::mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
-    return ::tt::target::TensorMemoryLayout::BlockSharded;
+    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
   }
 
   llvm_unreachable("Unsupported TensorMemoryLayout");

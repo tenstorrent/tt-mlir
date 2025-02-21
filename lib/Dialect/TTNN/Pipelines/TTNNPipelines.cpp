@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -26,6 +27,7 @@ void createTTNNPipelineTTIRPasses(
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
 
+  pm.addPass(mlir::tt::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(mlir::createCanonicalizerPass());

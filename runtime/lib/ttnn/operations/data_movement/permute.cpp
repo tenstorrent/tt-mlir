@@ -6,6 +6,7 @@
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 #include <vector>
 
@@ -18,10 +19,9 @@ void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
 
   ::ttnn::SmallVector<int64_t> permutation(op->permutation()->begin(),
                                            op->permutation()->end());
-  std::optional<tt::tt_metal::MemoryConfig> memoryConfig =
-      op->memory_config() ? std::make_optional(utils::createMemoryConfig(
-                                op->memory_config(), op->out()))
-                          : std::nullopt;
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
   float padValue = op->pad_value();
 
   ::ttnn::Tensor out = ::ttnn::permute(in, permutation, memoryConfig, padValue);

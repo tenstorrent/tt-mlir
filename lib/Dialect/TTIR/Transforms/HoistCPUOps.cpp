@@ -44,37 +44,19 @@ getOperandTensorRanks(mlir::Operation *op) {
 
 // Generate unique name base on operation type + argument tensors dims & types.
 static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
-  // Start building the unique function name
   llvm::SmallString<16> uniqueName("hoisted_");
   uniqueName.append(op->getName().getStringRef());
 
-  // Iterate over operands to extract tensor shapes and types
   for (auto operand : op->getOperands()) {
-    auto rankedTensorType = dyn_cast<mlir::RankedTensorType>(operand.getType());
-    if (rankedTensorType) {
-      // Append the shape (dimensions) and the element type
-      llvm::SmallString<5> shapeStr("_");
-      for (auto dim : rankedTensorType.getShape()) {
-        shapeStr += std::to_string(dim) + "x";
-      }
-
-      // Append the element type (e.g., f32, i32) -- unforunately I don't think
-      // there's a better way to get string from mlir::Type
-      std::string elementTypeStr;
-      llvm::raw_string_ostream stream(elementTypeStr);
-      rankedTensorType.getElementType().print(stream);
-
-      uniqueName.append(shapeStr.begin(), shapeStr.end());
-      uniqueName.append(elementTypeStr.begin(), elementTypeStr.end());
+    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+      uniqueName += "_";
+      llvm::raw_svector_ostream os(uniqueName);
+      llvm::interleave(tensorType.getShape(), os, "x");
     }
   }
 
   uniqueName += "_func";
-
-  // Dots in func names may or may not be legal in a dylib based on platform,
-  // safer to replace with underscores at this stage.
   std::replace(uniqueName.begin(), uniqueName.end(), '.', '_');
-
   return uniqueName;
 }
 
@@ -86,6 +68,58 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                      mlir::ModuleOp targetModule) {
 
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
+  mlir::MLIRContext *context = sourceModule.getContext();
+  mlir::OpBuilder typeBuilder(opToHoist);
+  auto f32Type = mlir::FloatType::getF32(context);
+
+  // Convert operands and gather types for function signature
+  llvm::SmallVector<mlir::Type> operandTypes;
+  llvm::SmallVector<mlir::Value> convertedOperands;
+
+  for (auto operand : opToHoist->getOperands()) {
+    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+      if (!tensorType.getElementType().isF32()) {
+        // Create f32 version of tensor type
+        auto f32TensorType = RankedTensorType::get(
+            tensorType.getShape(), f32Type, tensorType.getEncoding());
+        operandTypes.push_back(f32TensorType);
+
+        // Create converted tensor value
+        auto emptyTensor = typeBuilder.create<mlir::tensor::EmptyOp>(
+            opToHoist->getLoc(), tensorType.getShape(), f32Type);
+        auto converted = typeBuilder.create<mlir::tt::ttir::ToLayoutOp>(
+            opToHoist->getLoc(), f32TensorType, operand, emptyTensor);
+        convertedOperands.push_back(converted);
+      } else {
+        operandTypes.push_back(tensorType);
+        convertedOperands.push_back(operand);
+      }
+    } else {
+      operandTypes.push_back(operand.getType());
+      convertedOperands.push_back(operand);
+    }
+  }
+
+  // Gather result types for function signature
+  llvm::SmallVector<mlir::Type> resultTypes;
+  for (auto result : opToHoist->getResultTypes()) {
+    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(result)) {
+      if (!tensorType.getElementType().isF32()) {
+        resultTypes.push_back(RankedTensorType::get(
+            tensorType.getShape(), f32Type, tensorType.getEncoding()));
+      } else {
+        resultTypes.push_back(tensorType);
+      }
+    } else {
+      resultTypes.push_back(result);
+    }
+  }
+
+  // Create function types
+  mlir::FunctionType localFuncType =
+      mlir::FunctionType::get(context, operandTypes, resultTypes);
+  mlir::FunctionType funcType =
+      mlir::FunctionType::get(context, operandTypes, {});
 
   const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
   llvm::SmallString<16> localFunctionName = functionName;
@@ -96,23 +130,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
-    mlir::MLIRContext *context = sourceModule.getContext();
-
-    // Gather operand and result types.
-    llvm::SmallVector<mlir::Type> operandTypes, resultTypes;
-    for (auto operand : opToHoist->getOperands()) {
-      operandTypes.push_back(operand.getType());
-    }
-    for (auto result : opToHoist->getResultTypes()) {
-      resultTypes.push_back(result);
-    }
-
-    // Create the function signature.
-    mlir::FunctionType localFuncType =
-        mlir::FunctionType::get(context, operandTypes, resultTypes);
-    mlir::FunctionType funcType =
-        mlir::FunctionType::get(context, operandTypes, {});
-
     // Insert the function and the terminator
     auto hoistedFunc =
         func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
@@ -133,7 +150,32 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       mapping.map(std::get<0>(operand), std::get<1>(operand));
     }
 
-    builder.clone(*opToHoist, mapping);
+    // Clone the operation but modify its type if needed
+    auto *clonedOp = builder.clone(*opToHoist, mapping);
+
+    // Update operand types to f32 for tensor types
+    for (auto i : llvm::seq<unsigned>(0, clonedOp->getNumOperands())) {
+      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
+              clonedOp->getOperand(i).getType())) {
+        if (!tensorType.getElementType().isF32()) {
+          auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
+                                               tensorType.getEncoding());
+          clonedOp->getOperand(i).setType(newType);
+        }
+      }
+    }
+
+    // Update result types to f32 for tensor types
+    for (auto i : llvm::seq<unsigned>(0, clonedOp->getNumResults())) {
+      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(
+              clonedOp->getResult(i).getType())) {
+        if (!tensorType.getElementType().isF32()) {
+          auto newType = RankedTensorType::get(tensorType.getShape(), f32Type,
+                                               tensorType.getEncoding());
+          clonedOp->getResult(i).setType(newType);
+        }
+      }
+    }
 
     // Add a return operation to the function.
     builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(), ValueRange());
@@ -147,15 +189,39 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     hoistedFunc->setAttr("arg_ranks", builder.getI64ArrayAttr(ranks));
   }
 
-  // Replace the original operation with a call to the hoisted function.
+  // Create the call using already converted inputs
   mlir::OpBuilder opBuilder(opToHoist);
   auto callOp = opBuilder.create<mlir::func::CallOp>(
-      opToHoist->getLoc(), localFunc, opToHoist->getOperands());
+      opToHoist->getLoc(), localFunc, convertedOperands);
 
-  // Replace all results of the original operation with the call results.
-  opToHoist->replaceAllUsesWith(callOp);
+  // Convert results back to original types if needed
+  llvm::SmallVector<mlir::Value> finalResults;
+  for (auto [result, callResult] :
+       llvm::zip(opToHoist->getResults(), callOp.getResults())) {
+    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(result.getType())) {
+      if (!tensorType.getElementType().isF32()) {
+        auto converted = opBuilder.create<mlir::tensor::EmptyOp>(
+            opToHoist->getLoc(), tensorType.getShape(),
+            tensorType.getElementType());
+        auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(
+            opToHoist->getLoc(), tensorType, callResult, converted);
+        finalResults.push_back(toOriginal);
+      } else {
+        finalResults.push_back(callResult);
+      }
+    } else {
+      finalResults.push_back(callResult);
+    }
+  }
 
-  // Erase the original operation.
+  // Add the hoisted_call attribute
+  callOp->setAttr(HoistedCallAttr::name,
+                  UnitAttr::get(opToHoist->getContext()));
+
+  // Replace original op with the converted results
+  opToHoist->replaceAllUsesWith(finalResults);
+
+  // Erase the original operation
   opToHoist->erase();
 }
 

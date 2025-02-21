@@ -13,10 +13,10 @@
 namespace tt::runtime::ttnn::operations::ccl {
 void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
                       ::ttnn::MeshDevice &meshDevice,
-                      const ::tt::target::MeshShardType &shardType,
+                      const ::tt::target::ttnn::MeshShardType &shardType,
                       const std::vector<int64_t> &shardShape,
                       const std::vector<int64_t> &shardDims) {
-  if (shardType == ::tt::target::MeshShardType::Replicate) {
+  if (shardType == ::tt::target::ttnn::MeshShardType::Replicate) {
     out = ::ttnn::distributed::distribute_tensor(
         input,
         *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
@@ -41,12 +41,12 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
 
 void ShardToFullShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
                       ::ttnn::MeshDevice &meshDevice,
-                      const ::tt::target::MeshShardType &shardType,
+                      const ::tt::target::ttnn::MeshShardType &shardType,
                       const std::vector<int64_t> &shardShape,
                       const std::vector<int64_t> &shardDims) {
   std::vector<::ttnn::Tensor> input_tensors =
       ::ttnn::distributed::get_tensors_from_multi_device_storage(input);
-  if (shardType == ::tt::target::MeshShardType::Replicate) {
+  if (shardType == ::tt::target::ttnn::MeshShardType::Replicate) {
     out = input_tensors[0];
   } else {
     bool bFullConcat = std::all_of(shardDims.begin(), shardDims.end(),
@@ -86,8 +86,9 @@ void ShardToFullShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
 void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
-  const ::tt::target::MeshShardDirection shardDirection = op->shard_direction();
-  const ::tt::target::MeshShardType shardType = op->shard_type();
+  const ::tt::target::ttnn::MeshShardDirection shardDirection =
+      op->shard_direction();
+  const ::tt::target::ttnn::MeshShardType shardType = op->shard_type();
   const auto *fbShardShape = op->shard_shape();
   const auto *fbShardDims = op->shard_dims();
   std::vector<int64_t> shardShape(fbShardShape->begin(), fbShardShape->end());
@@ -95,13 +96,15 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(input.storage_type()),
                "Input of ttnn::mesh_shard should be host tensor");
 
-  if (shardDirection != ::tt::target::MeshShardDirection::FullToShardShape &&
-      shardDirection != ::tt::target::MeshShardDirection::ShardToFullShape) {
+  if (shardDirection !=
+          ::tt::target::ttnn::MeshShardDirection::FullToShardShape &&
+      shardDirection !=
+          ::tt::target::ttnn::MeshShardDirection::ShardToFullShape) {
     throw std::runtime_error("Unsupported shard direction");
   }
 
-  if (shardType != ::tt::target::MeshShardType::Replicate &&
-      shardType != ::tt::target::MeshShardType::Devices) {
+  if (shardType != ::tt::target::ttnn::MeshShardType::Replicate &&
+      shardType != ::tt::target::ttnn::MeshShardType::Devices) {
     throw std::runtime_error("Unsupported shard type");
   }
 
@@ -109,7 +112,8 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
       context.getSubMesh(op->device()->global_id());
 
   ::ttnn::Tensor out;
-  if (shardDirection == ::tt::target::MeshShardDirection::FullToShardShape) {
+  if (shardDirection ==
+      ::tt::target::ttnn::MeshShardDirection::FullToShardShape) {
     FullToShardShape(input, out, meshDevice, shardType, shardShape, shardDims);
   } else {
     ShardToFullShape(input, out, meshDevice, shardType, shardShape, shardDims);

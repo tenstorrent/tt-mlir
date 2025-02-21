@@ -13,15 +13,19 @@ namespace tt::runtime::ttnn::operations::unary::composite {
 
 static void runEltwiseUnaryCompositeOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(const ::ttnn::Tensor &,
-                                       const ::tt::tt_metal::MemoryConfig &)>
+    const std::function<::ttnn::Tensor(
+        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &)>
         &ttnnOp) {
 
   ::ttnn::Tensor *in = nullptr;
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
@@ -29,16 +33,22 @@ static void runEltwiseUnaryCompositeOp(
 
 static void runEltwiseUnaryCompositeClampOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(const ::ttnn::Tensor &, float, float,
-                                       const ::tt::tt_metal::MemoryConfig &)>
-        &ttnnOp) {
+    const std::function<
+        ::ttnn::Tensor(const ::ttnn::Tensor &, float, float,
+                       const std::optional<::ttnn::MemoryConfig> &)> &ttnnOp) {
   ::ttnn::Tensor *in = nullptr;
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
   float min = op->params_as_ClampOpParams()->min();
   float max = op->params_as_ClampOpParams()->max();
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
   ::ttnn::Tensor out = ttnnOp(*in, min, max, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

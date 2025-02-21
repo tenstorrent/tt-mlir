@@ -92,7 +92,7 @@ public:
 
       TTNNLayoutAttr newLayout = createLayoutAttr(ctx, deviceGrid, type);
       // Convert mlir data types to tt data types
-      Type elementType = mlir::tt::ttnn::utils::dataTypeToElementType(
+      Type elementType = mlir::tt::dataTypeToElementType(
           ctx, elementTypeToDataType(type.getElementType()));
       return RankedTensorType::get(type.getShape(), elementType, newLayout);
     });
@@ -119,7 +119,7 @@ public:
       TTNNLayoutAttr newLayout = createLayoutAttr(
           ctx, deviceGrid, type, BufferType::SystemMemory, std::nullopt, false);
       // Convert mlir data types to tt data types
-      Type elementType = mlir::tt::ttnn::utils::dataTypeToElementType(
+      Type elementType = mlir::tt::dataTypeToElementType(
           ctx, elementTypeToDataType(type.getElementType()));
       return RankedTensorType::get(type.getShape(), elementType, newLayout);
     });
@@ -442,7 +442,7 @@ public:
   // Match and rewrite the CallOp.
   LogicalResult matchAndRewrite(func::CallOp callOp,
                                 PatternRewriter &rewriter) const override {
-    if (!callOp->hasAttr("hoisted_call")) {
+    if (!callOp->hasAttr(ttir::HoistedCallAttr::name)) {
       return failure();
     }
 

@@ -6,6 +6,7 @@
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::RepeatInterleaveOp *op,
@@ -17,10 +18,9 @@ void run(const ::tt::target::ttnn::RepeatInterleaveOp *op,
 
   uint32_t repeats = op->repeats();
   int32_t dim = op->dim();
-  std::optional<tt::tt_metal::MemoryConfig> memoryConfig =
-      op->memory_config() ? std::make_optional(utils::createMemoryConfig(
-                                op->memory_config(), op->out()))
-                          : std::nullopt;
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
 
   ::ttnn::Tensor out =
       ::ttnn::repeat_interleave(input, repeats, dim, memoryConfig);
