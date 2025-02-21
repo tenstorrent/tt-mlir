@@ -14,6 +14,7 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
@@ -1922,7 +1923,7 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
       AllReduce op.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          I64ElementsAttr:$replica_groups,
                          SI32Attr:$dim,
@@ -1931,7 +1932,7 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
                          TT_ReduceTypeAttr:$reduce_type
     );
 
-    let results = (outs Variadic<AnyRankedTensor>:$results);
+    let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }

@@ -1402,10 +1402,9 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   llvm::ArrayRef<int64_t> shardShape = getShardShape();
   ::mlir::tt::MeshShardType shardType = getShardType();
 
-  // Check sharding is one of replicate or devices.
-  if (shardType != ::mlir::tt::MeshShardType::Replicate &&
-      shardType != ::mlir::tt::MeshShardType::Devices) {
-    return emitOpError("Invalid shard_type for mesh_shard op.");
+  // Check shard_type is not maximal.
+  if (shardType == ::mlir::tt::MeshShardType::Maximal) {
+    return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
   }
 
   if (shardType == ::mlir::tt::MeshShardType::Devices) {
