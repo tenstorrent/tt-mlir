@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
-module attributes {} {
+module {
     // CHECK-DAG: #{{.*}} = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xf32, #system_memory>>
     // CHECK-DAG: #{{.*}} = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!tt.tile<32x32, f32>, #dram>, <interleaved>>
 
