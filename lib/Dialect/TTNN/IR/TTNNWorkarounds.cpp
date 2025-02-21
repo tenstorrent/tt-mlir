@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
@@ -184,7 +185,6 @@ TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(
     RankedTensorType inputType) {
   mlir::Type inputElementType = inputType.getElementType();
-  // DataType dataType = elementTypeToDataType(inputElementType);
   TTNNOperandWorkarounds typeWorkaround =
       isa<IntegerType>(inputElementType)
           ? TTNNOperandWorkarounds(DataType::Float32)
@@ -328,4 +328,34 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(hostRowMajorWorkaround);
 }
 
+// Factory method to create a set of workarounds for where op operands.
+// tt-metal uses predicate type for where op operation. If the predicate data
+// type does not match with inputs/output data type; tt-metal can generate
+// incorrect results or other failures. Add a data type workaround if predicate
+// type does not match with input.
+// tt-metal issue to track mixed data types ops bug.
+// https://github.com/tenstorrent/tt-metal/issues/17998
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
+    mlir::Operation::operand_range inputs) {
+  // Extract predicate type; defined as first input in TTNN Dialect.
+  mlir::RankedTensorType predicateType =
+      mlir::cast<RankedTensorType>(inputs.front().getType());
+  mlir::Type predicateElementType = predicateType.getElementType();
+  // Use last input to determine input data type.
+  mlir::RankedTensorType inputType =
+      mlir::cast<RankedTensorType>(inputs.back().getType());
+  mlir::Type inputElementType = inputType.getElementType();
+  TTNNOperandWorkarounds typeWorkaround =
+      predicateElementType != inputElementType
+          ? TTNNOperandWorkarounds(elementTypeToDataType(inputElementType))
+          : TTNNOperandWorkarounds();
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkaround)
+      .addInputOperandWorkaround(typeWorkaround)
+      .addInputOperandWorkaround(typeWorkaround)
+      .addInputOperandWorkaround(typeWorkaround)
+      .addOutputOperandWorkaround(typeWorkaround);
+}
 } // namespace mlir::tt::ttnn::wa

@@ -1299,7 +1299,7 @@ public:
   using OpConversionPattern<ttir::AllReduceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::AllReduceOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::AllReduceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
@@ -1308,10 +1308,10 @@ public:
     // pass of reduce_scatter output and all_gather input
     int32_t scatter_num =
         replicaGroupsShape[scatter_dim % replicaGroupsShape.size()];
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
-        op, this->getTypeConverter()->convertType(op.getType(0)),
-        adaptor.getInputs().front(), device, scatter_dim, scatter_num,
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        adaptor.getInput(), device, scatter_dim, scatter_num,
         adaptor.getReduceType());
 
     return success();

@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt -split-input-file --stablehlo-to-ttir-pipeline %s | FileCheck %s
 
 // jax/pjrt sharding target 1x2 for n300 all_reduce
 module @all_reduce_1x2 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
@@ -40,6 +40,8 @@ module @all_reduce_1x2 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_repli
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 2x4 for t3k all_reduce
 module @all_reduce_2x4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<8192x784xf32>, %arg1: tensor<784x16384xf32>) -> (tensor<8192x16384xf32> {jax.result_info = ""}) {
@@ -78,6 +80,8 @@ module @all_reduce_2x4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
     return %1 : tensor<4096x16384xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x8 for t3k all_reduce
 module @all_reduce_1x8 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
@@ -118,6 +122,8 @@ module @all_reduce_1x8 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 8x4 for tg all_reduce
 module @all_reduce_8x4 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<8192x784xf32>, %arg1: tensor<784x16384xf32>) -> (tensor<8192x16384xf32> {jax.result_info = ""}) {
@@ -156,6 +162,8 @@ module @all_reduce_8x4 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_repl
     return %1 : tensor<1024x16384xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x32 for tg all_reduce
 module @all_reduce_1x32 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
@@ -196,6 +204,8 @@ module @all_reduce_1x32 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_rep
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 1x2 for n300 all_gather cluster_axis=0 rank=2
 module @all_gather_1x2_rank_2_cluster_0 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<8192x800xf32>) -> (tensor<8192x800xf32> {jax.result_info = ""}) {
@@ -223,6 +233,8 @@ module @all_gather_1x2_rank_2_cluster_0 attributes {mhlo.num_partitions = 2 : i3
     return %0 : tensor<8192x400xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x2 for n300 all_gather rank=2
 module @all_gather_1x2_rank_2_cluster_1 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
@@ -252,6 +264,8 @@ module @all_gather_1x2_rank_2_cluster_1 attributes {mhlo.num_partitions = 2 : i3
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 1x2 for n300 all_gather cluster_axis=0 rank=4
 module @all_gather_1x2_rank_4_cluster_0 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x8192x512xf32> {jax.result_info = ""}) {
@@ -279,6 +293,8 @@ module @all_gather_1x2_rank_4_cluster_0 attributes {mhlo.num_partitions = 2 : i3
     return %0 : tensor<1x1x8192x256xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x2 for n300 all_gather rank=4
 module @all_gather_1x2_rank_4_cluster_1 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
@@ -308,6 +324,8 @@ module @all_gather_1x2_rank_4_cluster_1 attributes {mhlo.num_partitions = 2 : i3
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 1x8 for t3k all_gather cluster_axis=0 rank=2
 module @all_gather_1x8_rank_2_cluster_0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<8192x800xf32>) -> (tensor<8192x800xf32> {jax.result_info = ""}) {
@@ -335,6 +353,8 @@ module @all_gather_1x8_rank_2_cluster_0 attributes {mhlo.num_partitions = 8 : i3
     return %0 : tensor<8192x100xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x8 for t3k all_gather rank=2
 module @all_gather_1x8_rank_2_cluster_1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
@@ -364,6 +384,8 @@ module @all_gather_1x8_rank_2_cluster_1 attributes {mhlo.num_partitions = 8 : i3
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 1x8 for t3k all_gather cluster_axis=0 rank=4
 module @all_gather_1x8_rank_4_cluster_0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x8192x512xf32> {jax.result_info = ""}) {
@@ -391,6 +413,8 @@ module @all_gather_1x8_rank_4_cluster_0 attributes {mhlo.num_partitions = 8 : i3
     return %0 : tensor<1x1x8192x64xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x8 for t3k all_gather rank=4
 module @all_gather_1x8_rank_4_cluster_1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
@@ -420,6 +444,8 @@ module @all_gather_1x8_rank_4_cluster_1 attributes {mhlo.num_partitions = 8 : i3
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 2x4 for t3k all_gather cluster_axis=0 rank=2
 module @all_gather_2x4_rank_2_cluster_0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<8192x800xf32>) -> (tensor<8192x1600xf32> {jax.result_info = ""}) {
@@ -447,6 +473,8 @@ module @all_gather_2x4_rank_2_cluster_0 attributes {mhlo.num_partitions = 8 : i3
     return %0 : tensor<2048x800xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 2x4 for t3k all_gather rank=2
 module @all_gather_2x4_rank_2_cluster_1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
@@ -476,6 +504,8 @@ module @all_gather_2x4_rank_2_cluster_1 attributes {mhlo.num_partitions = 8 : i3
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 2x4 for t3k all_gather cluster_axis=0 rank=4
 module @all_gather_2x4_rank_4_cluster_0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x16384x512xf32> {jax.result_info = ""}) {
@@ -503,6 +533,8 @@ module @all_gather_2x4_rank_4_cluster_0 attributes {mhlo.num_partitions = 8 : i3
     return %0 : tensor<1x1x8192x128xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 2x4 for t3k all_gather rank=4
 module @all_gather_2x4_rank_4_cluster_1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
@@ -532,6 +564,8 @@ module @all_gather_2x4_rank_4_cluster_1 attributes {mhlo.num_partitions = 8 : i3
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 1x32 for tg all_gather cluster_axis=0 rank=2
 module @all_gather_1x32_rank_2_cluster_0 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<8192x800xf32>) -> (tensor<8192x800xf32> {jax.result_info = ""}) {
@@ -559,6 +593,8 @@ module @all_gather_1x32_rank_2_cluster_0 attributes {mhlo.num_partitions = 32 : 
     return %0 : tensor<8192x25xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x32 for tg all_gather rank=2
 module @all_gather_1x32_rank_2_cluster_1 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
@@ -588,6 +624,8 @@ module @all_gather_1x32_rank_2_cluster_1 attributes {mhlo.num_partitions = 32 : 
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 1x32 for tg all_gather cluster_axis=0 rank=4
 module @all_gather_1x32_rank_4_cluster_0 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x8192x512xf32> {jax.result_info = ""}) {
@@ -615,6 +653,8 @@ module @all_gather_1x32_rank_4_cluster_0 attributes {mhlo.num_partitions = 32 : 
     return %0 : tensor<1x1x8192x16xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x32 for tg all_gather rank4
 module @all_gather_1x32_rank_4_cluster_1 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
@@ -644,6 +684,8 @@ module @all_gather_1x32_rank_4_cluster_1 attributes {mhlo.num_partitions = 32 : 
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 8x4 for tg all_gather cluster_axis=0 rank=2
 module @all_gather_8x4_rank_2_cluster_0 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<8192x800xf32>) -> (tensor<8192x6400xf32> {jax.result_info = ""}) {
@@ -671,6 +713,8 @@ module @all_gather_8x4_rank_2_cluster_0 attributes {mhlo.num_partitions = 32 : i
     return %0 : tensor<2048x800xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 8x4 for tg all_gather rank=2
 module @all_gather_4x8_rank_2_cluster_1 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
@@ -700,6 +744,8 @@ module @all_gather_4x8_rank_2_cluster_1 attributes {mhlo.num_partitions = 32 : i
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 8x4 for tg all_gather cluster_axis=0 rank=4
 module @all_gather_8x4_rank_4_cluster_0 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1x8192x512xf32>) -> (tensor<1x1x65536x512xf32> {jax.result_info = ""}) {
@@ -727,6 +773,8 @@ module @all_gather_8x4_rank_4_cluster_0 attributes {mhlo.num_partitions = 32 : i
     return %0 : tensor<1x1x8192x128xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 8x4 for tg all_gather rank4
 module @all_gather_8x4_rank_4_cluster_1 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_replicas = 1 : i32} {
@@ -756,6 +804,8 @@ module @all_gather_8x4_rank_4_cluster_1 attributes {mhlo.num_partitions = 32 : i
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 2x4 for t3k - GSPMD negative, sharding [None, "x", None, "y"]
 module @jit_neg_basic0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
@@ -781,6 +831,8 @@ module @jit_neg_basic0 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
     return %0 : tensor<1x512x128x256xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 2x4 for t3k - GSPMD negative, sharding [None, "x", None, None]
 module @jit_neg_basic1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
@@ -808,6 +860,8 @@ module @jit_neg_basic1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 2x4 for t3k - GSPMD negative, sharding [None, None, None, "y"]
 module @jit_neg_basic2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
@@ -833,6 +887,8 @@ module @jit_neg_basic2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
     return %0 : tensor<1x1024x128x256xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 2x4 for t3k - GSPMD negative, sharding [None, "y", None, "x"]
 module @jit_neg_basic3 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
@@ -860,6 +916,8 @@ module @jit_neg_basic3 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 2x4 for t3k - GSPMD negative, sharding [None, "y", None, None]
 module @jit_neg_basic4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
@@ -885,6 +943,8 @@ module @jit_neg_basic4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
     return %0 : tensor<1x256x128x1024xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 2x4 for t3k - GSPMD negative, sharding [None, None, None, "x"]
 module @jit_neg_basic5 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
@@ -912,6 +972,8 @@ module @jit_neg_basic5 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
   }
 }
 
+// -----
+
 // jax/pjrt sharding target 1x8 for t3k - GSPMD negative, sharding [None, None, None, "y"]
 module @jit_neg_basic6 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1x1024x128x1024xf32>) -> (tensor<1x1024x128x1024xf32> {jax.result_info = ""}) {
@@ -937,6 +999,8 @@ module @jit_neg_basic6 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
     return %0 : tensor<1x1024x128x128xf32>
   }
 }
+
+// -----
 
 // jax/pjrt sharding target 1x8 for t3k - GSPMD negative, sharding [None, "y", None, None]
 module @jit_neg_basic7 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
