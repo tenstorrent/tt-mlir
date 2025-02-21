@@ -2,8 +2,13 @@ if (TTMLIR_ENABLE_OPMODEL)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_llvm_executable(TestOpModelLib
+add_executable(TestOpModelLib
 TestOpModelLib.cpp
+)
+
+target_compile_options(TestOpModelLib
+    PRIVATE
+    -fno-rtti
 )
 
 target_include_directories(TestOpModelLib
