@@ -1924,12 +1924,10 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
-                         I64ElementsAttr:$replica_groups,
-                         SI32Attr:$dim,
-                         OptionalAttr<SI32Attr>:$channel_handle,
-                         UnitAttr:$use_global_device_ids,
-                         TT_ReduceTypeAttr:$reduce_type
-    );
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$scatter_dim,
+                         SI32Attr:$all_gather_dim,
+                         UI32Attr:$cluster_axis);
 
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
@@ -1937,6 +1935,24 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
 
+    let hasVerifier = 1;
+}
+
+def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
+    let summary = "Reduce scatter operation.";
+    let description = [{
+      Reduce scatter op.
+    }];
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$scatter_dim,
+                         UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
     let hasVerifier = 1;
 }
 
