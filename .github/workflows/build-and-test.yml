@@ -157,7 +157,7 @@ jobs:
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
-      id: lint
+      id: build
       shell: bash
       run: |
         source env/activate
