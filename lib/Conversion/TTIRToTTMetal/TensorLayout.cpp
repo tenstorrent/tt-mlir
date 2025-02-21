@@ -108,16 +108,22 @@ public:
     assert(genericBlock->getNumArguments() == genericOp->getNumOperands() &&
            "Number of block arguments should match the number of generic op "
            "operands");
+    bool modified = false;
     for (size_t i = 0; i < genericBlock->getNumArguments(); i++) {
       auto arg = genericBlock->getArgument(i);
       auto operand =
           mlir::cast<RankedTensorType>(genericOp->getOperand(i).getType());
       auto operand_encoding =
           mlir::cast<MetalLayoutAttr>(operand.getEncoding());
-      arg.setType(operand_encoding.getMemref());
+      if (arg.getType() == operand_encoding.getMemref()) {
+        continue;
+      }
+      modified = true;
+      rewriter.modifyOpInPlace(
+          genericOp, [&]() { arg.setType(operand_encoding.getMemref()); });
     }
-    return failure(); // need some better way to exit cond. the rewriter than
-                      // always returning false!
+
+    return modified ? success() : failure();
   }
 };
 
@@ -199,31 +205,6 @@ class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
         return;
       }
     }
-
-    // {
-    //   RewritePatternSet patterns(&getContext());
-    //   patterns.add<TTIRGenericTensorLayoutRewriter>(&getContext());
-    //   GreedyRewriteConfig config = GreedyRewriteConfig();
-    //   FrozenRewritePatternSet patternSet(std::move(patterns));
-    //   if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-    //                                           config))) {
-    //     signalPassFailure();
-    //     return;
-    //   }
-    // }
-
-    // {
-    //   RewritePatternSet patterns(&getContext());
-    //   patterns.add<TTIRFuncOperandsTensorLayoutRewriter>(&getContext());
-    //   GreedyRewriteConfig config = GreedyRewriteConfig();
-    //   config.strictMode = GreedyRewriteStrictness::ExistingOps;
-    //   FrozenRewritePatternSet patternSet(std::move(patterns));
-    //   if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-    //                                           config))) {
-    //     signalPassFailure();
-    //     return;
-    //   }
-    // }
 
     {
       RewritePatternSet patterns(&getContext());
