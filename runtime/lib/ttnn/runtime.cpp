@@ -213,7 +213,9 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
   size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
-      ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid},
+      ::tt::tt_metal::distributed::MeshDeviceConfig{
+          .mesh_shape = ::tt::tt_metal::distributed::SimpleMeshShape(grid),
+          .offset = {}},
       l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
 
   CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
