@@ -187,6 +187,17 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
     let description = [{
       Eltwise where operation.
     }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::Operation::operand_range inputs = getInputs();
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
+                                                                        inputs);
+      }
+    }];
 }
 
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
