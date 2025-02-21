@@ -83,38 +83,6 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unknown MemorySpace");
 }
 
-Type dataTypeToElementType(::mlir::MLIRContext *context, DataType dtype) {
-  switch (dtype) {
-  case DataType::Float32:
-    return FloatType::getF32(context);
-  case DataType::Float16:
-    return FloatType::getF16(context);
-  case DataType::BFloat16:
-    return FloatType::getBF16(context);
-  case DataType::BFP_Float8:
-    return FloatType::getF16(context);
-  case DataType::BFP_BFloat8:
-    return FloatType::getBF16(context);
-  case DataType::BFP_Float4:
-    return FloatType::getF16(context);
-  case DataType::BFP_BFloat4:
-    return FloatType::getBF16(context);
-  case DataType::BFP_Float2:
-    return FloatType::getF16(context);
-  case DataType::BFP_BFloat2:
-    return FloatType::getBF16(context);
-  case DataType::UInt32:
-    return IntegerType::get(context, 32,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::UInt16:
-    return IntegerType::get(context, 16,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::UInt8:
-    return IntegerType::get(context, 8,
-                            IntegerType::SignednessSemantics::Unsigned);
-  }
-}
-
 // Helper method to create a RankedTensorType with the given encoding.
 RankedTensorType
 createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
@@ -182,7 +150,7 @@ Type getElementType(MLIRContext *context, Layout tensorLayout,
   return tensorLayout == Layout::Tile
              ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
                              dataType)
-             : ttnn::utils::dataTypeToElementType(context, dataType);
+             : mlir::tt::dataTypeToElementType(context, dataType);
 }
 
 } // namespace mlir::tt::ttnn::utils
