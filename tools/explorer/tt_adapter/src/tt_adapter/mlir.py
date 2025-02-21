@@ -306,15 +306,12 @@ def parse_memory_config(attr):
         )
     )
 
-    my_layout = memory_config.tensor_memory_layout
-    my_val = int(my_layout.value)
-    my_mlir_layout = ttnn.TensorMemoryLayout(my_val)
-    my_mlir_layout_repr = str(my_mlir_layout)
-
     result.append(
         graph_builder.KeyValue(
             key="tensor-memory-layout",
-            value=my_mlir_layout_repr,
+            value=str(
+                ttnn.TensorMemoryLayout(int(memory_config.tensor_memory_layout.value))
+            ),
         )
     )
 
@@ -729,8 +726,8 @@ def build_graph(module, perf_trace=None, golden_results=None):
                         )
                         output_connections[source_node.id] += 1
 
+    overlays = {}
     # Add performance data to the graph color overlay, if it exists
-    perf_data = None
     if perf_node_data:
         gradient = [
             node_data_builder.GradientItem(stop=0, bgColor="yellow"),
@@ -739,11 +736,10 @@ def build_graph(module, perf_trace=None, golden_results=None):
         graph_node_data = node_data_builder.GraphNodeData(
             results=perf_node_data, gradient=gradient
         )
-        perf_data = node_data_builder.ModelNodeData(
+        overlays["perf_data"] = node_data_builder.ModelNodeData(
             graphsData={"tt-graph": graph_node_data}
-        )
+        ).graphsData
 
-    accuracy_data = None
     if accuracy_node_data:
         thres = [
             # Show Green if ActualPCC - ExpectedPCC is 1 and below (Actual PCC >= ExpectedPCC)
@@ -754,9 +750,9 @@ def build_graph(module, perf_trace=None, golden_results=None):
         graph_node_data = node_data_builder.GraphNodeData(
             results=accuracy_node_data, thresholds=thres
         )
-        accuracy_data = node_data_builder.ModelNodeData(
+        overlays["accuracy_data"] = node_data_builder.ModelNodeData(
             graphsData={"tt-graph": graph_node_data}
-        )
+        ).graphsData
 
     graph.groupNodeAttributes = group_node_attrs
-    return graph, perf_data, accuracy_data
+    return graph, overlays

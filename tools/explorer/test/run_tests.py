@@ -9,12 +9,14 @@ import multiprocessing
 import pytest
 import glob
 import os
+import logging
 
 HOST = "localhost"
 PORT = 8002
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Explorer/**/*.mlir",
+    # Need to remove the Transforms directory from here
     "test/ttmlir/Silicon/TTNN/n150/perf/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
@@ -24,12 +26,29 @@ TEST_EXECUTE_MODEL_PATHS = [
 
 if "TT_EXPLORER_GENERATED_MLIR_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_MLIR_TEST_DIRS"].split(","):
-        TEST_LOAD_MODEL_PATHS.append(path + "/**/*.mlir")
+        if os.path.exists(path):
+            TEST_LOAD_MODEL_PATHS.append(path + "/**/*.mlir")
+        else:
+            logging.error(
+                "Path %s provided in TT_EXPLORER_GENERED_MLIR_TEST_DIRS doesn't exist. Tests not added.",
+                path,
+            )
 
 if "TT_EXPLORER_GENERATED_TTNN_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_TTNN_TEST_DIRS"].split(","):
-        TEST_LOAD_MODEL_PATHS.append(path + "/**/*.ttnn")
-        TEST_EXECUTE_MODEL_PATHS.append(path + "/**/*.ttnn")
+        if os.path.exists(path):
+            TEST_LOAD_MODEL_PATHS.append(path + "/**/*.ttnn")
+            TEST_EXECUTE_MODEL_PATHS.append(path + "/**/*.ttnn")
+        else:
+            logging.error(
+                "Path %s provided in TT_EXPLORER_GENERED_TTNN_TEST_DIRS doesn't exist. Tests not added.",
+                path,
+            )
+
+GET_TTNN_TEST = lambda: (
+    [None]
+    + [test for test in TEST_EXECUTE_MODEL_PATHS if test.endswith("test_mnist.ttnn")]
+)[-1]
 
 
 def get_test_files(paths):
@@ -188,7 +207,7 @@ def test_execute_and_check_perf_data_exists():
         timeout=300,
     )
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
-    assert "perf_data" in result["graphs"][0]
+    assert "perf_data" in result["graphs"][0]["overlays"]
 
 
 def test_execute_model_invalid_policy():
@@ -198,3 +217,18 @@ def test_execute_model_invalid_policy():
             {"optimizationPolicy": "Invalid Policy"},
             timeout=300,
         )
+
+
+def test_execute_and_check_accuracy_data_exists():
+    # Get the test_mnist path
+    test_mnist_path = GET_TTNN_TEST()
+
+    # Key Decision: Make Test Fail or just provide error message and skip?
+    assert (
+        test_mnist_path is not None
+    ), "Couldn't find test_mnist.ttnn in GENERATED_TTNN_TEST_DIRS"
+    execute_command_and_wait(
+        test_mnist_path, {"optimizationPolicy": "Optimizer Disabled"}, timeout=300
+    )
+    result = convert_command_and_assert(test_mnist_path)
+    assert "accuracy_data" in result["graphs"][0]["overlays"]

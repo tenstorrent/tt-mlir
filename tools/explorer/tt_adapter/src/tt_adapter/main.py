@@ -101,15 +101,7 @@ class TTAdapter(model_explorer.Adapter):
                 module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, perf_data, accuracy_data = mlir.build_graph(
-                module, perf_trace, golden_results
-            )
-            overlays = {}
-            if perf_data:
-                overlays["perf_data"] = perf_data.graphsData
-
-            if accuracy_data:
-                overlays["accuracy_data"] = accuracy_data.graphsData
+            graph, overlays = mlir.build_graph(module, perf_trace, golden_results)
 
             if overlays:
                 graph = utils.add_to_dataclass(graph, "overlays", overlays)
