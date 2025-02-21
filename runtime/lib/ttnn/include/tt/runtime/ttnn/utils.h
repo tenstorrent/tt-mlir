@@ -14,9 +14,14 @@ namespace tt::runtime::ttnn::utils {
 
 bool isOnHost(const ::ttnn::StorageType &storageType);
 
+bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
+
 bool isOnDevice(const ::ttnn::StorageType &storageType);
 
 bool isValidTileShape(const ::tt::target::Dim2d *shape);
+
+bool isSharded(
+    const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
 ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType);
 
@@ -24,36 +29,28 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 
 ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout);
 
-::ttnn::TensorMemoryLayout
-toTTNNTensorMemoryLayout(::tt::target::TensorMemoryLayout tensorMemoryLayout);
+::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
+    ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout);
 
-// This method will be deprecated in favor of method below
-//
-::tt::tt_metal::BufferType
-toTTNNBufferType(::tt::target::MemorySpace memorySpace);
-
-// Prefer to use this method
-//
 ::ttnn::BufferType toTTNNBufferType(::tt::target::BufferType bufferType);
 
+::ttnn::StorageType
+toTTNNStorageType(::tt::target::ttnn::StorageType storageType);
+
 ::ttnn::Layout
-inferLayoutFromTileShape(const ::tt::target::TensorRef *tensorRef);
+inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 CoreRangeSet
 toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
                    *coreRangeSet);
 
-::tt::tt_metal::MemoryConfig
-createMemoryConfig(const ::tt::target::TensorRef *tensorRef);
+const ::tt::target::ttnn::MemoryConfig *
+getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
+
+std::optional<::ttnn::MemoryConfig>
+createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor);
-
-// TODO: (#1435): Fix int types across shapes
-//
-inline std::vector<uint32_t>
-toShapeFromFBShape(const flatbuffers::Vector<int32_t> &vec) {
-  return std::vector<uint32_t>(vec.begin(), vec.end());
-}
 
 // Translates a flatbuffer DataType to the native (C++) type.
 template <::tt::target::DataType DataType>

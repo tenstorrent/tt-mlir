@@ -64,8 +64,7 @@ makeTypedBuffer(::tt::target::DataType dtype,
 }
 
 void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
-  ::ttnn::Shape shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
-      *op->out()->desc()->shape()));
+  ::ttnn::Shape shape = utils::toTTNNShape(*op->out()->desc()->shape());
 
   ::tt::tt_metal::OwnedBuffer ownedBuffer = makeTypedBuffer(
       op->out()->desc()->layout()->memory_desc()->data_type(), op->data());
@@ -73,7 +72,7 @@ void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
   ::ttnn::DataType dtype =
       ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
 
-  LOG_ASSERT(::tt::runtime::ttnn::operations::utils::inSystemMemory(op->out()),
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()),
              "Output tensor is expected to be in system memory");
   LOG_ASSERT(!::tt::runtime::ttnn::operations::utils::isTilized(op->out()),
              "Output tensor is expected to be in ROW_MAJOR layout");

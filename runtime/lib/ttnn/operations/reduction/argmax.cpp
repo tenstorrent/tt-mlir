@@ -18,10 +18,8 @@ runReductionArgMaxOp(::tt::target::ttnn::ReductionArgMaxOp const *op,
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      op->memcfg() ? std::make_optional(
-                         utils::createMemoryConfig(op->memcfg(), op->out()))
-                   : std::nullopt;
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   ::ttnn::Tensor out =
       ::ttnn::argmax(in, op->dim(), op->use_multicore(),

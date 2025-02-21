@@ -14,21 +14,12 @@
 
 namespace tt::runtime::ttnn::operations::utils {
 
-bool isTilized(const ::tt::target::TensorRef *tensorRef);
+bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-bool inSystemMemory(const ::tt::target::TensorRef *tensorRef);
-
-::tt::target::MemorySpace
-getMemorySpace(const ::tt::target::TensorRef *tensorRef);
-
-::ttnn::DataType getDataType(const ::tt::target::TensorRef *tensorRef);
-
-::tt::tt_metal::MemoryConfig
-createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
-                   const ::tt::target::TensorRef *tensorRef);
+::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 ::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
-    const ::tt::target::DistributionStrategy *strategy);
+    const ::tt::target::ttnn::DistributionStrategy *strategy);
 
 template <std::integral T>
 inline ::ttnn::Shape toTTNNShape(const flatbuffers::Vector<T> &vec) {

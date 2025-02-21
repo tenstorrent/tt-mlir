@@ -305,14 +305,14 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   LOG_ASSERT(program->inputs()->size() == inputs.size(),
              "Program input size mismatch: ", program->inputs()->size(),
              " != ", inputs.size());
-  for (::tt::target::TensorRef const *input : *program->inputs()) {
+  for (::tt::target::ttnn::TensorRef const *input : *program->inputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
     LOG_ASSERT(inserted, "Duplicate input tensor");
     programInputs.push_back(input->global_id());
   }
   std::vector<uint32_t> programOutputs;
-  for (::tt::target::TensorRef const *output : *program->outputs()) {
+  for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
     programOutputs.push_back(output->global_id());
   }
   ProgramExecutor executor(executableHandle, liveTensors, programInputs,

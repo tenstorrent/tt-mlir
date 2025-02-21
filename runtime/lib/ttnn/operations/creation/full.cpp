@@ -16,7 +16,7 @@ struct FullTensorConfig {
   ::ttnn::Layout layout;
   float fillValue;
   uint32_t numShards;
-  const ::tt::target::DistributionStrategy *strategy = nullptr;
+  const ::tt::target::ttnn::DistributionStrategy *strategy = nullptr;
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
 
   FullTensorConfig(const ::tt::target::ttnn::FullOp *op)
@@ -27,8 +27,11 @@ struct FullTensorConfig {
         fillValue(op->fill_value()), numShards(op->num_shards()),
         strategy(op->strategy()) {
 
-    if (!utils::inSystemMemory(op->out())) {
-      memoryConfig = ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+    if (!::tt::runtime::ttnn::utils::inSystemMemory(op->out())) {
+      memoryConfig = ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+      LOG_ASSERT(memoryConfig.has_value(),
+                 "Memory config must exist for device tensors");
     }
     validate();
   }
@@ -38,10 +41,10 @@ struct FullTensorConfig {
     LOG_ASSERT(numShards > 0, "Number of shards must be greater than 0");
     LOG_ASSERT(numShards == 1 ||
                    strategy->strategy_type() !=
-                       ::tt::target::DistributedTensorConfig::NONE,
+                       ::tt::target::ttnn::DistributedTensorConfig::NONE,
                "Strategy must be provided when num shards is greater than 1");
     LOG_ASSERT(strategy->strategy_type() !=
-                   ::tt::target::DistributedTensorConfig::AllGatherTensor,
+                   ::tt::target::ttnn::DistributedTensorConfig::AllGatherTensor,
                "AllGatherTensor is not supported");
   }
 
@@ -64,7 +67,7 @@ createFullOnMultiDevice(ProgramContext &context, FullTensorConfig &config,
                                         config.dtype, config.layout);
                   });
   ::ttnn::Tensor out = ::ttnn::distributed::create_multi_device_tensor(
-      tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST, strategy);
+      tensorShards, ::ttnn::StorageType::MULTI_DEVICE_HOST, strategy);
   if (deviceRef) {
     ::ttnn::MeshDevice &meshDevice = context.getSubMesh(deviceRef->global_id());
     LOG_ASSERT(config.numShards == meshDevice.num_devices());
@@ -93,7 +96,8 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
   FullTensorConfig config(op);
   ::ttnn::Tensor out;
   const ::tt::target::DeviceRef *deviceRef =
-      !utils::inSystemMemory(op->out()) ? op->device() : nullptr;
+      !::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ? op->device()
+                                                             : nullptr;
 
   if (config.numShards == 1) {
     out = createFullOnSingleDevice(context, config, deviceRef);
