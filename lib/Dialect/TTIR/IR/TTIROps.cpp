@@ -1125,24 +1125,24 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
 
   // Rewrite a tranpose dims to a canonical form where the 'dim0' and 'dim1' are
   // in range [0, N), where N is a rank of input tensor.
-  patterns.add(
-      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
-        int64_t rank = op.getInput().getType().getRank();
-        int32_t dim0 = op.getDim0();
-        int32_t dim1 = op.getDim1();
+  patterns.add(+[](mlir::tt::ttir::TransposeOp op,
+                   mlir::PatternRewriter &rewriter) {
+    int64_t rank = op.getInput().getType().getRank();
+    int32_t dim0 = op.getDim0();
+    int32_t dim1 = op.getDim1();
 
-        if (dim0 >= 0 && dim1 >= 0) {
-          return mlir::failure();
-        }
+    if (dim0 >= 0 && dim1 >= 0) {
+      return mlir::failure();
+    }
 
-        if (dim0 < 0) {
-          op.setDim0(dim0 + rank);
-        }
-        if (dim1 < 0) {
-          op.setDim1(dim1 + rank);
-        }
-        return mlir::success();
-      });
+    if (dim0 < 0) {
+      rewriter.modifyOpInPlace(op, [&]() -> void { op.setDim0(dim0 + rank); });
+    }
+    if (dim1 < 0) {
+      rewriter.modifyOpInPlace(op, [&]() -> void { op.setDim1(dim1 + rank); });
+    }
+    return mlir::success();
+  });
 
   // Transposing twice in the row over the same dimensions results in identity,
   // hence y = T(T(x)) can be replaced with y = x.
@@ -1497,11 +1497,8 @@ getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
   }
 
   int64_t rank = value.getType().getRank();
-  // TODO (azecevic): Change llvm::SmallSet comparison to direct comparison when
-  // TransposeOp canonicalization is merged.
-  if (rank < 2 || llvm::SmallSet<int64_t, 2>{rank - 2, rank - 1} !=
-                      llvm::SmallSet<int64_t, 2>{producerOp.getDim0(),
-                                                 producerOp.getDim1()}) {
+  if (rank < 2 || producerOp.getDim0() != rank - 2 ||
+      producerOp.getDim1() != rank - 1) {
     return std::nullopt;
   }
 
@@ -1511,8 +1508,8 @@ getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
 // LinearOp canonicalization
 void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // linear(transpose(a), b, bias transpose_a, transpose_b) -> linear(a, b,
-  // bias, !transpose_a, transpose_b)
+  // linear(transpose(a), b, bias transpose_a, transpose_b) ->
+  //   linear(a, b, bias, !transpose_a, transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
     auto inputACanonical = getTransposeOpOperand(op.getA());
     if (!inputACanonical) {
@@ -1526,8 +1523,8 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     return mlir::success();
   });
 
-  // linear(a, transpose(b), bias transpose_a, transpose_b) -> linear(a, b,
-  // bias, transpose_a, !transpose_b)
+  // linear(a, transpose(b), bias transpose_a, transpose_b) ->
+  //   linear(a, b, bias, transpose_a, !transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
     auto inputBCanonical = getTransposeOpOperand(op.getB());
     if (!inputBCanonical) {
@@ -1676,8 +1673,8 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 // MatmulOp canonicalization
 void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // matmul(transpose(a), b, transpose_a, transpose_b) -> matmul(a, b,
-  // !transpose_a, transpose_b)
+  // matmul(transpose(a), b, transpose_a, transpose_b) ->
+  //   matmul(a, b, !transpose_a, transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
     auto inputACanonical = getTransposeOpOperand(op.getA());
     if (!inputACanonical) {
@@ -1691,8 +1688,8 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     return mlir::success();
   });
 
-  // matmul(a, transpose(b), transpose_a, transpose_b) -> matmul(a, b,
-  // transpose_a, !transpose_b)
+  // matmul(a, transpose(b), transpose_a, transpose_b) ->
+  //   matmul(a, b, transpose_a, !transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
     auto inputBCanonical = getTransposeOpOperand(op.getB());
     if (!inputBCanonical) {
