@@ -1440,8 +1440,8 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
     llvm::SmallVector<int64_t> matmulShape = expectedOutputShape;
-    if (!OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
-                                            expectedOutputShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
+                                                  expectedOutputShape)) {
       return emitOpError("Bias shape(")
              << ttmlir::utils::join(biasShape, ",")
              << ") is not broadcast compatible with the matmul output shape("

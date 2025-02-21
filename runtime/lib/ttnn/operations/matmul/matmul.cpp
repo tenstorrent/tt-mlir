@@ -22,8 +22,13 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   DEBUG_ASSERT(rhs.is_allocated());
   DEBUG_ASSERT(out.is_allocated());
 
+  auto outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  ::ttnn::DataType outputDataType = utils::getDataType(op->out());
+
   ::ttnn::matmul(lhs, rhs, op->transpose_a(), op->transpose_b(),
-                 /*memory_config=*/std::nullopt, /*dtype=*/std::nullopt,
+                 outputMemoryConfig, outputDataType,
                  /*program_config=*/std::nullopt, /*activation=*/std::nullopt,
                  /*compute_kernel_config=*/std::nullopt,
                  /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt, out);
@@ -43,8 +48,13 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   DEBUG_ASSERT(!bias || bias->is_allocated());
   DEBUG_ASSERT(out.is_allocated());
 
+  auto outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  ::ttnn::DataType outputDataType = utils::getDataType(op->out());
+
   ::ttnn::linear(lhs, rhs, bias, op->transpose_a(), op->transpose_b(),
-                 /*memory_config=*/std::nullopt, /*dtype=*/std::nullopt,
+                 outputMemoryConfig, outputDataType,
                  /*program_config=*/std::nullopt, /*activation=*/std::nullopt,
                  /*compute_kernel_config=*/std::nullopt,
                  /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt, out);

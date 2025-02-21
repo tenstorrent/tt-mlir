@@ -293,19 +293,19 @@ table SliceOp {
 }
 
 table LinearOp {
-  a: tt.target.TensorRef;
-  b: tt.target.TensorRef;
-  bias: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  a: tt.target.ttnn.TensorRef;
+  b: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   transpose_a: bool;
   transpose_b: bool;
 }
 
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
-  a: tt.target.TensorRef;
-  b: tt.target.TensorRef;
-  out: tt.target.TensorRef;
+  a: tt.target.ttnn.TensorRef;
+  b: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   transpose_a: bool;
   transpose_b: bool;
 }

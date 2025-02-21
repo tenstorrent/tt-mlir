@@ -632,16 +632,16 @@ createOp(FlatbufferObjectCache &cache, OnesOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
 createOp(FlatbufferObjectCache &cache, LinearOp op) {
-  auto a =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getA()));
-  auto b =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getB()));
-  auto bias = op.getODSOperands(2).empty()
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getA()));
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getB()));
+  auto bias = op.getBias()
                   ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
                   : cache.at<::tt::target::ttnn::TensorRef>(
                         getOperandThroughDPSOps(op.getBias()));
   auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+      getOperandThroughDPSOps(op.getOutput()));
   return ::tt::target::ttnn::CreateLinearOp(
       *cache.fbb, a, b, bias, output, op.getTransposeA(), op.getTransposeB());
 }
@@ -649,12 +649,12 @@ createOp(FlatbufferObjectCache &cache, LinearOp op) {
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
 ::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
 createOp(FlatbufferObjectCache &cache, MatmulOp op) {
-  auto a =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getA()));
-  auto b =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getB()));
-  auto output = cache.at<::tt::target::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getA()));
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getB()));
+  auto output = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOutput()));
   return ::tt::target::ttnn::CreateMatmulOp(
       *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
 }
