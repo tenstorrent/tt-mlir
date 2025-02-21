@@ -87,7 +87,7 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- COMMON_FBS TTMETAL_FBS TTNN_FBS mlir-headers mlir-generic-headers
-        python3 tools/scripts/filter-compile-commands.py ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json ${{ steps.strings.outputs.work-dir }}
+        python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
 
     - name: Unique-ify clang-tidy fixes
