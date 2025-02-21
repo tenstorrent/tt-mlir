@@ -1508,6 +1508,17 @@ getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
 // LinearOp canonicalization
 void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // If bias is not provided, linear operation is equivalent to matmul.
+  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getBias()) {
+      rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
+          op, op.getType(), op.getA(), op.getB(), op.getOutput(),
+          op.getTransposeA(), op.getTransposeB());
+      return mlir::success();
+    }
+    return mlir::failure();
+  });
+
   // linear(transpose(a), b, bias transpose_a, transpose_b) ->
   //   linear(a, b, bias, !transpose_a, transpose_b)
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
