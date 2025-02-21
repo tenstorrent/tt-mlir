@@ -134,7 +134,7 @@ class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, traits> {
+    TTNN_ElementwiseOp<mnemonic, !listconcat([OneOperand], traits)> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -142,15 +142,19 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
+      OpBuilder<(ins "Value": $in, "Type": $outputType),
+      [{
+        build($_builder, $_state, {outputType}, in);
+      }]>,
       OpBuilder<(ins "Value": $in),
       [{
-        build($_builder, $_state, {in.getType()}, in);
+        build($_builder, $_state, in, in.getType());
       }]>
     ];
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, traits> {
+    TTNN_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -170,7 +174,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, traits> {
+    TTNN_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -178,9 +182,13 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Type": $outputType),
+      [{
+        build($_builder, $_state, {outputType}, {first, second, third});
+      }]>,
       OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third),
       [{
-        build($_builder, $_state, {first.getType()}, {first, second, third});
+        build($_builder, $_state, first, second, third, first.getType());
       }]>
     ];
 }
@@ -192,8 +200,6 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
     }];
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         ::mlir::Operation::operand_range inputs = getInputs();
         return

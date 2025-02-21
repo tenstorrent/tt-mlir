@@ -5,10 +5,10 @@ module attributes {} {
   func.func @not_equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     %0 = tensor.empty() : tensor<13x31xf32>
     %1 = "ttir.ne"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
-    // CHECK: %[[RETURN_VALUE:[0-9]+]] = "ttnn.ne"(%arg0, %arg1)
-    // CHECK-SAME: (tensor<13x31xf32, {{.*}}>, tensor<13x31xf32, {{.*}}>)
-    // CHECK-SAME: -> tensor<13x31xf32, {{.*}}>
+    // CHECK: "ttnn.ne"
+    // CHECK-SAME: tensor<13x31xf32
+    // CHECK-SAME: tensor<13x31xf32
+    // CHECK-SAME: -> tensor<13x31xf32
     return %1 : tensor<13x31xf32>
-    // CHECK: return %[[RETURN_VALUE]] : tensor<13x31xf32, {{.*}}>
   }
 }

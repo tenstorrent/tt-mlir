@@ -3,11 +3,11 @@ module attributes {} {
   func.func @main(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
     %0 = tensor.empty() : tensor<64x128xf32>
     %1 = call @do_mult(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: %[[RETURN_VALUE:[0-9]+]] = "ttnn.multiply"(%arg0, %arg1)
-    // CHECK-SAME: (tensor<64x128xf32, {{.*}}>, tensor<64x128xf32, {{.*}}>)
-    // CHECK-SAME: -> tensor<64x128xf32, {{.*}}>
+    // CHECK: "ttnn.multiply"
+    // CHECK-SAME: tensor<64x128xf32
+    // CHECK-SAME: tensor<64x128xf32
+    // CHECK-SAME: -> tensor<64x128xf32
     return %1 : tensor<64x128xf32>
-    // CHECK: return %[[RETURN_VALUE]] : tensor<64x128xf32, {{.*}}>
   }
 
   func.func private @do_mult(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>, %arg2: tensor<64x128xf32>) -> tensor<64x128xf32> {

@@ -1060,7 +1060,7 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   }
   assert(op.getResults().size() == 1);
   auto out = cache.getOrCreate(op.getResult(0), tensorValueToFlatbuffer,
-                               kHostAllocatedAddress, kHostAllocatedSize);
+                               kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,
                                                    paramsType, params);
