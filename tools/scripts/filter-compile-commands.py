@@ -12,7 +12,7 @@ import sys
 
 def get_diff_files(compile_commands):
     fork_point = (
-        subprocess.check_output(["git", "merge-base", "--fork-point", "main"])
+        subprocess.check_output(["git", "merge-base", "--fork-point", "origin/main"])
         .decode("utf-8")
         .strip()
     )
