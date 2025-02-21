@@ -22,30 +22,6 @@ float *align_to_64(float const *ptr) {
   return (float *)aligned_ptr;
 }
 
-std::vector<std::vector<int64_t>> compute_sizes_and_strides(
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
-        *ins,
-    const ProgramContext &context) {
-  std::vector<std::vector<int64_t>> all_sizes_and_strides;
-  all_sizes_and_strides.reserve(ins->size());
-
-  for (size_t i = 0; i < ins->size(); ++i) {
-    const size_t rank = ins->Get(i)->desc()->shape()->size();
-    std::vector<int64_t> sizes(rank);
-    for (size_t j = 0; j < rank; ++j) {
-      sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
-    }
-    std::vector<int64_t> strides = common::calculateStride(sizes);
-    std::vector<int64_t> sizes_and_strides(sizes.begin(), sizes.end());
-    sizes_and_strides.insert(sizes_and_strides.end(), strides.begin(),
-                             strides.end());
-
-    all_sizes_and_strides.push_back(std::move(sizes_and_strides));
-  }
-
-  return all_sizes_and_strides;
-}
-
 std::vector<wrapped_tensor> pack_tensors(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *ins,
