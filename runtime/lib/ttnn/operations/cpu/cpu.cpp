@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/ttnn.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/strides.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -14,7 +15,6 @@
 #include <link.h>
 
 namespace tt::runtime::ttnn::operations::cpu {
-// using
 
 float *align_to_64(float const *ptr) {
   uintptr_t ptr_val = (uintptr_t)ptr;
@@ -22,9 +22,34 @@ float *align_to_64(float const *ptr) {
   return (float *)aligned_ptr;
 }
 
+std::vector<std::vector<int64_t>> compute_sizes_and_strides(
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *ins,
+    const ProgramContext &context) {
+  std::vector<std::vector<int64_t>> all_sizes_and_strides;
+  all_sizes_and_strides.reserve(ins->size());
+
+  for (size_t i = 0; i < ins->size(); ++i) {
+    const size_t rank = ins->Get(i)->desc()->shape()->size();
+    std::vector<int64_t> sizes(rank);
+    for (size_t j = 0; j < rank; ++j) {
+      sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
+    }
+    std::vector<int64_t> strides = common::calculateStride(sizes);
+    std::vector<int64_t> sizes_and_strides(sizes.begin(), sizes.end());
+    sizes_and_strides.insert(sizes_and_strides.end(), strides.begin(),
+                             strides.end());
+
+    all_sizes_and_strides.push_back(std::move(sizes_and_strides));
+  }
+
+  return all_sizes_and_strides;
+}
+
 std::vector<wrapped_tensor> pack_tensors(
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::TensorRef>> *ins,
-    const tt::target::TensorRef *out, const ProgramContext &context) {
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *ins,
+    const tt::target::ttnn::TensorRef *out, const ProgramContext &context) {
   std::vector<wrapped_tensor> packed_tensors;
   packed_tensors.reserve(ins->size());
   for (size_t i = 0; i < ins->size(); ++i) {
@@ -33,36 +58,22 @@ std::vector<wrapped_tensor> pack_tensors(
   for (size_t i = 0; i < ins->size(); ++i) {
     LOG_INFO("Trying to fetch tensor w id: ", ins->Get(i)->global_id());
     const size_t rank = ins->Get(i)->desc()->shape()->size();
-    auto *sizes_and_strides = new int64_t[2 * rank];
+    std::vector<int64_t> sizes(rank);
     const auto &tens = context.getTensorPool().at(ins->Get(i)->global_id());
     for (size_t j = 0; j < rank; ++j) {
-      sizes_and_strides[j] = ins->Get(i)->desc()->shape()->Get(j);
+      sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
-    for (size_t j = 0; j < rank; ++j) {
-      sizes_and_strides[rank + j] =
-          ins->Get(i)->desc()->layout()->stride()->Get(j);
-    }
+    std::vector<int64_t> strides = common::calculateStride(sizes);
+    int64_t *sizes_and_strides = new int64_t[2 * rank];
+    std::copy(sizes.begin(), sizes.end(), sizes_and_strides);
+    std::copy(strides.begin(), strides.end(), sizes_and_strides + rank);
+
     float *raw_data_ptr = static_cast<float *>(get_raw_host_data_ptr(tens));
     LOG_INFO("raw_ptr for ", i, " is ", raw_data_ptr);
     LOG_INFO("aligned_ptr for ", i, " is ", align_to_64(raw_data_ptr));
     packed_tensors.emplace_back(raw_data_ptr, raw_data_ptr, 0,
                                 sizes_and_strides);
   }
-  // const size_t rank = out->desc()->shape()->size();
-  // // const auto &out_tens = context.getTensorPool().at(out->global_id());
-  // auto *out_sizes_and_strides = new int64_t[2 * rank];
-  // for (size_t j = 0; j < rank; ++j) {
-  //   out_sizes_and_strides[j] = out->desc()->shape()->Get(j);
-  // }
-  // for (size_t j = 0; j < rank; ++j) {
-  //   out_sizes_and_strides[rank + j] =
-  //   out->desc()->layout()->stride()->Get(j);
-  // }
-  // float *raw_data_ptr = static_cast<float
-  // *>(get_raw_host_data_ptr(out_tens));
-  // packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), 0,
-  // rank,
-  //                             out_sizes_and_strides);
   return packed_tensors;
 }
 
@@ -73,20 +84,6 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
                              std::to_string(op->dylib_id()));
   }
 
-  // Debug: Print all available symbols
-  // struct link_map *map;
-  // dlinfo(dylib_handle, RTLD_DI_LINKMAP, &map);
-
-  // if (map && map->l_symtab && map->l_strtab) {
-  //   printf("Available symbols in dylib %d:\n", op->dylib_id());
-  //   for (int i = 0; i < map->l_nchain; i++) {
-  //     const char *name = map->l_strtab + map->l_symtab[i].st_name;
-  //     if (name && *name) {  // Check that name exists and isn't empty
-  //       printf("  %s\n", name);
-  //     }
-  //   }
-  // }
-
   WrappedFunc fn =
       (WrappedFunc)dlsym(dylib_handle, op->func_name()->str().c_str());
   if (!fn) {
@@ -94,8 +91,6 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
         "could not find requested op: \"" + op->func_name()->str() +
         "\" in dylib with id: " + std::to_string(op->dylib_id()));
   }
-
-  // validate that the tensors are actually on CPU already
 
   const auto *fbInputs = op->ins();
 
@@ -110,15 +105,15 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
 
   LOG_INFO("ran func!");
 
-  // we don't need to unpack any data from output, it should be written direclty
-  // to correct memory
+  // We don't need to unpack any data from output, it should be written directly
+  // to correct memory.
 
-  // we should cleanup everything we heap alloc'ed
+  // Clean up everything we heap alloc'ed.
   for (auto &input_tensor : dylibInputs) {
     delete[] input_tensor.sizes_and_strides;
   }
-  // ins itself will be cleared by going out of scope, and the output underlying
-  // data won't be affected
+  // The ins vector itself will be cleared by going out of scope, and the output
+  // underlying data won't be affected.
 }
 
 } // namespace tt::runtime::ttnn::operations::cpu

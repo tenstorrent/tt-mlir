@@ -5,7 +5,7 @@
 #ifndef TT_RUNTIME_DYLIB_H
 #define TT_RUNTIME_DYLIB_H
 
-#include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/types.h"
 
 #include <cstring>
 #include <dlfcn.h>
@@ -22,12 +22,14 @@
 #define SYS_memfd_create 319
 #endif
 #include <stdint.h>
-namespace tt::runtime::ttnn {
+namespace tt::runtime::common {
 void *loadLibraryFromMemory(const uint8_t *data, size_t size);
 
-DylibHandleMap openDylibHandles(const ::tt::target::ttnn::Program *program);
+DylibHandleMap openDylibHandles(
+    const ::flatbuffers::Vector<::flatbuffers::Offset<tt::target::DynamicLib>>
+        *dylibs);
 
 void closeDylibHandles(DylibHandleMap handles);
-} // namespace tt::runtime::ttnn
+} // namespace tt::runtime::common
 
 #endif

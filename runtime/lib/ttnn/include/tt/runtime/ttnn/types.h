@@ -11,10 +11,8 @@
 #include <unordered_map>
 
 namespace tt::runtime::ttnn {
-using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::Device>,
+using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
                                    std::reference_wrapper<::ttnn::MeshDevice>>;
-using DylibHandleMap = std::unordered_map<uint32_t, void *>;
-
 struct LayoutDesc {
   ::ttnn::StorageType storageType;
   ::ttnn::Layout layout;
@@ -171,7 +169,7 @@ public:
 
   size_t subMeshSize(uint32_t meshId) const;
 
-  ::ttnn::Device &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
+  ::ttnn::IDevice &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
 
   ::ttnn::IDevice &getDeviceIndexFromSubMesh(
       uint32_t meshId, ::tt::tt_metal::distributed::MeshCoordinate meshCoords);

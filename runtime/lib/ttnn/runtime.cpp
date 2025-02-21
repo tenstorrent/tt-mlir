@@ -1,15 +1,18 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
+#include "tt-metalium/small_vector.hpp"
+#include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
-#include "ttnn/tensor/shape/small_vector.hpp"
 #include "ttnn/tensor/types.hpp"
 
 namespace tt::runtime::ttnn {
@@ -76,12 +79,9 @@ createOwnedTTNNTensor(std::shared_ptr<void> data,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
 
-  ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape(shape.begin(),
-                                                           shape.end());
-
   return ::ttnn::Tensor(
       createStorage<OwnedStorage>(data.get(), numElements, dataType),
-      ::ttnn::Shape(small_vector_shape), utils::toTTNNDataType(dataType),
+      ::ttnn::Shape(shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
 }
 
@@ -107,6 +107,19 @@ static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
   return std::ref(meshDevice);
 }
 
+static tt::runtime::MemoryView
+createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
+  return tt::runtime::MemoryView{
+      .numBanks = memoryView.num_banks,
+      .totalBytesPerBank = memoryView.total_bytes_per_bank,
+      .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
+      .totalBytesFreePerBank = memoryView.total_bytes_free_per_bank,
+      .largestContiguousBytesFreePerBank =
+          memoryView.largest_contiguous_bytes_free_per_bank,
+      .blockTable = memoryView.block_table,
+  };
+}
+
 static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
@@ -121,12 +134,9 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::uint32_t itemsize, ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
 
-  ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape(shape.begin(),
-                                                           shape.end());
-
   auto tensor = std::make_shared<::ttnn::Tensor>(
       createStorage<BorrowedStorage>(data.get(), numElements, dataType),
-      ::ttnn::Shape(small_vector_shape), utils::toTTNNDataType(dataType),
+      ::ttnn::Shape(shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
                 DeviceRuntime::TTNN);
@@ -167,7 +177,7 @@ Tensor createTensor(Device device, Layout layout,
         createOwnedTTNNTensor(nullptr, shape, stride, itemsize,
                               utils::fromTTNNDataType(layoutDesc.dataType));
     Tensor out = utils::createRuntimeTensorFromTTNN(tensor);
-    return toLayout(out, device, layout);
+    return ::tt::runtime::ttnn::toLayout(out, device, layout);
   }
   DeviceVariant targetDevice =
       getTargetDevice(device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN));
@@ -191,16 +201,28 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
+                  std::optional<size_t> l1SmallSize,
+                  std::optional<DispatchCoreType> dispatchCoreType,
+                  std::optional<bool> enableAsyncTTNN) {
+
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+
   LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
+  size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
-      grid, kL1SmallSize, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
-      ::tt::tt_metal::DispatchCoreType::WORKER);
+      ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid},
+      l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
 
-  bool enableAsync = debug::Env::get().enableAsyncTTNN;
-  for (::ttnn::Device *device : meshDevice->get_devices()) {
-    device->enable_async(enableAsync);
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
+
+  bool enableAsyncValue = enableAsyncTTNN.value_or(false);
+  for (::ttnn::IDevice *device : meshDevice->get_devices()) {
+    device->enable_async(enableAsyncValue);
   }
 
   return Device(std::static_pointer_cast<void>(meshDevice),
@@ -211,28 +233,57 @@ void closeDevice(Device device) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (::ttnn::Device *ttnnDevice : ttnnMeshDevice.get_devices()) {
+  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
   }
 #endif
 
-  ttnnMeshDevice.close_devices();
+  ttnnMeshDevice.close();
 }
 
 void deallocateBuffers(Device deviceHandle) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  for (::ttnn::Device *device : meshDevice.get_devices()) {
-    device->deallocate_buffers();
+  for (::ttnn::IDevice *device : meshDevice.get_devices()) {
+    device->allocator()->deallocate_buffers();
   }
 }
 
 void dumpMemoryReport(Device deviceHandle) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  for (::ttnn::Device *device : meshDevice.get_devices()) {
+  for (::ttnn::IDevice *device : meshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
   }
+}
+
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device deviceHandle, int deviceID) {
+  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+      memoryMap;
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  auto *device = meshDevice.get_device(deviceID);
+
+  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::DRAM);
+  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::L1);
+  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::L1_SMALL);
+  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::TRACE);
+
+  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
+      createMemoryView(dramMemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
+      createMemoryView(l1SmallMemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
+      createMemoryView(traceMemoryView);
+
+  return memoryMap;
 }
 
 void wait(Event event) {
@@ -261,7 +312,7 @@ Tensor toHost(Tensor tensor, bool untilize) {
   if (untilize) {
     hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
         *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
-        static_cast<::ttnn::Device *>(nullptr)));
+        static_cast<::ttnn::IDevice *>(nullptr)));
   }
 
   return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
@@ -416,6 +467,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     globalId = opContext.type_as_EmptyOp()->out()->global_id();
     break;
   }
+  case ::tt::target::ttnn::OpType::ZerosOp: {
+    globalId = opContext.type_as_ZerosOp()->out()->global_id();
+    break;
+  }
   case ::tt::target::ttnn::OpType::OnesOp: {
     globalId = opContext.type_as_OnesOp()->out()->global_id();
     break;
@@ -492,23 +547,12 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     return createNullTensor();
   }
 
-  ::ttnn::Tensor hostTensor = ::ttnn::from_device(*outPtr);
-  ::ttnn::Tensor outCopy =
-      ::ttnn::to_layout(hostTensor, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
-                        std::nullopt, static_cast<::ttnn::Device *>(nullptr));
+  std::shared_ptr<::ttnn::Tensor> hostTensor =
+      std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+          ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+          std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
 
-  void *src = ::tt::tt_metal::get_raw_host_data_ptr(outCopy);
-  std::uint32_t outCopySize = outCopy.volume() * outCopy.element_size();
-  std::shared_ptr<void> data = ::tt::runtime::utils::malloc_shared(outCopySize);
-  std::memcpy(data.get(), src, outCopySize);
-
-  auto tensor = std::make_shared<::ttnn::Tensor>(
-      ttnn::createStorage<BorrowedStorage>(data.get(), outCopy.volume(),
-                                           ::tt::target::DataType::Float32),
-      outCopy.shape().value, ::ttnn::DataType::FLOAT32,
-      ::ttnn::Layout::ROW_MAJOR);
-
-  return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
+  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
                 DeviceRuntime::TTNN);
 }
 

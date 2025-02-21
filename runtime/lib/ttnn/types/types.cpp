@@ -37,24 +37,19 @@ LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
   if (shouldTilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::TILE, std::nullopt,
                              std::nullopt,
-                             static_cast<::ttnn::Device *>(nullptr));
+                             static_cast<::ttnn::IDevice *>(nullptr));
   }
   if (shouldUntilize) {
     return ::ttnn::to_layout(input, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
                              std::nullopt,
-                             static_cast<::ttnn::Device *>(nullptr));
+                             static_cast<::ttnn::IDevice *>(nullptr));
   }
   return input;
 }
 
 ::ttnn::Tensor LayoutConverter::typecastIfNeeded(const ::ttnn::Tensor &input) {
-<<<<<<< HEAD:runtime/lib/ttnn/types/types.cpp
   if (!shouldTypecast) {
     return input;
-=======
-  if (shouldTypecast) {
-    return ::ttnn::typecast(input, outputDesc.dataType);
->>>>>>> b9f2722a (copy changes from e2e branch):runtime/lib/ttnn/include/tt/runtime/ttnn/types.cpp
   }
   return input;
 }
@@ -392,16 +387,6 @@ std::vector<Tensor> ProgramTensorPool::gatherOutputTensors() {
 //
 // ProgramContext APIs
 //
-// ProgramContext::ProgramContext(
-//     const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-//     const std::vector<uint32_t> &programInputs,
-//     const std::vector<uint32_t> &programOutputs, const DylibHandleMap
-//     *dylibMap, ::ttnn::MeshDevice *parentMesh) :
-//     tensorPool(ProgramTensorPool(liveTensors, programInputs,
-//     programOutputs)),
-//       parentMesh(parentMesh) {
-//   LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
-// }
 
 void ProgramContext::addSubMesh(uint32_t meshId,
                                 std::shared_ptr<::ttnn::MeshDevice> subMesh) {
@@ -419,8 +404,8 @@ size_t ProgramContext::subMeshSize(uint32_t meshId) const {
   return subMeshes.at(meshId)->num_devices();
 }
 
-::ttnn::Device &ProgramContext::getDeviceFromSubMesh(uint32_t meshId,
-                                                     int physicalDeviceId) {
+::ttnn::IDevice &ProgramContext::getDeviceFromSubMesh(uint32_t meshId,
+                                                      int physicalDeviceId) {
   LOG_ASSERT(subMeshes.contains(meshId));
   auto &subMesh = *subMeshes.at(meshId);
   return *subMesh.get_device(physicalDeviceId);

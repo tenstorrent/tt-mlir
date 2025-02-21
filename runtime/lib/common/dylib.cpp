@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/ttnn/dylib.h"
+#include "tt/runtime/detail/dylib.h"
 
-namespace tt::runtime::ttnn {
+namespace tt::runtime::common {
 void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
   // Create an in-memory file descriptor
   int memfd = memfd_create("dylib", MFD_CLOEXEC);
@@ -27,16 +27,24 @@ void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
   return handle;
 }
 
-DylibHandleMap openDylibHandles(const ::tt::target::ttnn::Program *program) {
+DylibHandleMap openDylibHandles(
+    const ::flatbuffers::Vector<::flatbuffers::Offset<tt::target::DynamicLib>>
+        *dylibs) {
   DylibHandleMap dlHandleMap;
-  for (const auto *dylib : *(program->dylibs())) {
-    void *handle = loadLibraryFromMemory(dylib->raw_file()->data(),
-                                         dylib->raw_file()->size());
-    if (!handle) {
-      throw std::runtime_error("failed to open input dynamic library handle!");
+
+  if (dylibs) {
+    for (const auto &dylib_offset : *dylibs) {
+      const auto *dylib = dylib_offset; // Automatic dereferencing works here
+      void *handle = loadLibraryFromMemory(dylib->raw_file()->data(),
+                                           dylib->raw_file()->size());
+      if (!handle) {
+        throw std::runtime_error(
+            "failed to open input dynamic library handle!");
+      }
+      dlHandleMap.emplace(dylib->dylib_id(), handle);
     }
-    dlHandleMap.emplace(dylib->dylib_id(), handle);
   }
+
   return dlHandleMap;
 }
 
@@ -45,4 +53,4 @@ void closeDylibHandles(DylibHandleMap handles) {
     dlclose(handle);
   }
 }
-} // namespace tt::runtime::ttnn
+} // namespace tt::runtime::common
