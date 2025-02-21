@@ -79,18 +79,24 @@ public:
     assert(op->getResults().size() == 1 &&
            "Only one result tensor is supported for now");
     auto optimal_layout = getLocalLayout(op->getResult(0), rewriter, device);
-    op->getResult(0).setType(optimal_layout);
-    auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op);
-    assert(dpsOp.getNumDpsInits() == 1 &&
-           "Only one result tensor is supported for now");
-    dpsOp.getDpsInits()[0].setType(optimal_layout);
+    if (genericOp.getGridAttr() != GridAttr::get(rewriter.getContext()) ||
+        genericOp.getResult(0).getType() == optimal_layout) {
+      return failure();
+    }
 
-    // Update generic grid (match worker cores to output grid)
-    genericOp.setGridAttr(
-        mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid());
+    rewriter.modifyOpInPlace(genericOp, [&]() {
+      genericOp->getResult(0).setType(optimal_layout);
+      auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op);
+      assert(dpsOp.getNumDpsInits() == 1 &&
+             "Only one result tensor is supported for now");
+      dpsOp.getDpsInits()[0].setType(optimal_layout);
 
-    return failure(); // need some better way to exit cond. the rewriter than
-                      // always returning false!
+      // Update generic grid (match worker cores to output grid)
+      genericOp.setGridAttr(
+          mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid());
+    });
+
+    return success();
   }
 };
 
@@ -184,7 +190,9 @@ public:
         returnTensorType.getElementType(), returnTensorType.getEncoding());
     auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
         op->getLoc(), returnTensorType, op->getOperand(0), emptyOp);
-    op->setOperand(0, toLayoutOp.getResult());
+    rewriter.modifyOpInPlace(
+        op, [&]() { op->setOperand(0, toLayoutOp.getResult()); });
+
     return success();
   }
 };
