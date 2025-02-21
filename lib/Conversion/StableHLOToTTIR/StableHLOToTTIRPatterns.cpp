@@ -12,16 +12,20 @@
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
 #include <llvm/ADT/APFloat.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -95,11 +99,20 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
           srcOp, adaptor, rewriter);
     }
+    if (isArgMax(srcOp, adaptor, rewriter)) {
+      return matchAndRewriteInternalArgMax(srcOp, adaptor, rewriter);
+    }
 
     return failure();
   }
 
 private:
+  // Typical initialization values for reduction ops.
+  enum TypicalInitReductionValue {
+    NEG_INF, // It is also used for minimum integer value.
+    ZERO,
+  };
+
   LogicalResult checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp,
                                    mlir::stablehlo::ReduceOp::Adaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
@@ -149,6 +162,331 @@ private:
                                                  /*keep_dim=*/false, dimArg);
 
     return success();
+  }
+
+  LogicalResult
+  matchAndRewriteInternalArgMax(mlir::stablehlo::ReduceOp &srcOp,
+                                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    // Can't reuse the original dimensions attribute because it uses i64 type.
+    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(srcOp.getDimensions()));
+
+    // stablehlo.reduce op generates two results; the first output is maximum
+    // value which is not consumed in subsequent graph and the second out is the
+    // index of maximum value which is consumend in subsequent graph. On other
+    // hand ttir.argmax generates one result only.
+    // So 'rewriter.replaceOpWithNewOp' will not work due to difference in
+    // number of outputs.
+    // We are creating the new ttir op explicitly here, then replace the
+    // original op uses with the new op, and finally, erase the original op
+    // explicitly.
+    ttir::ArgMaxOp newOp = rewriter.create<tt::ttir::ArgMaxOp>(
+        srcOp->getLoc(), outputType, adaptor.getInputs().front(), outputTensor,
+        false /* keep_dim */, dimArg);
+
+    srcOp->getResults().back().replaceAllUsesWith(newOp->getResults().front());
+    rewriter.eraseOp(srcOp);
+
+    return success();
+  }
+
+  // This function verify all the required conditions to convert stablehlo
+  // reduce op to TTIR argmax op
+  // 1. Two inputs values ot the op.
+  //   a. first input is the input tensor.
+  //   b. second input is defined with stablehlo.iota
+  // 2. Two init values
+  //   a. first init value is -inf (for float) or int_min (for integer input)
+  //   b. second init value is 0
+  // 3. Two results generated; the first result is maximum value which is not
+  //    consumed in subsequent graph and the second result is index of maximum
+  //    value which is consumend in subsequent graph.
+  // 4. One block in reducer body.
+  // 5. Pattern match the ops of reducer body; tt-torch and tt-xla generates
+  //    different pattern. So pattern matching is performed separately.
+  bool isArgMax(mlir::stablehlo::ReduceOp &srcOp,
+                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                ConversionPatternRewriter &rewriter) const {
+    if (!hasValidArgMaxInputs(srcOp.getInputs())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxOutputs(srcOp.getResults())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxInitValues(srcOp.getInitValues())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxReducerBody(srcOp.getBody())) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Validate the inputs.
+  bool hasValidArgMaxInputs(mlir::OperandRange inputs) const {
+    if (inputs.size() != 2) {
+      return false;
+    }
+
+    return isa<stablehlo::IotaOp>(inputs.back().getDefiningOp()) ? true : false;
+  }
+
+  // Validate the outputs.
+  bool hasValidArgMaxOutputs(mlir::ResultRange results) const {
+    if (results.size() != 2) {
+      return false;
+    }
+
+    if (!results.front().getUsers().empty() ||
+        results.back().getUsers().empty()) {
+      return false;
+    }
+    return true;
+  }
+
+  // Validate initialization values.
+  bool hasValidArgMaxInitValues(mlir::OperandRange initValues) const {
+    if (initValues.size() != 2) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.front(),
+                         TypicalInitReductionValue::NEG_INF)) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.back(), TypicalInitReductionValue::ZERO)) {
+      return false;
+    }
+    return true;
+  }
+
+  // Validate reducer body.
+  bool hasValidArgMaxReducerBody(mlir::Region &body) const {
+    auto &blocks = body.getBlocks();
+    if (blocks.size() != 1) {
+      return false;
+    }
+
+    auto &operations = blocks.front().getOperations();
+    if (operations.size() == 7) {
+      if (verifyTorchOpArgMaxPattern(operations.front())) {
+        return true;
+      }
+    } else if (operations.size() == 10) {
+      if (verifyJaxOpArgMaxPattern(operations.front())) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Pattern match the ops for tt-torch ArgMax op.
+  bool verifyTorchOpArgMaxPattern(mlir::Operation &operation) const {
+    mlir::Operation *op = &operation;
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    stablehlo::CompareOp compareOp = mlir::cast<stablehlo::CompareOp>(op);
+    if (compareOp.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::GE) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::MinOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::ReturnOp>(op)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Pattern match the ops for tt-xla ArgMax op.
+  bool verifyJaxOpArgMaxPattern(mlir::Operation &operation) const {
+    mlir::Operation *op = &operation;
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    stablehlo::CompareOp compareOp = mlir::cast<stablehlo::CompareOp>(op);
+    if (compareOp.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::GT) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::OrOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::AndOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::OrOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa<stablehlo::ReturnOp>(op)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Verify that the init value is defined by a constant op and initialize with
+  // desired value.
+  bool verifyInitValue(mlir::Value val,
+                       TypicalInitReductionValue desired) const {
+    Operation *initValue = val.getDefiningOp();
+    while (initValue->getOpOperands().size() == 1) {
+      initValue = initValue->getOpOperand(0).get().getDefiningOp();
+    }
+    if (!isa<stablehlo::ConstantOp>(initValue)) {
+      return false;
+    }
+
+    stablehlo::ConstantOp initValueOp =
+        mlir::cast<stablehlo::ConstantOp>(initValue);
+
+    if (!checkInitValue(initValueOp, desired)) {
+      return false;
+    }
+    return true;
+  }
+
+  // Check if the constant op is initialized with the desired init value.
+  bool checkInitValue(stablehlo::ConstantOp initValueOp,
+                      TypicalInitReductionValue desired) const {
+    if (initValueOp.getValueAttr().size() != 1) {
+      return false;
+    }
+
+    float desiredF32;
+    double desiredF64;
+    uint16_t desiredBF16;
+    int32_t desiredI32;
+    int64_t desiredI64;
+    if (desired == TypicalInitReductionValue::NEG_INF) {
+      desiredF32 = -std::numeric_limits<float>::infinity();
+      desiredF64 = -std::numeric_limits<double>::infinity();
+      desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
+      desiredI32 = std::numeric_limits<int32_t>::min();
+      desiredI64 = std::numeric_limits<int64_t>::min();
+    } else if (desired == TypicalInitReductionValue::ZERO) {
+      desiredF32 = 0.0;
+      desiredF64 = 0.0;
+      desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
+      desiredI32 = 0;
+      desiredI64 = 0;
+    } else {
+      return false;
+    }
+
+    // Constant operand must be -inf if this is to be a max pool
+    // since bfloat16 is not a type we actually have I must compare the raw
+    // bits
+    if (initValueOp.getResult().getType().getElementType().isBF16()) {
+      // Collect the values into a vector
+      std::vector<mlir::Attribute> values;
+      for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
+        values.push_back(
+            initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
+      }
+
+      auto denseValues = ::mlir::DenseElementsAttr::get(
+          initValueOp.getValueAttr().getShapedType(), values);
+      uint16_t bfloat_bits =
+          static_cast<uint16_t>(*denseValues.getRawData().data());
+      if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isF32()) {
+      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isF64()) {
+      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isInteger(
+                   32)) {
+      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isInteger(
+                   64)) {
+      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+
+    return true;
   }
 };
 } // namespace
@@ -1191,71 +1529,24 @@ public:
       return err;
     }
 
-    // Create the output tensor type based on inputs
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-
-    // Create an empty output tensor with the computed shape
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-    SmallVector<Type> ttirTypes;
-    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
-                                                      ttirTypes))) {
-      return failure();
-    }
-
-    auto ttirOperands = srcOp.getOperandsMutable();
-    ttirOperands.append(ValueRange(outputTensor));
-
-    SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
-    SmallVector<NamedAttribute> ttirAttrs;
-    for (auto srcAttr : srcAttrs) {
-      StringAttr srcName = srcAttr.getName();
-      if (srcName == "channel_handle") {
-        auto srcChannelHandleAttr =
-            dyn_cast<mlir::stablehlo::ChannelHandleAttr>(srcAttr.getValue());
-        if (!srcChannelHandleAttr) {
-          return failure();
-        }
-
-        // channelType is supposed to be DEVICE_TO_DEVICE for CCL ops.
-        // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
-        // Consider preserving this information in the future if the attribute
-        // is non-DEVICE_TO_DEVICE values.
-        auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
-        if (channelType != kChannelTypeDeviceToDevice) {
-          return failure();
-        }
-
-        IntegerAttr channelHandleAttr = rewriter.getSI32IntegerAttr(
-            static_cast<int32_t>(srcChannelHandleAttr.getHandle()));
-        if (!channelHandleAttr) {
-          return failure();
-        }
-        ttirAttrs.push_back({srcName, channelHandleAttr});
-      } else {
-        ttirAttrs.push_back(srcAttr);
+    IntegerAttr channelHandleAttr;
+    if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
+      // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Consider preserving this information in the future if the attribute
+      // is non-DEVICE_TO_DEVICE values.
+      auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
+      if (channelType != kChannelTypeDeviceToDevice &&
+          channelType != kChannelTypeInvalid) {
+        return failure();
       }
-    }
 
-    // Algorithm: search for first non-one working dimension from back
-    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    size_t dim = replicaGroupsShape.size() - 1;
-    for (auto s = replicaGroupsShape.rbegin(); s != replicaGroupsShape.rend();
-         ++s, --dim) {
-      if (*s != 1) {
-        break;
-      }
+      channelHandleAttr = rewriter.getSI32IntegerAttr(
+          static_cast<int32_t>(srcChannelHandleAttr.getHandle()));
     }
-    if (dim < 0) {
-      // all one shape, then select the fastest dim
-      dim = replicaGroupsShape.size();
-    }
-    StringAttr dimName = StringAttr::get(this->getContext(), "dim");
-    IntegerAttr dimAttr =
-        rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-    ttirAttrs.push_back({dimName, dimAttr});
+    mlir::DenseIntElementsAttr replicaGroupsAttr =
+        adaptor.getReplicaGroupsAttr();
+    bool useGlobalDeviceIds = adaptor.getUseGlobalDeviceIds();
 
     // Parse computation in region and add it to ttirAttrs
     ReduceType reduceType;
@@ -1263,16 +1554,43 @@ public:
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp cannot specify reduce type.");
     }
-    StringAttr reduceTypeAttrName =
-        StringAttr::get(this->getContext(), "reduce_type");
-    Attribute reduceTypeAttr = rewriter.getAttr<ReduceTypeAttr>(reduceType);
-    ttirAttrs.push_back({reduceTypeAttrName, reduceTypeAttr});
 
-    auto ttirAllReduceOp = rewriter.create<mlir::tt::ttir::AllReduceOp>(
-        srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
-        ttirAttrs);
+    // stablehlo all_reduce op has no dimension defined in the op. Thus, we
+    // estimate possible all reduce dimension. Current algorithm is to search
+    // for first non-one dimension of input tensor from back.
+    auto estimateDim = [](mlir::RankedTensorType inputType) -> int32_t {
+      if (inputType.getRank() == 1) {
+        return 0;
+      }
+      auto inputShape = inputType.getShape();
+      auto nonOneIt = std::find_if(inputShape.rbegin(), inputShape.rend(),
+                                   [](int64_t s) { return s != 1; });
+      int32_t dim = inputType.getRank() - 1 -
+                    std::distance(inputShape.rbegin(), nonOneIt);
+      // all one shape, then select the deepest dim
+      if (dim < 0) {
+        dim = inputType.getRank() - 1;
+      }
+      return dim;
+    };
 
-    rewriter.replaceOp(srcOp, ttirAllReduceOp);
+    // Handle variadic input/output pairs by creating mulitple AllReduceOps.
+    llvm::SmallVector<mlir::Value> allReduceOpResults;
+    for (auto [inputOperand, resultOperand] :
+         llvm::zip_equal(adaptor.getOperands(), srcOp->getResults())) {
+      auto inputType = mlir::cast<RankedTensorType>(inputOperand.getType());
+      auto outputType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(resultOperand.getType()));
+
+      auto allReduceOp =
+          ttmlir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
+              rewriter, srcOp.getLoc(), outputType, inputOperand,
+              replicaGroupsAttr, estimateDim(inputType), channelHandleAttr,
+              useGlobalDeviceIds, reduceType);
+
+      allReduceOpResults.push_back(allReduceOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, allReduceOpResults);
 
     return success();
   }
@@ -1282,9 +1600,9 @@ private:
   checkBasicLegality(mlir::stablehlo::AllReduceOp &srcOp,
                      mlir::stablehlo::AllReduceOp::Adaptor adaptor,
                      ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
+    if (srcOp.getOperands().empty()) {
       return rewriter.notifyMatchFailure(
-          srcOp, "AllReduceOp must have one input/output for now.");
+          srcOp, "AllReduceOp must have at least one input/output.");
     }
 
     return success();
@@ -1325,17 +1643,57 @@ public:
     auto ttirOperands = srcOp.getOperandsMutable();
     ttirOperands.append(ValueRange(outputTensor));
 
-    SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
-    SmallVector<NamedAttribute> ttirAttrs;
-    StringAttr dimAttrName = StringAttr::get(this->getContext(), "dim");
-    IntegerAttr allGatherDimAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(adaptor.getAllGatherDim()));
-    ttirAttrs.push_back({dimAttrName, allGatherDimAttr});
+    /*
+    We need to figure out what the cluster axis is based on replica_groups.
+    Replica groups define which device axis we are performing all_gather on.
+    It is a 2D vector. Each element in replica_groups contains a list of devices
+    that will perform all_gather with each other. Currently we only support 2D
+    meshes, but this algorithm can be expanded for ND.
 
-    auto ttirAllGatherOp = rewriter.create<mlir::tt::ttir::AllGatherOp>(
-        srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
-        ttirAttrs);
-    rewriter.replaceOp(srcOp, ttirAllGatherOp);
+    ex.
+    mesh = [2, 4]
+    replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
+    0 1 2 3
+    4 5 6 7
+
+    all_gather happens on (0, 1, 2, 3) and (4, 5, 6, 7) so cluster_axis = 1
+    (mesh[1])
+
+    mesh = [2, 4]
+    replica_groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
+    0 1 2 3
+    4 5 6 7
+
+    all_gather happens on (0, 4), (1, 5), (2, 6), (3, 7) so cluster_axis = 0
+    (mesh[0])
+
+    */
+
+    uint32_t clusterAxis = 0;
+    auto replicaGroups = adaptor.getReplicaGroups();
+    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
+
+    if (replicaGroupsShape.size() == 0) {
+      // Cannot have replicas of size 0, this means we are not performing the
+      // all_gather across any device.
+      return failure();
+    }
+
+    // Case where we have single devices in each replica_group (ie perform
+    // all_gather against itself which should be optimized away).
+    // We also assume we are only using our constrained mesh types (ie 1x8, 1x32
+    // etc) and cannot have (32x1, 8x1).
+    if (replicaGroupsShape[1] != 1) {
+      auto firstElementIt = replicaGroups.begin();
+      auto secondElementIt = firstElementIt + 1;
+
+      clusterAxis = (((*firstElementIt) + 1) == *secondElementIt);
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::AllGatherOp>(
+        srcOp, outputType, adaptor.getOperands()[0], outputTensor,
+        adaptor.getAllGatherDim(), clusterAxis);
+
     return success();
   }
 
@@ -1372,101 +1730,121 @@ public:
       return err;
     }
 
-    const std::string kShardingTarget = "Sharding";
-    const std::string kSPMDFullToShardShapeTarget = "SPMDFullToShardShape";
-    const std::string kSPMDShardToFullShapeTarget = "SPMDShardToFullShape";
-
     auto callTargetName = adaptor.getCallTargetNameAttr();
 
     // Currently stablehlo.custom_call with following functions from
     // jax/openxla are supported
-    if (callTargetName != kShardingTarget &&
-        callTargetName != kSPMDFullToShardShapeTarget &&
-        callTargetName != kSPMDShardToFullShapeTarget) {
+    if (callTargetName !=
+            mlir::tt::sharding_utils::kShardingCustomCallTargetName &&
+        callTargetName !=
+            mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName &&
+        callTargetName !=
+            mlir::tt::sharding_utils::kSPMDShardToFullShapeCallTargetName) {
       return failure();
     }
 
-    auto shardingAttr = dyn_cast_or_null<StringAttr>(
-        adaptor.getAttributes().get("mhlo.sharding"));
+    auto shardingAttr =
+        dyn_cast_if_present<StringAttr>(adaptor.getAttributes().get(
+            mlir::tt::sharding_utils::kXlaShardingAttr));
     if (!shardingAttr) {
       return failure();
     }
 
     mlir::tt::sharding_utils::MeshSharding meshSharding;
-    if (failed(mlir::tt::sharding_utils::parseGSPMDShardingAttr(
-            shardingAttr.getValue(), meshSharding))) {
-      return failure();
+    auto error = meshSharding.convertGSPMDShardingToMeshSharding(
+        shardingAttr.getValue());
+    if (auto e = error.takeError()) {
+      return rewriter.notifyMatchFailure(srcOp, llvm::toString(std::move(e)));
     }
 
-    if (callTargetName == kSPMDFullToShardShapeTarget) {
+    // For GSPMD, meshShape is extracted by the parser. Then, add it as module
+    // attribute such that the information is used by later pipeline stage.
+    auto meshShape = meshSharding.getMeshShape();
+    if (meshShape.size() > 1) {
+      auto module = srcOp->getParentOfType<ModuleOp>();
+      if (!module) {
+        llvm_unreachable("Require module as one of parent ops.");
+      }
+      mlir::tt::utils::addMeshToModuleAttribute(
+          rewriter, module, StringAttr::get(getContext(), "mesh_gspmd"),
+          meshShape);
+    }
+
+    if (callTargetName ==
+        mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName) {
+      // @Sharding => @SPMDFullToShardShape pattern
       Operation *shardingOp = srcOp->getOperand(0).getDefiningOp();
       if (!shardingOp) {
         return rewriter.notifyMatchFailure(
-            srcOp, "requires operand to be defined by an op");
+            srcOp, "Requires operand to be defined by prior Sharding op.");
       }
-
-      // TODO(wooseoklee): a bit rough approach here to match output dim
-      shardingOp->getResult(0).setType(srcOp->getResult(0).getType());
-      srcOp.getResult(0).replaceAllUsesWith(shardingOp->getResult(0));
-      rewriter.eraseOp(srcOp);
-    } else if (callTargetName == kSPMDShardToFullShapeTarget) {
+      rewriter.replaceOp(srcOp, shardingOp->getResult(0));
+    } else if (callTargetName ==
+               mlir::tt::sharding_utils::kSPMDShardToFullShapeCallTargetName) {
+      // @Sharding => @SPMDShardToFullShape pattern
       Operation *shardingOp = srcOp->getOperand(0).getDefiningOp();
       if (!shardingOp) {
         return rewriter.notifyMatchFailure(
-            srcOp, "requires operand to be defined by an op");
+            srcOp, "Requires operand to be defined by prior Sharding op.");
       }
 
-      // Create the output tensor type based on inputs
       auto outputType = mlir::cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp->getResult(0).getType()));
 
-      // Create an empty output tensor with the computed shape
-      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+          rewriter, srcOp, outputType, adaptor.getInputs().front(),
+          meshSharding.getShardType(),
+          mlir::tt::MeshShardDirection::ShardToFull,
+          meshSharding.getShardShape(), meshSharding.getShardDims());
 
-      SmallVector<Type> outputTypes;
-      if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
-                                                        outputTypes))) {
-        return failure();
-      }
-
-      meshSharding.shardDirection = mlir::tt::MeshShardDirection::ShardToFull;
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
-          srcOp, outputTypes, srcOp.getInputs().front(), outputTensor,
-          meshSharding.shardType, meshSharding.shardDirection,
-          meshSharding.shardShape, meshSharding.shardDims);
-    } else if (callTargetName == kShardingTarget) {
-      if (meshSharding.shardType == mlir::tt::MeshShardType::Manual) {
-        // "manual" sharding indicates match between input/output tensor shape
-        // and no sharding is required.
-        srcOp.getResult(0).replaceAllUsesWith(srcOp->getOperand(0));
-        rewriter.eraseOp(srcOp);
+    } else if (callTargetName ==
+               mlir::tt::sharding_utils::kShardingCustomCallTargetName) {
+      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Manual) {
+        // @Sharding => @SPMDShardToFullShape pattern
+        // "manual" sharding indicates no sharding is required.
+        rewriter.replaceOp(srcOp, srcOp->getOperand(0));
       } else {
-        auto *user = *srcOp.getResult(0).user_begin();
-        auto userOp = dyn_cast_or_null<mlir::stablehlo::CustomCallOp>(user);
-        if (!userOp) {
+        // @Sharding => @SPMDFullToShardShape pattern
+        auto fullToShardCustomCall =
+            mlir::dyn_cast_if_present<mlir::stablehlo::CustomCallOp>(
+                *srcOp->user_begin());
+        if (!fullToShardCustomCall || !fullToShardCustomCall->hasOneUse()) {
           return failure();
         }
 
-        // Create the output tensor type based on inputs
-        auto outputType = mlir::cast<RankedTensorType>(
-            getTypeConverter()->convertType(userOp->getResult(0).getType()));
-
-        // Create an empty output tensor with the computed shape
-        tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-            srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-        SmallVector<Type> outputTypes;
-        if (failed(this->getTypeConverter()->convertTypes(
-                userOp->getResultTypes(), outputTypes))) {
-          return failure();
+        // JAX automatic sharding pre-shards input tensors and provides multiple
+        // buffers. Thus, mesh sharding operations should not shard the tensors
+        // twice if they are function arguments and pre-sharded by frontend.
+        // Runtime ignores mesh sharding operation if it is set as manual
+        // sharding.
+        auto inputOperand = adaptor.getInputs().front();
+        auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
+        if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(inputOperand)) {
+          auto argNum = blockArg.getArgNumber();
+          if (auto argShardingAttr = funcOp.getArgAttrOfType<mlir::StringAttr>(
+                  argNum, mlir::tt::sharding_utils::kXlaShardingAttr)) {
+            if (argShardingAttr == shardingAttr) {
+              meshSharding.setDummyShardingOp();
+              rewriter.modifyOpInPlace(funcOp, [&]() {
+                funcOp.removeArgAttr(
+                    argNum, mlir::tt::sharding_utils::kXlaShardingAttr);
+              });
+            } else {
+              llvm_unreachable("GSPMD customCallOp and function argument "
+                               "shardings are different.");
+            }
+          }
         }
 
-        meshSharding.shardDirection = mlir::tt::MeshShardDirection::FullToShard;
-        rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
-            srcOp, outputTypes, srcOp.getInputs().front(), outputTensor,
-            meshSharding.shardType, meshSharding.shardDirection,
-            meshSharding.shardShape, meshSharding.shardDims);
+        auto outputType =
+            mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+                fullToShardCustomCall->getResult(0).getType()));
+
+        ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+            rewriter, srcOp, outputType, inputOperand,
+            meshSharding.getShardType(),
+            mlir::tt::MeshShardDirection::FullToShard,
+            meshSharding.getShardShape(), meshSharding.getShardDims());
       }
     }
     return success();
@@ -1477,9 +1855,9 @@ private:
   checkBasicLegality(mlir::stablehlo::CustomCallOp &srcOp,
                      mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                      ConversionPatternRewriter &rewriter) const {
-
-    // Expect single input/output, otherwise do not convert
-    if (adaptor.getInputs().size() != 1 && srcOp->getResults().size() != 1) {
+    // Expect single input/output and at least one use of result.
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1 ||
+        srcOp->getResult(0).use_empty()) {
       return failure();
     }
 

@@ -150,15 +150,6 @@ def TT_StreamMode : I32BitEnumAttr<"StreamMode", "TT Stream Mode",
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_BufferAccess : I32BitEnumAttr<"BufferAccess", "TT Buffer Access",
-                           [
-                            TT_StreamModeAlias,
-                            TT_StreamModeStream,
-                           ]>, Deprecated<"use TT_StreamMode instead"> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
-}
-
 def TT_ReduceType_Sum  : I32EnumAttrCase<"Sum",  0, "sum">;
 def TT_ReduceType_Mean : I32EnumAttrCase<"Mean", 1, "mean">;
 def TT_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
@@ -217,6 +208,22 @@ def TT_CPURole : I32EnumAttr<"CPURole", "TT CPU Role",
                             ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
+}
+
+def TT_ArgumentType_Input : I32EnumAttrCase<"Input", 0, "input">;
+def TT_ArgumentType_Parameter: I32EnumAttrCase<"Parameter", 1, "parameter">;
+def TT_ArgumentType_Constant : I32EnumAttrCase<"Constant", 2, "constant">;
+
+def TT_ArgumentType : I32EnumAttr<"ArgumentType", "Argument Type",
+                            [
+                              TT_ArgumentType_Input,
+                              TT_ArgumentType_Parameter,
+                              TT_ArgumentType_Constant,
+                            ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+  let stringToSymbolFnName = "ArgumentTypeStringToEnum";
+  let symbolToStringFnName = "ArgumentTypeEnumToString";
 }
 
 #endif

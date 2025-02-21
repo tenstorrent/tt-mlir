@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 #include <optional>
 
@@ -23,24 +24,14 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
 
   std::vector<std::pair<uint32_t, uint32_t>> padding;
   for (uint32_t i = 0; i < op->padding()->size(); i += 2) {
-    padding.push_back(
-        std::make_pair(op->padding()->Get(i), op->padding()->Get(i + 1)));
+    padding.emplace_back(op->padding()->Get(i), op->padding()->Get(i + 1));
   }
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      op->memcfg() ? std::make_optional(
-                         utils::createMemoryConfig(op->memcfg(), op->out()))
-                   : std::nullopt;
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
-  if (workaround::Env::get().usePaddingPairSignatureWithQueueId) {
-    out = ::ttnn::pad(::ttnn::DefaultQueueId, in, padding, padValue,
-                      op->use_multicore(), outputMemoryConfig);
-  } else {
-    LOG_FATAL("Currently, the only ::ttnn::pad signature which supports "
-              "padding pairs as input has queue_id in its signature. The only "
-              "way to execute the operation currently is to use the workaround "
-              "enabled by the flag \"usePaddingPairSignatureWithQueueId\"");
-  }
+  out = ::ttnn::pad(in, padding, padValue, op->use_multicore(),
+                    outputMemoryConfig);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

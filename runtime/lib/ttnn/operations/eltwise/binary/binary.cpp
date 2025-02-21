@@ -16,7 +16,7 @@ static void runEltwiseBinaryOp(
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, const ::ttnn::Tensor &,
         const std::optional<const ::ttnn::DataType> &,
-        const std::optional<::tt::tt_metal::MemoryConfig> &,
+        const std::optional<::ttnn::MemoryConfig> &,
         std::optional<::ttnn::Tensor>,
         std::optional<::ttnn::operations::unary::FusedActivations>,
         std::optional<::ttnn::operations::unary::UnaryWithParam>)> &ttnnOp) {
@@ -26,8 +26,13 @@ static void runEltwiseBinaryOp(
   getEltwiseBinaryOpInputTensors(op, tensorPool, &lhs, &rhs);
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, std::nullopt, std::nullopt);

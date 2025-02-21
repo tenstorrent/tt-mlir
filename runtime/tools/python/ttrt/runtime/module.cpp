@@ -9,8 +9,8 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
-#include "tt/runtime/test/dylib.h"
-#include "tt/runtime/test/utils.h"
+#include "tt/runtime/ttnn/test/dylib.h"
+#include "tt/runtime/ttnn/test/utils.h"
 #endif
 
 #include <pybind11/functional.h>

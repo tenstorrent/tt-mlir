@@ -36,8 +36,6 @@ mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
-mlir::Type dataTypeToElementType(::mlir::MLIRContext *context, DataType dtype);
-
 // Helper method to create a RankedTensorType with the given encoding.
 RankedTensorType
 createRankedTensorTypeWithEncoding(RankedTensorType tensorType,

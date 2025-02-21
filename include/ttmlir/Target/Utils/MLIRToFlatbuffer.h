@@ -19,37 +19,18 @@
 
 namespace mlir::tt {
 
-flatbuffers::Offset<::tt::target::LayoutDesc>
-metalLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache, MetalLayoutAttr attr,
-                            ArrayRef<int64_t> logicalShape,
-                            DeviceAttr deviceAttr);
-
-flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
-    FlatbufferObjectCache &cache, ttnn::TTNNLayoutAttr attr,
-    ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr);
-
 struct GoldenTensor {
   std::string name;
   std::vector<int64_t> shape;
   std::vector<int64_t> strides;
   ::tt::target::DataType dtype;
-  std::uint8_t *data;
+  std::vector<std::uint8_t> data;
 
   GoldenTensor(std::string name, std::vector<int64_t> shape,
                std::vector<int64_t> strides, ::tt::target::DataType dtype,
-               std::uint8_t *data)
-      : name(name), shape(shape), strides(strides), dtype(dtype), data(data) {}
-
-  std::vector<std::uint8_t> convertDataToVector() {
-    int totalDataSize = std::accumulate(this->shape.begin(), this->shape.end(),
-                                        1, std::multiplies<int64_t>()) *
-                        sizeof(float);
-
-    std::vector<std::uint8_t> dataVec(totalDataSize);
-    std::memcpy(dataVec.data(), this->data, totalDataSize);
-
-    return dataVec;
-  }
+               std::vector<std::uint8_t> &&_data)
+      : name(name), shape(shape), strides(strides), dtype(dtype),
+        data(std::move(_data)) {}
 };
 
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
@@ -65,24 +46,6 @@ inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::OOBVal::Inf;
   case OOBVal::NegInf:
     return ::tt::target::OOBVal::NegInf;
-  }
-}
-
-inline ::tt::target::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &, TensorMemoryLayout memLayout) {
-  switch (memLayout) {
-  case TensorMemoryLayout::None:
-    return ::tt::target::TensorMemoryLayout::None;
-  case TensorMemoryLayout::Interleaved:
-    return ::tt::target::TensorMemoryLayout::Interleaved;
-  case TensorMemoryLayout::SingleBank:
-    return ::tt::target::TensorMemoryLayout::SingleBank;
-  case TensorMemoryLayout::HeightSharded:
-    return ::tt::target::TensorMemoryLayout::HeightSharded;
-  case TensorMemoryLayout::WidthSharded:
-    return ::tt::target::TensorMemoryLayout::WidthSharded;
-  case TensorMemoryLayout::BlockSharded:
-    return ::tt::target::TensorMemoryLayout::BlockSharded;
   }
 }
 
@@ -441,44 +404,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ElementsAttr elementsAttr) {
   }
   SmallVector<uint32_t> data({value});
   return toFlatbuffer(cache, ArrayRef<uint32_t>(data));
-}
-
-inline flatbuffers::Offset<::tt::target::LayoutDesc>
-encodingToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
-                     ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
-  if (isa<MetalLayoutAttr>(attr)) {
-    return metalLayoutAttrToFlatbuffer(cache, cast<MetalLayoutAttr>(attr),
-                                       logicalShape, deviceAttr);
-  }
-
-  assert(isa<ttnn::TTNNLayoutAttr>(attr) && "unsupported layout attr");
-  return ttnnLayoutAttrToFlatbuffer(cache, cast<ttnn::TTNNLayoutAttr>(attr),
-                                    logicalShape, deviceAttr);
-}
-
-inline flatbuffers::Offset<::tt::target::TensorDesc>
-tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
-                       DeviceAttr deviceAttr) {
-  auto tensorType = mlir::cast<RankedTensorType>(type);
-  auto shapeInt64 = tensorType.getShape();
-  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
-  return ::tt::target::CreateTensorDescDirect(
-      *cache.fbb, &shape,
-      cache.getOrCreate(tensorType.getEncoding(), encodingToFlatbuffer,
-                        shapeInt64, deviceAttr));
-}
-
-inline flatbuffers::Offset<::tt::target::TensorRef>
-tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
-                        uint64_t address, uint64_t size) {
-  auto deviceAttr =
-      getCurrentScopeDevice(value.getParentBlock()->getParentOp());
-  assert(deviceAttr);
-  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
-  auto tensorDesc =
-      cache.getOrCreate(tensorType, tensorTypeToFlatbuffer, deviceAttr);
-  return ::tt::target::CreateTensorRef(*cache.fbb, cache.global_id++, address,
-                                       size, tensorDesc);
 }
 
 inline flatbuffers::Offset<::tt::target::MLIR>

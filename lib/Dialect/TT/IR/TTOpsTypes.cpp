@@ -11,6 +11,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
+#include <llvm/Support/Casting.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -600,6 +601,13 @@ MetalLayoutAttr::getShardShape(bool convertTileToScalar) const {
   return shardShape;
 }
 
+StreamMode MetalLayoutAttr::getStreamMode() const {
+  StreamLayoutAttr layout =
+      llvm::dyn_cast<StreamLayoutAttr>(getMemref().getLayout());
+  assert(layout != nullptr && "expected a StreamLayoutAttr layout");
+  return layout.getStreamMode();
+}
+
 mlir::Type MetalLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
@@ -825,19 +833,6 @@ MetalLayoutAttr::projectOnto(mlir::AffineMap linearMap,
          "Linear map and physical map must have same number of dimensions");
   return replaceMemoryMapSymbolsWithShardShape(physicalMemoryMap)
       .compose(linearMap);
-}
-
-mlir::Type BufferAttr::getElementType() const {
-  return getMemref().getElementType();
-}
-
-llvm::SmallVector<int64_t> BufferAttr::getShape() const {
-  SmallVector<int64_t> bufferShape(getMemref().getShape());
-  auto elementType = getElementType();
-  if (mlir::isa<TileType>(elementType)) {
-    return mlir::cast<TileType>(elementType).getScalarShape(bufferShape);
-  }
-  return bufferShape;
 }
 
 //
@@ -1210,35 +1205,7 @@ uint64_t TileType::getSizeBytes() const {
 }
 
 mlir::Type TileType::getElementType() const {
-  switch (getDataType()) {
-  case DataType::Float32:
-    return FloatType::getF32(getContext());
-  case DataType::Float16:
-    return FloatType::getF16(getContext());
-  case DataType::BFloat16:
-    return FloatType::getBF16(getContext());
-  case DataType::BFP_Float8:
-    return FloatType::getF16(getContext());
-  case DataType::BFP_BFloat8:
-    return FloatType::getBF16(getContext());
-  case DataType::BFP_Float4:
-    return FloatType::getF16(getContext());
-  case DataType::BFP_BFloat4:
-    return FloatType::getBF16(getContext());
-  case DataType::BFP_Float2:
-    return FloatType::getF16(getContext());
-  case DataType::BFP_BFloat2:
-    return FloatType::getBF16(getContext());
-  case DataType::UInt32:
-    return IntegerType::get(getContext(), 32,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::UInt16:
-    return IntegerType::get(getContext(), 16,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::UInt8:
-    return IntegerType::get(getContext(), 8,
-                            IntegerType::SignednessSemantics::Unsigned);
-  }
+  return dataTypeToElementType(getContext(), getDataType());
 }
 
 SystemDescAttr mlir::tt::getCurrentScopeSystemDesc(mlir::Operation *op) {

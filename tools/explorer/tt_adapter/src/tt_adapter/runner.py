@@ -253,21 +253,20 @@ class ModelRunner:
                 data = entry["value"]
                 # Turn this into a Torch Tensor to easily format it for the GoldenMap
                 # data is a uint8_t buffer type that contains the data in the format of dtype
-                # We will need to render this data as a buffer reference for the create_golden_tensor function
+                # We will need to render this data as a buffer reference for the GoldenTensor constructor
                 import array
 
                 # B is unsigned char in the array library
-                # This will parse the data as a 1D Buffer of uint8_t, exactly the pointer type expected by create_golden_tensor
+                # This will parse the data as a 1D Buffer of uint8_t, exactly the pointer type expected
                 data_arr = array.array("B", data["data"])
-                kept_alive_data_arrs.append(data_arr)
-                # Weird keepalive measure for the GoldenData...?
 
-                rendered_golden_map[entry["key"]] = passes.create_golden_tensor(
+                rendered_golden_map[entry["key"]] = passes.GoldenTensor(
                     data["name"],
                     data["shape"],
                     data["stride"],
                     passes.lookup_dtype(data["dtype"]),
                     data_arr.buffer_info()[0],
+                    data_arr.buffer_info()[1],
                 )
 
             # Get module from file

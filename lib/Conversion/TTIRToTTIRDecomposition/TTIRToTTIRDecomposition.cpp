@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -830,69 +831,99 @@ struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
 
-  std::vector<int64_t> getIndicesOfSpatialDims(ttir::PoolingOp op) const {
-    std::vector<int64_t> spatialDims;
-    for (int64_t i = 0;
-         i < static_cast<int64_t>(op.getWindowDimensions().size()); i++) {
-      if (op.getWindowDimensions()[i] > 1) {
-        spatialDims.push_back(i);
-      }
+  LogicalResult
+  matchAndRewrite(ttir::PoolingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    llvm::SmallVector<int64_t> spatialDimIndices =
+        getIndicesOfElementsLargerThanOne(op.getWindowDimensions());
+    size_t numSpatialDimIndices = spatialDimIndices.size();
+    if (numSpatialDimIndices > 2) {
+      return rewriter.notifyMatchFailure(
+          op, "No decompositions for a pooling op with " +
+                  std::to_string(numSpatialDimIndices) + " spatial dimensions");
     }
-    return spatialDims;
+
+    LogicalResult legalityResult =
+        canDecompose2DPoolingOp(op, rewriter, spatialDimIndices);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    switch (op.getPoolingMethod()) {
+    case ttir::PoolingMethod::Max: {
+      rewritePool2d<ttir::MaxPool2dOp>(op, adaptor, rewriter,
+                                       spatialDimIndices);
+      return success();
+    }
+    default: {
+      return rewriter.notifyMatchFailure(
+          op, "Failed to match pooling method: " +
+                  stringifyPoolingMethod(op.getPoolingMethod()));
+    }
+    }
   }
 
-  LogicalResult canDecompose2DPoolingOp(ttir::PoolingOp op) const {
+private:
+  llvm::SmallVector<int64_t>
+  getIndicesOfElementsLargerThanOne(llvm::ArrayRef<int64_t> input) const {
+    llvm::SmallVector<int64_t, 2> result;
+    for (size_t i = 0; i < input.size(); i++) {
+      if (input[i] > 1) {
+        result.push_back(i);
+      }
+    }
+    return result;
+  }
+
+  LogicalResult
+  canDecompose2DPoolingOp(ttir::PoolingOp op,
+                          ConversionPatternRewriter &rewriter,
+                          llvm::SmallVector<int64_t> spatialDimIndices) const {
 
     // Window dimensions must be 4 in length
     if (op.getWindowDimensions().size() != 4) {
-      return failure();
+      return rewriter.notifyMatchFailure(
+          op, "Polling 2D op is only supported for 4D tensor.");
     }
 
     // Window strides must be 4 in length
     if (op.getWindowStrides().size() != 4) {
-      return failure();
+      return rewriter.notifyMatchFailure(
+          op, "Polling 2D op is only supported for 4D tensor.");
     }
 
     // Operand rank(s) must be 4
     for (Value operand : op.getInputs()) {
       auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
       if (operandType.getRank() != 4) {
-        return failure();
+        return rewriter.notifyMatchFailure(
+            op, "Polling 2D op is only supported for 4D tensor.");
       }
     }
 
-    // Exactly two of the window dimensions must be greater than 1
-    std::vector<int64_t> trueWindowDimensionsIndices =
-        getIndicesOfSpatialDims(op);
-
-    if (trueWindowDimensionsIndices.size() != 2) {
-      return failure();
+    // Window dimensions will have two or less than two non 1 elements;
+    // representing the kernel size for max pooling operation.
+    size_t numSpatialDimIndices = spatialDimIndices.size();
+    if (numSpatialDimIndices > 2) {
+      return rewriter.notifyMatchFailure(
+          op, "Rank of kernel_size for pooling 2D op is greater than 2.");
     }
 
-    // Exactly two of the window strides must be greater than 1
-    std::vector<int64_t> trueWindowStrideIndices;
-    for (int64_t i = 0; i < static_cast<int64_t>(op.getWindowStrides().size());
-         i++) {
-      if (op.getWindowStrides()[i] > 1) {
-        trueWindowStrideIndices.push_back(i);
-      }
-    }
-
-    if (trueWindowStrideIndices.size() != 2) {
-      return failure();
-    }
-
-    // The indices of the true window dimensions and strides must be the same
-    if ((trueWindowDimensionsIndices[0] != trueWindowStrideIndices[0] ||
-         trueWindowDimensionsIndices[1] != trueWindowStrideIndices[1]) &&
-        (trueWindowDimensionsIndices[0] != trueWindowStrideIndices[1] ||
-         trueWindowDimensionsIndices[1] != trueWindowStrideIndices[0])) {
-      return failure();
+    // Window strides will have two or less than two non 1 elements;
+    // representing the strides for max pooling operation.
+    llvm::SmallVector<int64_t> trueWindowStrideIndices =
+        getIndicesOfElementsLargerThanOne(op.getWindowStrides());
+    size_t windowStrideSize = trueWindowStrideIndices.size();
+    if (windowStrideSize > 2) {
+      return rewriter.notifyMatchFailure(
+          op, "Rank of strides for pooling 2D is greater than 2.");
     }
 
     // Padding must be 8 in length
     if (op.getPadding().size() != 8) {
-      return failure();
+      return rewriter.notifyMatchFailure(
+          op,
+          "Number of elements in padding does not match with pooling 2D op.");
     }
 
     return success();
@@ -900,7 +931,8 @@ public:
 
   template <typename PoolOpType>
   void rewritePool2d(ttir::PoolingOp op, OpAdaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
+                     ConversionPatternRewriter &rewriter,
+                     llvm::SmallVector<int64_t> spatialDimIndices) const {
 
     const int64_t SPATIAL_H = -3;
     const int64_t SPATIAL_W = -2;
@@ -921,11 +953,20 @@ public:
       }
     }
 
-    std::vector<int64_t> spatialDims = getIndicesOfSpatialDims(op);
+    int64_t numWinDims = op.getWindowDimensions().size();
+    // Using default indices for channel first tensor if window dimension
+    // attribute does not contain two non 1 elements for kernel size.
+    // [TODO] (mmanzoor) Add an option to distingush channel first vs channel
+    // last and support channel last default indices.
+    // https://github.com/tenstorrent/tt-mlir/issues/2237
+    spatialDimIndices =
+        (spatialDimIndices.size() == 2)
+            ? spatialDimIndices
+            : llvm::SmallVector<int64_t>({numWinDims - 2, numWinDims - 1});
 
     std::vector<int64_t> currentLayout(inputType.getRank(), NON_SPATIAL);
-    currentLayout[spatialDims[0]] = SPATIAL_H;
-    currentLayout[spatialDims[1]] = SPATIAL_W;
+    currentLayout[spatialDimIndices[0]] = SPATIAL_H;
+    currentLayout[spatialDimIndices[1]] = SPATIAL_W;
 
     nonSpatialCount = 0;
     for (int64_t i = 0; i < static_cast<int64_t>(currentLayout.size()); i++) {
@@ -940,30 +981,30 @@ public:
     auto inverseOfPermutation = ttmlir::utils::inversePermutation(permutation);
 
     auto kernelHeightAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowDimensions()[spatialDims[0]]));
+        static_cast<int32_t>(op.getWindowDimensions()[spatialDimIndices[0]]));
     auto kernelWidthAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowDimensions()[spatialDims[1]]));
+        static_cast<int32_t>(op.getWindowDimensions()[spatialDimIndices[1]]));
 
     auto strideHeightAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowStrides()[spatialDims[0]]));
+        static_cast<int32_t>(op.getWindowStrides()[spatialDimIndices[0]]));
 
     auto strideWidthAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowStrides()[spatialDims[1]]));
+        static_cast<int32_t>(op.getWindowStrides()[spatialDimIndices[1]]));
 
     auto dilationHeightAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWindowDilations()[spatialDims[0]]);
+        adaptor.getWindowDilations()[spatialDimIndices[0]]);
     auto dilationWidthAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWindowDilations()[spatialDims[1]]);
+        adaptor.getWindowDilations()[spatialDimIndices[1]]);
     auto ceilModeAttr = rewriter.getBoolAttr(false);
 
     auto paddingTopAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[0]]);
-    auto paddingBottomAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[0] + 1]);
+        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDimIndices[0]]);
+    auto paddingBottomAttr = rewriter.getSI32IntegerAttr(
+        op.getPadding()[2 * spatialDimIndices[0] + 1]);
     auto paddingLeftAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[1]]);
-    auto paddingRightAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[1] + 1]);
+        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDimIndices[1]]);
+    auto paddingRightAttr = rewriter.getSI32IntegerAttr(
+        op.getPadding()[2 * spatialDimIndices[1] + 1]);
 
     llvm::SmallVector<Value> outputs;
     for (Value input : adaptor.getInputs()) {
@@ -997,45 +1038,6 @@ public:
     }
 
     rewriter.replaceOp(op, outputs);
-  }
-
-  uint32_t getNumSpatialDims(ttir::PoolingOp op) const {
-    uint32_t numSpatialDims = 0;
-    for (int64_t dim : op.getWindowDimensions()) {
-      if (dim > 1) {
-        numSpatialDims++;
-      }
-    }
-    return numSpatialDims;
-  }
-
-  LogicalResult
-  matchAndRewrite(ttir::PoolingOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    uint32_t numSpatialDims = getNumSpatialDims(op);
-    if (numSpatialDims == 2) {
-      if (failed(canDecompose2DPoolingOp(op))) {
-        return rewriter.notifyMatchFailure(
-            op, "2D pooling op with the given attributes is not supported "
-                "currently");
-      }
-
-      switch (op.getPoolingMethod()) {
-      case ttir::PoolingMethod::Max: {
-        rewritePool2d<ttir::MaxPool2dOp>(op, adaptor, rewriter);
-        return success();
-      }
-      default: {
-        return rewriter.notifyMatchFailure(
-            op, "Failed to match pooling method: " +
-                    stringifyPoolingMethod(op.getPoolingMethod()));
-      }
-      }
-    }
-    return rewriter.notifyMatchFailure(
-        op, "No decompositions for a pooling op with " +
-                std::to_string(numSpatialDims) + " spatial dimensions");
   }
 };
 } // namespace
@@ -1276,6 +1278,7 @@ public:
 // is performed by decomposing/converting into reduction product (ttnn.prod op).
 // If ttnn.prod output is zero then reduce_and output is false; otherwise the
 // output is true.
+namespace {
 struct ReductionAndPattern : public OpConversionPattern<ttir::ReduceAndOp> {
 public:
   using OpConversionPattern<ttir::ReduceAndOp>::OpConversionPattern;
@@ -1293,6 +1296,53 @@ public:
     return success();
   }
 };
+} // namespace
+
+// tt-metal does not support 'keepdim' attribute for argmax op and always
+// generate output with the same rank as input tensor. Decompose the op to
+// argmax followed by reshape if keepdim = False.
+namespace {
+struct ArgMaxOpKeepDimConversionPattern
+    : public OpConversionPattern<ttir::ArgMaxOp> {
+public:
+  using OpConversionPattern<ttir::ArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    bool keepDim = op.getKeepDim();
+    if (keepDim) {
+      return failure();
+    }
+
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getInput().getType()));
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getOutput().getType()));
+    llvm::SmallVector<int64_t> outputShapeVec =
+        ttnn::workarounds::decomposition::calculateNewReduceShape(
+            inputType, op.getDimArg());
+    RankedTensorType newOutputType = RankedTensorType::get(
+        outputShapeVec, outputType.getElementType(), outputType.getEncoding());
+
+    tensor::EmptyOp argMaxOutputTensor = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), outputShapeVec, outputType.getElementType());
+
+    ttir::ArgMaxOp newArgMaxOp = rewriter.create<mlir::tt::ttir::ArgMaxOp>(
+        op->getLoc(), newOutputType, op.getInput(), argMaxOutputTensor,
+        /*keepDim*/ true, op.getDimArgAttr());
+
+    tensor::EmptyOp reshapeOutputTensor = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), outputType.getShape(), outputType.getElementType());
+    mlir::ArrayAttr shapeAttr = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(outputType.getShape()));
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        op, outputType, newArgMaxOp, reshapeOutputTensor, shapeAttr);
+
+    return success();
+  }
+};
+} // namespace
 
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
@@ -1306,6 +1356,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
+  patterns.add<ArgMaxOpKeepDimConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

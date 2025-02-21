@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -218,11 +219,24 @@ public:
 
         // Create a new tensor
         //
-        mlir::Value tensorValue = rewriter.create<ttnn::OnesOp>(
+        ttnn::OnesOp onesOp = rewriter.create<ttnn::OnesOp>(
             forwardFuncOp->getLoc(), tensorType, shapeAttr, dTypeAttr,
             tensorLayoutAttr, nullptr, nullptr);
 
-        generatedTensors.push_back(tensorValue);
+        // If tensor is meant to be on device, add ToDevice op
+        //
+        if (layoutAttr.isDeviceBufferType()) {
+          ttnn::GetDeviceOp device =
+              ttnn::utils::getOrInsertDevice(rewriter, onesOp);
+
+          mlir::Value tensorOnDevice = rewriter.create<ttnn::ToDeviceOp>(
+              forwardFuncOp->getLoc(), tensorType, onesOp.getResult(),
+              device.getResult(), nullptr);
+
+          generatedTensors.push_back(tensorOnDevice);
+        } else {
+          generatedTensors.push_back(onesOp.getResult());
+        }
       }
 
       // Return the generated tensors

@@ -5,13 +5,13 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
+#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "mlir/Pass/PassOptions.h"
 
 namespace mlir::tt::ttnn {
-
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct TTIRToTTNNBackendPipelineOptions
@@ -146,6 +146,22 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-implicit-broadcast-folding-pass",
       llvm::cl::desc("Enable implicit broadcast folding pass."),
       llvm::cl::init(true)};
+
+  Option<tt::TTArgumentTypeMap, tt::ArgumentTypeMapParser> argumentTypeMap{
+      *this, tt::OptionNames::argumentTypes,
+      llvm::cl::desc(
+          "Map of function name to argument types. To use this option in the "
+          "command line, you must provide a whitespace-free string\n\t"
+          " which is a sequence of phrases in the form "
+          "\"<FUNC_NAME_STR>=<ARG_TYPES>\" separated by semicolons, where "
+          "<FUNC_NAME_STR>\n\t"
+          " is the name of a function and <ARG_TYPES> is a sequence of "
+          "argument types separated by commas. Each of which must be one\n\t"
+          " of \"input\", \"parameter\" or \"constant\". \n\t"
+          " Example: "
+          "\"argument-types=forward=input,parameter,parameter,constant\""
+          "\n\n"),
+      llvm::cl::init(TTArgumentTypeMap())};
 };
 
 // TTIR to EmitC pipeline options.

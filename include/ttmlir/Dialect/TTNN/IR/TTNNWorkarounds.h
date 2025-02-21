@@ -226,6 +226,7 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
+  // Create workarounds for cumulative sum op operands.
   static TTNNOperandsWorkarounds
   createCumSumOpOperandsWorkarounds(RankedTensorType inputType);
 
@@ -239,6 +240,20 @@ public:
   static TTNNOperandsWorkarounds
   createConcatOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
                                     int64_t numOperands, int32_t dim);
+
+  // Create workarounds for slice op operands.
+  static TTNNOperandsWorkarounds
+  createSliceOpOperandsWorkarounds(ttnn::TTNNLayoutAttr layoutAttr,
+                                   mlir::ArrayAttr begins,
+                                   mlir::ArrayAttr step);
+
+  // Workaround for tensor creation that is modeled as ConstantOp in TTNN
+  // dialect.
+  static TTNNOperandsWorkarounds createConstantOpOperandsWorkarounds();
+
+  // Create workarounds for concat op operands.
+  static TTNNOperandsWorkarounds
+  createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
 };
 
 } // namespace mlir::tt::ttnn::wa

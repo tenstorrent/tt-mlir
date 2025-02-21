@@ -8,6 +8,7 @@
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/creation/arange.h"
+#include "operations/creation/constant.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
@@ -41,6 +42,7 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/pool/upsample.h"
+#include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
@@ -204,6 +206,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
     return operations::moreh::run(op->type_as_MorehCumSumOp(), context);
   }
+  case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
+    return operations::reduction::run(op->type_as_ReductionArgMaxOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ReductionProdOp: {
     return operations::reduction::run(op->type_as_ReductionProdOp(), context);
   }
@@ -278,6 +283,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), context);
   }
+  case ::tt::target::ttnn::OpType::ConstantOp: {
+    return operations::creation::run(op->type_as_ConstantOp(), context);
+  }
   default: {
     LOG_FATAL("Unsupported operation type");
   }
@@ -297,14 +305,14 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   LOG_ASSERT(program->inputs()->size() == inputs.size(),
              "Program input size mismatch: ", program->inputs()->size(),
              " != ", inputs.size());
-  for (::tt::target::TensorRef const *input : *program->inputs()) {
+  for (::tt::target::ttnn::TensorRef const *input : *program->inputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
     LOG_ASSERT(inserted, "Duplicate input tensor");
     programInputs.push_back(input->global_id());
   }
   std::vector<uint32_t> programOutputs;
-  for (::tt::target::TensorRef const *output : *program->outputs()) {
+  for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
     programOutputs.push_back(output->global_id());
   }
   ProgramExecutor executor(executableHandle, liveTensors, programInputs,

@@ -13,7 +13,7 @@
 
 namespace mlir::tt::ttnn::utils {
 // Get or insert device for the given operation.
-GetDeviceOp getOrInsertDevice(mlir::PatternRewriter &rewriter,
+GetDeviceOp getOrInsertDevice(mlir::RewriterBase &rewriter,
                               mlir::Operation *op);
 
 // Helper method to insert a ToLayoutOp to convert the input operand to the

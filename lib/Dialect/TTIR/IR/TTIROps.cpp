@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Utils.h"
 
@@ -1320,6 +1321,19 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
           isMemoryLayoutChange};
 }
 
+::mlir::LogicalResult
+mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
+                                         mlir::PatternRewriter &rewriter) {
+  // Check if input is an empty tensor.
+  if (auto emptyOp = op.getInput().getDefiningOp<tensor::EmptyOp>()) {
+    // Since the input is empty, we can just return the output tensor.
+    rewriter.replaceOp(op, {op.getOutput()});
+    return mlir::success();
+  }
+
+  return mlir::failure();
+}
+
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
@@ -1850,10 +1864,14 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 // AllGatherOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllGatherOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t dim = getDim();
+  int32_t gatherDim = getAllGatherDim();
 
-  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for all gather op.");
+  if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid dimension for all gather op. Gather dimension must be "
+               ">= to "
+               "input tensor rank or < -input tensor rank, got gather_dim = ")
+           << gatherDim;
   }
 
   return success();
@@ -1865,8 +1883,7 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 
 // AllReduceOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllReduceOp::verify() {
-  ::mlir::RankedTensorType inputType =
-      mlir::cast<RankedTensorType>(getInputs().front().getType());
+  ::mlir::RankedTensorType inputType = getInput().getType();
   int32_t dim = getDim();
 
   if (dim >= inputType.getRank()) {
@@ -1884,10 +1901,9 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 ::mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto shardType = getShardType();
 
-  // Currently, we are only supporting replicate or devices from StableHLO.
-  if (shardType != mlir::tt::MeshShardType::Replicate &&
-      shardType != mlir::tt::MeshShardType::Devices) {
-    return emitOpError("Invalid shard_type for mesh_shard op.");
+  // Currently, we are not supporting maximal from StableHLO.
+  if (shardType == mlir::tt::MeshShardType::Maximal) {
+    return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
   }
 
   return success();
@@ -2463,6 +2479,29 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 
 // ReduceAndOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ReduceAndOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// Reduce ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+// ArgMaxOp kernel builder.
+void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                  ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "argmax");
+}
+
+// ArgMaxOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
+  auto dimArg = getDimArg();
+  if (dimArg && dimArg->size() > 1) {
+    return getOperation()->emitOpError()
+           << "can only reduce one dimension; number of specified dimensions: "
+           << dimArg->size() << ".";
+  }
+
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
 

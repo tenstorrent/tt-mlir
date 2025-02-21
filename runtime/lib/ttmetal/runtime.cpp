@@ -24,7 +24,7 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
   bool isTTMetal =
       ::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           binary.handle.get());
-  if (not isTTMetal) {
+  if (!isTTMetal) {
     LOG_FATAL("Unsupported binary format");
   }
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
@@ -93,7 +93,9 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
   size_t l1SmallSizeValue = l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid},
+          ::tt::tt_metal::distributed::MeshDeviceConfig{
+              .mesh_shape = ::tt::tt_metal::distributed::SimpleMeshShape(grid),
+              .offset = {}},
           l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
 
   CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
@@ -186,7 +188,7 @@ void wait(std::vector<Tensor> const &tensors) {
 static std::pair<std::shared_ptr<::tt::tt_metal::Buffer>,
                  std::shared_ptr<::tt::tt_metal::Event>>
 prepareInput(::tt::tt_metal::IDevice *device, MetalTensor const &metalTensor,
-             void *data, ::tt::target::TensorRef const *tensorRef) {
+             void *data, ::tt::target::metal::TensorRef const *tensorRef) {
   if (std::holds_alternative<TensorDesc>(metalTensor)) {
     // todo assert that tensorDesc matches hostTensorDesc
     std::shared_ptr<::tt::tt_metal::Buffer> buffer =
@@ -212,7 +214,7 @@ prepareInput(::tt::tt_metal::IDevice *device, MetalTensor const &metalTensor,
 
 static std::shared_ptr<::tt::tt_metal::Buffer>
 prepareOutput(::tt::tt_metal::IDevice *device, MetalTensor const *metalTensor,
-              ::tt::target::TensorRef const *tensorRef) {
+              ::tt::target::metal::TensorRef const *tensorRef) {
   LOG_ASSERT(metalTensor != nullptr);
   if (TensorDesc const *hostTensorDesc = std::get_if<TensorDesc>(metalTensor);
       hostTensorDesc) {
@@ -291,7 +293,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
     LOG_ASSERT(inputHandles.size() == deviceProgram->inputs()->size(),
                "Input size mismatch");
     for (unsigned i = 0; i < inputHandles.size(); ++i) {
-      ::tt::target::TensorRef const *tensorRef =
+      ::tt::target::metal::TensorRef const *tensorRef =
           deviceProgram->inputs()->Get(i);
       auto [buffer, event] = prepareInput(
           device, inputHandles[i].as<MetalTensor>(DeviceRuntime::TTMetal),
@@ -305,7 +307,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
     LOG_ASSERT(outputHandles.size() == deviceProgram->outputs()->size(),
                "Output size mismatch");
     for (unsigned i = 0; i < outputHandles.size(); ++i) {
-      ::tt::target::TensorRef const *tensorRef =
+      ::tt::target::metal::TensorRef const *tensorRef =
           deviceProgram->outputs()->Get(i);
       std::shared_ptr<::tt::tt_metal::Buffer> buffer = prepareOutput(
           device, &outputHandles[i].as<MetalTensor>(DeviceRuntime::TTMetal),
@@ -326,7 +328,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
 
     Events copyEvents =
         maybeCopyHostOutputs(device, outputHandles, outputs, deviceEvents);
-    if (not copyEvents.empty()) {
+    if (!copyEvents.empty()) {
       std::swap(deviceEvents, copyEvents);
     }
 

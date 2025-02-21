@@ -187,6 +187,17 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
     let description = [{
       Eltwise where operation.
     }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::Operation::operand_range inputs = getInputs();
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
+                                                                        inputs);
+      }
+    }];
 }
 
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
@@ -665,6 +676,50 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   }];
 }
 
+def TTNN_ArgMaxOp : TTNN_NamedDPSOp<"argmax"> {
+  let summary = "Argmax reduction op.";
+  let description = [{
+    Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `dim`: Specifies the dimension along which the argmax is applied.
+      - `use_multicore`: Whether to use multiple cores or not.
+
+    IR usage:
+    // Input tensor of shape (128, 28, 28, 64)
+    %input = ... : tensor<128x28x28x64xbf16>
+
+    %empty = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<u32>, ....}> : -> tensor<128x28x28xi32>
+    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32, use_multicore = false}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
+
+    Example:
+      input: [[1, 5, 3],
+              [2, 4, 6]]
+
+      // Computing along dim 0
+      output: [1, 0, 1]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 5
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       OptionalAttr<I32Attr>:$dim,
+                       BoolAttr:$use_multicore,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       AnyRankedTensor:$output);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_ProdOp : TTNN_Op<"prod"> {
   let summary = "Product reduction op.";
   let description = [{
@@ -960,6 +1015,15 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+            getOutput().getType().getEncoding());
+        ::mlir::ArrayAttr begins = getBegins();
+        ::mlir::ArrayAttr step = getStep();
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSliceOpOperandsWorkarounds(layoutAttr, begins, step);
+      }
     }];
 
     let hasVerifier = 1;
@@ -1332,8 +1396,9 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         SI32Attr:$dim,
-                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+                         SI32Attr:$all_gather_dim,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1451,6 +1516,29 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]> {
+    let summary = "Constant op.";
+    let description = [{
+      Produces tensor filled with given constant value.
+
+      Examples:
+        %0 = "ttnn.constant"() {value = dense<[[3, 4, 2], [1, 7, 8]]> : tensor<2x3xui16>} : () -> tensor<2x3xui16>
+        // %0: [[3, 4, 2], [1, 7, 8]]
+        %1 = "ttnn.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+        // %1: [0.2, 1.3]
+    }];
+
+    let arguments = (ins ElementsAttr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
+      }
+    }];
 }
 
 #endif

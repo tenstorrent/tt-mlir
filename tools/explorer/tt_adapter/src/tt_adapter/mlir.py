@@ -30,7 +30,7 @@ class AttrHandler:
 
     @staticmethod
     def default_parser(attr):
-        return [graph_builder.KeyValue(key=str(attr.name), value=str(attr.attr))]
+        return [graph_builder.KeyValue(key=attr.name, value=str(attr.attr))]
 
     @staticmethod
     def parse_attr(attr):
@@ -476,6 +476,7 @@ def parse_ttnn_ttnn_layout(attr):
 class OpHandler:
     # Help create unique ids for ops with the same location name.
     name_dict = defaultdict(int)
+    schedule = 0
 
     def __init__(self, op):
         self.op = op
@@ -550,6 +551,13 @@ class OpHandler:
                         )
                     )
             result.extend(output_attrs)
+
+        # Add schedule as an attribute
+        result.append(
+            graph_builder.KeyValue(key="schedule", value=str(OpHandler.schedule))
+        )
+        OpHandler.schedule += 1
+
         return result
 
     def make_graph_node(self):
@@ -585,6 +593,8 @@ def build_graph(module, perf_trace=None, golden_results=None):
     graph = graph_builder.Graph(id="tt-graph")
 
     op_to_graph_node = {}
+    # Track operands already added to graph to avoid duplicates
+    operands_in_graph = set()
 
     # Prepare perf data for color overlay
     perf_node_data = {}
@@ -655,12 +665,14 @@ def build_graph(module, perf_trace=None, golden_results=None):
                         ):
                             # If the owner is not an op, then it is a constant provided from the toplevel FuncOp.
 
-                            # This is a constant and we need to create a node for it.
-                            operand_node = operation.make_constant_node(
-                                operand.get_name()
-                            )
-                            graph.nodes.append(operand_node)
-                            op_to_graph_node[operand] = operand_node
+                            if operand not in operands_in_graph:
+                                # This is a constant and we need to create a node for it.
+                                operand_node = operation.make_constant_node(
+                                    operand.get_name()
+                                )
+                                graph.nodes.append(operand_node)
+                                op_to_graph_node[operand] = operand_node
+                                operands_in_graph.add(operand)
 
                 # This puts the node at the far right when viewing which is a bit more consistant with it being the last operand.
                 for node in append_later:
@@ -755,4 +767,5 @@ def build_graph(module, perf_trace=None, golden_results=None):
         ).graphsData
 
     graph.groupNodeAttributes = group_node_attrs
+    OpHandler.schedule = 0
     return graph, overlays

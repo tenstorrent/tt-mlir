@@ -40,7 +40,7 @@ struct TTIRToTTIRDecompositionPass
                                                        // func.func and
                                                        // func.call as legal ops
     target.addLegalDialect<BuiltinDialect>(); // This contains the "module" op
-                                              // which is necesarry
+                                              // which is necessary
 
     target.addLegalOp<tensor::EmptyOp>(); // DPS operands are create with
                                           // tensor::EmptyOp
@@ -62,6 +62,9 @@ struct TTIRToTTIRDecompositionPass
               shape.size() == 4 && shape[0] == 1 && shape[1] == 1 &&
               shape[2] == 1);
     });
+
+    target.addDynamicallyLegalOp<ttir::ArgMaxOp>(
+        [&](ttir::ArgMaxOp op) { return op.getKeepDim(); });
 
     TypeConverter typeConverter;
     // All types map 1:1.

@@ -1,0 +1,94 @@
+include "Common/types.fbs";
+
+namespace tt.target.ttnn;
+
+enum TensorMemoryLayout: ushort {
+  Interleaved,
+  SingleBank,
+  HeightSharded,
+  WidthSharded,
+  BlockSharded,
+}
+
+enum StorageType: ushort {
+    Owned,
+    Device,
+    Borrowed,
+    MultiDevice,
+    MultiDeviceHost,
+}
+
+enum MeshShardDirection: uint32 {
+  FullToShardShape,
+  ShardToFullShape,
+}
+
+enum MeshShardType: uint32 {
+  Manual,
+  Replicate,
+  Maximal,
+  Devices,
+}
+
+table ReplicateTensor {
+  replication_factor: uint32;
+}
+
+table ShardTensor {
+  shard_dim: uint32;
+}
+
+table ShardTensor2D {
+  shard_mesh: Dim2d;
+}
+
+table AllGatherTensor {
+
+}
+
+union DistributedTensorConfig {
+  ReplicateTensor,
+  ShardTensor,
+  ShardTensor2D,
+  AllGatherTensor
+}
+
+table DistributionStrategy {
+  strategy: DistributedTensorConfig;
+}
+
+table ShardSpec {
+  grid: [Dim2dRange];
+  shard_shape: [int32];
+}
+
+table MemoryConfig {
+  tensor_memory_layout: TensorMemoryLayout;
+  buffer_type: BufferType;
+  shard_spec: ShardSpec;
+}
+
+table MemoryDesc {
+  storage_type: StorageType;
+  tile_shape: Dim2d;
+  data_type: DataType;
+  memory_config: MemoryConfig;
+  size: uint64;
+}
+
+table LayoutDesc {
+  oob_val: OOBVal;
+  memory_desc: MemoryDesc;
+  strategy: DistributionStrategy;
+}
+
+table TensorDesc {
+  shape: [int];
+  layout: LayoutDesc;
+}
+
+table TensorRef {
+  global_id: uint32;
+  size: uint64;
+  desc: TensorDesc;
+}

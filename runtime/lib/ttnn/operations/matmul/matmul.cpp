@@ -18,17 +18,19 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   DEBUG_ASSERT(lhs.is_allocated());
   DEBUG_ASSERT(rhs.is_allocated());
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
-  const std::optional<const ::tt::tt_metal::MemoryConfig> memoryConfig =
-      std::make_optional(outputMemoryConfig);
-
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
   const std::optional<const ::ttnn::DataType> dtype =
       std::make_optional(outputDataType);
 
   ::ttnn::Tensor out = ::ttnn::matmul(
-      lhs, rhs, /*transposeA*/ false, /*transposeB*/ false, memoryConfig, dtype,
+      lhs, rhs, /*transposeA*/ false, /*transposeB*/ false, outputMemoryConfig,
+      dtype,
       /*programConfig*/ std::nullopt, /*activation*/ std::nullopt,
       /*computeKernelConfig*/ std::nullopt, /*coreGrid*/ std::nullopt);
 
@@ -49,18 +51,21 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   DEBUG_ASSERT(!bias || bias->is_allocated());
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
-  const std::optional<const ::tt::tt_metal::MemoryConfig> memoryConfig =
-      std::make_optional(outputMemoryConfig);
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
   const std::optional<const ::ttnn::DataType> dtype =
       std::make_optional(outputDataType);
 
   ::ttnn::Tensor out = ::ttnn::linear(
-      lhs, rhs, bias, /*transposeA*/ false, /*transposeB*/ false, memoryConfig,
-      dtype, /*programConfig*/ std::nullopt, /*activation*/ std::nullopt,
+      lhs, rhs, bias, /*transposeA*/ false, /*transposeB*/ false,
+      outputMemoryConfig, dtype, /*programConfig*/ std::nullopt,
+      /*activation*/ std::nullopt,
       /*computeKernelConfig*/ std::nullopt, /*coreGrid*/ std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);

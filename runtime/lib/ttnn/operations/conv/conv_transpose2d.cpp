@@ -44,18 +44,16 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
   config.shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
-  ::ttnn::MemoryConfig outMemConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());
   ::ttnn::Tensor out = std::visit(
       [&](auto &&targetDevice) -> ::ttnn::Tensor {
         return std::get<0>(::ttnn::conv_transpose2d(
-            ::ttnn::DefaultQueueId, input, weight, &(targetDevice.get()),
-            op->in_channels(), op->out_channels(), op->batch_size(),
-            op->input_height(), op->input_width(), kernelSize, stride, padding,
-            outputPadding, dilation, op->groups(), bias, config));
+            input, weight, &targetDevice.get(), op->in_channels(),
+            op->out_channels(), op->batch_size(), op->input_height(),
+            op->input_width(), kernelSize, stride, padding, outputPadding,
+            dilation, op->groups(), bias, config));
       },
       targetDevice);
 

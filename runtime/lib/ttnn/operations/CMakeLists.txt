@@ -8,6 +8,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/constant.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/zeros.cpp
@@ -44,6 +45,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/maxpool2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/upsample.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/argmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/prod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
@@ -55,7 +57,7 @@ add_library(TTRuntimeTTNNOps
 )
 
 set_property(TARGET TTRuntimeTTNNOps PROPERTY CXX_STANDARD 20)
-target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2 -fsized-deallocation)
+target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2)
 target_include_directories(TTRuntimeTTNNOps PRIVATE
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn
 )
@@ -67,11 +69,11 @@ target_include_directories(TTRuntimeTTNNOps PUBLIC
 )
 
 target_include_directories(TTRuntimeTTNNOps SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNHelpers)
+target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
   target_link_libraries(TTRuntimeTTNNOps PUBLIC TRACY_LIBRARY)
 endif()
 
 
-add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION TTRuntimeTTNNHelpers)
+add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION TTRuntimeTTNNTypes TTRuntimeTTNNUtils)

@@ -38,27 +38,6 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
   ];
 }
 
-def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Wrap top level elementwise ops in a generic op.
-  }];
-}
-
-def TTIRGenericOpCBs: Pass<"ttir-generic-op-cbs", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Insert circular buffer operands for generic ops.
-  }];
-}
-
-def TTIRGenericRegionOperandsToMemref: Pass<"ttir-generic-region-operands-to-memref", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Convert region operations to work on memref instead of tensors.
-  }];
-}
-
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{

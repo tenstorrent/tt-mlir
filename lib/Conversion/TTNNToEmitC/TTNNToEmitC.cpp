@@ -469,6 +469,39 @@ public:
   }
 };
 
+// Argmax op conversion pattern
+//
+class ArgMaxOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ArgMaxOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::ArgMaxOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::ArgMaxOp srcOp, ttnn::ArgMaxOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
+    // an ArrayAttr object holding IndexTypes is created to denote this.
+    //
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(0),
+        srcOp.getDimAttr(),
+        ttnn_to_emitc::utils::convertBoolAttr(rewriter,
+                                              srcOp.getUseMulticoreAttr()),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
 // ReshapeOp conversion pattern
 //
 class ReshapeOpConversionPattern
@@ -599,6 +632,49 @@ public:
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         repeatOp, this->getTypeConverter()->convertType(repeatOp.getType()),
         this->convertOpName(repeatOp), arrayAttrs, nullptr, operands);
+
+    return success();
+  }
+};
+
+// RepeatInterleave op conversion pattern
+//
+class RepeatInterleaveOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::RepeatInterleaveOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::RepeatInterleaveOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::RepeatInterleaveOp repeatInterleaveOp,
+                  ttnn::RepeatInterleaveOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create operands vector
+    //
+    llvm::SmallVector<Value, 2> operands{
+        adaptor.getOperands()[0],
+    };
+
+    // Create ArrayAttr object holding attributes and pointers to operands
+    //
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(0), // input tensor
+        repeatInterleaveOp.getRepeatsAttr(), repeatInterleaveOp.getDimAttr(),
+        repeatInterleaveOp.getMemoryConfig().has_value()
+            ? (operands.push_back(ttnn_to_emitc::utils::createMemoryConfigOp(
+                                      rewriter,
+                                      repeatInterleaveOp.getMemoryConfigAttr(),
+                                      repeatInterleaveOp.getLoc())
+                                      ->getResult(0)),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(1)))
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::MemoryConfig
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        repeatInterleaveOp,
+        this->getTypeConverter()->convertType(repeatInterleaveOp.getType()),
+        this->convertOpName(repeatInterleaveOp), arrayAttrs, nullptr, operands);
 
     return success();
   }
@@ -1259,7 +1335,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                ZerosOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<ttnn::FullOp>,
-               DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::ArangeOp>,
+               DefaultOpConversionPattern<ttnn::ConstantOp>>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops
@@ -1320,7 +1397,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               DefaultOpConversionPattern<ttnn::RepeatInterleaveOp>,
+               RepeatInterleaveOpConversionPattern,
                DefaultOpConversionPattern<ttnn::SliceOp>,
                DefaultOpConversionPattern<ttnn::PermuteOp>,
                DefaultOpConversionPattern<ttnn::PadOp>>(typeConverter, ctx);
@@ -1332,10 +1409,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Reduction ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::SumOp>, MeanOpConversionPattern,
-               DefaultOpConversionPattern<ttnn::MaxOp>,
-               DefaultOpConversionPattern<ttnn::MinOp>,
-               DefaultOpConversionPattern<ttnn::ProdOp>>(typeConverter, ctx);
+  patterns
+      .add<DefaultOpConversionPattern<ttnn::SumOp>, MeanOpConversionPattern,
+           DefaultOpConversionPattern<ttnn::MaxOp>,
+           DefaultOpConversionPattern<ttnn::MinOp>,
+           DefaultOpConversionPattern<ttnn::ProdOp>, ArgMaxOpConversionPattern>(
+          typeConverter, ctx);
 
   // Conv ops
   //

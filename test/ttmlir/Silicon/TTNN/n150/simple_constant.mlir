@@ -49,4 +49,48 @@ module @sysmem_creation attributes {} {
     // CHECK: %[[C:.*]] = "ttnn.full"[[C:.*]]
     return %0 : tensor<1x1xf32>
   }
+
+  // Tests of ttir.constant where the value is a non-splat tensor.
+  func.func @test_constant_f32() -> tensor<2x3xf32> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: -1.100000e+00, 2.200000e+00, -3.300000e+00
+    // CHECK-SAME: 4.400000e+00, -5.500000e+00, 6.600000e+00
+    %0 = "ttir.constant"() <{value = dense<[[-1.1, 2.2, -3.3], [4.4, -5.5, 6.6]]> : tensor<2x3xf32>}> : () -> tensor<2x3xf32>
+    return %0 : tensor<2x3xf32>
+  }
+
+  func.func @test_constant_bf16() -> tensor<1x4xbf16> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: -1.101560e+00, 2.203130e+00, -3.296880e+00, 4.406250e+00
+    %0 = "ttir.constant"() <{value = dense<[[-1.1, 2.2, -3.3, 4.4]]> : tensor<1x4xbf16>}> : () -> tensor<1x4xbf16>
+    return %0 : tensor<1x4xbf16>
+  }
+
+  func.func @test_constant_ui32() -> tensor<1x1x3xui32> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: 1, 2, 3
+    %0 = "ttir.constant"() <{value = dense<[[[1, 2, 3]]]> : tensor<1x1x3xui32>}> : () -> tensor<1x1x3xui32>
+    return %0 : tensor<1x1x3xui32>
+  }
+
+  func.func @test_constant_ui16() -> tensor<4xui16> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: 1, 2, 3, 4
+    %0 = "ttir.constant"() <{value = dense<[1, 2, 3, 4]> : tensor<4xui16>}> : () -> tensor<4xui16>
+    return %0 : tensor<4xui16>
+  }
+
+  func.func @test_constant_ui8() -> tensor<3x1xui8> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: 1
+    // CHECK-SAME: 2
+    // CHECK-SAME: 3
+    %0 = "ttir.constant"() <{value = dense<[[1], [2], [3]]> : tensor<3x1xui8>}> : () -> tensor<3x1xui8>
+    return %0 : tensor<3x1xui8>
+  }
 }

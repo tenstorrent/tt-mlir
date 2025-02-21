@@ -135,12 +135,35 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType) {
   LOG_FATAL("runtime is not enabled");
 }
 
+Tensor createOwnedTensor(std::shared_ptr<void> data,
+                         std::vector<std::uint32_t> const &shape,
+                         std::vector<std::uint32_t> const &stride,
+                         std::uint32_t itemsize,
+                         ::tt::target::DataType dataType) {
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
+  LOG_ASSERT(itemsize > 0);
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::createOwnedTensor(data, shape, stride, itemsize,
+                                                  dataType);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("TT Metal runtime does not support creating owned tensors");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  LOG_ASSERT(not shape.empty());
-  LOG_ASSERT(not stride.empty());
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
   LOG_ASSERT(itemsize > 0);
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
@@ -164,8 +187,8 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
              std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
              ::tt::target::DataType dataType,
              std::unordered_map<std::string, std::string> const &strategy) {
-  LOG_ASSERT(not shape.empty());
-  LOG_ASSERT(not stride.empty());
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
   LOG_ASSERT(itemsize > 0);
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
@@ -186,8 +209,8 @@ Tensor createTensor(Device device, Layout layout,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize) {
-  LOG_ASSERT(not shape.empty());
-  LOG_ASSERT(not stride.empty());
+  LOG_ASSERT(!shape.empty());
+  LOG_ASSERT(!stride.empty());
   LOG_ASSERT(itemsize > 0);
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {

@@ -5,10 +5,9 @@ add_mlir_dialect_library(MLIRTTNNPipelines
   ${PROJECT_SOURCE_DIR}/include/ttmlir
 
   LINK_LIBS PUBLIC
-  MLIRTTIRDialect
+  MLIRTTUtils
   MLIRTTNNDialect
-  MLIRTTIRTransforms
   MLIRTTNNTransforms
-  MLIRTTNNAnalysis
-  MLIR
+  MLIRPass
+  MLIRTransforms
 )
