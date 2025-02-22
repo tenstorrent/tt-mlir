@@ -234,15 +234,11 @@ if enable_runtime:
             ],
             libraries=[
                 "TTMLIRRuntime",
-                "TTRuntimeTTNNTypes",
-                "TTRuntimeTTNNUtils",
                 "flatbuffers",
             ]
             + (["TTRuntimeTTNNTestLib"] if enable_runtime_tests else []),
             library_dirs=[
                 f"{ttmlir_build_dir}/runtime/lib",
-                f"{ttmlir_build_dir}/runtime/lib/ttnn/types",
-                f"{ttmlir_build_dir}/runtime/lib/ttnn/utils",
                 f"{ttmlir_build_dir}/runtime/test/ttnn",
                 f"{toolchain}/lib",
             ],

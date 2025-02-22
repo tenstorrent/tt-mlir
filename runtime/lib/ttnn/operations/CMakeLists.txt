@@ -1,3 +1,8 @@
+if (NOT TTNN_RUNTIME_ENABLED)
+  add_library(TTRuntimeTTNNOps INTERFACE)
+  return()
+endif()
+
 set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/eltwise/binary/utils.cpp

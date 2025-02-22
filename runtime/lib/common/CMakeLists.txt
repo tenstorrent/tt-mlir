@@ -25,6 +25,19 @@ message(STATUS "Target triple: ${triple}")
 
 add_definitions(-DTARGET_TRIPLE="${triple}")
 
+if (TTMLIR_ENABLE_RUNTIME AND (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMETAL))
+    set(ANY_RUNTIME_ENABLED ON)
+else()
+    set(ANY_RUNTIME_ENABLED OFF)
+endif()
+
+if (NOT ANY_RUNTIME_ENABLED)
+  add_library(TTRuntimeSysDesc INTERFACE)
+  add_library(TTRuntimeDebug INTERFACE)
+  add_library(TTRuntimeWorkarounds INTERFACE)
+  return()
+endif()
+
 add_library(TTRuntimeSysDesc STATIC system_desc.cpp)
 set_property(TARGET TTRuntimeSysDesc PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeSysDesc
