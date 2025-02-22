@@ -439,100 +439,99 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   auto const &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
-  std::int32_t globalId{-1};
+  std::optional<const ::tt::target::ttnn::TensorRef *> tensorRef = std::nullopt;
   const ::ttnn::Tensor *outPtr = nullptr;
 
   switch (opContext.type_type()) {
-  case ::tt::target::ttnn::OpType::GetDeviceOp: {
-    globalId = opContext.type_as_GetDeviceOp()->out()->global_id();
-    break;
-  }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
-    globalId = opContext.type_as_ToMemoryConfigOp()->out()->global_id();
+    tensorRef = opContext.type_as_ToMemoryConfigOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
-    globalId = opContext.type_as_ToLayoutOp()->out()->global_id();
+    tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
-    globalId = opContext.type_as_TypecastOp()->out()->global_id();
+    tensorRef = opContext.type_as_TypecastOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ToDeviceOp: {
-    globalId = opContext.type_as_ToDeviceOp()->out()->global_id();
+    tensorRef = opContext.type_as_ToDeviceOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::FromDeviceOp: {
-    globalId = opContext.type_as_FromDeviceOp()->out()->global_id();
+    tensorRef = opContext.type_as_FromDeviceOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
-    globalId = opContext.type_as_EmptyOp()->out()->global_id();
+    tensorRef = opContext.type_as_EmptyOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ZerosOp: {
-    globalId = opContext.type_as_ZerosOp()->out()->global_id();
+    tensorRef = opContext.type_as_ZerosOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::OnesOp: {
-    globalId = opContext.type_as_OnesOp()->out()->global_id();
+    tensorRef = opContext.type_as_OnesOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::FullOp: {
-    globalId = opContext.type_as_FullOp()->out()->global_id();
+    tensorRef = opContext.type_as_FullOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
-    globalId = opContext.type_as_EltwiseOp()->out()->global_id();
+    tensorRef = opContext.type_as_EltwiseOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::MatmulOp: {
-    globalId = opContext.type_as_MatmulOp()->out()->global_id();
+    tensorRef = opContext.type_as_MatmulOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
-    globalId = opContext.type_as_ReductionOp()->out()->global_id();
+    tensorRef = opContext.type_as_ReductionOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
-    globalId = opContext.type_as_EmbeddingOp()->out()->global_id();
+    tensorRef = opContext.type_as_EmbeddingOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
-    globalId = opContext.type_as_SoftmaxOp()->out()->global_id();
+    tensorRef = opContext.type_as_SoftmaxOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
-    globalId = opContext.type_as_TransposeOp()->out()->global_id();
+    tensorRef = opContext.type_as_TransposeOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
-    globalId = opContext.type_as_ConcatOp()->out()->global_id();
+    tensorRef = opContext.type_as_ConcatOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
-    globalId = opContext.type_as_ReshapeOp()->out()->global_id();
+    tensorRef = opContext.type_as_ReshapeOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
-    globalId = opContext.type_as_SliceOp()->out()->global_id();
+    tensorRef = opContext.type_as_SliceOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
-    globalId = opContext.type_as_Conv2dOp()->out()->global_id();
+    tensorRef = opContext.type_as_Conv2dOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
-    globalId = opContext.type_as_MaxPool2dOp()->out()->global_id();
+    tensorRef = opContext.type_as_MaxPool2dOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
-    globalId = opContext.type_as_AllGatherOp()->out()->global_id();
+    tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
-    LOG_WARNING("getting output tensor for DeallocateOp is not supported");
+    LOG_WARNING("getting output tensor is not supported for ",
+                ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
+                    opContext.type_type())]);
     return createNullTensor();
   }
   default: {
@@ -540,8 +539,8 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   }
   }
 
-  if (tensorPool.contains(globalId)) {
-    outPtr = &tensorPool.at(globalId);
+  if (tensorRef.has_value() && tensorPool.contains(tensorRef.value())) {
+    outPtr = &tensorPool.getAndValidate(tensorRef.value());
   } else {
     LOG_WARNING("Output tensor not found in tensor pool");
     return createNullTensor();

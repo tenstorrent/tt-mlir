@@ -1,3 +1,8 @@
+if (NOT TTNN_RUNTIME_ENABLED)
+  add_library(TTRuntimeTTNNUtils INTERFACE)
+  return()
+endif()
+
 add_library(TTRuntimeTTNNUtils
   STATIC
   utils.cpp

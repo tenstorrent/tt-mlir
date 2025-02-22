@@ -22,10 +22,8 @@ void getEltwiseBinaryOpInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
                                     ::ttnn::Tensor **rhs) {
 
   LOG_ASSERT(op->ins()->size() == 2, "Expected 2 inputs");
-  *lhs = &(tensorPool.at(op->ins()->Get(0)->global_id()));
-  *rhs = &(tensorPool.at(op->ins()->Get(1)->global_id()));
-  DEBUG_ASSERT((*lhs)->is_allocated());
-  DEBUG_ASSERT((*rhs)->is_allocated());
+  *lhs = &(tensorPool.getAndValidate(op->ins()->Get(0)));
+  *rhs = &(tensorPool.getAndValidate(op->ins()->Get(1)));
 
   // Switch the order of operands if the second operand requires broadcast
   // TODO(bug #1124): We're currently swapping the operands for binary ops

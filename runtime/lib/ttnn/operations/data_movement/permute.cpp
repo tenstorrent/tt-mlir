@@ -5,17 +5,16 @@
 #include "operations/data_movement/permute.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
-
 #include <vector>
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(in.is_allocated());
+  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
 
   ::ttnn::SmallVector<int64_t> permutation(op->permutation()->begin(),
                                            op->permutation()->end());
@@ -25,6 +24,7 @@ void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
   float padValue = op->pad_value();
 
   ::ttnn::Tensor out = ::ttnn::permute(in, permutation, memoryConfig, padValue);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

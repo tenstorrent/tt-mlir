@@ -5,6 +5,7 @@
 #include "operations/ccl/mesh_shard.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/distributed/distributed_tensor.hpp"
@@ -83,7 +84,9 @@ void ShardToFullShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
 
 void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
+
+  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->in());
+
   const ::tt::target::ttnn::MeshShardDirection shardDirection =
       op->shard_direction();
   const ::tt::target::ttnn::MeshShardType shardType = op->shard_type();
@@ -103,7 +106,7 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
                "Input of mesh_shard with manual sharding must be MULTI DEVICE "
                "HOST Storage. id:",
                op->in()->global_id());
-    tensorPool.insert_or_assign(op->out()->global_id(), input);
+    tensorPool.insertAndValidate(op->out(), input);
     return;
   }
 
@@ -129,9 +132,7 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   } else {
     ShardToFullShape(input, out, meshDevice, shardType, shardShape, shardDims);
   }
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
 
-  DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(out.storage_type()),
-               "Output of ttnn::mesh_shard should be host tensor");
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl
