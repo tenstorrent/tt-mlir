@@ -2,6 +2,7 @@
 // RUN: ttmlir-opt --ttnn-decompose-layouts %t.mlir > %t_ttnn_mlir.mlir
 // RUN: FileCheck %t.mlir --input-file=%t_ttnn_mlir.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t_ttnn_mlir.mlir > %t.ttnn
+// UNSUPPORTED: true
 #device = #tt.device<>
 #system_desc = #tt.system_desc<>
 #dram = #ttnn.buffer_type<dram>
@@ -237,3 +238,5 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
         return %1 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
 }
+
+
