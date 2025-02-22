@@ -5,13 +5,15 @@
 #include "operations/data_movement/reshape.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(in.is_allocated());
+
+  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
+
   const auto *fbShape = op->shape();
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());
   std::optional<::ttnn::MemoryConfig> memoryConfig =
@@ -21,6 +23,6 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
           : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
                 op->memory_config());
   ::ttnn::Tensor out = ::ttnn::reshape(in, shape, memoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

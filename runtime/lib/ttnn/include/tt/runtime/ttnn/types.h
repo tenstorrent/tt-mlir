@@ -88,44 +88,43 @@ class ProgramTensorPool {
 public:
   ProgramTensorPool(
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-      const std::vector<uint32_t> &programInputs,
-      const std::vector<uint32_t> &programOutputs)
-      : programInputs(programInputs), programOutputs(programOutputs),
+      const std::vector<uint32_t> &programInputIds,
+      const std::vector<uint32_t> &programOutputIds)
+      : programInputIds(programInputIds), programOutputIds(programOutputIds),
         liveTensors(liveTensors) {}
   ProgramTensorPool(const ProgramTensorPool &) = delete;
   ProgramTensorPool &operator=(const ProgramTensorPool &) = delete;
   ProgramTensorPool(ProgramTensorPool &&) = default;
   ProgramTensorPool &operator=(ProgramTensorPool &&) = default;
 
-  std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
-  try_emplace(std::uint32_t globalId, const ::ttnn::Tensor &tensor);
+  const ::ttnn::Tensor &
+  getAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef) const;
+  ::ttnn::Tensor &
+  getAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
 
   std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
-  insert_or_assign(std::uint32_t globalId, const ::ttnn::Tensor &tensor);
+  insertAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
+                    const ::ttnn::Tensor &ttnnTensor);
 
-  ::ttnn::Tensor &at(std::uint32_t globalId);
-
-  const ::ttnn::Tensor &at(std::uint32_t globalId) const;
-
-  size_t erase(std::uint32_t globalId);
+  size_t erase(const ::tt::target::ttnn::TensorRef *tensorRef);
 
   std::vector<Tensor> gatherOutputTensors();
 
-  bool contains(std::uint32_t globalId) const {
-    return liveTensors.contains(globalId);
+  bool contains(const ::tt::target::ttnn::TensorRef *tensorRef) const {
+    return liveTensors.contains(tensorRef->global_id());
   }
 
-  const std::vector<std::uint32_t> &getProgramInputs() const {
-    return programInputs;
+  const std::vector<std::uint32_t> &getProgramInputIds() const {
+    return programInputIds;
   }
 
-  const std::vector<std::uint32_t> &getProgramOutputs() const {
-    return programOutputs;
+  const std::vector<std::uint32_t> &getProgramOutputIds() const {
+    return programOutputIds;
   }
 
 private:
-  std::vector<std::uint32_t> programInputs;
-  std::vector<std::uint32_t> programOutputs;
+  std::vector<std::uint32_t> programInputIds;
+  std::vector<std::uint32_t> programOutputIds;
   // A superset of intermedTensors, containing pointers to all tensors created
   // by the program and the input tensors passed in by the user
   std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
@@ -139,8 +138,8 @@ class ProgramContext {
 public:
   ProgramContext(
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-      const std::vector<uint32_t> &programInputs,
-      const std::vector<uint32_t> &programOutputs,
+      const std::vector<uint32_t> &programInputIds,
+      const std::vector<uint32_t> &programOutputIds,
       ::ttnn::MeshDevice *parentMesh);
   ProgramContext(const ProgramContext &) = delete;
   ProgramContext &operator=(const ProgramContext &) = delete;

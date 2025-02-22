@@ -5,6 +5,7 @@
 #include "operations/embedding/embedding.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -12,10 +13,8 @@ namespace tt::runtime::ttnn::operations::embedding {
 void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
 
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
-  const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
-  DEBUG_ASSERT(input.is_allocated());
-  DEBUG_ASSERT(weight.is_allocated());
+  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->input());
+  const ::ttnn::Tensor &weight = tensorPool.getAndValidate(op->weight());
 
   // default params for embedding op
   std::optional<int> padToken = std::nullopt;
@@ -35,6 +34,7 @@ void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
   ::ttnn::Tensor out =
       ::ttnn::embedding(input, weight, padToken, layout, embeddingsType,
                         outputDataType, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::embedding
