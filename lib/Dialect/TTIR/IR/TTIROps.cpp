@@ -1316,10 +1316,7 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
       inputLayout.getElementType() != outputLayout.getElementType();
   bool isMemorySpaceChange =
       inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-  bool isMemoryLayoutChange =
-      inputLayout.getMemLayout() != outputLayout.getMemLayout();
-  return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
-          isMemoryLayoutChange};
+  return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange};
 }
 
 ::mlir::LogicalResult
