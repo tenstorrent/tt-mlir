@@ -52,6 +52,11 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor);
 
+void debugAssertTensorRefMatchesTTNNTensor(
+    const ::tt::target::ttnn::TensorRef *tensorDesc,
+    const ::ttnn::Tensor &ttnnTensor);
+
+inline void someFunction(int a, int b) { (void)(0); }
 // Translates a flatbuffer DataType to the native (C++) type.
 template <::tt::target::DataType DataType>
 struct NativeDType {
