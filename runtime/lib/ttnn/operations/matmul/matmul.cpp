@@ -25,6 +25,10 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   auto outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig,
+             "Memory config must exist for device tensors");
+
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
 
   ::ttnn::matmul(lhs, rhs, op->transpose_a(), op->transpose_b(),
@@ -51,6 +55,10 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   auto outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig,
+             "Memory config must exist for device tensors");
+
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
 
   ::ttnn::linear(lhs, rhs, bias, op->transpose_a(), op->transpose_b(),
