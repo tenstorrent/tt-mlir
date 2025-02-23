@@ -135,7 +135,6 @@ namespace {
 class TTKernelToEmitCTypeConverter : public NullTypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
-    std::cout << " Hello from TTKernelToEmitCTypeConverter" << std::endl;
     addConversion([](Type type) { return type; });
     addConversion([ctx](mlir::tt::ttkernel::NocAddrType type) -> Type {
       return Builder(ctx).getI64Type();
@@ -151,14 +150,6 @@ public:
         [ctx](mlir::tt::ttkernel::L1AddrPtrType type) -> emitc::PointerType {
           return emitc::PointerType::get(
               emitc::OpaqueType::get(ctx, "volatile tt_l1_ptr uint32_t"));
-        });
-    addConversion(
-        [ctx](mlir::tt::ttkernel::InterleavedAddrGenFastType type) -> Type {
-          std::cout << " Hello from type converter" << std::endl;
-          std::string opaque_name = "InterleavedAddrGenFast<";
-          opaque_name += type.getDRAM() ? "true" : "false";
-          opaque_name += ", " + std::to_string(type.getTileHw()) + ">";
-          return emitc::OpaqueType::get(ctx, opaque_name);
         });
   }
 };
@@ -463,6 +454,63 @@ struct ConvertNocTransactionsTableOp
 } // namespace
 
 namespace {
+struct ConvertGetInterleavedAddrGenFastOp
+    : public OpConversionPattern<ttkernel::GetInterleavedAddrGenFastConfigOp> {
+  using Op = ttkernel::GetInterleavedAddrGenFastConfigOp;
+
+  ConvertGetInterleavedAddrGenFastOp(const TypeConverter &typeConvert,
+                                     MLIRContext *context)
+      : OpConversionPattern(typeConvert, context) {}
+
+  bool extractValue(Value operand, std::int32_t &value) const {
+    if (auto constantOp = operand.getDefiningOp<arith::ConstantOp>()) {
+      if (auto attr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
+        value = attr.getInt();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  LogicalResult
+  matchAndRewrite(Op op,
+                  ttkernel::GetInterleavedAddrGenFastConfigOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // if (op.getResult().getUses().empty()) {
+    //   rewriter.eraseOp(op);
+    // } else {
+    int32_t isDRAM, bankBaseAddress, pageSize, dataFormat;
+    if (!extractValue(op.getDRAM(), isDRAM) ||
+        !extractValue(op.getBankBaseAddress(), bankBaseAddress) ||
+        !extractValue(op.getPageSize(), pageSize) ||
+        !extractValue(op.getDataFormat(), dataFormat)) {
+      return rewriter.notifyMatchFailure(
+          op, "Failed to extract values from operands");
+    }
+    std::string opaqueConfigStr;
+    llvm::raw_string_ostream ss(opaqueConfigStr);
+    ss << "{.bank_base_address = " << bankBaseAddress
+       << ", .page_size = " << pageSize << ", .data_format = " << dataFormat
+       << "}";
+    ss.flush();
+    std::string opaqueTypeStr;
+    llvm::raw_string_ostream ssType(opaqueTypeStr);
+    ssType << "const InterleavedAddrGenFast<"
+           << (isDRAM == 0 ? "false" : "true") << ">";
+    ssType.flush();
+
+    auto opaqueResultType =
+        emitc::OpaqueType::get(op.getContext(), opaqueTypeStr);
+    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
+        op, opaqueResultType,
+        emitc::OpaqueAttr::get(op->getContext(), opaqueConfigStr));
+    // }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
           ConvertTTKernelToEmitCPass> {
@@ -546,6 +594,9 @@ public:
 
         patterns.add<ConvertNocTransactionsTableOp>(
             typeConverter, funcOp->getContext(), globals);
+
+        patterns.add<ConvertGetInterleavedAddrGenFastOp>(typeConverter,
+                                                         funcOp->getContext());
       }
 
       if (failed(applyPartialConversion(funcOp, target, std::move(patterns)))) {

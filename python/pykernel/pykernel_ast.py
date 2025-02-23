@@ -103,6 +103,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         "noc_async_write": ttkernel.noc_async_write,
         "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
         "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
+        "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
     }
 
     def __init__(self, name, args):
@@ -425,7 +426,11 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Literals
     def visit_Constant(self, node):
-        if isinstance(node.value, int):
+        # print(node.value)
+        # print(isinstance(node.value, bool))
+        if isinstance(node.value, bool):
+            return arith.ConstantOp(IntegerType.get_signless(1, self.ctx), node.value)
+        elif isinstance(node.value, int):
             return arith.ConstantOp(IntegerType.get_signless(32, self.ctx), node.value)
         else:
             raise NotImplementedError(
