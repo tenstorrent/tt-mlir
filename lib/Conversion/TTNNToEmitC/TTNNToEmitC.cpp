@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
+#include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
@@ -33,9 +34,151 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/Support/LLVM.h>
 
 using namespace mlir;
 using namespace mlir::tt;
+
+template <typename TTNNOp>
+class EmitCTTNNEmitter {
+public:
+  using OpAdaptor = typename TTNNOp::Adaptor;
+
+  EmitCTTNNEmitter(ConversionPatternRewriter &rewriter, TTNNOp op,
+                   OpAdaptor adaptor)
+      : rewriter{rewriter}, op{op}, adaptor{adaptor} {}
+
+  emitc::OpaqueAttr operator()(ttnn::ShapeAttr attr, bool clearBuf = true) {
+    if (!attr) {
+      return rewriter.getType<emitc::OpaqueAttr>("::std::nullopt");
+    }
+    auto shape = attr.getShape();
+    rso << "::ttnn::Shape(";
+    operator()(shape, false);
+    rso << ")";
+
+    emitc::OpaqueAttr emitcAttr{};
+    if (clearBuf) {
+      emitcAttr = rewriter.getType<emitc::OpaqueAttr>(std::move(buf));
+      buf.clear();
+    } else {
+      emitcAttr = rewriter.getType<emitc::OpaqueAttr>(buf);
+    }
+    return emitcAttr;
+  }
+
+  template <typename T>
+  emitc::OpaqueAttr operator()(llvm::ArrayRef<T> attr, bool clearBuf = true) {
+    rso << "{";
+    llvm::interleaveComma(attr, rso);
+    rso << "}";
+
+    emitc::OpaqueAttr emitcAttr{};
+    if (clearBuf) {
+      emitcAttr = rewriter.getType<emitc::OpaqueAttr>(std::move(buf));
+      buf.clear();
+    } else {
+      emitcAttr = rewriter.getType<emitc::OpaqueAttr>(buf);
+    }
+    return emitcAttr;
+  }
+
+  emitc::OpaqueAttr operator()(tt::DataTypeAttr attr) {
+    if (!attr) {
+      return rewriter.getType<emitc::OpaqueAttr>("::std::nullopt");
+    }
+    switch (attr.getValue()) {
+    case tt::DataType::BFloat16:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::DataType::BFLOAT16");
+    case tt::DataType::Float32:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::DataType::FLOAT32");
+    case tt::DataType::UInt32:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::DataType::UINT32");
+    case tt::DataType::BFP_BFloat8:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::DataType::BFLOAT8_B");
+    case tt::DataType::BFP_BFloat4:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::DataType::BFLOAT4_B");
+    case tt::DataType::UInt8:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::DataType::UINT8");
+    case tt::DataType::UInt16:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::DataType::UINT16");
+    // TODO(svuckovic):
+    // Add support for INT32
+    //
+    // case tt::DataType::Int32:
+    //   return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::INT32");
+    case tt::DataType::Float16:
+    case tt::DataType::BFP_Float2:
+    case tt::DataType::BFP_Float4:
+    case tt::DataType::BFP_Float8:
+    case tt::DataType::BFP_BFloat2:
+      llvm_unreachable("Unsupported ttnn::DataType");
+    }
+
+    llvm_unreachable("Unkonwn tt::DataType");
+  }
+
+  emitc::OpaqueAttr operator()(ttnn::LayoutAttr attr) {
+    if (!attr) {
+      return rewriter.getType<emitc::OpaqueAttr>("::std::nullopt");
+    }
+    switch (attr.getValue()) {
+    case ttnn::Layout::RowMajor:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::Layout::ROW_MAJOR");
+    case ttnn::Layout::Tile:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::Layout::TILE");
+    case ttnn::Layout::Invalid:
+      return rewriter.getType<emitc::OpaqueAttr>("::ttnn::Layout::INVALID");
+    }
+
+    llvm_unreachable("Unknown ttnn::Layout");
+  }
+
+  emitc::OpaqueAttr operator()(ttnn::MemoryConfigAttr attr) {
+    if (!attr) {
+      return rewriter.getType<emitc::OpaqueAttr>("::std::nullopt");
+    }
+    // TODO (azecevic): Implement this.
+    return rewriter.getAttr<emitc::OpaqueAttr>("::std::nullopt");
+  }
+
+  template <typename T>
+  mlir::Attribute operator()(std::optional<T> attr) {
+    if (attr) {
+      return operator()(*attr);
+    }
+    return rewriter.getType<emitc::OpaqueAttr>("::std::nullopt");
+  }
+
+  mlir::Attribute operator()(Value operand) {
+    if (!operand) {
+      return rewriter.getType<emitc::OpaqueAttr>("::std::nullopt");
+    }
+    for (uint32_t index = 0u; index < op->getNumOperands(); ++index) {
+      if (op->getOperand(index) == operand) {
+        return rewriter.getIndexAttr(index);
+      }
+    }
+    llvm_unreachable("Unknown operand");
+  }
+
+  template <typename T>
+  mlir::Attribute operator()(mlir::Attribute attr) {
+    return EmitCTypeConverter<T>::convert(rewriter, attr);
+  }
+
+private:
+  ConversionPatternRewriter &rewriter;
+  TTNNOp op;
+  OpAdaptor adaptor;
+  std::string buf;
+  llvm::raw_string_ostream rso{buf};
+};
+
+inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {
+  return lhs ? lhs : rhs;
+}
 
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
@@ -102,6 +245,7 @@ public:
     } else {
       // No return type, only convert the op.
       //
+      ttnn::UpsampleOp upsampleOp = dyn_cast<ttnn::UpsampleOp>(srcOp);
       rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
           srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
           nullptr, adaptor.getOperands());
@@ -1111,48 +1255,18 @@ public:
     // IndexAttr. If they are present, we create the object and pass it to the
     // op. If not, we pass std::nullopt.
 
-    // Create ttnn::Shape() call
-    //
-    emitc::CallOpaqueOp shapeOp = ttnn_to_emitc::utils::createShapeOp(
-        rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
+    llvm::SmallVector<Value, 2> operands{};
 
-    llvm::SmallVector<Value, 3> operands{
-        shapeOp->getResult(0),
-    };
-
-    // Create ArrayAttr object holding attributes and pointers to operands
-    //
-    // Params that are Values are added to the operands vector on-the-fly, and
-    // a corresponding IndexAttr is added to the ArrayAttr to reference them.
-    //
-    size_t operandIndex = 0;
-    ArrayAttr arrayAttr = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(operandIndex++), // ttnn::Shape
-        srcOp.getDtype().has_value()
-            ? ttnn_to_emitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())
-            : ttnn_to_emitc::utils::createStdNullopt(
-                  rewriter), // ttnn::DataType
-        srcOp.getLayout().has_value()
-            ? ttnn_to_emitc::utils::convertLayoutAttr(rewriter,
-                                                      srcOp.getLayoutAttr())
-            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Layout
-        adaptor.getDevice()
-            ? (operands.append(1, adaptor.getDevice()),
-               mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
-            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Device
-        srcOp.getMemoryConfig().has_value()
-            ? (operands.append(
-                   1, ttnn_to_emitc::utils::createMemoryConfigOp(
-                          rewriter, srcOp.getMemoryConfigAttr(), srcOp.getLoc())
-                          ->getResult(0)),
-               mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
-            : ttnn_to_emitc::utils::createStdNullopt(
-                  rewriter), // ttnn::MemoryConfig
-    });
+    EmitCTTNNEmitter<ttnn::OnesOp> emitter(rewriter, srcOp, adaptor);
+    llvm::SmallVector<mlir::Attribute> attrs = {
+        emitter(adaptor.getShapeAttr()), emitter(adaptor.getDtypeAttr()),
+        emitter(adaptor.getLayoutAttr()), emitter(srcOp.getDevice()),
+        emitter(adaptor.getMemoryConfigAttr())};
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttr, nullptr, operands);
+        this->convertOpName(srcOp), rewriter.getArrayAttr(attrs), nullptr,
+        adaptor.getOperands());
 
     return success();
   }
