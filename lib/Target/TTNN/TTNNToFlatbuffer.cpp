@@ -632,29 +632,31 @@ createOp(FlatbufferObjectCache &cache, OnesOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
 createOp(FlatbufferObjectCache &cache, LinearOp op) {
-  auto in0 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getA()));
-  auto in1 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getB()));
-  auto bias = op.getODSOperands(2).empty()
-                  ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
-                  : cache.at<::tt::target::ttnn::TensorRef>(
-                        getOperandThroughDPSOps(op.getBias()));
+  auto bias = op.getBias()
+                  ? cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()))
+                  : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
   auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
-  return ::tt::target::ttnn::CreateLinearOp(*cache.fbb, in0, in1, bias, output);
+      getOperandThroughDPSOps(op.getOutput()));
+  return ::tt::target::ttnn::CreateLinearOp(
+      *cache.fbb, a, b, bias, output, op.getTransposeA(), op.getTransposeB());
 }
 
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
 ::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
 createOp(FlatbufferObjectCache &cache, MatmulOp op) {
-  auto in0 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getA()));
-  auto in1 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getB()));
   auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
-  return ::tt::target::ttnn::CreateMatmulOp(*cache.fbb, in0, in1, output);
+      getOperandThroughDPSOps(op.getOutput()));
+  return ::tt::target::ttnn::CreateMatmulOp(
+      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
