@@ -637,9 +637,9 @@ createOp(FlatbufferObjectCache &cache, LinearOp op) {
   auto b = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getB()));
   auto bias = op.getBias()
-                  ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
-                  : cache.at<::tt::target::ttnn::TensorRef>(
-                        getOperandThroughDPSOps(op.getBias()));
+                  ? cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()))
+                  : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
   auto output = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOutput()));
   return ::tt::target::ttnn::CreateLinearOp(
