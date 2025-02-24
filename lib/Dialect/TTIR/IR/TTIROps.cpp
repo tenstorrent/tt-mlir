@@ -1461,7 +1461,9 @@ verifyLayoutOrViewOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
           "Input and output layout element types must be the same");
     }
     return mlir::success();
-  } else if (mlir::isa<mlir::MemRefType>(inputTensorOrMemrefTy)) {
+  }
+
+  if (mlir::isa<mlir::MemRefType>(inputTensorOrMemrefTy)) {
     if (!mlir::isa<mlir::MemRefType>(outputTensorOrMemrefTy)) {
       return op->emitOpError("Input and output types must be the same");
     }
@@ -1490,39 +1492,38 @@ verifyLayoutOrViewOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
 // ToLayoutOp utility methods
 mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
+  CompoundComponents components;
   if (mlir::isa<mlir::RankedTensorType>(getInput().getType())) {
     auto inputLayout = mlir::cast<tt::MetalLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding());
     auto outputLayout = mlir::cast<tt::MetalLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(getOutput().getType())
             .getEncoding());
-    bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
-    bool isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
+    components.isLayoutChange =
+        inputLayout.getLinear() != outputLayout.getLinear();
+    components.isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
     bool isShardChange =
         inputLayout.getShardShape() != outputLayout.getShardShape();
-    assert(isGridChange == isShardChange);
-    bool isFormatChange =
+    assert(components.isGridChange == isShardChange);
+    components.isFormatChange =
         inputLayout.getElementType() != outputLayout.getElementType();
-    bool isMemorySpaceChange =
+    components.isMemorySpaceChange =
         inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-    bool isMemoryLayoutChange =
+    components.isMemoryLayoutChange =
         inputLayout.getMemLayout() != outputLayout.getMemLayout();
-    return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
-            isMemoryLayoutChange};
   } else {
     auto inputMemref = mlir::cast<mlir::MemRefType>(getInput().getType());
     auto outputMemref = mlir::cast<mlir::MemRefType>(getOutput().getType());
-    bool isLayoutChange = false;
+    components.isLayoutChange = false;
     bool isShapeChange = inputMemref.getShape() != outputMemref.getShape();
-    bool isGridChange = isShapeChange;
-    bool isFormatChange =
+    components.isGridChange = isShapeChange;
+    components.isFormatChange =
         inputMemref.getElementType() != outputMemref.getElementType();
-    bool isMemorySpaceChange =
+    components.isMemorySpaceChange =
         inputMemref.getMemorySpace() != outputMemref.getMemorySpace();
-    bool isMemoryLayoutChange = false;
-    return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
-            isMemoryLayoutChange};
+    components.isMemoryLayoutChange = false;
   }
+  return components;
 }
 
 ::mlir::LogicalResult
