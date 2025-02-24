@@ -114,6 +114,62 @@ jobs:
         suggestions_per_comment: 10
         python_path: "python3"
 
+  debug:
+    needs: build-image
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+    name: Debug Build
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.build-image.outputs.docker-image }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+        -B ${{ steps.strings.outputs.build-output-dir }} \
+        -DCMAKE_CXX_COMPILER=clang++-17 \
+        -DCMAKE_C_COMPILER=clang-17 \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        -DTTMLIR_ENABLE_RUNTIME=OFF \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
+        -DTTMLIR_ENABLE_STABLEHLO=ON \
+        -DTTMLIR_ENABLE_OPMODEL=OFF \
+        -S ${{ steps.strings.outputs.work-dir }}
+
+    - name: Build
+      id: build
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: Check
+      id: check
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
+
   build-ttmlir:
     needs: build-image
     timeout-minutes: 120
