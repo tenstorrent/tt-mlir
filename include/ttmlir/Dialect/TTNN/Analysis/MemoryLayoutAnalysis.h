@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
+#include <vector>
 
 namespace mlir::tt::ttnn {
 
@@ -42,16 +43,19 @@ struct MemoryLayoutAnalysisInput {
 struct MemoryLayoutAnalysisResult {
   llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
   std::unordered_set<Edge> memReconfigEdges;
+  std::vector<Operation *> spillToDramOps;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
   MemoryLayoutAnalysisResult()
-      : legalLayouts(), memReconfigEdges(), schedule() {}
+      : legalLayouts(), memReconfigEdges(), spillToDramOps(), schedule() {}
 
   MemoryLayoutAnalysisResult(
       const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalLayouts,
-      const std::unordered_set<Edge> &memReconfigEdges)
-      : legalLayouts(legalLayouts), memReconfigEdges(memReconfigEdges) {}
+      const std::unordered_set<Edge> &memReconfigEdges,
+      const std::vector<Operation *> &spillToDramOps)
+      : legalLayouts(legalLayouts), memReconfigEdges(memReconfigEdges),
+        spillToDramOps(spillToDramOps) {}
 };
 
 // Analyze and determine which parts of the model graph can be pushed to L1

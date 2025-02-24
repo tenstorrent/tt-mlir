@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include <llvm/Support/Casting.h>
+#include <mlir/IR/Location.h>
 #include <mlir/IR/Value.h>
 
 namespace mlir::tt::ttnn::utils {
@@ -111,6 +113,27 @@ Type getElementType(MLIRContext *context, Layout tensorLayout,
              ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
                              dataType)
              : mlir::tt::dataTypeToElementType(context, dataType);
+}
+
+// Save the IR to a file for debugging.
+void irToFile(mlir::Operation *op, std::string filename) {
+  OpPrintingFlags printFlags;
+  printFlags = printFlags.enableDebugInfo();
+
+  std::error_code ec;
+  llvm::raw_fd_ostream file(filename, ec);
+  if (ec) {
+    llvm::errs() << "Error opening file: " << ec.message() << "\n";
+    return;
+  }
+  op->print(file, printFlags);
+}
+
+std::string getOpLocName(Operation *op) {
+  if (NameLoc loc = llvm::dyn_cast<NameLoc>(op->getLoc())) {
+    return loc.getName().str();
+  }
+  return "";
 }
 
 } // namespace mlir::tt::ttnn::utils

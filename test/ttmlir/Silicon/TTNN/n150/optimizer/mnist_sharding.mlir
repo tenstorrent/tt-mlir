@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" -o output_file.mlir %s
-// RUN: FileCheck %s --input-file=output_file.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer output_file.mlir > %t.ttnn
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" -o mnist_sharding_ttnn.mlir %s
+// RUN: FileCheck %s --input-file=mnist_sharding_ttnn.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer mnist_sharding_ttnn.mlir > %t.ttnn
 #loc = loc("MNISTLinear":4294967295:0)
 module @"tt-forge-graph" attributes {} {
   func.func @main(%arg0: tensor<1x784xf32> loc("MNISTLinear":4294967295:0), %arg1: tensor<1x10xf32> loc("MNISTLinear":4294967295:0), %arg2: tensor<256x10xf32> loc("MNISTLinear":4294967295:0), %arg3: tensor<1x256xf32> loc("MNISTLinear":4294967295:0), %arg4: tensor<784x256xf32> loc("MNISTLinear":4294967295:0)) -> tensor<1x10xf32> {
