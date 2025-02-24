@@ -32,6 +32,7 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   case ::tt::target::DataType::BFloat16:
     return 2;
   case ::tt::target::DataType::UInt32:
+  case ::tt::target::DataType::Int32:
     return 4;
   case ::tt::target::DataType::UInt16:
     return 2;

@@ -58,7 +58,7 @@ module {
   }
   func.func public @main9(%arg0: tensor<32x32xi32>) -> tensor<32x32xui32> {
     %0 = tensor.empty() : tensor<32x32xui32>
-    // CHECK-NOT: "ttnn.typecast"
+    // CHECK: "ttnn.typecast"
     %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<32x32xi32>, tensor<32x32xui32>) -> tensor<32x32xui32>
     // CHECK: return {{.*}} : tensor<32x32xui32
     return %1 : tensor<32x32xui32>

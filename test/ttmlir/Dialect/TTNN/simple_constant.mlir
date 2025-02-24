@@ -56,6 +56,8 @@ module attributes {} {
     // CHECK: %{{[0-9]+}} = "ttnn.full"
     // CHECK-SAME: fillValue = 1.000000e+00 : f32
     // CHECK-SAME: tensor<64x128xui32
+    // CHECK: %{{[0-9]+}} = "ttnn.typecast"
+    // CHECK-SAME: tensor<64x128xsi32
     %0 = "ttir.constant"() <{value = dense<1> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
     return %0 : tensor<64x128xi32>
   }

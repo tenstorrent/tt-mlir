@@ -103,6 +103,11 @@ PYBIND11_MODULE(_C, m) {
           size = sizeof(uint32_t);
           break;
 
+        case tt::target::DataType::Int32:
+          format = py::format_descriptor<int32_t>::format();
+          size = sizeof(int32_t);
+          break;
+
         case tt::target::DataType::Float32:
           format = py::format_descriptor<float>::format();
           size = sizeof(float);

@@ -663,6 +663,8 @@ class Binary(Flatbuffer):
                 return ttrt.runtime.DataType.UInt16
             if dtype == torch.uint8:
                 return ttrt.runtime.DataType.UInt8
+            if dtype == torch.int32:
+                return ttrt.runtime.DataType.Int32
             raise ValueError(f"unsupported dtype: {dtype}")
 
         @staticmethod
@@ -681,6 +683,8 @@ class Binary(Flatbuffer):
                 return torch.uint16
             if dtype == "UInt8":
                 return torch.uint8
+            if dtype == "Int32":
+                return torch.int32
             raise ValueError(f"unsupported dtype: {dtype}")
 
 
