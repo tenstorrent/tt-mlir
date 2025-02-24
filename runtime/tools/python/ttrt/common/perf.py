@@ -528,12 +528,17 @@ class Perf:
 
                     for result in test_result:
                         if result["result"] != "pass":
+                            if result["result"] == "test_error":
+                                raise TTRTTestException(str(result["exception"]))
                             raise Exception(f'{result["exception"]}')
 
                 except Exception as e:
+                    result = "error"
+                    if isinstance(e, TTRTTestException):
+                        result = "test_error"
                     test_result = {
                         "file_path": bin.file_path,
-                        "result": "error",
+                        "result": result,
                         "exception": str(e),
                         "log_file": self.logger.file_name,
                         "artifacts": self.artifacts.artifacts_folder_path,
@@ -543,7 +548,7 @@ class Perf:
                         f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
                     )
                     self.results.add_result(test_result)
-                    bin.test_result = "error"
+                    bin.test_result = result
                     traceback.print_exc()
                     continue
 

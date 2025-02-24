@@ -691,9 +691,13 @@ class Run:
                                     callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
+                        result = "error"
+                        if isinstance(e, TTRTTestException):
+                            result = "test_error"
+
                         test_result = {
                             "file_path": bin.file_path,
-                            "result": "error",
+                            "result": result,
                             "exception": str(e),
                             "log_file": self.logger.file_name,
                             "artifacts": self.artifacts.artifacts_folder_path,
@@ -703,7 +707,7 @@ class Run:
                             f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
                         )
                         self.results.add_result(test_result)
-                        bin.test_result = "error"
+                        bin.test_result = result
                         continue
             finally:
                 ttrt.runtime.close_device(device)

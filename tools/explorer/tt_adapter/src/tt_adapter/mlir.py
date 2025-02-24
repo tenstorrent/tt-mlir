@@ -754,10 +754,10 @@ def build_graph(module, perf_trace=None, golden_results=None):
 
     if accuracy_node_data:
         thres = [
-            # Show Green if ActualPCC - ExpectedPCC is 1 and below (Actual PCC >= ExpectedPCC)
-            node_data_builder.ThresholdItem(value=1, bgColor="green"),
             # Show Red if ActualPCC - ExpectedPCC is 0 and below (ActualPCC < ExpectedPCC)
             node_data_builder.ThresholdItem(value=0, bgColor="red"),
+            # Show Green if ActualPCC - ExpectedPCC is 1 and below (Actual PCC >= ExpectedPCC)
+            node_data_builder.ThresholdItem(value=1, bgColor="green"),
         ]
         graph_node_data = node_data_builder.GraphNodeData(
             results=accuracy_node_data, thresholds=thres
