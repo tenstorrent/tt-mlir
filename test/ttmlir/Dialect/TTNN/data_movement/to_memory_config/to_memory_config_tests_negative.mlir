@@ -22,7 +22,7 @@ module {
 #device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x3x!tt.tile<32x32, f32>, #dram>, <interleaved>>
 module{
   func.func @forward(%arg0: tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2> {
-    // CHECK: error: 'ttnn.to_memory_config' op Output tensor layout memory space must match memory config memory space.
+    // CHECK: error: DRAM buffer type must have Interleaved memory layout.
     %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#dram, <<1x3>>, <single_bank>>}> : (tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2>
     return %1 : tensor<32x96xf32, #device_tile_layout2>
   }
@@ -49,10 +49,10 @@ module {
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
 #device_tile_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!tt.tile<32x32, f32>, #dram>, <interleaved>>
-#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x3x!tt.tile<32x32, f32>, #system_memory>, <interleaved>>
+#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x3x!tt.tile<32x32, f32>, #system_memory>>
 module {
   func.func @forward(%arg0: tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2> {
-    // CHECK: error: MemoryConfig with SystemMemory buffer type cannot have tensor memory layout.
+    // CHECK: error: Memory layout is not allowed for SystemMemory buffer type.
     %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#system_memory, <<1x4>>, <interleaved>>}> : (tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2>
     return %1 : tensor<32x96xf32, #device_tile_layout2>
   }

@@ -17,6 +17,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -1124,24 +1125,24 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
 
   // Rewrite a tranpose dims to a canonical form where the 'dim0' and 'dim1' are
   // in range [0, N), where N is a rank of input tensor.
-  patterns.add(
-      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
-        int64_t rank = op.getInput().getType().getRank();
-        int32_t dim0 = op.getDim0();
-        int32_t dim1 = op.getDim1();
+  patterns.add(+[](mlir::tt::ttir::TransposeOp op,
+                   mlir::PatternRewriter &rewriter) {
+    int64_t rank = op.getInput().getType().getRank();
+    int32_t dim0 = op.getDim0();
+    int32_t dim1 = op.getDim1();
 
-        if (dim0 >= 0 && dim1 >= 0) {
-          return mlir::failure();
-        }
+    if (dim0 >= 0 && dim1 >= 0) {
+      return mlir::failure();
+    }
 
-        if (dim0 < 0) {
-          op.setDim0(dim0 + rank);
-        }
-        if (dim1 < 0) {
-          op.setDim1(dim1 + rank);
-        }
-        return mlir::success();
-      });
+    if (dim0 < 0) {
+      rewriter.modifyOpInPlace(op, [&]() -> void { op.setDim0(dim0 + rank); });
+    }
+    if (dim1 < 0) {
+      rewriter.modifyOpInPlace(op, [&]() -> void { op.setDim1(dim1 + rank); });
+    }
+    return mlir::success();
+  });
 
   // Transposing twice in the row over the same dimensions results in identity,
   // hence y = T(T(x)) can be replaced with y = x.
@@ -1360,43 +1361,45 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
-  // purpose of the matrix multiplication. After the matrix multiplication, the
-  // prepended dimension is removed.
+  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
+  // the purpose of the matrix multiplication. After the matrix multiplication,
+  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
+  // transposed.
   if (inputAType.getRank() == 1) {
     inputAShape.insert(inputAShape.begin(), 1);
+  } else if (getTransposeA()) {
+    std::swap(inputAShape[inputAShape.size() - 1],
+              inputAShape[inputAShape.size() - 2]);
   }
 
-  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
-  // the purpose of the matrix-vector product and removed afterwards.
+  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
+  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
+  // check if the RHS needs to be transposed.
   if (inputBType.getRank() == 1) {
     inputBShape.push_back(1);
+  } else if (getTransposeB()) {
+    std::swap(inputBShape[inputBShape.size() - 1],
+              inputBShape[inputBShape.size() - 2]);
   }
 
   // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
       inputBShape[inputBShape.size() - 2]) {
-    return emitOpError(
-        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
-        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
-        ") must have matching inner dimensions");
+    return emitOpError("Input A[-1](")
+           << inputAShape[inputAShape.size() - 1] << ") and B[-2]("
+           << inputBShape[inputBShape.size() - 2]
+           << ") must have matching inner dimensions";
   }
 
   llvm::SmallVector<int64_t> expectedOutputShape;
   // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape.
+  // expected output shape. If either of input A or input B is at most 2D
+  // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
-    llvm::SmallVector<int64_t> inputABatchDims, inputBBatchDims;
-
-    if (inputAShape.size() > 2) {
-      inputABatchDims.insert(inputABatchDims.begin(), inputAShape.begin(),
-                             inputAShape.end() - 2);
-    }
-
-    if (inputBShape.size() > 2) {
-      inputBBatchDims.insert(inputBBatchDims.begin(), inputBShape.begin(),
-                             inputBShape.end() - 2);
-    }
+    llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
+                                               inputAShape.end() - 2);
+    llvm::SmallVector<int64_t> inputBBatchDims(inputBShape.begin(),
+                                               inputBShape.end() - 2);
 
     // Verify that the batch dimensions of input A and B are broadcast
     // compatible.
@@ -1412,12 +1415,10 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
     }
 
     // Insert the broadcasted batch dimensions in the expected output shape.
-    expectedOutputShape.insert(expectedOutputShape.begin(),
-                               broadcastedShape.begin(),
-                               broadcastedShape.end());
+    expectedOutputShape = std::move(broadcastedShape);
   }
 
-  // Insert the input A and B inner dimensions in expected output shape.
+  // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
   // the dimension 1 is ommited from the output shape.
   if (inputAType.getRank() > 1) {
@@ -1430,21 +1431,21 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
 
   if (biasType) {
     // Verify that the input bias is at least 1D tensor.
-    if (biasType.value().getRank() < 1) {
+    if (biasType->getRank() < 1) {
       return emitOpError("Bias must be at least a 1D tensor");
     }
 
-    llvm::SmallVector<int64_t> biasShape(biasType.value().getShape());
+    llvm::SmallVector<int64_t> biasShape(biasType->getShape());
 
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
     llvm::SmallVector<int64_t> matmulShape = expectedOutputShape;
     if (!mlir::OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
                                                   expectedOutputShape)) {
-      return emitOpError("Bias shape(" + ttmlir::utils::join(biasShape, ",") +
-                         ") is not broadcast compatible with the matmul output "
-                         "shape(" +
-                         ttmlir::utils::join(matmulShape, ",") + ")");
+      return emitOpError("Bias shape(")
+             << ttmlir::utils::join(biasShape, ",")
+             << ") is not broadcast compatible with the matmul output shape("
+             << ttmlir::utils::join(matmulShape, ",") << ")";
     }
   }
 
@@ -1463,40 +1464,90 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
     return success();
   }
 
-  // Verify that the output shape dimension count is correct.
+  // Verify that the output shape is correct.
   if (outputShape.size() != expectedOutputShape.size()) {
-    return emitOpError("Output shape rank(" +
-                       std::to_string(outputShape.size()) +
-                       ") must match the expected output shape rank(" +
-                       std::to_string(expectedOutputShape.size()) + ")");
+    return emitOpError("Output shape rank(")
+           << outputShape.size()
+           << ") must match the expected output shape rank("
+           << expectedOutputShape.size() << ")";
   }
 
   // Verify each dim of the output shape.
-  for (size_t i = 0; i < outputShape.size(); i++) {
-    if (outputShape[i] != expectedOutputShape[i]) {
-      return emitOpError(
-          "Output shape dimension[" + std::to_string(i) + "](" +
-          std::to_string(outputShape[i]) +
-          ") doesn't match the expected output shape dimension[" +
-          std::to_string(i) + "](" + std::to_string(expectedOutputShape[i]) +
-          ")");
+  for (auto [index, outputDim, expectedDim] : llvm::zip(
+           llvm::seq(outputShape.size()), outputShape, expectedOutputShape)) {
+    if (outputDim != expectedDim) {
+      return emitOpError("Output shape dimension[")
+             << index << "](" << outputDim
+             << ") doesn't match the expected output shape dimension[" << index
+             << "](" << expectedDim << ")";
     }
   }
 
   return success();
 }
 
-// LinearOp canonicalize method
-::mlir::LogicalResult
-mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
-                                       mlir::PatternRewriter &rewriter) {
-  if (op.getBias()) {
-    return mlir::failure();
+// If value is defined by TransposeOp with transpose dimensions
+// (rank - 2, rank - 1), return the input of the TransposeOp, otherwise return
+// std::nullopt. This is used for canonicalization of MatmulOp and LinearOp.
+static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
+getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
+  auto producerOp = value.getDefiningOp<mlir::tt::ttir::TransposeOp>();
+  if (!producerOp) {
+    return std::nullopt;
   }
 
-  rewriter.replaceOpWithNewOp<ttir::MatmulOp>(op, op.getType(), op.getA(),
-                                              op.getB(), op.getOutput());
-  return mlir::success();
+  int64_t rank = value.getType().getRank();
+  if (rank < 2 || producerOp.getDim0() != rank - 2 ||
+      producerOp.getDim1() != rank - 1) {
+    return std::nullopt;
+  }
+
+  return producerOp.getInput();
+}
+
+// LinearOp canonicalization
+void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // If bias is not provided, linear operation is equivalent to matmul.
+  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getBias()) {
+      rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
+          op, op.getType(), op.getA(), op.getB(), op.getOutput(),
+          op.getTransposeA(), op.getTransposeB());
+      return mlir::success();
+    }
+    return mlir::failure();
+  });
+
+  // linear(transpose(a), b, bias transpose_a, transpose_b) ->
+  //   linear(a, b, bias, !transpose_a, transpose_b)
+  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
+    auto inputACanonical = getTransposeOpOperand(op.getA());
+    if (!inputACanonical) {
+      return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
+        op, op.getType(), *inputACanonical, op.getB(), op.getBias(),
+        op.getOutput(), !op.getTransposeA(), op.getTransposeB());
+
+    return mlir::success();
+  });
+
+  // linear(a, transpose(b), bias transpose_a, transpose_b) ->
+  //   linear(a, b, bias, transpose_a, !transpose_b)
+  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
+    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    if (!inputBCanonical) {
+      return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
+        op, op.getType(), op.getA(), *inputBCanonical, op.getBias(),
+        op.getOutput(), op.getTransposeA(), !op.getTransposeB());
+
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1514,56 +1565,58 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
   llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
 
-  // Verify that the input A is at least 1D tensor
+  // Verify that the input A is at least 1D tensor.
   if (inputAType.getRank() < 1) {
     return emitOpError("Input A must be at least a 1D tensor");
   }
 
-  // Verify that the input B is at least 1D tensor
+  // Verify that the input B is at least 1D tensor.
   if (inputBType.getRank() < 1) {
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
-  // purpose of the matrix multiply. After the matrix multiply, the prepended
-  // dimension is removed.
+  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
+  // the purpose of the matrix multiplication. After the matrix multiplication,
+  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
+  // transposed.
   if (inputAType.getRank() == 1) {
     inputAShape.insert(inputAShape.begin(), 1);
+  } else if (getTransposeA()) {
+    std::swap(inputAShape[inputAShape.size() - 1],
+              inputAShape[inputAShape.size() - 2]);
   }
 
-  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
-  // the purpose of the matrix-vector product and removed after.
+  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
+  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
+  // check if the RHS needs to be transposed.
   if (inputBType.getRank() == 1) {
     inputBShape.push_back(1);
+  } else if (getTransposeB()) {
+    std::swap(inputBShape[inputBShape.size() - 1],
+              inputBShape[inputBShape.size() - 2]);
   }
 
-  // Verify that the input A and input B has matching inner dimensions
+  // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
       inputBShape[inputBShape.size() - 2]) {
-    return emitOpError(
-        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
-        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
-        ") must have matching inner dimensions");
+    return emitOpError("Input A[-1](")
+           << inputAShape[inputAShape.size() - 1] << ") and B[-2]("
+           << inputBShape[inputBShape.size() - 2]
+           << ") must have matching inner dimensions";
   }
 
   llvm::SmallVector<int64_t> expectedOutputShape;
   // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape
+  // expected output shape. If either of input A or input B is at most 2D
+  // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
-    llvm::SmallVector<int64_t> inputABatchDims, inputBBatchDims;
-
-    if (inputAShape.size() > 2) {
-      inputABatchDims.insert(inputABatchDims.begin(), inputAShape.begin(),
-                             inputAShape.end() - 2);
-    }
-
-    if (inputBShape.size() > 2) {
-      inputBBatchDims.insert(inputBBatchDims.begin(), inputBShape.begin(),
-                             inputBShape.end() - 2);
-    }
+    llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
+                                               inputAShape.end() - 2);
+    llvm::SmallVector<int64_t> inputBBatchDims(inputBShape.begin(),
+                                               inputBShape.end() - 2);
 
     // Verify that the batch dimensions of input A and B are broadcast
-    // compatible
+    // compatible.
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     if (!mlir::OpTrait::util::getBroadcastedShape(
             inputABatchDims, inputBBatchDims, broadcastedShape)) {
@@ -1575,10 +1628,8 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
                          ") are not broadcast compatible");
     }
 
-    // Insert the broadcasted batch dimensions in the expected output shape
-    expectedOutputShape.insert(expectedOutputShape.begin(),
-                               broadcastedShape.begin(),
-                               broadcastedShape.end());
+    // Insert the broadcasted batch dimensions in the expected output shape.
+    expectedOutputShape = std::move(broadcastedShape);
   }
 
   // Insert the input A and B inner dimensions in expected output shape
@@ -1604,32 +1655,65 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
       return emitOpError("Scalar output must be a 1D tensor of size 1");
     }
 
-    return llvm::success();
+    return success();
   }
 
-  // Verify that the output shape is correct
+  // Verify that the output shape is correct.
   if (outputShape.size() != expectedOutputShape.size()) {
-    return emitOpError("Output shape rank(" +
-                       std::to_string(outputShape.size()) +
-                       ") must match the expected output shape rank(" +
-                       std::to_string(expectedOutputShape.size()) + ")");
+    return emitOpError("Output shape rank(")
+           << outputShape.size()
+           << ") must match the expected output shape rank("
+           << expectedOutputShape.size() << ")";
   }
 
-  // Verify each dim of the output shape
-  for (size_t i = 0; i < outputShape.size(); i++) {
-    if (outputShape[i] != expectedOutputShape[i]) {
-      return emitOpError(
-          "Output shape dimension[" + std::to_string(i) + "](" +
-          std::to_string(outputShape[i]) +
-          ") doesn't match the expected output shape dimension[" +
-          std::to_string(i) + "](" + std::to_string(expectedOutputShape[i]) +
-          ")");
+  // Verify each dim of the output shape.
+  for (auto [index, outputDim, expectedDim] : llvm::zip(
+           llvm::seq(outputShape.size()), outputShape, expectedOutputShape)) {
+    if (outputDim != expectedDim) {
+      return emitOpError("Output shape dimension[")
+             << index << "](" << outputDim
+             << ") doesn't match the expected output shape dimension[" << index
+             << "](" << expectedDim << ")";
     }
   }
 
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
+
+// MatmulOp canonicalization
+void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // matmul(transpose(a), b, transpose_a, transpose_b) ->
+  //   matmul(a, b, !transpose_a, transpose_b)
+  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
+    auto inputACanonical = getTransposeOpOperand(op.getA());
+    if (!inputACanonical) {
+      return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
+        op, op.getType(), *inputACanonical, op.getB(), op.getOutput(),
+        !op.getTransposeA(), op.getTransposeB());
+
+    return mlir::success();
+  });
+
+  // matmul(a, transpose(b), transpose_a, transpose_b) ->
+  //   matmul(a, b, transpose_a, !transpose_b)
+  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
+    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    if (!inputBCanonical) {
+      return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
+        op, op.getType(), op.getA(), *inputBCanonical, op.getOutput(),
+        op.getTransposeA(), !op.getTransposeB());
+
+    return mlir::success();
+  });
+}
 
 //===----------------------------------------------------------------------===//
 // UpsampleOp
@@ -1703,7 +1787,7 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 
 // AllocOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
+  auto layout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");

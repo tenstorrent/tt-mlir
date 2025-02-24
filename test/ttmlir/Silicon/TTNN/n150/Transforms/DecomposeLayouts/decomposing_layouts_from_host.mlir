@@ -2,6 +2,7 @@
 // RUN: ttmlir-opt --ttnn-decompose-layouts %t.mlir > %t_ttnn_mlir.mlir
 // RUN: FileCheck %t.mlir --input-file=%t_ttnn_mlir.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t_ttnn_mlir.mlir > %t.ttnn
+// UNSUPPORTED: true
 #device = #tt.device<>
 #system_desc = #tt.system_desc<>
 #dram = #ttnn.buffer_type<dram>

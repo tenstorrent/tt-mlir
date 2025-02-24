@@ -788,7 +788,7 @@ public:
 
     ttnn::MemoryConfigAttr memcfg = nullptr;
     if (ttnn::TTNNLayoutAttr layoutAttr =
-            mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+            mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
                 op.getResult().getType().getEncoding());
         layoutAttr.getBufferType() != ttnn::BufferType::SystemMemory) {
       memcfg = ttnn::MemoryConfigAttr::get(
@@ -930,7 +930,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getBias(), adaptor.getOutput());
+        adaptor.getB(), adaptor.getBias(), adaptor.getOutput(),
+        adaptor.getTransposeA(), adaptor.getTransposeB());
     return success();
   }
 };
@@ -947,7 +948,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getOutput());
+        adaptor.getB(), adaptor.getOutput(), adaptor.getTransposeA(),
+        adaptor.getTransposeB());
     return success();
   }
 };

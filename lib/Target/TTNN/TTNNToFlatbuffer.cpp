@@ -632,29 +632,31 @@ createOp(FlatbufferObjectCache &cache, OnesOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
 createOp(FlatbufferObjectCache &cache, LinearOp op) {
-  auto in0 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getA()));
-  auto in1 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getB()));
-  auto bias = op.getODSOperands(2).empty()
-                  ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
-                  : cache.at<::tt::target::ttnn::TensorRef>(
-                        getOperandThroughDPSOps(op.getBias()));
+  auto bias = op.getBias()
+                  ? cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()))
+                  : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
   auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
-  return ::tt::target::ttnn::CreateLinearOp(*cache.fbb, in0, in1, bias, output);
+      getOperandThroughDPSOps(op.getOutput()));
+  return ::tt::target::ttnn::CreateLinearOp(
+      *cache.fbb, a, b, bias, output, op.getTransposeA(), op.getTransposeB());
 }
 
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
 ::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
 createOp(FlatbufferObjectCache &cache, MatmulOp op) {
-  auto in0 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getA()));
-  auto in1 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getB()));
   auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
-  return ::tt::target::ttnn::CreateMatmulOp(*cache.fbb, in0, in1, output);
+      getOperandThroughDPSOps(op.getOutput()));
+  return ::tt::target::ttnn::CreateMatmulOp(
+      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
@@ -1717,7 +1719,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // DeviceModule for most conversions.
   ModuleOp module = rootModule;
   if (auto deviceModule = findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
-    module = dyn_cast_or_null<mlir::ModuleOp>(
+    module = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
     assert(module && "Found tt::DeviceModuleOp but it didn't contain a single "
                      "mlir::ModuleOp!");
@@ -1747,7 +1749,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
   if (auto cpuModule = findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
-    mlir::ModuleOp cpuNestedModule = dyn_cast_or_null<mlir::ModuleOp>(
+    mlir::ModuleOp cpuNestedModule = dyn_cast_if_present<mlir::ModuleOp>(
         cpuModule.getBodyRegion().front().front());
     llvm::SmallVector<char, 2048> binaryBuffer;
     llvm::raw_svector_ostream dylibStream(binaryBuffer);

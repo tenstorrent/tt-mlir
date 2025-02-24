@@ -286,7 +286,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
         signalPassFailure();
         return;
       }
@@ -300,8 +300,7 @@ public:
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
+      if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
         signalPassFailure();
         return;
       }
@@ -425,7 +424,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRSplitCompoundLayoutRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
       return;
     }

@@ -94,7 +94,7 @@ public:
     patterns.add<TTIRImplicitBroadcastFoldRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
 
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
       return;
     }

@@ -293,17 +293,21 @@ table SliceOp {
 }
 
 table LinearOp {
-  in0: tt.target.ttnn.TensorRef;
-  in1: tt.target.ttnn.TensorRef;
+  a: tt.target.ttnn.TensorRef;
+  b: tt.target.ttnn.TensorRef;
   bias: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
+  transpose_a: bool;
+  transpose_b: bool;
 }
 
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
-  in0: tt.target.ttnn.TensorRef;
-  in1: tt.target.ttnn.TensorRef;
+  a: tt.target.ttnn.TensorRef;
+  b: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
+  transpose_a: bool;
+  transpose_b: bool;
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 

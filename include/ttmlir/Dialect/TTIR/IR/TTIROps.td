@@ -1656,7 +1656,9 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1666,7 +1668,7 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizeMethod = 1;
+    let hasCanonicalizer = 1;
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
@@ -1678,7 +1680,9 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1687,6 +1691,8 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
