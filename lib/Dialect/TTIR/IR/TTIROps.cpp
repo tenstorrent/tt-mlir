@@ -1511,8 +1511,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
         inputLayout.getElementType() != outputLayout.getElementType();
     components.isMemorySpaceChange =
         inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-    components.isMemoryLayoutChange =
-        inputLayout.getMemLayout() != outputLayout.getMemLayout();
   } else {
     auto inputMemref = mlir::cast<mlir::MemRefType>(getInput().getType());
     auto outputMemref = mlir::cast<mlir::MemRefType>(getOutput().getType());
@@ -1523,7 +1521,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
         inputMemref.getElementType() != outputMemref.getElementType();
     components.isMemorySpaceChange =
         inputMemref.getMemorySpace() != outputMemref.getMemorySpace();
-    components.isMemoryLayoutChange = false;
   }
   return components;
 }
