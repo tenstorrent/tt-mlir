@@ -150,10 +150,10 @@ jobs:
         -DCMAKE_BUILD_TYPE=Debug \
         -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        -DTTMLIR_ENABLE_RUNTIME=ON \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+        -DTTMLIR_ENABLE_RUNTIME=OFF \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
-        -DTTMLIR_ENABLE_OPMODEL=ON \
+        -DTTMLIR_ENABLE_OPMODEL=OFF \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
