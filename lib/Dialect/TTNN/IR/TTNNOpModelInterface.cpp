@@ -184,6 +184,44 @@ MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ReshapeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
+   
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  auto check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  return op_model::ttnn::ReshapeOpInterface::getOpConstraints(
+      inputShape, inputs[0], outputShape, output);
+}
+
+llvm::Expected<size_t>
+ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
+ const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::ReshapeOpInterface::getOpRuntime(
+      inputShape, inputs[0], outputShape, output);
+}
+
+//===----------------------------------------------------------------------===//
 // MatmulOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
