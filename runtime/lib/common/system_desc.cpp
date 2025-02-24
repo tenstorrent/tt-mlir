@@ -195,7 +195,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         ::tt::target::DataType::BFP_BFloat8, ::tt::target::DataType::BFP_Float4,
         ::tt::target::DataType::BFP_BFloat4, ::tt::target::DataType::BFP_Float2,
         ::tt::target::DataType::BFP_BFloat2, ::tt::target::DataType::UInt32,
-        ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8};
+        ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8,
+        ::tt::target::DataType::Int32};
 
     auto supportedDataTypes = fbb.CreateVector(supportedDataTypesVector);
 

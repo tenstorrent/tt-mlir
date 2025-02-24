@@ -263,6 +263,10 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
         supported_data_types_attr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::UInt8));
         break;
+      case ::tt::target::DataType::Int32:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::Int32));
+        break;
       }
     }
 
@@ -1159,6 +1163,7 @@ uint64_t TileType::getSizeBytes() const {
     assert(getHeight() == 32 && getWidth() == 32);
     return 256;
   case DataType::UInt32:
+  case DataType::Int32:
     return getHeight() * getWidth() * 4;
   case DataType::UInt16:
     return getHeight() * getWidth() * 2;

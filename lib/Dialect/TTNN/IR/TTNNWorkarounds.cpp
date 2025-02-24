@@ -199,12 +199,25 @@ TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(
 // ttnn::FullOp does not support 1D tilized tensors
 // If the output of full is a 1D tensor and is tiled
 // we need to convert it to row major layout then tilize separately
+// ttnn::full does not support output dtype int32. If the output data type of
+// full is int32, we override to uint32 and typecast separately.
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround;
-  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(
+    RankedTensorType outputType) {
+  wa::TTNNOperandWorkarounds fullOpOutputWorkarounds;
+  ttnn::TTNNLayoutAttr layoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
+  if (outputType.getRank() == 1 && layoutAttr.isTiled()) {
+    fullOpOutputWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+  }
+  mlir::tt::DataType dataType =
+      elementTypeToDataType(outputType.getElementType());
+  if (dataType == mlir::tt::DataType::Int32) {
+    fullOpOutputWorkarounds.tensorDataTypeWorkaround =
+        mlir::tt::DataType::UInt32;
+  }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+      .addOutputOperandWorkaround(fullOpOutputWorkarounds);
 }
 
 // Factory method to create a set of workarounds for mesh shard op input
@@ -356,5 +369,22 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       .addInputOperandWorkaround(typeWorkaround)
       .addInputOperandWorkaround(typeWorkaround)
       .addOutputOperandWorkaround(typeWorkaround);
+}
+
+// Factory method to create a set of workarounds for reshape operation operands.
+// Reshape op only does not work with int32 - force to uint32 then typecast
+// separately.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
+    RankedTensorType inputType) {
+  mlir::Type inputElementType = inputType.getElementType();
+  TTNNOperandWorkarounds typeWorkarounds;
+  mlir::tt::DataType dataType = elementTypeToDataType(inputElementType);
+  if (dataType == mlir::tt::DataType::Int32) {
+    typeWorkarounds.tensorDataTypeWorkaround = mlir::tt::DataType::UInt32;
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkarounds)
+      .addOutputOperandWorkaround(typeWorkarounds);
 }
 } // namespace mlir::tt::ttnn::wa

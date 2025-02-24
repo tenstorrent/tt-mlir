@@ -67,6 +67,8 @@ static StorageType createStorage(void *ptr, std::uint32_t numElements,
                                       numElements);
   case ::tt::target::DataType::UInt8:
     return createStorage<StorageType>(static_cast<uint8_t *>(ptr), numElements);
+  case ::tt::target::DataType::Int32:
+    return createStorage<StorageType>(static_cast<int32_t *>(ptr), numElements);
   default:
     LOG_FATAL("Unsupported data type");
   }

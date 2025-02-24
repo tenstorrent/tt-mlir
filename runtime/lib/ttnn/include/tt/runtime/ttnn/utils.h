@@ -78,6 +78,11 @@ struct NativeDType<::tt::target::DataType::UInt8> {
   using type = uint8_t;
 };
 
+template <>
+struct NativeDType<::tt::target::DataType::Int32> {
+  using type = int32_t;
+};
+
 template <::tt::target::DataType DataType>
 using NativeDTypeT = typename NativeDType<DataType>::type;
 
