@@ -834,9 +834,9 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getResult().getType();
   auto inputLayout =
-      mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputTy.getEncoding());
+      mlir::dyn_cast_if_present<TTNNLayoutAttr>(inputTy.getEncoding());
   auto outputLayout =
-      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputTy.getEncoding());
+      mlir::dyn_cast_if_present<TTNNLayoutAttr>(outputTy.getEncoding());
   if (not inputLayout) {
     return emitOpError("Input tensor type missing layout attribute");
   }
@@ -1226,7 +1226,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 // AllocOp verification
 ::mlir::LogicalResult AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+  auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");

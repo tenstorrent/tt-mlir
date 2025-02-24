@@ -1788,7 +1788,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 
 // AllocOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
+  auto layout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");

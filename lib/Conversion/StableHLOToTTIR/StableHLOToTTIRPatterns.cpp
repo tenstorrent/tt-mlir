@@ -2192,7 +2192,7 @@ private:
             valueDef)) {
       valueDef = valueDef->getOperand(0).getDefiningOp();
     }
-    return mlir::dyn_cast_or_null<ttir::ConstantOp>(valueDef);
+    return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
   }
 
   LogicalResult checkBasicLegality(mlir::stablehlo::PadOp &srcOp,

@@ -77,7 +77,7 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
 
   mlir::AsmState printState(entry, printFlags);
   entry.getBody().walk([&](mlir::Operation *op) {
-    if (auto returnOp = dyn_cast_or_null<func::ReturnOp>(op); returnOp) {
+    if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op); returnOp) {
       for (auto output : returnOp.getOperands()) {
         program.outputs.push_back(cache.at<::tt::target::ttnn::TensorRef>(
             getOperandThroughDPSOps(output)));
