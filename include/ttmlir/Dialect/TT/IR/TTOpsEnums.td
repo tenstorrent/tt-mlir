@@ -72,26 +72,6 @@ def TT_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_TensorMemoryLayoutNone : I32EnumAttrCase<"None", 0, "none">;
-def TT_TensorMemoryLayoutInterleaved : I32EnumAttrCase<"Interleaved", 1, "interleaved">;
-def TT_TensorMemoryLayoutSingleBank : I32EnumAttrCase<"SingleBank", 2, "single_bank">;
-def TT_TensorMemoryLayoutHeightSharded : I32EnumAttrCase<"HeightSharded", 3, "height_sharded">;
-def TT_TensorMemoryLayoutWidthSharded : I32EnumAttrCase<"WidthSharded", 4, "width_sharded">;
-def TT_TensorMemoryLayoutBlockSharded : I32EnumAttrCase<"BlockSharded", 5, "block_sharded">;
-
-def TT_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TT TensorMemoryLayout",
-                           [
-                            TT_TensorMemoryLayoutNone,
-                            TT_TensorMemoryLayoutInterleaved,
-                            TT_TensorMemoryLayoutSingleBank,
-                            TT_TensorMemoryLayoutHeightSharded,
-                            TT_TensorMemoryLayoutWidthSharded,
-                            TT_TensorMemoryLayoutBlockSharded,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
-}
-
 def TT_Parallel : I32EnumAttrCase<"Parallel", 0, "parallel">;
 def TT_Systolic : I32EnumAttrCase<"Systolic", 1, "systolic">;
 def TT_Broadcast : I32EnumAttrCase<"Broadcast", 2, "broadcast">;

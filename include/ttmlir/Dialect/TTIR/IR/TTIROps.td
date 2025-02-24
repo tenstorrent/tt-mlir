@@ -146,7 +146,6 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
         bool isGridChange;
         bool isFormatChange;
         bool isMemorySpaceChange;
-        bool isMemoryLayoutChange;
       };
 
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.

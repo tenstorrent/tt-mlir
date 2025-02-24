@@ -50,25 +50,6 @@ static OpType findOpAtTopLevel(mlir::ModuleOp module) {
 
 ::tt::target::ttnn::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &,
-             ::mlir::tt::TensorMemoryLayout memLayout) {
-  switch (memLayout) {
-  case TensorMemoryLayout::Interleaved:
-    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
-  case TensorMemoryLayout::SingleBank:
-    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
-  case TensorMemoryLayout::HeightSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
-  case TensorMemoryLayout::WidthSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
-  case TensorMemoryLayout::BlockSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
-  default:
-    llvm_unreachable("unhandled TensorMemoryLayout");
-  }
-}
-
-::tt::target::ttnn::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &,
              ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
   switch (memLayoutAttr.getValue()) {
   case ttnn::TensorMemoryLayout::SingleBank:

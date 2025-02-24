@@ -364,12 +364,6 @@ def parse_tt_layout(attr):
     )
     result.append(
         graph_builder.KeyValue(
-            key="memory_layout",
-            value=str(tt.TensorMemoryLayout(layout.memory_layout_as_int)),
-        )
-    )
-    result.append(
-        graph_builder.KeyValue(
             key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
         )
     )
