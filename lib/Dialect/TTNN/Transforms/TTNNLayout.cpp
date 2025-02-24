@@ -60,11 +60,9 @@ static TensorMemoryLayoutAttr getMemoryLayoutAttr(MLIRContext *ctx,
 
 static TTNNLayoutAttr
 createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
-                 std::optional<BufferType> bufferTypeOpt = std::nullopt,
-                 std::optional<bool> isTiledOpt = std::nullopt) {
+                 BufferType bufferType = g_defaultMemorySpaceDevice,
+                 bool isTiled = true) {
 
-  BufferType bufferType = bufferTypeOpt.value_or(g_defaultMemorySpaceDevice);
-  bool isTiled = isTiledOpt.value_or(true);
   std::int64_t deviceGridRank = deviceGrid.getShape().size();
   // Default to single core grid
   GridAttr tensorGrid = GridAttr::get(ctx, deviceGridRank);
