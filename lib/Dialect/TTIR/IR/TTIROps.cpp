@@ -11,6 +11,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -2677,10 +2678,10 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
-  if (getInputs().size() + getOutputs().size() !=
-      getRegion().getNumArguments()) {
-    return emitOpError("The number of input and output operands and "
-                       "region/block arguments must match");
+  if (getInputs().size() + getOutputs().size() >
+      getRegion(0).getNumArguments()) {
+    return emitOpError("The number of input and output operands must be less "
+                       "than the number of region/block arguments");
   }
 
   // Validate CB mappings.
@@ -2701,21 +2702,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 void mlir::tt::ttir::GenericOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  for (OpOperand &operand : getInputsMutable()) {
-    if (llvm::isa<MemRefType>(operand.get().getType())) {
-      effects.emplace_back(MemoryEffects::Read::get(), &operand, 0 /*stage*/,
-                           true /*effectOnFullRegion*/,
-                           SideEffects::DefaultResource::get());
-    }
-  }
-
-  for (OpOperand &operand : getOutputsMutable()) {
-    if (llvm::isa<MemRefType>(operand.get().getType())) {
-      effects.emplace_back(MemoryEffects::Write::get(), &operand, 0 /*stage*/,
-                           true /*effectOnFullRegion*/,
-                           SideEffects::DefaultResource::get());
-    }
-  }
+  return getDpsEffects(*this, effects);
 }
 
 bool mlir::tt::ttir::GenericOp::bufferizesToMemoryRead(
@@ -2765,9 +2752,12 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
     bufferOutputs.push_back(*maybeValue);
   }
   auto bufferGeneric = rewriter.create<mlir::tt::ttir::GenericOp>(
-      getLoc(), TypeRange(), bufferInputs, ValueRange(), bufferOutputs,
-      getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping());
-  bufferGeneric.getRegion().takeBody(getRegion());
+      getLoc(), ValueRange(), bufferInputs, ValueRange(), bufferOutputs,
+      getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping(),
+      getNumRegions());
+  for (mlir::Region &region : bufferGeneric.getRegions()) {
+    region.takeBody(getRegion(region.getRegionNumber()));
+  }
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      bufferOutputs);
   return success();
@@ -3049,4 +3039,43 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// YieldOp / AwaitOp
+//===----------------------------------------------------------------------===//
+
+static bool valueInBlockArguments(mlir::Value value, mlir::Block *block) {
+  return llvm::any_of(block->getArguments(),
+                      [&](const mlir::BlockArgument &blockArgument) {
+                        return blockArgument == value;
+                      });
+}
+
+static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
+  while (auto memrefCastOp =
+             value.getDefiningOp<::mlir::memref::CollapseShapeOp>()) {
+    value = memrefCastOp.getOperand();
+  }
+  return value;
+}
+
+static ::mlir::LogicalResult operandsInBlockArguments(mlir::Operation *op,
+                                                      mlir::Block *block) {
+  for (mlir::OpOperand &operand : op->getOpOperands()) {
+    mlir::Value value = recurseThroughMemrefCollapse(operand.get());
+    if (!valueInBlockArguments(value, block)) {
+      return op->emitOpError() << "operand[" << operand.getOperandNumber()
+                               << "] not in block arguments";
+    }
+  }
+  return ::mlir::success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
+  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
+}
+
+::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
+  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
 }

@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
@@ -26,5 +27,30 @@
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h.inc"
+
+namespace mlir::tt::ttir {
+
+inline void getDpsEffects(
+    DestinationStyleOpInterface op,
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  for (OpOperand *operand : op.getDpsInputOperands()) {
+    if (llvm::isa<MemRefType>(operand->get().getType())) {
+      effects.emplace_back(MemoryEffects::Read::get(), operand, 0 /*stage*/,
+                           true /*effectOnFullRegion*/,
+                           SideEffects::DefaultResource::get());
+    }
+  }
+
+  for (OpOperand &operand : op.getDpsInitsMutable()) {
+    if (llvm::isa<MemRefType>(operand.get().getType())) {
+      effects.emplace_back(MemoryEffects::Write::get(), &operand, 0 /*stage*/,
+                           true /*effectOnFullRegion*/,
+                           SideEffects::DefaultResource::get());
+    }
+  }
+}
+
+} // namespace mlir::tt::ttir
 
 #endif // TTMLIR_DIALECT_TTIR_IR_TTIROPS_H

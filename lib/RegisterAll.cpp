@@ -41,11 +41,11 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
       mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
       mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
-      mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-      mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-      mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
-      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect>();
+      mlir::memref::MemRefDialect, mlir::tensor::TensorDialect,
+      mlir::linalg::LinalgDialect, mlir::scf::SCFDialect,
+      mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
+      mlir::vector::VectorDialect, mlir::emitc::EmitCDialect,
+      mlir::bufferization::BufferizationDialect, mlir::LLVM::LLVMDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);

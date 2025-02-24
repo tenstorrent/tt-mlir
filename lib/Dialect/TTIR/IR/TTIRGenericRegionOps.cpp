@@ -56,3 +56,42 @@
 
   return success();
 }
+
+void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  return mlir::tt::ttir::getDpsEffects(*this, effects);
+}
+
+//===----------------------------------------------------------------------===//
+// DMAOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::DMAOp::verify() {
+  MemRefType srcType = getSrc().getType();
+  MemRefType dstType = getDst().getType();
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError(
+        "MemRef operands to DMA must have the same element type");
+  }
+
+  auto minRank = std::min(srcType.getRank(), dstType.getRank());
+  if (!std::equal(srcType.getShape().end() - minRank, srcType.getShape().end(),
+                  dstType.getShape().end() - minRank)) {
+    return emitOpError("MemRef operands to DMA must have the same shape");
+  }
+
+  return success();
+}
+
+void mlir::tt::ttir::DMAOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getSrcMutable(),
+                       0 /*stage*/, true /*effectOnFullRegion*/,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(),
+                       0 /*stage*/, true /*effectOnFullRegion*/,
+                       mlir::SideEffects::DefaultResource::get());
+}
