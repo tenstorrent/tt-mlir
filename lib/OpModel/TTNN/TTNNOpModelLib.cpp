@@ -172,6 +172,7 @@ auto convertToTensorSpec(::tt::tt_metal::v0::IDevice *device, Args... args) {
   };
   return std::make_tuple(transformArg(std::forward<Args>(args))...);
 }
+
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -418,13 +419,14 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
 MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                                  std::optional<mlir::ArrayAttr> dimArg,
+                                  std::optional<llvm::ArrayRef<int64_t>> dimArg,
                                   bool keepDim,
                                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto meanOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
                         mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                        std::optional<mlir::ArrayAttr> dimArg, bool keepDim,
+                        std::optional<llvm::ArrayRef<int64_t>> dimArg,
+                        bool keepDim,
                         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
@@ -435,8 +437,13 @@ MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
         device, std::make_tuple(inputShape, inputLayout));
     auto memConfig = conversion::getMemoryConfig(outputLayout);
 
-    auto dimArgConverted = conversion::convertReductionArg(dimArg);
-
+    std::optional<::ttnn::SmallVector<int>> dimArgConverted;
+    if (dimArg) {
+      dimArgConverted =
+          conversion::convertLLVMSmallVecToTTNNSmallVec(dimArg.value());
+    } else {
+      dimArgConverted = std::nullopt;
+    }
     // run op constraint query
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::mean, device, inputSpec, dimArgConverted, keepDim, memConfig);
@@ -453,13 +460,14 @@ MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
 llvm::Expected<size_t>
 MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                               mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                              std::optional<mlir::ArrayAttr> dimArg,
+                              std::optional<llvm::ArrayRef<int64_t>> dimArg,
                               bool keepDim,
                               mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto meanOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
                         mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                        std::optional<mlir::ArrayAttr> dimArg, bool keepDim,
+                        std::optional<llvm::ArrayRef<int64_t>> dimArg,
+                        bool keepDim,
                         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
@@ -470,7 +478,13 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
         device, std::make_tuple(inputShape, inputLayout));
     auto memConfig = conversion::getMemoryConfig(outputLayout);
 
-    auto dimArgConverted = conversion::convertReductionArg(dimArg);
+    std::optional<::ttnn::SmallVector<int>> dimArgConverted;
+    if (dimArg) {
+      dimArgConverted =
+          conversion::convertLLVMSmallVecToTTNNSmallVec(dimArg.value());
+    } else {
+      dimArgConverted = std::nullopt;
+    }
 
     // run op runtime query
     return ::ttnn::graph::query_op_runtime(::ttnn::mean, device, inputSpec,

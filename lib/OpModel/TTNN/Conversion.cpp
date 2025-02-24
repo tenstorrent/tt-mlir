@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -152,19 +153,9 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
-std::optional<::ttnn::SmallVector<int>>
-convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt) {
-  if (!arrayOpt.has_value()) {
-    return std::nullopt;
-  }
-
-  ::ttnn::SmallVector<int> reduceDims;
-
-  for (const mlir::Attribute &reduceDim : *arrayOpt) {
-    reduceDims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
-  }
-
-  return reduceDims;
+::ttnn::SmallVector<int>
+convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
+  return ::ttnn::SmallVector<int>(vec.begin(), vec.end());
 }
 
 } // namespace conversion

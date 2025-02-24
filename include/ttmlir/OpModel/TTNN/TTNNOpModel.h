@@ -90,13 +90,13 @@ namespace MeanOpInterface {
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
 getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                 std::optional<mlir::ArrayAttr> dimArg, bool keepDim,
+                 std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
 llvm::Expected<size_t>
 getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-             std::optional<mlir::ArrayAttr> dimArg, bool keepDim,
+             std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
 }; // namespace MeanOpInterface
