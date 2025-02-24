@@ -124,7 +124,7 @@ class TTAdapter(model_explorer.Adapter):
                     module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, _, _ = mlir.build_graph(module)
+            graph, _ = mlir.build_graph(module)
 
         return {"graphs": [graph]}
 

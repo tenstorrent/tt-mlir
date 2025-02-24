@@ -16,7 +16,6 @@ PORT = 8002
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Explorer/**/*.mlir",
-    # Need to remove the Transforms directory from here
     "test/ttmlir/Silicon/TTNN/n150/perf/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
@@ -45,17 +44,19 @@ if "TT_EXPLORER_GENERATED_TTNN_TEST_DIRS" in os.environ:
                 path,
             )
 
-GET_TTNN_TEST = lambda: (
-    [None]
-    + [test for test in TEST_EXECUTE_MODEL_PATHS if test.endswith("test_mnist.ttnn")]
-)[-1]
-
 
 def get_test_files(paths):
     files = []
     for path in paths:
         files.extend(glob.glob(path, recursive=True))
     return files
+
+
+def GET_TTNN_TEST():
+    for test in get_test_files(TEST_EXECUTE_MODEL_PATHS):
+        if test.endswith("test_mnist.ttnn"):
+            return test
+    return None
 
 
 @pytest.fixture(scope="function", autouse=True)
