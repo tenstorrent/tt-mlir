@@ -10,6 +10,7 @@ include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
+include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -18,6 +19,8 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
+
+def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, !listconcat([TTIROpInterface, DestinationStyleOpInterface], traits)> {
@@ -30,7 +33,17 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 // TTIR top level ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
+def TTIR_GenericOp : TTIR_DPSOp<"generic",
+  [ AttrSizedOperandSegments
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , NoTerminator
+  , MemoryEffects<[MemWrite]>
+  ]> {
     let summary = "Generically dispatch work to a grid of cores.";
     let description = [{
       This generic op carries a region that represents the work each core does. The region is
@@ -57,9 +70,9 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$cbs,
-                         Variadic<AnyRankedTensor>:$outputs,
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                         Variadic<AnyRankedTensorOrMemRef>:$cbs,
+                         Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
                          TT_IteratorTypeArrayAttr:$iterator_types,
@@ -104,7 +117,16 @@ def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
   let hasFolder = 1;
 }
 
-def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
+def TTIR_ToLayoutOp : TTIR_Op<"to_layout",
+  [ DestinationStyleOpInterface
+  , TTIROpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "Layout op.";
     let description = [{
       ToLayout operation, transition tensors from one layout to another.  Some examples include:
@@ -121,9 +143,9 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
       ```
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
-    let results = (outs AnyRankedTensor:$result);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -1937,8 +1959,6 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
 // TTIR region ops (ops that may appear inside of ttir.generic region)
 //    DEPRECATED: Generic region ops are moving to TTIRGenericRegionOps.td
 //===----------------------------------------------------------------------===//
-
-def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 
 def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
     let summary = "Kernel call.";
