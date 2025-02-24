@@ -208,7 +208,7 @@ class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
                    TTIRGenericTensorLayoutRewriter,
                    TTIRFuncOperandsTensorLayoutRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
         signalPassFailure();
         return;
       }
@@ -218,7 +218,7 @@ class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTIRMemrefLayoutRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
         signalPassFailure();
         return;
       }
