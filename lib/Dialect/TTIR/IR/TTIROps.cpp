@@ -1614,6 +1614,67 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
 }
 
 //===----------------------------------------------------------------------===//
+// ViewLayoutOp
+//===----------------------------------------------------------------------===//
+
+// ViewLayoutOp verification
+mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
+  return verifyLayoutOrViewOp(*this, getInput().getType(),
+                              getResult().getType(),
+                              false /*allowFormatChange*/);
+}
+
+bool mlir::tt::ttir::ViewLayoutOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is a bufferized to a memory read.
+  return false;
+}
+
+bool mlir::tt::ttir::ViewLayoutOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is a bufferized to a memory write.
+  return false;
+}
+
+mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  if (mlir::isa<mlir::MemRefType>(getInput().getType())) {
+    return mlir::failure();
+  }
+
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  mlir::bufferization::replaceOpWithNewBufferizedOp<
+      mlir::tt::ttir::ViewLayoutOp>(
+      rewriter, *this, *getBufferType(getResult(), options, invocationStack),
+      *maybeInput);
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::ViewLayoutOp::getAliasingValues(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::ViewLayoutOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  auto rankedTensorType =
+      mlir::cast<mlir::RankedTensorType>(value.getType());
+  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+      .getMemref();
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 
