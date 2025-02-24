@@ -95,7 +95,7 @@ private:
         llvm::SmallVector<int32_t>(outputType.getShape()));
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
-        srcOp, outputType, newReduceOp, shapeAttr);
+        srcOp, outputType, newReduceOp, shapeAttr, /* memory_config */ nullptr);
   }
 
   // Determine if the workaround is required.
