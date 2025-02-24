@@ -1538,6 +1538,22 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
   return mlir::failure();
 }
 
+void mlir::tt::ttir::ToLayoutOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  if (llvm::isa<MemRefType>(getInput().getType())) {
+    effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
+                         0 /*stage*/, true /*effectOnFullRegion*/,
+                         SideEffects::DefaultResource::get());
+  }
+
+  if (llvm::isa<MemRefType>(getOutput().getType())) {
+    effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
+                         0 /*stage*/, true /*effectOnFullRegion*/,
+                         SideEffects::DefaultResource::get());
+  }
+}
+
 bool mlir::tt::ttir::ToLayoutOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // If the operand is an input, it is a bufferized to a memory read.
@@ -2619,6 +2635,26 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+void mlir::tt::ttir::GenericOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  for (OpOperand &operand : getInputsMutable()) {
+    if (llvm::isa<MemRefType>(operand.get().getType())) {
+      effects.emplace_back(MemoryEffects::Read::get(), &operand, 0 /*stage*/,
+                           true /*effectOnFullRegion*/,
+                           SideEffects::DefaultResource::get());
+    }
+  }
+
+  for (OpOperand &operand : getOutputsMutable()) {
+    if (llvm::isa<MemRefType>(operand.get().getType())) {
+      effects.emplace_back(MemoryEffects::Write::get(), &operand, 0 /*stage*/,
+                           true /*effectOnFullRegion*/,
+                           SideEffects::DefaultResource::get());
+    }
+  }
 }
 
 bool mlir::tt::ttir::GenericOp::bufferizesToMemoryRead(
