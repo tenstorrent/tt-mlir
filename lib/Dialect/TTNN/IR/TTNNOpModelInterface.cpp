@@ -26,6 +26,22 @@ llvm::Expected<bool> checkDeviceWorkerGrid(mlir::Operation *op) {
   return op_model::ttnn::Device::getDeviceConstraints(
       deviceAttr.getWorkerGrid());
 }
+
+std::optional<llvm::SmallVector<int64_t>>
+convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt) {
+  if (!arrayOpt.has_value()) {
+    return std::nullopt;
+  }
+
+  llvm::SmallVector<int64_t> reduceDims;
+
+  for (const mlir::Attribute &reduceDim : *arrayOpt) {
+    reduceDims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
+  }
+
+  return reduceDims;
+}
+
 } // namespace detail
 
 //===----------------------------------------------------------------------===//
@@ -168,7 +184,8 @@ MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return op_model::ttnn::MeanOpInterface::getOpConstraints(
-      inputShape, inputs[0], getDimArg(), getKeepDim(), output);
+      inputShape, inputs[0], detail::convertReductionArg(getDimArg()),
+      getKeepDim(), output);
 }
 
 llvm::Expected<size_t>
@@ -180,7 +197,8 @@ MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
 
   return op_model::ttnn::MeanOpInterface::getOpRuntime(
-      inputShape, inputs[0], getDimArg(), getKeepDim(), output);
+      inputShape, inputs[0], detail::convertReductionArg(getDimArg()),
+      getKeepDim(), output);
 }
 
 //===----------------------------------------------------------------------===//

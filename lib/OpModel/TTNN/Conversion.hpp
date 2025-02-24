@@ -43,8 +43,8 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
                                  const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
-std::optional<::ttnn::SmallVector<int>>
-convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt);
+::ttnn::SmallVector<int>
+convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
 } // namespace conversion
 } // namespace mlir::tt::op_model::ttnn
