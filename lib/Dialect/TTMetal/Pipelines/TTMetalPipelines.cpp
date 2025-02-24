@@ -6,6 +6,7 @@
 
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/PassManager.h"
 
 #include "ttmlir/Conversion/Passes.h"
@@ -23,7 +24,7 @@ void createTTIRBufferizationPipeline(OpPassManager &pm)
     bufferizationOptions.bufferizeFunctionBoundaries = true;
     bufferizationOptions.functionArgTypeConverterFn =
         [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
-           mlir::FunctionOpInterface functionOp,
+           func::FuncOp funcOp,
            const bufferization::BufferizationOptions &bufferizationOptions)
         -> ::mlir::BaseMemRefType {
       auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
