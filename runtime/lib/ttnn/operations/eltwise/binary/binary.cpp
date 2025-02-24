@@ -21,18 +21,9 @@ static void runEltwiseBinaryOp(
         std::optional<::ttnn::operations::unary::FusedActivations>,
         std::optional<::ttnn::operations::unary::UnaryWithParam>)> &ttnnOp) {
 
-  ::ttnn::Tensor lhs, rhs;
-  getEltwiseBinaryOpInputTensors(op, tensorPool, lhs, rhs);
-
-  // TODO (#2272): Support for int32 is added in #2272
-  // However to_layout ops are not cannonicalized properly, blocking #2272
-  // This is a hack to unblock metal uplifts for now until #2272 is merged
-  if (lhs.get_dtype() == ::ttnn::DataType::UINT32) {
-    lhs = ::ttnn::typecast(lhs, ::ttnn::DataType::INT32);
-  }
-  if (rhs.get_dtype() == ::ttnn::DataType::UINT32) {
-    rhs = ::ttnn::typecast(rhs, ::ttnn::DataType::INT32);
-  }
+  ::ttnn::Tensor *lhs = nullptr;
+  ::ttnn::Tensor *rhs = nullptr;
+  getEltwiseBinaryOpInputTensors(op, tensorPool, &lhs, &rhs);
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
 
@@ -43,7 +34,7 @@ static void runEltwiseBinaryOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(lhs, rhs, outputDataType, outputMemoryConfig,
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, std::nullopt, std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
