@@ -24,7 +24,7 @@ static const std::array<std::pair<int64_t, int64_t>, 1> g_defaultCollapseDims =
 static const llvm::SmallDenseMap<BufferType, std::optional<TensorMemoryLayout>,
                                  4>
     g_bufferLayoutMap = {
-        {BufferType::DRAM, std::make_optional(TensorMemoryLayout::Interleaved)},
+        {BufferType::DRAM, TensorMemoryLayout::Interleaved},
         {BufferType::L1, TensorMemoryLayout::Interleaved},
         {BufferType::SystemMemory, std::nullopt},
 };

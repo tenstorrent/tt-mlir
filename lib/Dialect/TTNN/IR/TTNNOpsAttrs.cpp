@@ -76,19 +76,18 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
     BufferType bufferType, TensorMemoryLayoutAttr memLayoutAttr) {
   if (memLayoutAttr) {
     if (bufferType == BufferType::SystemMemory) {
-      emitError()
-          << "Memory layout is not allowed for SystemMemory buffer type.";
-      return ::llvm::failure();
+      return emitError()
+             << "Memory layout is not allowed for SystemMemory buffer type.";
     }
 
     if (bufferType == BufferType::DRAM &&
         memLayoutAttr.getValue() != TensorMemoryLayout::Interleaved) {
-      emitError() << "DRAM buffer type must have Interleaved memory layout.";
-      return ::llvm::failure();
+      return emitError()
+             << "DRAM buffer type must have Interleaved memory layout.";
     }
   } else if (bufferType != BufferType::SystemMemory) {
-    emitError()
-        << "Memory layout is required for non-SystemMemory buffer type.";
+    return emitError()
+           << "Memory layout is required for non-SystemMemory buffer type.";
   }
 
   return ::llvm::success();
@@ -468,17 +467,26 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
   TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
   tt::GridAttr grid = getGrid();
 
-  // For SystemMemory we need to clear memory layout and set grid to 1x1
+  // For SystemMemory we need to clear memory layout and set grid to 1x1.
   if (memorySpace == BufferType::SystemMemory) {
     memLayoutAttr = TensorMemoryLayoutAttr{};
     grid = tt::GridAttr::get(context, grid.getShape().size());
   }
 
-  // For DRAM we need to set memory layout to interleaved and set grid to 1x1
+  // For DRAM we need to set memory layout to interleaved and set grid to 1x1.
   if (memorySpace == BufferType::DRAM) {
     memLayoutAttr =
         TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::Interleaved);
     grid = tt::GridAttr::get(context, grid.getShape().size());
+  }
+
+  // For L1 we will inherit the memory layout if its set.
+  // Otherwise we will set it to interleaved.
+  if (memorySpace == BufferType::L1) {
+    memLayoutAttr = getMemLayout()
+                        ? getMemLayout()
+                        : TensorMemoryLayoutAttr::get(
+                              context, TensorMemoryLayout::Interleaved);
   }
 
   return TTNNLayoutAttr::get(
@@ -598,9 +606,8 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
 }
 
 ::llvm::LogicalResult TTNNLayoutAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    AffineMap linear, GridAttr grid, MemRefType memref,
-    TensorMemoryLayoutAttr memLayout) {
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
+    GridAttr, MemRefType memref, TensorMemoryLayoutAttr memLayout) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
   return verifyBufferAndMemoryLayout(emitError, bufferType, memLayout);
