@@ -22,14 +22,14 @@ void populateTTModule(py::module &m) {
                      uint32_t memorySpaceValue, MlirAttribute grid,
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals,
-                     uint32_t oobValValue, uint32_t memLayoutValue) {
+                     uint32_t oobValValue) {
                     return wrap(tt::MetalLayoutAttr::get(
                         unwrap(ctx),
                         mlir::cast<RankedTensorType>(unwrap(rankedTensorType)),
                         static_cast<tt::MemorySpace>(memorySpaceValue),
                         mlir::cast<tt::GridAttr>(unwrap(grid)),
-                        collapseIntervals, static_cast<tt::OOBVal>(oobValValue),
-                        static_cast<tt::TensorMemoryLayout>(memLayoutValue)));
+                        collapseIntervals,
+                        static_cast<tt::OOBVal>(oobValValue)));
                   })
       .def_static("with_grid",
                   [](MlirContext ctx, MlirAttribute self,
@@ -106,15 +106,9 @@ void populateTTModule(py::module &m) {
                                    la.getMemorySpace());
                              })
       .def_property_readonly("shard_shape", &tt::MetalLayoutAttr::getShardShape)
-      .def_property_readonly("memory_layout",
-                             &tt::MetalLayoutAttr::getMemLayout)
-      .def_property_readonly(
-          "linear",
-          [](tt::MetalLayoutAttr self) { return wrap(self.getLinear()); })
-      .def_property_readonly("memory_layout_as_int",
-                             [](tt::MetalLayoutAttr la) {
-                               return static_cast<uint32_t>(la.getMemLayout());
-                             });
+      .def_property_readonly("linear", [](tt::MetalLayoutAttr self) {
+        return wrap(self.getLinear());
+      });
 
   tt_attribute_class<tt::GridAttr>(m, "GridAttr")
       .def_static("get",
@@ -372,18 +366,6 @@ void populateTTModule(py::module &m) {
       .def_property_readonly("oob_val_as_int", [](tt::OOBValAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
-
-  tt_attribute_class<tt::TensorMemoryLayoutAttr>(m, "TensorMemoryLayoutAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, uint32_t memLayout) {
-            return wrap(tt::TensorMemoryLayoutAttr::get(
-                unwrap(ctx), static_cast<tt::TensorMemoryLayout>(memLayout)));
-          })
-      .def_property_readonly("mem_layout_as_int",
-                             [](tt::TensorMemoryLayoutAttr self) {
-                               return static_cast<uint32_t>(self.getValue());
-                             });
 
   tt_attribute_class<tt::IteratorTypeAttr>(m, "IteratorTypeAttr")
       .def_static(
