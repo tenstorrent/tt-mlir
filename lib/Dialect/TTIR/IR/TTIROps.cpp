@@ -1437,9 +1437,9 @@ verifyLayoutOrViewOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return op->emitOpError("Input and output types must be the same");
     }
 
-    ::mlir::RankedTensorType inputTy =
+    mlir::RankedTensorType inputTy =
         mlir::cast<mlir::RankedTensorType>(inputTensorOrMemrefTy);
-    ::mlir::RankedTensorType outputTy =
+    mlir::RankedTensorType outputTy =
         mlir::cast<mlir::RankedTensorType>(outputTensorOrMemrefTy);
     if (inputTy.getShape() != outputTy.getShape()) {
       return op->emitOpError("Input and output shapes must be the same");
@@ -1542,61 +1542,60 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
 }
 
 bool mlir::tt::ttir::ToLayoutOp::bufferizesToMemoryRead(
-    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // If the operand is an input, it is a bufferized to a memory read.
   return operand.getOperandNumber() == 0;
 }
 
 bool mlir::tt::ttir::ToLayoutOp::bufferizesToMemoryWrite(
-    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // If the operand is an output, it is a bufferized to a memory write.
   return operand.getOperandNumber() == 1;
 }
 
-::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
-    ::mlir::RewriterBase &rewriter,
-    const ::mlir::bufferization::BufferizationOptions &options) {
+mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
   if (getNumResults() == 0) {
-    return ::mlir::failure();
+    return failure();
   }
 
   assert(getNumResults() == 1 && "ToLayoutOp should have exactly one result");
 
   if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
-    return ::mlir::failure();
+    return failure();
   }
 
   auto maybeInput =
-      ::mlir::bufferization::getBuffer(rewriter, getInput(), options);
+      mlir::bufferization::getBuffer(rewriter, getInput(), options);
   if (failed(maybeInput)) {
     return maybeInput;
   }
 
   auto maybeOutput =
-      ::mlir::bufferization::getBuffer(rewriter, getOutput(), options);
+      mlir::bufferization::getBuffer(rewriter, getOutput(), options);
   if (failed(maybeOutput)) {
     return maybeOutput;
   }
 
   rewriter.create<::mlir::tt::ttir::ToLayoutOp>(getLoc(), ValueRange(),
                                                 *maybeInput, *maybeOutput);
-  ::mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
-                                                       *maybeOutput);
-  return ::mlir::success();
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     *maybeOutput);
+  return success();
 }
 
-::mlir::bufferization::AliasingValueList
+mlir::bufferization::AliasingValueList
 mlir::tt::ttir::ToLayoutOp::getAliasingValues(
-    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   return result;
 }
 
-::mlir::FailureOr<::mlir::BaseMemRefType>
-mlir::tt::ttir::ToLayoutOp::getBufferType(
-    ::mlir::Value value, const ::mlir::bufferization::BufferizationOptions &,
-    ::llvm::SmallVector<::mlir::Value> &) {
-  auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(value.getType());
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    llvm::SmallVector<mlir::Value> &) {
+  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
   mlir::Type memrefResultType =
       mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getMemref();
@@ -2626,22 +2625,22 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 }
 
 bool mlir::tt::ttir::GenericOp::bufferizesToMemoryRead(
-    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // If the operand is an input, it is a bufferized to a memory read.
   return operand.getOperandNumber() < getInputs().size();
 }
 
 bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
-    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // If the operand is an output, it is a bufferized to a memory write.
   return operand.getOperandNumber() >= getInputs().size();
 }
 
-::mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
-    ::mlir::RewriterBase &rewriter,
-    const ::mlir::bufferization::BufferizationOptions &options) {
+mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
   if (getNumResults() == 0) {
-    return ::mlir::failure();
+    return failure();
   }
 
   assert(getNumResults() == 1 && "GenericOp should have exactly one result");
@@ -2650,10 +2649,10 @@ bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
   assert(getCbs().size() == 0 &&
          "GenericOp should not have any cb, these are deprecated");
 
-  if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
-    return ::mlir::failure();
+  if (!mlir::isa<mlir::RankedTensorType>(getResult(0).getType())) {
+    return failure();
   }
-  ::mlir::SmallVector<::mlir::Value> bufferInputs;
+  mlir::SmallVector<mlir::Value> bufferInputs;
   bufferInputs.reserve(getInputs().size());
   for (auto input : getInputs()) {
     auto maybeValue = bufferization::getBuffer(rewriter, input, options);
@@ -2662,7 +2661,7 @@ bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
     }
     bufferInputs.push_back(maybeValue.value());
   }
-  ::mlir::SmallVector<::mlir::Value> bufferOutputs;
+  mlir::SmallVector<mlir::Value> bufferOutputs;
   bufferOutputs.reserve(getOutputs().size());
   for (auto output : getOutputs()) {
     auto maybeValue = bufferization::getBuffer(rewriter, output, options);
@@ -2671,31 +2670,30 @@ bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
     }
     bufferOutputs.push_back(maybeValue.value());
   }
-  auto bufferGeneric = rewriter.create<::mlir::tt::ttir::GenericOp>(
+  auto bufferGeneric = rewriter.create<mlir::tt::ttir::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, ValueRange(), bufferOutputs,
       getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping());
   bufferGeneric.getRegion().takeBody(getRegion());
-  ::mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
-                                                       bufferOutputs);
-  return ::mlir::success();
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     bufferOutputs);
+  return success();
 }
 
-::mlir::bufferization::AliasingValueList
+mlir::bufferization::AliasingValueList
 mlir::tt::ttir::GenericOp::getAliasingValues(
-    ::mlir::OpOperand &operand, const ::mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   return result;
 }
 
-::mlir::FailureOr<::mlir::BaseMemRefType>
-mlir::tt::ttir::GenericOp::getBufferType(
-    ::mlir::Value value, const ::mlir::bufferization::BufferizationOptions &,
-    ::llvm::SmallVector<::mlir::Value> &) {
-  auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(value.getType());
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::GenericOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    llvm::SmallVector<mlir::Value> &) {
+  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
   mlir::Type memrefResultType =
       mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getMemref();
-  return mlir::cast<::mlir::BaseMemRefType>(memrefResultType);
+  return mlir::cast<mlir::BaseMemRefType>(memrefResultType);
 }
 
 // GenericOp builders
