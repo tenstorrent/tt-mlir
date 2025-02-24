@@ -136,7 +136,6 @@ public:
     llvm::SmallVector<Attribute, 5> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
     attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
 
@@ -173,8 +172,7 @@ public:
         {mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
          ttnn_to_emitc::utils::convertBoolAttr(
              rewriter, BoolAttr::get(rewriter.getContext(), false)),
-         ttnn_to_emitc::utils::createStdNullopt(rewriter),
-         mlir::IntegerAttr::get(rewriter.getIndexType(), 1)});
+         ttnn_to_emitc::utils::createStdNullopt(rewriter)});
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType(0)),
@@ -243,7 +241,6 @@ public:
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
     attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
 

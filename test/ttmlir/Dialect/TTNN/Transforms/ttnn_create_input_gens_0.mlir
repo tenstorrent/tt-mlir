@@ -16,11 +16,10 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
     %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout2>
     %3 = "ttnn.to_device"(%arg1, %0) <{memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !tt.device<#device>) -> tensor<32x32xbf16, #ttnn_layout1>
     %4 = "ttnn.to_layout"(%3) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout2>
-    %5 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!tt.device<#device>) -> tensor<32x32xbf16, #ttnn_layout2>
-    %6 = "ttnn.add"(%2, %4, %5) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16, #ttnn_layout2>, tensor<32x32xbf16, #ttnn_layout2>, tensor<32x32xbf16, #ttnn_layout2>) -> tensor<32x32xbf16, #ttnn_layout2>
-    %7 = "ttnn.from_device"(%6) : (tensor<32x32xbf16, #ttnn_layout2>) -> tensor<32x32xbf16, #ttnn_layout3>
-    %8 = "ttnn.to_layout"(%7) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xbf16, #ttnn_layout3>) -> tensor<32x32xbf16, #ttnn_layout>
-    return %8 : tensor<32x32xbf16, #ttnn_layout>
+    %5 = "ttnn.add"(%2, %4) : (tensor<32x32xbf16, #ttnn_layout2>, tensor<32x32xbf16, #ttnn_layout2>) -> tensor<32x32xbf16, #ttnn_layout2>
+    %6 = "ttnn.from_device"(%5) : (tensor<32x32xbf16, #ttnn_layout2>) -> tensor<32x32xbf16, #ttnn_layout3>
+    %7 = "ttnn.to_layout"(%6) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xbf16, #ttnn_layout3>) -> tensor<32x32xbf16, #ttnn_layout>
+    return %7 : tensor<32x32xbf16, #ttnn_layout>
   }
 
 // Confirm that the generator func is generated, and that the tensor attrs match:
