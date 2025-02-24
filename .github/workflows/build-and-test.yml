@@ -244,19 +244,21 @@ jobs:
     needs:
       - build-image
       - build-ttmlir
+      - build-ttmlir-opmodelinterface
     strategy:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, enable_runtime_debug: OFF, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "run", build_name: "runtime_debug", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          {runs-on: llmbox, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+            {runs-on: n150, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: ON, enable_runtime_debug: OFF, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "run", build_name: "runtime_debug", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n300, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n300, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n300, enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "op_model", build_name: "op_model", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+            {runs-on: llmbox, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+            {runs-on: llmbox, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           #{runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           #{runs-on: tg, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
@@ -364,24 +366,31 @@ jobs:
 
     - name: Run functional tests
       shell: bash
-      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_emitc == 'OFF' && matrix.build.enable_async == 'OFF' && matrix.build.enable_runtime_debug == 'OFF'
+      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_emitc == 'OFF' && matrix.build.enable_async == 'OFF' && matrix.build.enable_runtime_debug == 'OFF' && matrix.build.enable_op_model == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
 
     - name: Run async TTNN tests
       shell: bash
-      if: matrix.build.enable_async == 'ON'
+      if: matrix.build.enable_async == 'ON' && matrix.build.enable_op_model == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
 
     - name: Run runtime debug tests
       shell: bash
-      if: matrix.build.enable_runtime_debug == 'ON'
+      if: matrix.build.enable_runtime_debug == 'ON' && matrix.build.enable_op_model == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
+
+    - name: Run optimizer tests
+      shell: bash
+      if: matrix.build.enable_op_model == 'ON'
+      run: |
+        source env/activate
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/optimizer
 
     - name: Run perf tests
       shell: bash

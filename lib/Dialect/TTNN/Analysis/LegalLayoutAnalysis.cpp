@@ -26,7 +26,6 @@ bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
 
   // For now just check if we have enough tiles to shard the tensor to the
   // desired grid. This is a safe heuristic that should be valid for all ops.
-
   if (not layout.hasShardedTensorMemoryLayout()) {
     return true;
   }
@@ -34,9 +33,9 @@ bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
   if (layout.isTiled()) {
     RankedTensorType tensorType =
         mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
-    llvm::SmallVector<int64_t, 2> tiledShape =
-        layout.getTiledShape(tensorShape);
+    llvm::SmallVector<int64_t, 4> tensorShape(tensorType.getShape().begin(),
+                                              tensorType.getShape().end());
+    llvm::SmallVector<int64_t> tiledShape = layout.getTiledShape(tensorShape);
     llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
 
     assert(tiledShape.size() == gridShape.size() &&
@@ -49,6 +48,10 @@ bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
       if (tiledShape[i] < gridShape[i]) {
         return false;
       }
+
+      // if (tiledShape[i] % gridShape[i] != 0) {
+      //   return false;
+      // }
     }
     return true;
   }
@@ -319,7 +322,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
   analysisResult.insert(
       analysisResult.end(), shardedResults.begin(),
       shardedResults.begin() +
-          std::min(analysisInput.maxShardedGrids,
+          std::min(analysisInput.maxShardedLayouts,
                    static_cast<int64_t>(shardedResults.size())));
 
   // Apply partial layout overrides. Remove layouts that conflict with at least

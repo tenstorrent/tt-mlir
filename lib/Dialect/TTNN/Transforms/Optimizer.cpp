@@ -5,6 +5,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
@@ -12,6 +13,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/Value.h>
+#include <mlir/IR/Visitors.h>
 
 namespace mlir::tt::ttnn {
 
@@ -193,6 +197,7 @@ public:
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
     std::unordered_set<Edge> memReconfigEdges;
+    std::vector<Operation *> spillToDramOps;
     if (memoryLayoutAnalysisEnabled) {
       // Extract override resharding edges
       //
@@ -209,6 +214,7 @@ public:
       legalLayouts = memoryLayoutAnalysis.getResult().legalLayouts;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;
+      spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
     }
 
     // Pick optimal op configuration.
@@ -331,6 +337,8 @@ public:
       if (memReconfigEnabled) {
         processMemReconfigEdges(memReconfigEdges);
       }
+
+      processSpillOps(spillToDramOps);
 
       // Update the function type to reflect the updated return operation's
       // result types.
@@ -509,6 +517,50 @@ private:
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
+      }
+    }
+  }
+
+  void processSpillOps(const std::vector<Operation *> &spillToDramOps) {
+    for (Operation *op : spillToDramOps) {
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+      TTNNLayoutAttr layoutAttr =
+          mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+      // Create a new tensor type with DRAM layout.
+      TTNNLayoutAttr dramLayout =
+          layoutAttr.withBufferType(op->getContext(), BufferType::DRAM)
+              .withMemoryLayout(op->getContext(),
+                                TensorMemoryLayout::Interleaved);
+      RankedTensorType newTensorType = RankedTensorType::get(
+          tensorShape, tensorType.getElementType(), dramLayout);
+
+      // Create a ToLayoutOp with the new DRAM layout.
+      OpBuilder builder(op->getContext());
+      DataTypeAttr dataType =
+          DataTypeAttr::get(op->getContext(), dramLayout.getDataType());
+      LayoutAttr newLayout =
+          LayoutAttr::get(op->getContext(), dramLayout.getLayout());
+      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+          op->getContext(),
+          BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+          ShardSpecAttr::get(
+              op->getContext(),
+              ShapeAttr::get(op->getContext(), dramLayout.getShardShape())),
+          dramLayout.getMemLayout());
+
+      builder.setInsertionPointAfter(op);
+      Operation *toLayoutOp = builder.create<ToLayoutOp>(
+          op->getLoc(), newTensorType, op->getResult(0), newLayout, dataType,
+          memConfigAttr, getDeviceOpValue(op));
+
+      for (auto &use : op->getResult(0).getUses()) {
+        if (use.getOwner() != toLayoutOp) {
+          use.getOwner()->setOperand(use.getOperandNumber(),
+                                     toLayoutOp->getResult(0));
+        }
       }
     }
   }
