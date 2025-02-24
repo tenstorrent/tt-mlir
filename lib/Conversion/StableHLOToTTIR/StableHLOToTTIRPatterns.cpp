@@ -99,6 +99,10 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
           srcOp, adaptor, rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::OrOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceOrOp>(srcOp, adaptor,
+                                                                 rewriter);
+    }
     if (isArgMax(srcOp, adaptor, rewriter)) {
       return matchAndRewriteInternalArgMax(srcOp, adaptor, rewriter);
     }
@@ -129,16 +133,23 @@ private:
     }
 
     mlir::Operation &innerOp = srcOp.getBody().front().front();
-    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp) ||
+        mlir::isa<mlir::stablehlo::OrOp>(innerOp)) {
       bool allOperandsAreBoolean = std::all_of(
           srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
             return mlir::cast<RankedTensorType>(operand.getType())
                        .getElementTypeBitWidth() == 1;
           });
+      // Stablehlo (unlike other dialects) has single op for both logical and
+      // bitwise operation. Data type is used to distinguish between logical and
+      // bitwise operation. If the datatype is boolean then it is a logical
+      // operation; otherwise it is bitwise operation. This check ensure that
+      // the inputs are boolean as tt-metal only supports logical operations.
       if (!allOperandsAreBoolean) {
         return rewriter.notifyMatchFailure(
-            srcOp, "stablehlo.reduce for stablehlo.and operator is only "
-                   "supported for logical and.");
+            srcOp,
+            "stablehlo.reduce for stablehlo.and/stablehlo.or operator is only "
+            "supported for logical operator.");
       }
     }
 
