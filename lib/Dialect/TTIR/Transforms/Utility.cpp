@@ -22,7 +22,7 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
 
-    if (not module->hasAttr(tt::DeviceAttr::name)) {
+    if (not module->hasAttr(tt::DeviceAttr::name) || forceReload) {
       assert(module->hasAttr(tt::SystemDescAttr::name));
       auto systemDesc = module->getAttr(tt::SystemDescAttr::name);
       auto finalMeshShape = tt::utils::determineMeshShape(module, *meshShape);

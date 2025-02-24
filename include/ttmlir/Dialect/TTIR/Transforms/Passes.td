@@ -17,6 +17,9 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   let options = [
     ListOption<"meshShape", "mesh-shape", "int64_t",
                "Set the multi-device mesh shape.">,
+    Option<"forceReload", "force-reload", "bool",
+           /*default=*/"false",
+           "Force reload the system descriptor.">
   ];
 }
 
