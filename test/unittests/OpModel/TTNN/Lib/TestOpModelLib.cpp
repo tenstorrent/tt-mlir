@@ -10,6 +10,7 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "gtest/gtest.h"
+#include <cstdint>
 #include <optional>
 
 namespace mlir::tt::op_model::ttnn {
@@ -145,6 +146,77 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
                                mlir::tt::ttnn::BufferType::L1},
             detail::ExpectedResult{false})));
+
+class OpModelReductionParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,                        // input
+                     detail::TestTensor,                        // output
+                     std::optional<llvm::SmallVector<int64_t>>, // dim arg
+                     bool,                                      // keep dim
+                     detail::ExpectedResult>> {};
+
+TEST_P(OpModelReductionParam, Reduction) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto dimArg = std::get<2>(params);
+  const auto keepDim = std::get<3>(params);
+  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+              expectedOutputSize] = std::get<4>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  auto constraintsExp = MeanOpInterface::getOpConstraints(
+      inputShape, inputLayout, dimArg, keepDim, outputLayout);
+  // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+  // which llvm::Expected<T> does not have
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (expectedLegal) {
+    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    EXPECT_EQ(cbSize, expectedCbSize);
+    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(outputSize, expectedOutputSize);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = MeanOpInterface::getOpRuntime(
+      inputShape, inputLayout, dimArg, keepDim, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (expectedLegal) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    MeanTests, OpModelReductionParam,
+    ::testing::Values(
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        llvm::SmallVector<int64_t>{1}, true,
+                        detail::ExpectedResult{true, 12288, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        llvm::SmallVector<int64_t>{1, 2}, false,
+                        detail::ExpectedResult{false, 0, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        llvm::SmallVector<int64_t>{1, 0}, false,
+                        detail::ExpectedResult{true, 12288, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        llvm::SmallVector<int64_t>{1}, false,
+                        detail::ExpectedResult{true, 12288, 0, 0})));
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
