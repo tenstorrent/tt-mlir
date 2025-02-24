@@ -1058,12 +1058,12 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
         getOperandThroughDPSOps(input)));
   }
-  assert(op.getOutputs().size() == 1);
-  return ::tt::target::ttnn::CreateEltwiseOpDirect(
-      *cache.fbb, type, &ins,
-      cache.at<::tt::target::ttnn::TensorRef>(
-          getOperandThroughDPSOps(op.getOutputs().front())),
-      paramsType, params);
+  assert(op.getResults().size() == 1);
+  auto out = cache.getOrCreate(op.getResult(0), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,
+                                                   paramsType, params);
 }
 
 template <typename ReductionOp>

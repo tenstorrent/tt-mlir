@@ -70,6 +70,24 @@ public:
     return mlir::success();
   }
 };
+
+// Trait to verify that operations have exactly N operands.
+template <unsigned N>
+class NOperandTTNN {
+public:
+  template <typename ConcreteType>
+  class Impl
+      : public mlir::OpTrait::TraitBase<ConcreteType, NOperandTTNN<N>::Impl> {
+    static LogicalResult verifyTrait(Operation *op) {
+      if (op->getNumOperands() != N) {
+        return op->emitOpError() << "Operation " << op->getName()
+                                 << " must have exactly " << N << " operands.";
+      }
+      return success();
+    }
+  };
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif

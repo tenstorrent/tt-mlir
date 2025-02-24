@@ -355,7 +355,6 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       .addInputOperandWorkaround(typeWorkaround)
       .addInputOperandWorkaround(typeWorkaround)
       .addInputOperandWorkaround(typeWorkaround)
-      .addInputOperandWorkaround(typeWorkaround)
       .addOutputOperandWorkaround(typeWorkaround);
 }
 } // namespace mlir::tt::ttnn::wa

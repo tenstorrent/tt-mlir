@@ -531,10 +531,12 @@ bool ShardSolver::checkShardCompatible(
 
     uint32_t numOperands = consumerOp->getNumOperands();
 
-    // Some ops have multiple operands; and some ops have output also an
-    // operand. TBD if there is a more robust way to get real number of inputs.
-    // TODO(odjuricic): cast to DPSop?
-    numOperands = (numOperands > 1) ? numOperands - 1 : numOperands;
+    // DPS ops have an additional operand for the destination style, hence
+    // we need to subtract it from the total number of operands.
+    if (llvm::isa<DestinationStyleOpInterface>(consumerOp)) {
+      numOperands = numOperands - 1;
+    }
+
     std::vector<TTNNLayoutAttr> inputLayouts;
 
     auto inputUnderCheck =
