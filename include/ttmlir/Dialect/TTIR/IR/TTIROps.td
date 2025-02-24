@@ -151,10 +151,10 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout",
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
 
       struct CompoundComponents {
-        bool isLayoutChange;
-        bool isGridChange;
-        bool isFormatChange;
-        bool isMemorySpaceChange;
+        bool isLayoutChange = false;
+        bool isGridChange = false;
+        bool isFormatChange = false;
+        bool isMemorySpaceChange = false;
       };
 
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
