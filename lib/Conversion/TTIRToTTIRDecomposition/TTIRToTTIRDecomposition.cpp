@@ -1344,6 +1344,30 @@ public:
 };
 } // namespace
 
+// TTNN does not support reduction operation for logical or. So this reduction
+// is performed by decomposing/converting into reduction sum (ttnn.sum op).
+// If ttnn.sum output is zero then reduce_or output is false; otherwise the
+// output is true.
+namespace {
+struct ReductionOrPattern : public OpConversionPattern<ttir::ReduceOrOp> {
+public:
+  using OpConversionPattern<ttir::ReduceOrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceOrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::SumOp>(
+        rewriter, op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
+        op.getDimArgAttr());
+
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -1356,6 +1380,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
+  patterns.add<ReductionOrPattern>(typeConverter, ctx);
   patterns.add<ArgMaxOpKeepDimConversionPattern>(typeConverter, ctx);
 }
 
