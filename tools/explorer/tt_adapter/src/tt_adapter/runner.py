@@ -316,8 +316,6 @@ class ModelRunner:
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
 
         if ttrt_process.returncode != 0:
-            # Check if test error or TTRT Error'
-            print("Error Encountered, the error Code is", ttrt_process.returncode)
             # 42 is the specific code for a test error instead of ttrt
             if ttrt_process.returncode == 42:
                 error = (

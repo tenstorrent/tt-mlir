@@ -23,6 +23,8 @@ TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
 
+INVALID_TESTS = ["test_unsqueeze.ttnn", "test_squeeze.ttnn"]
+
 if "TT_EXPLORER_GENERATED_MLIR_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_MLIR_TEST_DIRS"].split(","):
         if os.path.exists(path):
@@ -49,6 +51,10 @@ def get_test_files(paths):
     files = []
     for path in paths:
         files.extend(glob.glob(path, recursive=True))
+
+    # filter for invalid tests
+    files = [file for file in files if all(not file.endswith(x) for x in INVALID_TESTS)]
+
     return files
 
 

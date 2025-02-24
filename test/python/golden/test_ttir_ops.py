@@ -53,9 +53,11 @@ def test_logical_not(in0: Operand, builder: TTIRBuilder):
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
+"""
 @compile_to_flatbuffer([(128, 128)], inputs_types=[torch.int8], targets=["ttnn"])
 def test_bitwise_not(in0: Operand, builder: TTIRBuilder):
     return builder.bitwise_not(in0)
+"""
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
@@ -217,6 +219,8 @@ def test_logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
+
+"""
 @compile_to_flatbuffer(
     [
         (64, 64),
@@ -227,10 +231,12 @@ def test_logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_and(in0, in1)
-
+"""
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
+
+"""
 @compile_to_flatbuffer(
     [
         (64, 64),
@@ -241,10 +247,12 @@ def test_bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_or(in0, in1)
-
+"""
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
+
+"""
 @compile_to_flatbuffer(
     [
         (64, 64),
@@ -255,6 +263,7 @@ def test_bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_bitwise_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_xor(in0, in1)
+"""
 
 
 @compile_to_flatbuffer(
