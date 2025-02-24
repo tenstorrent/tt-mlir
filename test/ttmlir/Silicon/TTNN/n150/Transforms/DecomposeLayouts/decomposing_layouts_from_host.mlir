@@ -238,5 +238,3 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
         return %1 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
 }
-
-
