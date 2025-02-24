@@ -158,7 +158,7 @@ public:
 
   LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
-    auto outputTy = mlir::cast<RankedTensorType>(op.getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getType(0));
     auto inputLayout = mlir::cast<tt::MetalLayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::MetalLayoutAttr>(outputTy.getEncoding());
     tt::DeviceAttr device = op.getDevice();
@@ -401,7 +401,7 @@ public:
 
   LogicalResult reformat(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
-    auto outputTy = mlir::cast<RankedTensorType>(op.getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getType(0));
     auto inputLayout = mlir::cast<tt::MetalLayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::MetalLayoutAttr>(outputTy.getEncoding());
     bool shouldTilize = not inputLayout.isTiled() && outputLayout.isTiled();
@@ -504,7 +504,7 @@ public:
   LogicalResult matchAndRewrite(ttir::ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
-    auto outputTy = mlir::cast<RankedTensorType>(op.getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getType(0));
     if (not inputTy.getEncoding() || not outputTy.getEncoding()) {
       return failure();
     }
