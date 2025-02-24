@@ -17,8 +17,7 @@ namespace mlir::tt::ttmetal {
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
 
-void createTTIRBufferizationPipeline(OpPassManager &pm)
-{
+void createTTIRBufferizationPipeline(OpPassManager &pm) {
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
   {
     bufferizationOptions.bufferizeFunctionBoundaries = true;

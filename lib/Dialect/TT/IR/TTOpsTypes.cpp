@@ -507,8 +507,8 @@ MetalLayoutAttr MetalLayoutAttr::get(
   assert(ty);
   SmallVector<int64_t> tensorShape(ty.getShape());
   if (mlir::isa<TileType>(ty.getElementType())) {
-    tensorShape = mlir::cast<TileType>(ty.getElementType())
-                      .getScalarShape(tensorShape);
+    tensorShape =
+        mlir::cast<TileType>(ty.getElementType()).getScalarShape(tensorShape);
   }
   return get(context, tensorShape, ty.getElementType(), memorySpace, grid,
              collapseIntervals, oobVal);
@@ -696,8 +696,7 @@ MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
 
 MetalLayoutAttr MetalLayoutAttr::withStreamMode(::mlir::MLIRContext *context,
                                                 StreamMode streamMode,
-                                                std::uint32_t numBuffers)
-{
+                                                std::uint32_t numBuffers) {
   return withStreamLayout(
       context, StreamLayoutAttr::get(context,
                                      mlir::AffineMap::getMultiDimIdentityMap(
