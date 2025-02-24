@@ -152,7 +152,8 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
-std::optional<::ttnn::SmallVector<int>> convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt){
+std::optional<::ttnn::SmallVector<int>>
+convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt) {
   if (!arrayOpt.has_value()) {
     return std::nullopt;
   }

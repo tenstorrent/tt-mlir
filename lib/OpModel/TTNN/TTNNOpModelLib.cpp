@@ -424,8 +424,7 @@ MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto meanOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
                         mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                        std::optional<mlir::ArrayAttr> dimArg,
-                        bool keepDim,
+                        std::optional<mlir::ArrayAttr> dimArg, bool keepDim,
                         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
@@ -440,8 +439,7 @@ MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
 
     // run op constraint query
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::mean, device, inputSpec, dimArgConverted, keepDim,
-        memConfig);
+        ::ttnn::mean, device, inputSpec, dimArgConverted, keepDim, memConfig);
   };
 
   return operation::getOpConstraints("MeanOpInterface", meanOpQuery, inputShape,
@@ -461,8 +459,7 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto meanOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
                         mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                        std::optional<mlir::ArrayAttr> dimArg,
-                        bool keepDim,
+                        std::optional<mlir::ArrayAttr> dimArg, bool keepDim,
                         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
@@ -470,21 +467,18 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
     // prepare io specs
     auto [inputSpec] = detail::convertToTensorSpec(
-        device, std::make_tuple(inputShape, inputLayout)
-        );
+        device, std::make_tuple(inputShape, inputLayout));
     auto memConfig = conversion::getMemoryConfig(outputLayout);
 
     auto dimArgConverted = conversion::convertReductionArg(dimArg);
 
     // run op runtime query
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::mean, device, inputSpec, dimArgConverted, keepDim,
-        memConfig);
+    return ::ttnn::graph::query_op_runtime(::ttnn::mean, device, inputSpec,
+                                           dimArgConverted, keepDim, memConfig);
   };
 
   return operation::getOpRuntime("MeanOpInterface", meanOpQuery, inputShape,
-                                 inputLayout, dimArg, keepDim,
-                                 outputLayout);
+                                 inputLayout, dimArg, keepDim, outputLayout);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -495,14 +489,12 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ReshapeOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                                  llvm::ArrayRef<int64_t> outputShape,
-                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+                                     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                     llvm::ArrayRef<int64_t> outputShape) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto reshapeOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
-                        mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                        llvm::ArrayRef<int64_t> outputShape,
-                        mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+                           mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                           llvm::ArrayRef<int64_t> outputShape) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
@@ -513,12 +505,11 @@ ReshapeOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
 
     // run op constraint query
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::reshape, device, inputSpec,
-        conversion::getShape(outputShape));
+        ::ttnn::reshape, device, inputSpec, conversion::getShape(outputShape));
   };
 
-  return operation::getOpConstraints("ReshapeOpInterface", reshapeOpQuery, inputShape,
-                                     inputLayout, outputShape, outputLayout);
+  return operation::getOpConstraints("ReshapeOpInterface", reshapeOpQuery,
+                                     inputShape, inputLayout, outputShape);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -526,14 +517,12 @@ ReshapeOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
 
 llvm::Expected<size_t>
 ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                              llvm::ArrayRef<int64_t> outputShape,
-                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+                                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                 llvm::ArrayRef<int64_t> outputShape) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto reshapeOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
-                        mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                        llvm::ArrayRef<int64_t> outputShape,
-                        mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+                           mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                           llvm::ArrayRef<int64_t> outputShape) {
     // open device device, will close it at the end of function
     ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
@@ -542,13 +531,12 @@ ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
     const auto [inputSpec] = detail::convertToTensorSpec(
         device, std::make_tuple(inputShape, inputLayout));
 
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::reshape, device, inputSpec,
-        conversion::getShape(outputShape));
+    return ::ttnn::graph::query_op_runtime(::ttnn::reshape, device, inputSpec,
+                                           conversion::getShape(outputShape));
   };
 
-  return operation::getOpRuntime("ReshapeOpInterface", reshapeOpQuery, inputShape,
-                                 inputLayout, outputShape, outputLayout);
+  return operation::getOpRuntime("ReshapeOpInterface", reshapeOpQuery,
+                                 inputShape, inputLayout, outputShape);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

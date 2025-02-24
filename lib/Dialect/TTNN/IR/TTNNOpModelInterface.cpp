@@ -168,7 +168,7 @@ MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return op_model::ttnn::MeanOpInterface::getOpConstraints(
-      inputShape, inputs[0], getDimArg() , getKeepDim(), output);
+      inputShape, inputs[0], getDimArg(), getKeepDim(), output);
 }
 
 llvm::Expected<size_t>
@@ -180,7 +180,7 @@ MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
 
   return op_model::ttnn::MeanOpInterface::getOpRuntime(
-      inputShape, inputs[0], getDimArg(),getKeepDim(), output);
+      inputShape, inputs[0], getDimArg(), getKeepDim(), output);
 }
 
 //===----------------------------------------------------------------------===//
@@ -189,12 +189,12 @@ MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                         const TTNNLayoutAttr &output) {
+                            const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
 
   const auto inputShape =
       mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
-   
+
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
@@ -203,22 +203,24 @@ ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     return check.takeError();
   }
 
+  // for now only support providing the output shape
   return op_model::ttnn::ReshapeOpInterface::getOpConstraints(
-      inputShape, inputs[0], outputShape, output);
+      inputShape, inputs[0], outputShape);
 }
 
 llvm::Expected<size_t>
 ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                     const TTNNLayoutAttr &output) {
+                        const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
 
   const auto inputShape =
       mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
- const auto outputShape =
+  const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
-  return op_model::ttnn::ReshapeOpInterface::getOpRuntime(
-      inputShape, inputs[0], outputShape, output);
+  // for now only support providing the output shape
+  return op_model::ttnn::ReshapeOpInterface::getOpRuntime(inputShape, inputs[0],
+                                                          outputShape);
 }
 
 //===----------------------------------------------------------------------===//
