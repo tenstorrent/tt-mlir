@@ -867,13 +867,6 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
     }
-    if (outputMemoryLayout.getValue() == TensorMemoryLayout::BlockSharded) {
-      // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
-      if (shardShape[0] % TILE_HEIGHT != 0 or shardShape[1] % TILE_WIDTH != 0) {
-        return emitOpError(
-            "Shard shape must divide tile shape (32, 32) evenly");
-      }
-    }
   }
   return success();
 }

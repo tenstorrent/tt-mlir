@@ -30,7 +30,8 @@ ShardSolver L1ChainConfig::resolveWithSolver(
   //
   ShardSolver shardSolver(legalLayouts, opL1MemSpecs, l1ChainedOps,
                           usableL1CacheSize, overrideReshardEdges);
-  state = L1ChainState::Resolved;
+
+  state = shardSolver.resolve() ? L1ChainState::Resolved : L1ChainState::Failed;
 
   return shardSolver;
 }

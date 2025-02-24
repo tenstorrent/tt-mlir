@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Scheduler/Scheduler.h"
+#include <mlir/IR/Diagnostics.h>
 
 namespace mlir::tt::ttnn {
 
@@ -80,6 +82,32 @@ void DFShardingPolicy::run() {
                                   legalLayouts.lookup(currentOp).size() > 0 &&
                                   legalLayouts.lookup(nextOp).size() > 0;
 
+          // TODO(odjuricic): Skip all ops that don't support sharding due to
+          // bugs and incomplete implementation. This needs to be addressed in
+          // the near future.
+          //
+          // TODO(#2038): Remove this once this bug is fixed.
+          // TODO(#2042): And constraints are implemented.
+          if (llvm::isa<ttnn::ReshapeOp>(currentOp)) {
+            validForSharding = false;
+          }
+          // TODO(#2038): Remove this once this bug is fixed.
+          if (llvm::isa<ttnn::ConcatOp>(currentOp)) {
+            validForSharding = false;
+          }
+          // TODO(#2041): Remove once constraints are added for MeanOp.
+          if (llvm::isa<ttnn::MeanOp>(currentOp)) {
+            validForSharding = false;
+          }
+          // TODO(#2084): Remove once constraints are added.
+          if (llvm::isa<ttnn::MultiplyOp>(currentOp)) {
+            validForSharding = false;
+          }
+          // TODO(#2084): Remove once constraints are added.
+          if (llvm::isa<ttnn::TransposeOp>(currentOp)) {
+            validForSharding = false;
+          }
+
           if (validForSharding) {
             // Fetch largest legal sharded L1 layouts for currentOp and nextOp.
             //
@@ -122,9 +150,7 @@ void DFShardingPolicy::run() {
               //
               bool firstInputL1UsageValid = true;
               if (l1ChainConfigs->back().isEmpty() &&
-                  (!ShardSolver::supportsInterleavedInputShardedOutput(
-                       currentOp) ||
-                   overrideReshardEdges.count(
+                  (overrideReshardEdges.count(
                        Edge(currentOp->getOperand(0).getDefiningOp(), currentOp,
                             0)) > 0)) {
                 RankedTensorType firstOpInputTensorType =
@@ -194,16 +220,33 @@ void DFShardingPolicy::run() {
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         legalLayouts, usableL1CacheSize, overrideReshardEdges);
 
+    if (l1ChainConfig.getState() == L1ChainState::Failed) {
+      mlir::emitWarning(l1ChainConfig.getOpL1MemSpecs().front().op->getLoc(),
+                        "Failed to resolve L1 chain config");
+      constexpr bool debug = false;
+      if (debug) {
+        llvm::errs() << l1ChainConfig;
+      }
+      continue;
+    }
+
     pickOpShardLayouts(shardSolver, l1ChainConfig);
 
     ShardSolverSolution resolvedShardSolution = shardSolver.finish();
     l1ChainConfig.complete(resolvedShardSolution.selectedOpLayout,
                            resolvedShardSolution.memReconfigEdges);
+
+    // TODO(odjuricic): Add constraint check if op can write to dram.
+    if (not resolvedShardSolution.selectedOpLayout[l1ChainConfig.getLastOp()]
+                .hasDRAMBufferType()) {
+      l1ChainConfig.setSpillEndToDRAM(true);
+    }
   }
 }
 
 void DFShardingPolicy::pickOpShardLayouts(ShardSolver &shardSolver,
                                           const L1ChainConfig &l1ChainConfig) {
+  assert(l1ChainConfig.getState() == L1ChainState::Resolved);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> accMaxCoreUsage =
       shardSolver.produceMaxCoreUsage();
   for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {

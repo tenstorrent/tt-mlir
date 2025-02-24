@@ -9,6 +9,7 @@ config.ttmlir_source_dir = "@TTMLIR_SOURCE_DIR@"
 config.llvm_shlib_ext = "@SHLIBEXT@"
 config.enable_stablehlo = "@TTMLIR_ENABLE_STABLEHLO@" and "@TTMLIR_ENABLE_STABLEHLO@" == "ON"
 config.enable_pykernel = "@TTMLIR_ENABLE_PYKERNEL@" and "@TTMLIR_ENABLE_PYKERNEL@" == "ON"
+config.enable_opmodel = "@TTMLIR_ENABLE_OPMODEL@" and "@TTMLIR_ENABLE_OPMODEL@" == "ON"
 
 import lit.llvm
 lit.llvm.initialize(lit_config, config)

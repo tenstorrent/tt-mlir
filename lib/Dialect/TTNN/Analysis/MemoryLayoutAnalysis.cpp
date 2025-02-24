@@ -94,6 +94,10 @@ void MemoryLayoutAnalysis::analysisImplementation() {
   // Override with L1 chain configs where applicable.
   //
   for (const auto &l1ChainConfig : l1ChainConfigs) {
+    if (l1ChainConfig.getState() == L1ChainState::Failed) {
+      continue;
+    }
+
     assert(l1ChainConfig.getState() == L1ChainState::Completed);
     for (const auto &opL1MemSpec : l1ChainConfig.getOpL1MemSpecs()) {
       analysisResult.legalLayouts[opL1MemSpec.op] =
@@ -103,6 +107,10 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     analysisResult.memReconfigEdges.insert(
         l1ChainConfig.getMemReconfigEdges().begin(),
         l1ChainConfig.getMemReconfigEdges().end());
+
+    if (l1ChainConfig.shouldSpillEndToDRAM()) {
+      analysisResult.spillToDramOps.push_back(l1ChainConfig.getLastOp());
+    }
   }
 }
 } // namespace mlir::tt::ttnn
