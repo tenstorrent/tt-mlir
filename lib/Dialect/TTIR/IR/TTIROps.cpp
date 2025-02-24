@@ -1453,9 +1453,10 @@ verifyLayoutOrViewOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
 
     auto inputLayout =
         mlir::cast<mlir::tt::MetalLayoutAttr>(inputTy.getEncoding());
-    auto outputLayout = mlir::cast<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());
+    auto outputLayout =
+        mlir::cast<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());
     bool isFormatChange =
-      inputLayout.getElementType() != outputLayout.getElementType();
+        inputLayout.getElementType() != outputLayout.getElementType();
     if (isFormatChange && !allowFormatChange) {
       return op->emitOpError(
           "Input and output layout element types must be the same");
@@ -1467,7 +1468,8 @@ verifyLayoutOrViewOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
     if (!mlir::isa<mlir::MemRefType>(outputTensorOrMemrefTy)) {
       return op->emitOpError("Input and output types must be the same");
     }
-    mlir::MemRefType inputTy = mlir::cast<mlir::MemRefType>(inputTensorOrMemrefTy);
+    mlir::MemRefType inputTy =
+        mlir::cast<mlir::MemRefType>(inputTensorOrMemrefTy);
     mlir::MemRefType outputTy =
         mlir::cast<mlir::MemRefType>(outputTensorOrMemrefTy);
 
@@ -1558,8 +1560,7 @@ bool mlir::tt::ttir::ToLayoutOp::bufferizesToMemoryWrite(
     return ::mlir::failure();
   }
 
-  assert(getNumResults() == 1 &&
-         "ToLayoutOp should have exactly one result");
+  assert(getNumResults() == 1 && "ToLayoutOp should have exactly one result");
 
   if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
     return ::mlir::failure();
@@ -1595,8 +1596,7 @@ mlir::tt::ttir::ToLayoutOp::getAliasingValues(
 mlir::tt::ttir::ToLayoutOp::getBufferType(
     ::mlir::Value value, const ::mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<::mlir::Value> &) {
-  auto rankedTensorType =
-      mlir::cast<::mlir::RankedTensorType>(value.getType());
+  auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(value.getType());
   mlir::Type memrefResultType =
       mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getMemref();
@@ -2644,8 +2644,7 @@ bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
     return ::mlir::failure();
   }
 
-  assert(getNumResults() == 1 &&
-         "GenericOp should have exactly one result");
+  assert(getNumResults() == 1 && "GenericOp should have exactly one result");
   assert(getOutputs().size() == 1 &&
          "GenericOp should have exactly one output");
   assert(getCbs().size() == 0 &&
@@ -2692,8 +2691,7 @@ mlir::tt::ttir::GenericOp::getAliasingValues(
 mlir::tt::ttir::GenericOp::getBufferType(
     ::mlir::Value value, const ::mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<::mlir::Value> &) {
-  auto rankedTensorType =
-      mlir::cast<::mlir::RankedTensorType>(value.getType());
+  auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(value.getType());
   mlir::Type memrefResultType =
       mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getMemref();
