@@ -60,8 +60,7 @@ jobs:
       shell: bash
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build_tidy" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -75,7 +74,6 @@ jobs:
         -DCMAKE_CXX_COMPILER=clang++-17 \
         -DCMAKE_C_COMPILER=clang-17 \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DTTMLIR_ENABLE_RUNTIME=ON \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
@@ -88,6 +86,8 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- COMMON_FBS TTMETAL_FBS TTNN_FBS mlir-headers mlir-generic-headers
+        python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
 
     - name: Unique-ify clang-tidy fixes
