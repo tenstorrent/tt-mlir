@@ -329,7 +329,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
     entry->walk([&](mlir::Operation *op) {
       if (auto enqueueProgramOp =
-              dyn_cast_or_null<tt::ttmetal::EnqueueProgramOp>(op);
+              dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
           enqueueProgramOp) {
         std::vector<::flatbuffers::Offset<::tt::target::metal::TensorRef>>
             operands;
@@ -401,7 +401,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                 fbb, &operands, program),
             op);
       } else if (auto createBufferOp =
-                     dyn_cast_or_null<tt::ttmetal::CreateBufferOp>(op);
+                     dyn_cast_if_present<tt::ttmetal::CreateBufferOp>(op);
                  createBufferOp) {
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateCreateBufferCommand(
@@ -411,7 +411,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                                        createBufferOp.getSize())),
             op);
       } else if (auto deallocateBufferOp =
-                     dyn_cast_or_null<tt::ttmetal::DeallocateBufferOp>(op);
+                     dyn_cast_if_present<tt::ttmetal::DeallocateBufferOp>(op);
                  deallocateBufferOp) {
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateDeallocateBufferCommand(
@@ -420,7 +420,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                     getOperandThroughDPSOps(deallocateBufferOp.getInput()))),
             op);
       } else if (auto enqueueReadBufferOp =
-                     dyn_cast_or_null<tt::ttmetal::EnqueueReadBufferOp>(op);
+                     dyn_cast_if_present<tt::ttmetal::EnqueueReadBufferOp>(op);
                  enqueueReadBufferOp) {
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueReadBufferCommand(
@@ -431,7 +431,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                     getOperandThroughDPSOps(enqueueReadBufferOp.getOutput()))),
             op);
       } else if (auto enqueueWriteBufferOp =
-                     dyn_cast_or_null<tt::ttmetal::EnqueueWriteBufferOp>(op);
+                     dyn_cast_if_present<tt::ttmetal::EnqueueWriteBufferOp>(op);
                  enqueueWriteBufferOp) {
         auto [hostBufferType, hostBuffer] =
             hostBufferToFlatbuffer(cache, enqueueWriteBufferOp.getValue());
@@ -441,7 +441,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                 cache.at<::tt::target::metal::TensorRef>(
                     getOperandThroughDPSOps(enqueueWriteBufferOp.getOutput()))),
             op);
-      } else if (auto returnOp = dyn_cast_or_null<func::ReturnOp>(op);
+      } else if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op);
                  returnOp) {
         for (auto output : returnOp.getOperands()) {
           cqBuilder.outputs.push_back(cache.at<::tt::target::metal::TensorRef>(

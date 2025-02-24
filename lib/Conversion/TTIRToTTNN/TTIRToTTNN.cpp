@@ -788,7 +788,7 @@ public:
 
     ttnn::MemoryConfigAttr memcfg = nullptr;
     if (ttnn::TTNNLayoutAttr layoutAttr =
-            mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+            mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
                 op.getResult().getType().getEncoding());
         layoutAttr.getBufferType() != ttnn::BufferType::SystemMemory) {
       memcfg = ttnn::MemoryConfigAttr::get(
