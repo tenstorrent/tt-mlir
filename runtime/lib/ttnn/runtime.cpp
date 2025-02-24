@@ -300,6 +300,19 @@ void wait(std::vector<Tensor> const &tensors) {
   }
 }
 
+std::vector<Tensor> multiDeviceToHost(Tensor tensor, bool untilize)
+{
+  const ::ttnn::Tensor &multiDeviceTensor =
+    tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::vector<::ttnn::Tensor> single_tensors = ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
+  std::vector<Tensor> host_tensors;
+  for (auto& tensor : single_tensors)
+  {
+    host_tensors.push_back(::tt::runtime::ttnn::toHost(Tensor(std::make_shared<::ttnn::Tensor>(tensor), nullptr, DeviceRuntime::TTNN), untilize));
+  }
+  return host_tensors;
+}
+
 Tensor toHost(Tensor tensor, bool untilize) {
   const ::ttnn::Tensor &deviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
