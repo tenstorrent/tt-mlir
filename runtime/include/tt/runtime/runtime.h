@@ -106,6 +106,8 @@ void wait(Tensor tensor);
 
 void wait(std::vector<Tensor> const &tensors);
 
+std::vector<Tensor> multiDeviceToHost(Tensor tensor, bool untilize = false);
+
 Tensor toHost(Tensor tensor, bool untilize = false);
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout);

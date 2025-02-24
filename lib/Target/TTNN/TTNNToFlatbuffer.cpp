@@ -823,6 +823,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Replicate;
   } else if (shardType == mlir::tt::MeshShardType::Devices) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Devices;
+  } else if (shardType == mlir::tt::MeshShardType::Manual) {
+    meshShardType = ::tt::target::ttnn::MeshShardType::Manual;
   } else {
     llvm_unreachable("unhandled mesh_shard type");
   }
