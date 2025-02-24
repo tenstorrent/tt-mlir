@@ -16,7 +16,7 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
   ::ttnn::Tensor out = ::ttnn::reshape(in, shape, memoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
