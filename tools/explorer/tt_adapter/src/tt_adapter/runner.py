@@ -299,6 +299,7 @@ class ModelRunner:
             "perf",
             flatbuffer_file,
             f"--artifact-dir={self._explorer_artifacts_dir}",
+            "--memory",  # Add memory flag to collect memory info from ttrt run
         ]
 
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
