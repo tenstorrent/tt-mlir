@@ -1719,7 +1719,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // DeviceModule for most conversions.
   ModuleOp module = rootModule;
   if (auto deviceModule = findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
-    module = dyn_cast_or_null<mlir::ModuleOp>(
+    module = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
     assert(module && "Found tt::DeviceModuleOp but it didn't contain a single "
                      "mlir::ModuleOp!");
@@ -1749,7 +1749,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
   if (auto cpuModule = findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
-    mlir::ModuleOp cpuNestedModule = dyn_cast_or_null<mlir::ModuleOp>(
+    mlir::ModuleOp cpuNestedModule = dyn_cast_if_present<mlir::ModuleOp>(
         cpuModule.getBodyRegion().front().front());
     llvm::SmallVector<char, 2048> binaryBuffer;
     llvm::raw_svector_ostream dylibStream(binaryBuffer);

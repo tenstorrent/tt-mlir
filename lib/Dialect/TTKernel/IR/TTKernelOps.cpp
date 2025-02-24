@@ -23,12 +23,12 @@ static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
     return false;
   }
 
-  if (dyn_cast_or_null<ttmetal::EnqueueProgramOp>(parentOp)) {
+  if (dyn_cast_if_present<ttmetal::EnqueueProgramOp>(parentOp)) {
     return true;
   }
 
-  if (dyn_cast_or_null<func::FuncOp>(parentOp) &&
-      dyn_cast_or_null<mlir::ModuleOp>(parentOp->getParentOp())) {
+  if (dyn_cast_if_present<func::FuncOp>(parentOp) &&
+      dyn_cast_if_present<mlir::ModuleOp>(parentOp->getParentOp())) {
     return true;
   }
   return insideEnqueueProgramOpRegion(parentOp);
