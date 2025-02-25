@@ -19,11 +19,13 @@
 #include <variant>
 #include <vector>
 
-// This namespace contains mock declarations of TTNN types for the purpose of
+// This namespace contains mock definitions of TTNN types for the purpose of
 // conversion.
 namespace ttnn {
 template <typename T>
-class SmallVector;
+struct SmallVector {
+  using value_type = T;
+};
 } // namespace ttnn
 
 namespace mlir {
@@ -96,6 +98,22 @@ struct TypeName<::ttnn::SmallVector<T>> {
 template <typename T, typename Enable = void>
 struct EmitCTypeConverter;
 
+template <>
+struct EmitCTypeConverter<bool> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto boolAttr = mlir::dyn_cast_if_present<mlir::BoolAttr>(attr)) {
+      return convert(boolAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::BoolAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(bool value) { return value ? "true" : "false"; }
+};
+
 // Converter for integral types.
 template <typename T>
 struct EmitCTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
@@ -160,13 +178,14 @@ struct EmitCContainerTypeConverter {
     }
 
     if (auto arrayAttr = mlir::dyn_cast<mlir::ArrayAttr>(attr)) {
-      if (arrayAttr.empty() || EmitCTypeConverter<T>::convert(arrayAttr[0])) {
+      if (arrayAttr.empty() ||
+          EmitCTypeConverter<value_type>::convert(arrayAttr[0])) {
         return convert(arrayAttr);
       }
       return {};
     }
 
-    if constexpr (std::is_integral_v<T>) {
+    if constexpr (std::is_integral_v<value_type>) {
       if (auto denseBoolArrayAttr =
               mlir::dyn_cast<mlir::DenseBoolArrayAttr>(attr)) {
         return convert(denseBoolArrayAttr);
@@ -193,7 +212,7 @@ struct EmitCContainerTypeConverter {
       }
     }
 
-    if constexpr (std::is_floating_point_v<T>) {
+    if constexpr (std::is_floating_point_v<value_type>) {
       if (auto denseF32ArrayAttr =
               mlir::dyn_cast<mlir::DenseF32ArrayAttr>(attr)) {
         return convert(denseF32ArrayAttr);
