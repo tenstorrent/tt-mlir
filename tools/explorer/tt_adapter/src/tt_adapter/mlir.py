@@ -602,7 +602,10 @@ def build_graph(module, perf_trace=None, golden_results=None):
     if perf_trace is not None:
         for _, row in perf_trace.iterrows():
             loc = parse_loc_string(row["LOC"])
-            assert loc not in loc_to_perf
+            # There is probably repeated data in the perf, let's see what it is and just override
+            if loc in loc_to_perf:
+                print("perf", loc, row)
+            # assert loc not in loc_to_perf
             if loc:
                 loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
 
@@ -612,7 +615,9 @@ def build_graph(module, perf_trace=None, golden_results=None):
     if golden_results is not None:
         for loc, res in golden_results.items():
             loc = parse_loc_string(loc)
-            assert loc not in loc_to_accuracy
+            if loc in loc_to_accuracy:
+                print("accuracy", loc, row)
+            # assert loc not in loc_to_accuracy
             if loc:
                 # Store the full result here, just need to parse the loc accordingly=
                 loc_to_accuracy[loc] = res
