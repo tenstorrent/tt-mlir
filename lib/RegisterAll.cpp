@@ -61,6 +61,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       registry);
   tensor::registerBufferizableOpInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
+  LLVM::registerInlinerInterface(registry);
 }
 
 void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
