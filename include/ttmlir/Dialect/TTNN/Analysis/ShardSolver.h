@@ -261,25 +261,23 @@ private:
   SmallVector<PathSet *> getOperandPathSetsPts(Operation *operation);
   SmallVector<PathSet *> getUserPathSetsPts(Operation *operation);
 
-  void handleNoPathsLeftOnUpdate(bool invokedBySet);
-  void updateSolver(Operation *root, bool expand_root = true,
+  bool handleNoPathsLeftOnUpdate(bool invokedBySet);
+  bool updateSolver(Operation *root, bool expand_root = true,
                     bool invokedBySet = false);
 
   Bitset *getBitset(Operation *op);
   Bitset const *getBitset(Operation *op) const;
   Bitset *getOrInsertBitset(Operation *op, const Bitset &init);
 
-  void resolve();
   bool resolveStep();
-  void insertReshard(const Edge &edge);
+  bool insertReshard(const Edge &edge);
   void addOperandsAndUsers(Operation *op, std::vector<Operation *> &needsUpdate,
                            Operation *ignoreOp = nullptr);
 
-  void preprocessFirstOp();
-  bool checkShardCompatible(Operation *producerOp,
-                            TTNNLayoutAttr const &producerLayout,
-                            Operation *consumerOp,
-                            TTNNLayoutAttr const &consumerLayout) const;
+  bool preprocessFirstOp();
+  llvm::Expected<bool> checkShardCompatible(
+      Value producerOperand, TTNNLayoutAttr const &producerLayout,
+      Operation *consumerOp, TTNNLayoutAttr const &consumerLayout) const;
 
 public:
   ShardSolver(const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
@@ -288,14 +286,18 @@ public:
               const llvm::DenseSet<Operation *> &shardedOps,
               const unsigned usableL1CacheSize,
               const std::unordered_set<Edge> &overrideReshardEdges,
-              std::function<bool(mlir::Operation *, TTNNLayoutAttr const &,
+              std::function<bool(mlir::Value, TTNNLayoutAttr const &,
                                  mlir::Operation *, TTNNLayoutAttr const &)>
                   customCheckShardCompatible = nullptr);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, TTNNLayoutAttr const &layout);
-  static bool supportsInterleavedInputShardedOutput(Operation *op);
+  bool supportsInterleavedInputShardedOutput(Operation *op,
+                                             TTNNLayoutAttr outputLayout);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
   ShardSolverSolution finish() const;
+  bool resolve();
+  void setEarlyExit(bool exit) { earlyExit = exit; }
+  bool shouldEarlyExit() const { return earlyExit; }
 
 private:
   const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> *legalLayouts;
@@ -303,6 +305,7 @@ private:
   const llvm::DenseSet<Operation *> *shardedOps;
   unsigned usableL1CacheSize;
   DeviceAttr deviceAttr;
+  bool earlyExit = false;
 
   llvm::DenseMap<Operation *, std::vector<Edge>> operandOpEdges;
   llvm::DenseMap<Operation *, std::vector<Edge>> userOpEdges;
@@ -313,8 +316,8 @@ private:
 
   llvm::DenseMap<Operation *, TTNNLayoutAttr> selectedOpLayout;
   std::unordered_set<Edge> memReconfigEdges;
-  std::function<bool(mlir::Operation *, TTNNLayoutAttr const &,
-                     mlir::Operation *, TTNNLayoutAttr const &)>
+  std::function<bool(mlir::Value, TTNNLayoutAttr const &, mlir::Operation *,
+                     TTNNLayoutAttr const &)>
       customCheckShardCompatible;
 };
 
