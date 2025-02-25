@@ -235,7 +235,6 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
-  // for now only support providing the output shape
   return op_model::ttnn::ReshapeOpInterface::getOpRuntime(inputShape, inputs[0],
                                                           outputShape, output);
 }
