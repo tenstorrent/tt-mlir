@@ -151,11 +151,13 @@ public:
           return emitc::PointerType::get(
               emitc::OpaqueType::get(ctx, "volatile tt_l1_ptr uint32_t"));
         });
+    addConversion([ctx](mlir::tt::ttkernel::DataFormatType type) -> Type {
+      return emitc::OpaqueType::get(ctx, "DataFormat");
+    });
     addConversion(
         [ctx](mlir::tt::ttkernel::InterleavedAddrGenFastType type) -> Type {
           // There is never a case in metal kernel code where template is false.
-          return emitc::OpaqueType::get(ctx,
-                                        "const InterleavedAddrGenFast<true>");
+          return emitc::OpaqueType::get(ctx, "InterleavedAddrGenFast<true>");
         });
   }
 };
@@ -469,51 +471,40 @@ public:
       const TypeConverter &typeConverter, MLIRContext *context)
       : OpConversionPattern(typeConverter, context) {}
 
-  bool extractValue(Value operand, std::uint32_t &value) const {
-    if (auto constantOp = operand.getDefiningOp<emitc::ConstantOp>()) {
-      if (auto attr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
-        value = attr.getInt();
-        return true;
-      }
-    }
-    return false;
-  }
-
   LogicalResult
   matchAndRewrite(Op op, ttkernel::GetInterleavedAddrGenFastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     // if (op.getResult().getUses().empty()) {
     //   rewriter.eraseOp(op);
     // } else {
-    std::uint32_t isDRAM, bankBaseAddress, pageSize, dataFormat;
-    if (!extractValue(op.getBankBaseAddress(), bankBaseAddress) ||
-        !extractValue(op.getPageSize(), pageSize) ||
-        !extractValue(op.getDataFormat(), dataFormat)) {
-      return rewriter.notifyMatchFailure(
-          op, "Failed to extract values from operands");
-    }
-    std::string opaqueConfigStr;
-    llvm::raw_string_ostream ss(opaqueConfigStr);
-    ss << "{.bank_base_address = " << bankBaseAddress
-       << ", .page_size = " << pageSize << ", .data_format = " << dataFormat
-       << "}";
-    ss.flush();
-
-    // std::string opaqueTypeStr;
-    // llvm::raw_string_ostream ssType(opaqueTypeStr);
-    // ssType << "const InterleavedAddrGenFast<"
-    //        << (isDRAM == 0 ? "false" : "true") << ">";
-    // ssType.flush();
-    // auto opaqueResultType =
-    //     emitc::OpaqueType::get(op.getContext(), opaqueTypeStr);
-    assert(op->getResultTypes().size() == 1);
     mlir::Type opaqueStructType =
         this->getTypeConverter()->convertType(op->getResultTypes()[0]);
 
-    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
-        op, opaqueStructType,
-        emitc::OpaqueAttr::get(op->getContext(), opaqueConfigStr));
-    // }
+    mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
+
+    // Declare the struct variable and then assign to its members
+    auto varOp = rewriter.replaceOpWithNewOp<emitc::VariableOp>(
+        op, lvalueType, emitc::OpaqueAttr::get(op.getContext(), ""));
+
+    // Create an lvalue for all struct field accesses
+    auto lvalueBankBaseAddr = rewriter.create<emitc::MemberOp>(
+        op->getLoc(), emitc::LValueType::get(op.getBankBaseAddress().getType()),
+        "bank_base_address", varOp);
+    auto lvaluePageSize = rewriter.create<emitc::MemberOp>(
+        op->getLoc(), emitc::LValueType::get(op.getPageSize().getType()),
+        "page_size", varOp);
+    auto lvalueDataFormat = rewriter.create<emitc::MemberOp>(
+        op->getLoc(), emitc::LValueType::get(adaptor.getDataFormat().getType()),
+        "data_format", varOp);
+
+    // Assign corresponding values to the struct fields
+    rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueBankBaseAddr,
+                                     op.getBankBaseAddress());
+    rewriter.create<emitc::AssignOp>(op->getLoc(), lvaluePageSize,
+                                     op.getPageSize());
+    rewriter.create<emitc::AssignOp>(op.getLoc(), lvalueDataFormat,
+                                     adaptor.getDataFormat());
+
     return success();
   }
 };
@@ -688,7 +679,8 @@ public:
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>>(
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
           typeConverter, funcOp.getContext());
 
       patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(
