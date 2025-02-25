@@ -15,6 +15,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -116,8 +117,8 @@ struct EmitCTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
     return convert(value.getZExtValue());
   }
 
-  template <typename U, std::enable_if_t<std::is_integral_v<U>, bool> = true>
-  static std::string convert(U value) {
+  template <typename U>
+  static std::enable_if_t<std::is_integral_v<U>, std::string> convert(U value) {
     return std::to_string(static_cast<T>(value));
   }
 };
@@ -141,9 +142,9 @@ struct EmitCTypeConverter<T,
     return convert(value.convertToDouble());
   }
 
-  template <typename U,
-            std::enable_if_t<std::is_floating_point_v<U>, bool> = true>
-  static std::string convert(U value) {
+  template <typename U>
+  static std::enable_if_t<std::is_floating_point_v<U>, std::string>
+  convert(U value) {
     return std::to_string(static_cast<T>(value));
   }
 };
@@ -154,24 +155,58 @@ struct EmitCContainerTypeConverter {
   using value_type = typename T::value_type;
 
   static std::optional<std::string> convert(mlir::Attribute attr) {
-    if (auto arrayAttr = mlir::dyn_cast_if_present<mlir::ArrayAttr>(attr)) {
-      if (arrayAttr.empty() ||
-          EmitCTypeConverter<value_type>::convert(arrayAttr[0])) {
+    if (!attr) {
+      return {};
+    }
+
+    if (auto arrayAttr = mlir::dyn_cast<mlir::ArrayAttr>(attr)) {
+      if (arrayAttr.empty() || EmitCTypeConverter<T>::convert(arrayAttr[0])) {
         return convert(arrayAttr);
       }
       return {};
     }
-    if constexpr (std::is_integral_v<value_type>) {
+
+    if constexpr (std::is_integral_v<T>) {
+      if (auto denseBoolArrayAttr =
+              mlir::dyn_cast<mlir::DenseBoolArrayAttr>(attr)) {
+        return convert(denseBoolArrayAttr);
+      }
+      if (auto denseI8ArrayAttr =
+              mlir::dyn_cast<mlir::DenseI8ArrayAttr>(attr)) {
+        return convert(denseI8ArrayAttr);
+      }
+      if (auto denseI16ArrayAttr =
+              mlir::dyn_cast<mlir::DenseI16ArrayAttr>(attr)) {
+        return convert(denseI16ArrayAttr);
+      }
+      if (auto denseI32ArrayAttr =
+              mlir::dyn_cast<mlir::DenseI32ArrayAttr>(attr)) {
+        return convert(denseI32ArrayAttr);
+      }
+      if (auto denseI64ArrayAttr =
+              mlir::dyn_cast<mlir::DenseI64ArrayAttr>(attr)) {
+        return convert(denseI64ArrayAttr);
+      }
       if (auto denseIntAttr =
-              mlir::dyn_cast_if_present<mlir::DenseIntElementsAttr>(attr)) {
+              mlir::dyn_cast<mlir::DenseIntElementsAttr>(attr)) {
         return convert(denseIntAttr);
       }
-    } else if constexpr (std::is_floating_point_v<value_type>) {
-      if (auto denseFPAttr =
-              mlir::dyn_cast_if_present<mlir::DenseFPElementsAttr>(attr)) {
+    }
+
+    if constexpr (std::is_floating_point_v<T>) {
+      if (auto denseF32ArrayAttr =
+              mlir::dyn_cast<mlir::DenseF32ArrayAttr>(attr)) {
+        return convert(denseF32ArrayAttr);
+      }
+      if (auto denseF64ArrayAttr =
+              mlir::dyn_cast<mlir::DenseF64ArrayAttr>(attr)) {
+        return convert(denseF64ArrayAttr);
+      }
+      if (auto denseFPAttr = mlir::dyn_cast<mlir::DenseFPElementsAttr>(attr)) {
         return convert(denseFPAttr);
       }
     }
+
     return {};
   }
 
@@ -179,6 +214,17 @@ struct EmitCContainerTypeConverter {
     std::vector<std::string> result;
     for (auto element : attr) {
       result.push_back(*EmitCTypeConverter<value_type>::convert(element));
+    }
+    return convert(result);
+  }
+
+  template <typename U>
+  static std::enable_if_t<
+      std::is_constructible_v<mlir::detail::DenseArrayAttrImpl<U>>, std::string>
+  convert(mlir::detail::DenseArrayAttrImpl<U> attr) {
+    std::vector<std::string> result;
+    for (auto element : attr.asArrayRef()) {
+      result.push_back(EmitCTypeConverter<value_type>::convert(element));
     }
     return convert(result);
   }
@@ -230,20 +276,57 @@ struct EmitCTypeConverter<::ttnn::SmallVector<T>>
 template <typename T, size_t k>
 struct EmitCTypeConverter<std::array<T, k>> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
-    if (auto arrayAttr = mlir::dyn_cast_if_present<mlir::ArrayAttr>(attr)) {
-      return convert(arrayAttr);
+    if (!attr) {
+      return {};
     }
+
+    if (auto arrayAttr = mlir::dyn_cast<mlir::ArrayAttr>(attr)) {
+      if (arrayAttr.empty() || EmitCTypeConverter<T>::convert(arrayAttr[0])) {
+        return convert(arrayAttr);
+      }
+      return {};
+    }
+
     if constexpr (std::is_integral_v<T>) {
+      if (auto denseBoolArrayAttr =
+              mlir::dyn_cast<mlir::DenseBoolArrayAttr>(attr)) {
+        return convert(denseBoolArrayAttr);
+      }
+      if (auto denseI8ArrayAttr =
+              mlir::dyn_cast<mlir::DenseI8ArrayAttr>(attr)) {
+        return convert(denseI8ArrayAttr);
+      }
+      if (auto denseI16ArrayAttr =
+              mlir::dyn_cast<mlir::DenseI16ArrayAttr>(attr)) {
+        return convert(denseI16ArrayAttr);
+      }
+      if (auto denseI32ArrayAttr =
+              mlir::dyn_cast<mlir::DenseI32ArrayAttr>(attr)) {
+        return convert(denseI32ArrayAttr);
+      }
+      if (auto denseI64ArrayAttr =
+              mlir::dyn_cast<mlir::DenseI64ArrayAttr>(attr)) {
+        return convert(denseI64ArrayAttr);
+      }
       if (auto denseIntAttr =
-              mlir::dyn_cast_if_present<mlir::DenseIntElementsAttr>(attr)) {
+              mlir::dyn_cast<mlir::DenseIntElementsAttr>(attr)) {
         return convert(denseIntAttr);
       }
-    } else if constexpr (std::is_floating_point_v<T>) {
-      if (auto denseFPAttr =
-              mlir::dyn_cast_if_present<mlir::DenseFPElementsAttr>(attr)) {
+    }
+    if constexpr (std::is_floating_point_v<T>) {
+      if (auto denseF32ArrayAttr =
+              mlir::dyn_cast<mlir::DenseF32ArrayAttr>(attr)) {
+        return convert(denseF32ArrayAttr);
+      }
+      if (auto denseF64ArrayAttr =
+              mlir::dyn_cast<mlir::DenseF64ArrayAttr>(attr)) {
+        return convert(denseF64ArrayAttr);
+      }
+      if (auto denseFPAttr = mlir::dyn_cast<mlir::DenseFPElementsAttr>(attr)) {
         return convert(denseFPAttr);
       }
     }
+
     return {};
   }
 
@@ -264,9 +347,27 @@ struct EmitCTypeConverter<std::array<T, k>> {
     return convert(result);
   }
 
-  static std::string convert(mlir::DenseIntElementsAttr attr) {
-    assert(attr.size() == k &&
-           "DenseIntElementsAttr size does not match std::array size");
+  template <typename U>
+  static std::enable_if_t<
+      std::is_constructible_v<mlir::detail::DenseArrayAttrImpl<U>>,
+      std::optional<std::string>>
+  convert(mlir::detail::DenseArrayAttrImpl<U> attr) {
+    if (attr.size() != k) {
+      return {};
+    }
+
+    std::array<std::string, k> result;
+    for (int64_t i = 0; i < attr.size(); ++i) {
+      result[i] = EmitCTypeConverter<T>::convert(attr[i]);
+    }
+    return convert(result);
+  }
+
+  static std::optional<std::string> convert(mlir::DenseIntElementsAttr attr) {
+    if (attr.size() != k) {
+      return {};
+    }
+
     std::array<std::string, k> result;
     for (int64_t i = 0; i < attr.size(); ++i) {
       result[i] = EmitCTypeConverter<T>::convert(*(attr.begin() + i));
@@ -274,9 +375,11 @@ struct EmitCTypeConverter<std::array<T, k>> {
     return convert(result);
   }
 
-  static std::string convert(mlir::DenseFPElementsAttr attr) {
-    assert(attr.size() == k &&
-           "DenseFPElementsAttr size does not match std::array size");
+  static std::optional<std::string> convert(mlir::DenseFPElementsAttr attr) {
+    if (attr.size() != k) {
+      return {};
+    }
+
     std::array<std::string, k> result;
     for (int64_t i = 0; i < attr.size(); ++i) {
       result[i] = EmitCTypeConverter<T>::convert(*(attr.begin() + i));
@@ -286,7 +389,10 @@ struct EmitCTypeConverter<std::array<T, k>> {
 
   template <typename U>
   static std::string convert(llvm::ArrayRef<U> attr) {
-    assert(attr.size() == k && "ArrayRef size does not match std::array size");
+    if (attr.size() != k) {
+      return {};
+    }
+
     std::array<std::string, k> result;
     for (auto element : attr) {
       result.push_back(EmitCTypeConverter<T>::convert(element));
