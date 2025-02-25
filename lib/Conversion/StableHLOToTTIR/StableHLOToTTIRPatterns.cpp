@@ -644,7 +644,7 @@ private:
   // 2. Boolean tensor: TTNN does not support boolean data. So they are
   //    converted to bfloat16 tensors.
   // 3. Integer tensor: TTNN does not support 64 bit integer. So they are
-  //    converted to 32 bit tensor.
+  //    converted to 32 bit tensor (with signed saturation).
   // 4. Float tensor: TTNN does not support 64 bit float. So they are converted
   //    to 32 bit tensor.
   mlir::ElementsAttr getValueAttr(mlir::ElementsAttr valueAttr) const {
@@ -663,34 +663,7 @@ private:
     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
         getTypeConverter()->convertType(valueAttr.getShapedType()));
     if (isa<IntegerType>(elementType)) {
-      switch (bitWidth) {
-      case 1: {
-        return rebuildValueAttr<bool>(valueAttr, 1);
-      }
-      case 8: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint8_t>(valueAttr, 8)
-                   : rebuildValueAttr<int8_t>(valueAttr, 8);
-      }
-      case 16: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint16_t>(valueAttr, 16)
-                   : rebuildValueAttr<int16_t>(valueAttr, 16);
-      }
-      case 32: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint32_t>(valueAttr, 32)
-                   : rebuildValueAttr<int32_t>(valueAttr, 32);
-      }
-      case 64: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint64_t>(valueAttr, 32)
-                   : rebuildValueAttr<int64_t>(valueAttr, 32);
-      }
-      default: {
-        assert(false && "Unsupported integer type.");
-      }
-      }
+      return rebuildValueAttr(valueAttr, bitWidth);
     }
     if (isa<FloatType>(elementType)) {
       // Convert 64 bit floating point numbers to 32 bit floating point numbers.
@@ -714,11 +687,9 @@ private:
     assert(false && "Unsupported data type.");
   }
 
-  // Extract the values (using the given ElementType) and create new data
-  // structure. This is used to convert scalars (of type boolean, int8, int16,
-  // int32, int64, uint8, uint16, uint32, uint64) and tensors (of type boolean
-  // and int64).
-  template <typename ElementType>
+  // Extract the values and create new ElementsAttr data structure. This is used
+  // to convert scalars boolean to bfloat16 and 64 bit integer to 32 bit integer
+  // by truncating with signed saturation.
   mlir::ElementsAttr rebuildValueAttr(mlir::ElementsAttr valueAttr,
                                       size_t bitWidth) const {
     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
@@ -727,7 +698,7 @@ private:
     // Create data structure for boolean type with bfloat16.
     if (bitWidth == 1) {
       std::vector<mlir::APFloat> booleanValue = {};
-      for (ElementType value : valueAttr.getValues<ElementType>()) {
+      for (bool value : valueAttr.getValues<bool>()) {
         mlir::APFloat input(mlir::APFloat::BFloat(), value);
         booleanValue.emplace_back(input);
       }
@@ -736,9 +707,12 @@ private:
 
     // Create data structure for other types.
     std::vector<mlir::APInt> IntegerValue = {};
-    for (ElementType value : valueAttr.getValues<ElementType>()) {
-      mlir::APInt input(bitWidth, value);
-      IntegerValue.emplace_back(input);
+    for (mlir::APInt value : valueAttr.getValues<mlir::APInt>()) {
+      if (bitWidth == 64) {
+        // Truncate to 32 bits with signed saturation.
+        value = value.truncSSat(32);
+      }
+      IntegerValue.emplace_back(value);
     }
     return mlir::DenseElementsAttr::get(valueType, IntegerValue);
   }
