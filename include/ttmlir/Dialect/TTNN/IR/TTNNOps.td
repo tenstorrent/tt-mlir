@@ -726,8 +726,13 @@ def TTNN_ArgMaxOp : TTNN_NamedDPSOp<"argmax"> {
                        AnyRankedTensor:$output);
 
   let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::
+          createArgMaxOpOperandsWorkarounds();
+    }
+  }];
 
   let results = (outs AnyRankedTensor:$result);
 }
