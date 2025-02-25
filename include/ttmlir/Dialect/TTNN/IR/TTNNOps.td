@@ -792,6 +792,13 @@ def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
                        AnyRankedTensor:$update_index,
                        I32Attr:$batch_offset);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        RankedTensorType updateIndexType = getUpdateIndex().getType();
+        return wa::TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(updateIndexType);
+      }
+    }];
+
   let hasVerifier = 1;
 }
 
@@ -962,6 +969,13 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
                          I32ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        RankedTensorType inputType = getInput().getType();
+        return wa::TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(inputType);
+      }
+    }];
 
     let hasVerifier = 1;
 }
@@ -1360,12 +1374,7 @@ def TTNN_FullOp : TTNN_Op<"full"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         mlir::tt::ttnn::FullOp op = mlir::cast<mlir::tt::ttnn::FullOp>(this->getOperation());
         auto outputType = mlir::cast<RankedTensorType>(op.getType());
-        ttnn::TTNNLayoutAttr layoutAttr =
-            mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
-        if (outputType.getRank() > 1 || !layoutAttr.isTiled()) {
-          return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(this->getOperation());
-        }
-        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds();
+        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(outputType);
       }
     }];
 }

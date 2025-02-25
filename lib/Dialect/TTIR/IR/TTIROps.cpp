@@ -158,9 +158,9 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   RankedTensorType inputTensorType = getOperand().getType();
   uint32_t dimensionIndex = getDimension();
-  int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
+  uint32_t dimSize = inputTensorType.getShape()[dimensionIndex];
 
-  return mlir::DenseElementsAttr::get<int32_t>(getType(), dimSize);
+  return mlir::DenseElementsAttr::get<uint32_t>(getType(), dimSize);
 }
 
 //===----------------------------------------------------------------------===//

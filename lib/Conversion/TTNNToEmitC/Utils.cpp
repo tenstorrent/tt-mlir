@@ -147,11 +147,8 @@ emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr) {
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT8");
   case tt::DataType::UInt16:
     return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT16");
-  // TODO(svuckovic):
-  // Add support for INT32
-  //
-  // case tt::DataType::Int32:
-  //   return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::INT32");
+  case tt::DataType::Int32:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::INT32");
   case tt::DataType::Float16:
   case tt::DataType::BFP_Float2:
   case tt::DataType::BFP_Float4:
