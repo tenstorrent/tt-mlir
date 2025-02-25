@@ -35,7 +35,7 @@ module @all_reduce_1x2 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_repli
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<8192x16384xf32>) -> tensor<8192x16384xf32>
-    // CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+    // CHECK: = "ttir.all_reduce"
     return %1 : tensor<8192x16384xf32>
   }
 }
@@ -76,7 +76,7 @@ module @all_reduce_2x4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
-    // CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+    // CHECK: = "ttir.all_reduce"
     return %1 : tensor<4096x16384xf32>
   }
 }
@@ -117,7 +117,7 @@ module @all_reduce_1x8 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<8192x16384xf32>) -> tensor<8192x16384xf32>
-    // CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+    // CHECK: = "ttir.all_reduce"
     return %1 : tensor<8192x16384xf32>
   }
 }
@@ -158,7 +158,7 @@ module @all_reduce_8x4 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_repl
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<1024x16384xf32>) -> tensor<1024x16384xf32>
-    // CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+    // CHECK: = "ttir.all_reduce"
     return %1 : tensor<1024x16384xf32>
   }
 }
@@ -199,7 +199,7 @@ module @all_reduce_1x32 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_rep
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<8192x16384xf32>) -> tensor<8192x16384xf32>
-    // CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+    // CHECK: = "ttir.all_reduce"
     return %1 : tensor<8192x16384xf32>
   }
 }
