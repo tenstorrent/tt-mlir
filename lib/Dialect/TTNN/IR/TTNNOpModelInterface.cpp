@@ -221,9 +221,8 @@ ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     return check.takeError();
   }
 
-  // for now only support providing the output shape
   return op_model::ttnn::ReshapeOpInterface::getOpConstraints(
-      inputShape, inputs[0], outputShape);
+      inputShape, inputs[0], outputShape, output);
 }
 
 llvm::Expected<size_t>
@@ -238,7 +237,7 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   // for now only support providing the output shape
   return op_model::ttnn::ReshapeOpInterface::getOpRuntime(inputShape, inputs[0],
-                                                          outputShape);
+                                                          outputShape, output);
 }
 
 //===----------------------------------------------------------------------===//
