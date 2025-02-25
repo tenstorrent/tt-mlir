@@ -175,12 +175,7 @@ public:
         {mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
          tt::ttnn_to_emitc::utils::convertBoolAttr(
              rewriter, BoolAttr::get(rewriter.getContext(), false)),
-<<<<<<< HEAD
          ttnn_to_emitc::utils::createStdNullopt(rewriter)});
-=======
-         tt::ttnn_to_emitc::utils::createStdNullopt(rewriter),
-         mlir::IntegerAttr::get(rewriter.getIndexType(), 1)});
->>>>>>> b603dcbd (Setup namespaces)
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType(0)),
@@ -247,14 +242,8 @@ public:
     llvm::SmallVector<Attribute, 5> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
-<<<<<<< HEAD
     attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
-=======
-    attrs.push_back(tt::ttnn_to_emitc::utils::createStdNullopt(rewriter));
-    attrs.push_back(tt::ttnn_to_emitc::utils::createStdNullopt(rewriter));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
->>>>>>> b603dcbd (Setup namespaces)
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
 
