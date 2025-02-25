@@ -34,6 +34,11 @@ public:
 
     OpBuilder builder(&getContext());
     auto innerModule = ModuleOp::create(rootModule.getLoc());
+    // Transfer attributes from root module to inner module.
+    for (const auto &attr : rootModule->getAttrs()) {
+      innerModule->setAttr(attr.getName(), attr.getValue());
+    }
+
     innerModule.getBodyRegion().takeBody(rootModule.getBodyRegion());
     rootModule.getRegion().emplaceBlock();
     builder.setInsertionPointToStart(&rootModule.getBodyRegion().front());
