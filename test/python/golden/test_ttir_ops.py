@@ -475,6 +475,16 @@ def test_mnist(
     return builder.softmax(add_6, dimension=1)
 
 
+@compile_to_flatbuffer(
+    [
+        (64, 128),
+        (64, 128),
+    ],
+)
+def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.add(in0, in1, ttir_kwargs={"should_hoist": UnitAttr.get(self._ctx)})
+
+
 if __name__ == "__main__":
     test_functions = inspect.getmembers(
         inspect.getmodule(inspect.currentframe()), inspect.isfunction

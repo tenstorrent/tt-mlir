@@ -96,6 +96,7 @@ struct TensorDesc {
 };
 
 using DeviceIds = std::vector<int>;
+using DylibHandleMap = std::unordered_map<uint32_t, void *>;
 
 struct Flatbuffer : public detail::ObjectImpl {
   using detail::ObjectImpl::ObjectImpl;
