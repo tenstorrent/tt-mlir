@@ -306,7 +306,7 @@ def compile_to_flatbuffer(
         their respective backend paths. Either, neither, or both are valid inputs.
 
     module_dump: bool
-        Set to True to print out generated MLIR module.
+        Set to True to print out generated TTIR MLIR module.
 
     Example
     -------
@@ -332,22 +332,32 @@ def compile_to_flatbuffer(
 
             # NOTE: since `ttir_to_tt{nn,metal} modifies the module in place,
             # `compile_as_mlir_module` needs to be run twice in the case that
-            # both targets are chosen
+            # both targets are chosen. This unfortunately includes the printing
 
             if "ttmetal" in targets:
                 module, builder = compile_as_mlir_module(
                     test_fn, inputs_shapes, inputs_types
                 )
-                module = ttir_to_ttmetal(module, builder, test_base + ".mlir")
+
+                if module_dump:
+                    with open(test_base + "_ttir.mlir", "w") as f:
+                        f.write(str(module))
+
+                module = ttir_to_ttmetal(module, module_dump, test_base + "_ttm.mlir")
                 ttmetal_to_flatbuffer(module, builder, test_base + ".ttm")
 
             if "ttnn" in targets:
                 module, builder = compile_as_mlir_module(
                     test_fn, inputs_shapes, inputs_types
                 )
+
+                if module_dump:
+                    with open(test_base + "_ttir.mlir", "w") as f:
+                        f.write(str(module))
+
                 module_logger = MLIRModuleLogger()
                 module_logger.attach_context(module.context)
-                module = ttir_to_ttnn(module, builder, test_base + ".mlir")
+                module = ttir_to_ttnn(module, module_dump, test_base + "_ttnn.mlir")
                 ttnn_to_flatbuffer(
                     module, builder, test_base + ".ttnn", module_logger.module_log
                 )
