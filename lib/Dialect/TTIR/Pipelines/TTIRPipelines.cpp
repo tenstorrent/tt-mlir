@@ -52,7 +52,8 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // These are initial passes to ensure we start with well-form linalg dialect
   // operations.
   // TODO (#2145): Explore ways to re-enable canonicalizer w/o return values for
-  // linalg funcs. manager.addPass(mlir::createCanonicalizerPass());
+  // linalg funcs.
+  // manager.addPass(mlir::createCanonicalizerPass());
   manager.addPass(mlir::createConvertElementwiseToLinalgPass());
   manager.addPass(mlir::createConvertTensorToLinalgPass());
 
