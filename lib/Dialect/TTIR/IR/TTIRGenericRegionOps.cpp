@@ -22,3 +22,37 @@
 
   return success();
 }
+
+// TileTilizeBlockOp verification
+::mlir::LogicalResult mlir::tt::ttir::TileTilizeBlockOp::verify() {
+
+  if (llvm::isa<mlir::tt::TileType>(getInput().getType().getElementType())) {
+    return emitOpError(
+        "MemRef operand to TileTilizeBlock must not have tt.tile "
+        "element type");
+  }
+
+  if (!llvm::isa<mlir::tt::TileType>(getOutput().getType().getElementType())) {
+    return emitOpError("MemRef result of TileTilizeBlock must have tt.tile "
+                       "element type");
+  }
+
+  return success();
+}
+
+// TileUntilizeBlockOp verification
+::mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::verify() {
+
+  if (!llvm::isa<mlir::tt::TileType>(getInput().getType().getElementType())) {
+    return emitOpError("MemRef operand to TileUntilizeBlock must have tt.tile "
+                       "element type");
+  }
+
+  if (llvm::isa<mlir::tt::TileType>(getOutput().getType().getElementType())) {
+    return emitOpError(
+        "MemRef result of TileUntilizeBlock must not have tt.tile "
+        "element type");
+  }
+
+  return success();
+}
