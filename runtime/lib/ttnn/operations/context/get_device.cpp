@@ -10,18 +10,18 @@
 
 namespace tt::runtime::ttnn::operations::context {
 
-using ::tt::tt_metal::distributed::MeshOffset;
+using ::tt::tt_metal::distributed::MeshCoordinate;
 using ::tt::tt_metal::distributed::MeshShape;
 
-static MeshOffset
-calculateMeshOffset(const ::ttnn::MeshDevice &parentMesh,
-                    const std::unordered_set<uint32_t> &desiredDeviceIds,
-                    const ::tt::target::Dim2d *subMeshShape) {
-  for (size_t row = 0; row < parentMesh.num_rows(); row++) {
-    for (size_t col = 0; col < parentMesh.num_cols(); col++) {
-      const ::ttnn::IDevice *currDevice = parentMesh.get_device(row, col);
+static MeshCoordinate
+calculateMeshCoordinate(const ::ttnn::MeshDevice &parentMesh,
+                        const std::unordered_set<uint32_t> &desiredDeviceIds,
+                        const ::tt::target::Dim2d *subMeshShape) {
+  for (uint32_t row = 0; row < parentMesh.shape()[0]; row++) {
+    for (uint32_t col = 0; col < parentMesh.shape()[1]; col++) {
+      const ::ttnn::IDevice *currDevice = parentMesh.get_device({row, col});
       if (desiredDeviceIds.contains(currDevice->id())) {
-        return MeshOffset(row, col);
+        return MeshCoordinate(row, col);
       }
     }
   }
@@ -34,9 +34,9 @@ createSubMesh(::ttnn::MeshDevice &parentMesh,
               const ::tt::target::Dim2d *subMeshShape) {
   // Carve out a submesh from the parentMesh
   MeshShape meshShape(subMeshShape->y(), subMeshShape->x());
-  MeshOffset offset =
-      calculateMeshOffset(parentMesh, desiredDeviceIds, subMeshShape);
-  return parentMesh.create_submesh(meshShape, offset);
+  MeshCoordinate coordinate =
+      calculateMeshCoordinate(parentMesh, desiredDeviceIds, subMeshShape);
+  return parentMesh.create_submesh(meshShape, coordinate);
 }
 
 void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
@@ -50,11 +50,11 @@ void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
 
   // Re-map mesh if subMeshShape cannot be a submesh of current shape
   MeshShape meshShape = meshDevice.shape();
-  if (subMeshShape->y() > static_cast<int32_t>(meshShape.num_rows) ||
-      subMeshShape->x() > static_cast<int32_t>(meshShape.num_cols)) {
+  if (subMeshShape->y() > static_cast<int32_t>(meshShape[0]) ||
+      subMeshShape->x() > static_cast<int32_t>(meshShape[1])) {
     meshDevice.reshape(MeshShape(subMeshShape->y(), subMeshShape->x()));
-    LOG_INFO("remapped mesh device shape [", meshDevice.num_rows(), ", ",
-             meshDevice.num_cols(), "]");
+    LOG_INFO("remapped mesh device shape [", meshDevice.shape()[0], ", ",
+             meshDevice.shape()[1], "]");
   }
   std::shared_ptr<::ttnn::MeshDevice> subMesh =
       createSubMesh(meshDevice, desiredDeviceIds, subMeshShape);

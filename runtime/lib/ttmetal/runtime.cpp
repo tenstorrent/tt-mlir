@@ -89,13 +89,13 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
   ::tt::tt_metal::DispatchCoreType type =
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
 
-  ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
+  ::tt::tt_metal::distributed::MeshShape grid{
+      1, static_cast<uint32_t>(deviceIds.size())};
   size_t l1SmallSizeValue = l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          ::tt::tt_metal::distributed::MeshDeviceConfig{
-              .mesh_shape = ::tt::tt_metal::distributed::SimpleMeshShape(grid),
-              .offset = {}},
+          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid,
+                                                        .offset = {}},
           l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
 
   CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
