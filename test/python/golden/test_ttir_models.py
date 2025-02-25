@@ -55,6 +55,7 @@ def test_mnist(
         (3200, 3200),  # arg14
     ],
     targets=["ttnn"],
+    module_dump=True,
 )
 def test_llama_attention(
     arg0: Operand,
