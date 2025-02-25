@@ -13,7 +13,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <llvm/ADT/ArrayRef.h>
 #include <optional>
 #include <tuple>
 
