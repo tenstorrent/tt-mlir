@@ -15,7 +15,6 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
-#include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <type_traits>
 
 namespace ttmlir::utils {
