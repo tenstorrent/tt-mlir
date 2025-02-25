@@ -288,14 +288,17 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
 TEST_F(OpModelTest, Reshape) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
-  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout =
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
       CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1 =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = ReshapeOpInterface::getOpConstraints(
-      tensorShape, inputLayout, {workerCoresN300 * 4, 256});
+      tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cb_size, peak_size, output_size] = constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
@@ -303,7 +306,20 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_EQ(peak_size, 0);
 
   auto runtimeExp = ReshapeOpInterface::getOpRuntime(
-      tensorShape, inputLayout, {workerCoresN300 * 4, 256});
+      tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = ReshapeOpInterface::getOpConstraints(
+      tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 262144);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  runtimeExp = ReshapeOpInterface::getOpRuntime(
+      tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
