@@ -93,13 +93,9 @@ struct ConvertTTNNToEmitCPass
 
     // Unwrap device_module into top-level ModuleOp (if present)
     {
-      // Create a nested pass manager for the current operation
       OpPassManager pm(ModuleOp::getOperationName());
-
-      // Add your custom pass
       pm.addPass(tt::createTTUnwrapDeviceModulePass());
 
-      // Run the nested pass manager on the current operation
       if (failed(runPipeline(pm, module))) {
         signalPassFailure();
         return;
