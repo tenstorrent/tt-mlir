@@ -1309,6 +1309,7 @@ public:
         mlir::cast<RankedTensorType>(adaptor.getInputs().front().getType());
     RankedTensorType rhsType =
         mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
+
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
           srcOp, adaptor.getInputs().front(), adaptor.getInputs().back());
