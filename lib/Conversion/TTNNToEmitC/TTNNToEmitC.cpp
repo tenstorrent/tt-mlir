@@ -1277,7 +1277,7 @@ public:
 };
 } // namespace
 
-// Module Op conversion pattern
+// ModuleOp conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
 // ttmlir-translate would complain when translating to C++ if there were any
@@ -1300,6 +1300,73 @@ public:
         srcOp->removeAttr(attr.getName());
       }
     });
+
+    return success();
+  }
+};
+} // namespace
+
+// DeviceModuleOp conversion pattern
+//
+// Converts tt::DeviceModuleOp to plan mlir::ModuleOp so that ttmlir-translate
+// tool can convert to cpp using --mlir-to-cpp translation pass.
+//
+namespace {
+class TTDeviceModuleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::DeviceModuleOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::DeviceModuleOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::DeviceModuleOp deviceModuleOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Create a new mlir::ModuleOp
+    auto newModuleOp = rewriter.create<mlir::ModuleOp>(deviceModuleOp.getLoc());
+
+    // Get the source region (which might have multiple blocks)
+    auto &oldRegion = deviceModuleOp.getBodyRegion();
+    auto &newRegion = newModuleOp.getBodyRegion();
+
+    if (!oldRegion.empty()) {
+      Block *entryBlock =
+          &newRegion.emplaceBlock(); // Ensure ModuleOp has a block
+
+      for (Block &block : oldRegion) {
+        // Move all operations from each old block into the single block of
+        // newRegion
+        entryBlock->getOperations().splice(entryBlock->end(),
+                                           block.getOperations());
+      }
+    }
+
+    // Erase the old operation after moving its content
+    rewriter.eraseOp(deviceModuleOp);
+
+    return success();
+  }
+};
+} // namespace
+
+// CPUModuleOp conversion pattern
+//
+// Deletes tt::CPUModuleOp as it cannot be (subsequently) converted to C++ code.
+//
+namespace {
+class TTCPUModuleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::CPUModuleOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::CPUModuleOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::CPUModuleOp cpuModuleOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.eraseOp(cpuModuleOp);
 
     return success();
   }
@@ -1456,9 +1523,11 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<GetTupleElementOpConversionPattern>(typeConverter, ctx);
   patterns.add<TupleOpConversionPattern>(typeConverter, ctx);
 
-  // Module op
+  // Module ops
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TTDeviceModuleOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TTCPUModuleOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc
 
