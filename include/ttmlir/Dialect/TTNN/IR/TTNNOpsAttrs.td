@@ -96,6 +96,53 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let genVerifyDecl = 1;
 }
 
+def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
+  let summary = "TTNN Conv2dConfig attribute";
+  let description = [{
+    TTNN conv2d config attribute
+  }];
+
+  let parameters = (ins
+                        "DataType":$dtype,
+                        "DataType":$weightsDtype,
+                        "StringAttr":$activation,
+                        "IntegerAttr":$inputChannelsAlignment,
+                        "BoolAttr":$deallocateActivation,
+                        "BoolAttr":$reallocateHaloOutput,
+                        "IntegerAttr":$actBlockHOverride,
+                        "IntegerAttr":$actBlockWDiv,
+                        "BoolAttr":$reshardIfNotOptimal,
+                        "BoolAttr":$overrideShardingConfig,
+                        OptionalParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$shardLayout,
+                        // TODO: Finish adding this attribute https://github.com/tenstorrent/tt-mlir/issues/2130
+                        OptionalParameter<"Attribute", "TTNN core grid">:$coreGrid,
+                        "BoolAttr":$transposeShards,
+                        "Layout":$outputLayout,
+                        "BoolAttr":$enableActDoubleBuffer,
+                        "BoolAttr":$enableWeightsDoubleBuffer,
+                        "BoolAttr":$enableSplitReader,
+                        "BoolAttr":$enableSubblockPadding);
+
+let assemblyFormat = "`<` `dtype` `=` $dtype `,` "
+                     "`weightsDtype` `=` $weightsDtype `,` "
+                     "`activation` `=` $activation `,` "
+                     "`inputChannelsAlignment` `=` $inputChannelsAlignment `,` "
+                     "`deallocateActivation` `=` $deallocateActivation `,` "
+                     "`reallocateHaloOutput` `=` $reallocateHaloOutput `,` "
+                     "`actBlockHOverride` `=` $actBlockHOverride `,` "
+                     "`actBlockWDiv` `=` $actBlockWDiv `,` "
+                     "`reshardIfNotOptimal` `=` $reshardIfNotOptimal `,` "
+                     "`overrideShardingConfig` `=` $overrideShardingConfig `,` "
+                     "(`shardLayout` `=` $shardLayout^ `,`)? "
+                     "(`coreGrid` `=` $coreGrid^ `,`)? "
+                     "`transposeShards` `=` $transposeShards `,` "
+                     "`outputLayout` `=` $outputLayout `,` "
+                     "`enableActDoubleBuffer` `=` $enableActDoubleBuffer `,` "
+                     "`enableWeightsDoubleBuffer` `=` $enableWeightsDoubleBuffer `,` "
+                     "`enableSplitReader` `=` $enableSplitReader `,` "
+                     "`enableSubblockPadding` `=` $enableSubblockPadding `>`";
+}
+
 def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {
   let summary = "TTNN Mesh Shape";
   let description = [{

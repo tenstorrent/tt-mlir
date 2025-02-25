@@ -11,7 +11,7 @@ module @ReshapeTest attributes {} {
     %2 = tensor.empty() : tensor<2x2x7x7x384xf32>
     %3 = "ttir.reshape"(%1, %2) <{shape = [2 : i32, 2 : i32, 7 : i32, 7 : i32, 384 : i32]}> : (tensor<4x49x384xf32>, tensor<2x2x7x7x384xf32>) -> tensor<2x2x7x7x384xf32>
     %4 = tensor.empty() : tensor<2x7x2x7x384xf32>
-    // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
+    // CHECK: = "ttnn.transpose"
     %5 = "ttir.transpose"(%3, %4) <{dim0 = -4 : si32, dim1 = -3 : si32}> : (tensor<2x2x7x7x384xf32>, tensor<2x7x2x7x384xf32>) -> tensor<2x7x2x7x384xf32>
     %6 = tensor.empty() : tensor<196x384xf32>
     %7 = "ttir.reshape"(%5, %6) <{shape = [196 : i32, 384 : i32]}> : (tensor<2x7x2x7x384xf32>, tensor<196x384xf32>) -> tensor<196x384xf32>

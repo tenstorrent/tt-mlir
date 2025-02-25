@@ -1104,15 +1104,12 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
                          I32Attr:$batch_size,
                          I32Attr:$input_height,
                          I32Attr:$input_width,
-                         I32Attr:$kernel_height,
-                         I32Attr:$kernel_width,
-                         I32Attr:$stride_height,
-                         I32Attr:$stride_width,
-                         I32Attr:$padding_height,
-                         I32Attr:$padding_width,
-                         I32Attr:$dilation_height,
-                         I32Attr:$dilation_width,
-                         I32Attr:$groups);
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         I32Attr:$groups,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
 
     let results = (outs AnyRankedTensor:$result);
 
