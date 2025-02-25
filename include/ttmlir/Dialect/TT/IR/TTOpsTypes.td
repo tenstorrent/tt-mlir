@@ -474,6 +474,25 @@ def TT_MeshShardTypeAttr : EnumAttr<TT_Dialect, TT_MeshShardType, "shard_type"> 
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TT_MeshAttr : TT_Attr<"Mesh", "mesh", []> {
+  let summary = "Mesh reference attribute in TT dialect.";
+  let description = [{
+    Describes a mesh config including name and shape.
+  }];
+  let parameters = (ins "StringAttr":$name,
+                        ArrayRefParameter<"int64_t">:$shape);
+  let assemblyFormat = "`<` $name `=` custom<DimensionList>($shape) `>`";
+}
+
+def TT_MeshesAttr : TT_Attr<"Meshes", "meshes"> {
+  let summary = "TT system meshes attribute";
+  let description = [{
+    TT system meshes attribute that can include multiple mesh configs used for networks.
+  }];
+  let parameters = (ins ArrayRefParameter<"MeshAttr">:$meshes);
+  let assemblyFormat = "`<` `[` $meshes `]` `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//
@@ -518,5 +537,9 @@ def TT_Device : TT_Type<"Device", "device", []> {
 def TT_Tuple : NestedTupleOf<[AnyRankedTensor]>;
 
 def TT_TupleMemberType : AnyTypeOf<[AnyRankedTensor]>;
+
+def TT_ArgumentTypeAttr : EnumAttr<TT_Dialect, TT_ArgumentType, "argument_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
 
 #endif

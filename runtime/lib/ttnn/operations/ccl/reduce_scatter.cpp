@@ -23,11 +23,16 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   // config: e.g., For 2x4 mesh, clusterAxis (1) means reduction in horizontal
   // direction such as 0,1,2,3 and 4,5,6,7.
   int32_t clusterAxis = 1;
-  LOG_ASSERT(input.storage_type() == ::tt::tt_metal::StorageType::MULTI_DEVICE,
+  LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::MULTI_DEVICE,
              "Input of reduce_scatter must be MULTIDEVICE. id:",
              op->in()->global_id());
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(outputMemoryConfig.has_value(),
+             "Memory config must be exist for device tensors");
+
   ::ttnn::MeshDevice &meshDevice =
       context.getSubMesh(op->device()->global_id());
   ::ttnn::Tensor out = ::ttnn::reduce_scatter(

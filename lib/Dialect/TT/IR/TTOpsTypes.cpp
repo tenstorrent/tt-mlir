@@ -1205,35 +1205,7 @@ uint64_t TileType::getSizeBytes() const {
 }
 
 mlir::Type TileType::getElementType() const {
-  switch (getDataType()) {
-  case DataType::Float32:
-    return FloatType::getF32(getContext());
-  case DataType::Float16:
-    return FloatType::getF16(getContext());
-  case DataType::BFloat16:
-    return FloatType::getBF16(getContext());
-  case DataType::BFP_Float8:
-    return FloatType::getF16(getContext());
-  case DataType::BFP_BFloat8:
-    return FloatType::getBF16(getContext());
-  case DataType::BFP_Float4:
-    return FloatType::getF16(getContext());
-  case DataType::BFP_BFloat4:
-    return FloatType::getBF16(getContext());
-  case DataType::BFP_Float2:
-    return FloatType::getF16(getContext());
-  case DataType::BFP_BFloat2:
-    return FloatType::getBF16(getContext());
-  case DataType::UInt32:
-    return IntegerType::get(getContext(), 32,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::UInt16:
-    return IntegerType::get(getContext(), 16,
-                            IntegerType::SignednessSemantics::Unsigned);
-  case DataType::UInt8:
-    return IntegerType::get(getContext(), 8,
-                            IntegerType::SignednessSemantics::Unsigned);
-  }
+  return dataTypeToElementType(getContext(), getDataType());
 }
 
 SystemDescAttr mlir::tt::getCurrentScopeSystemDesc(mlir::Operation *op) {

@@ -13,6 +13,7 @@ from . import utils, mlir
 import pandas as pd
 import threading
 import queue
+import json
 
 
 class ExplorerRunException(Exception):
@@ -139,6 +140,17 @@ class ModelRunner:
             raise FileNotFoundError(f"Performance file {op_perf_file} not found.")
 
         return pd.read_csv(op_perf_file)
+
+    def get_golden_results(self, model_path):
+        accuracy_res = f"{self.model_state[model_path].model_output_dir}/run/program_0/golden_results.json"
+
+        if not os.path.exists(accuracy_res):
+            raise FileNotFoundError(f"Golden results not found @ {accuracy_res}")
+
+        with open(accuracy_res, "r") as f:
+            res = json.load(f)
+
+        return res
 
     def run_in_subprocess(self, command):
         self.log(f"Running command:\n{' '.join(command)}\n")
@@ -304,9 +316,16 @@ class ModelRunner:
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
 
         if ttrt_process.returncode != 0:
-            error = "Error while running TTRT perf"
-            self.log(error, severity=logging.error)
-            raise ExplorerRunException(error)
+            # 42 is the specific code for a test error instead of ttrt
+            if ttrt_process.returncode == 42:
+                error = (
+                    "Error while running TTRT Tests... Continuing Explorer Execution"
+                )
+                self.log(error, severity=logging.error)
+            else:
+                error = "Error while running TTRT perf"
+                self.log(error, severity=logging.error)
+                raise ExplorerRunException(error)
 
         perf = self.get_perf_trace(model_path)
         columns = [

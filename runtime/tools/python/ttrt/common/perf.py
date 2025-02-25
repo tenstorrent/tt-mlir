@@ -334,9 +334,7 @@ class Perf:
         tracy_file_path = "tracy_profile_log_host.tracy"
         tracy_ops_times_file_path = "tracy_ops_times.csv"
         tracy_ops_data_file_path = "tracy_ops_data.csv"
-        profiler_device_side_log_path = (
-            f"{os.getcwd()}/generated/profiler/.logs/profile_log_device.csv"
-        )
+        profiler_device_side_log_path = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/profile_log_device.csv"
         profiler_csv_file_path = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/reports/ops_perf_results.csv"
 
         self.file_manager.remove_directory(profiler_logs_dir)
@@ -469,11 +467,6 @@ class Perf:
                         profiler_logs_dir, tracy_ops_data_file_path
                     )
 
-                    if not self["--host-only"]:
-                        self.file_manager.copy_file(
-                            profiler_logs_dir, profiler_device_side_log_path
-                        )
-
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
                     self.artifacts.save_binary(bin, self.query)
@@ -535,12 +528,17 @@ class Perf:
 
                     for result in test_result:
                         if result["result"] != "pass":
+                            if result["result"] == "test_error":
+                                raise TTRTTestException(str(result["exception"]))
                             raise Exception(f'{result["exception"]}')
 
                 except Exception as e:
+                    result = "error"
+                    if isinstance(e, TTRTTestException):
+                        result = "test_error"
                     test_result = {
                         "file_path": bin.file_path,
-                        "result": "error",
+                        "result": result,
                         "exception": str(e),
                         "log_file": self.logger.file_name,
                         "artifacts": self.artifacts.artifacts_folder_path,
@@ -550,7 +548,7 @@ class Perf:
                         f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
                     )
                     self.results.add_result(test_result)
-                    bin.test_result = "error"
+                    bin.test_result = result
                     traceback.print_exc()
                     continue
 

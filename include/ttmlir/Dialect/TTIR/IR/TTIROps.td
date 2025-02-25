@@ -14,6 +14,7 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
@@ -140,6 +141,8 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_AllocOp : TTIR_Op<"alloc"> {
@@ -1653,7 +1656,9 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1663,7 +1668,7 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizeMethod = 1;
+    let hasCanonicalizer = 1;
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
@@ -1675,7 +1680,9 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1684,6 +1691,8 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
@@ -1872,6 +1881,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
 
 //===----------------------------------------------------------------------===//
 // TTIR region ops (ops that may appear inside of ttir.generic region)
+//    DEPRECATED: Generic region ops are moving to TTIRGenericRegionOps.td
 //===----------------------------------------------------------------------===//
 
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
@@ -1887,15 +1897,6 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
                          Variadic<AnyRankedTensorOrMemRef>:$inputs,
                          Variadic<AnyRankedTensorOrMemRef>:$outputs);
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
-}
-
-def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
-    let summary = "Yield op.";
-    let description = [{
-      Yield operation, this is required by MLIR to mark the end of a dispatch region.
-    }];
-
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1928,7 +1929,7 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
       AllReduce op.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          I64ElementsAttr:$replica_groups,
                          SI32Attr:$dim,
@@ -1937,7 +1938,7 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
                          TT_ReduceTypeAttr:$reduce_type
     );
 
-    let results = (outs Variadic<AnyRankedTensor>:$results);
+    let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }

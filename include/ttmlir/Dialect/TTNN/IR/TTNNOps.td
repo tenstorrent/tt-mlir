@@ -187,6 +187,17 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
     let description = [{
       Eltwise where operation.
     }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::Operation::operand_range inputs = getInputs();
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
+                                                                        inputs);
+      }
+    }];
 }
 
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
@@ -1035,7 +1046,10 @@ def TTNN_LinearOp : TTNN_NamedDPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -1052,7 +1066,10 @@ def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul",
       > {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -1505,6 +1522,29 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]> {
+    let summary = "Constant op.";
+    let description = [{
+      Produces tensor filled with given constant value.
+
+      Examples:
+        %0 = "ttnn.constant"() {value = dense<[[3, 4, 2], [1, 7, 8]]> : tensor<2x3xui16>} : () -> tensor<2x3xui16>
+        // %0: [[3, 4, 2], [1, 7, 8]]
+        %1 = "ttnn.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+        // %1: [0.2, 1.3]
+    }];
+
+    let arguments = (ins ElementsAttr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
+      }
+    }];
 }
 
 #endif

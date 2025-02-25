@@ -27,8 +27,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
 #include <optional>
@@ -790,7 +788,7 @@ public:
 
     ttnn::MemoryConfigAttr memcfg = nullptr;
     if (ttnn::TTNNLayoutAttr layoutAttr =
-            mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+            mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
                 op.getResult().getType().getEncoding());
         layoutAttr.getBufferType() != ttnn::BufferType::SystemMemory) {
       memcfg = ttnn::MemoryConfigAttr::get(
@@ -879,22 +877,29 @@ public:
       return legalityResult;
     }
 
+    // If the value is a splat (i.e. single value), we can use the ttnn::FullOp
+    // to create the tensor.
     if (valueAttr.isSplat()) {
-      Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-      float fillValue =
-          valueAttr.getElementType().isInteger()
-              ? getFloatFromIntegerValue(valueAttr)
-              : valueAttr.getSplatValue<mlir::APFloat>().convertToFloat();
+      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-      ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
+      mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
+      if (valueAttr.getElementType().isInteger()) {
+        fillValue.convertFromAPInt(valueAttr.getSplatValue<llvm::APInt>(),
+                                   valueAttr.getElementType().isSignedInteger(),
+                                   llvm::RoundingMode::TowardZero);
+      } else {
+        fillValue = valueAttr.getSplatValue<mlir::APFloat>();
+      }
+
       rewriter.replaceOpWithNewOp<ttnn::FullOp>(
           op, this->getTypeConverter()->convertType(op.getType()), device,
-          fillValueAttr);
+          rewriter.getF32FloatAttr(fillValue.convertToFloat()));
 
+      // Otherwise, we use the ttnn::ConstantOp to create the tensor.
     } else {
-      return rewriter.notifyMatchFailure(
-          op, "TTNN doesn't currently support tensor creation from multiple "
-              "given values (issue #685)");
+      rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getValue());
     }
 
     return success();
@@ -912,33 +917,6 @@ private:
 
     return success();
   }
-
-  float getFloatFromIntegerValue(mlir::ElementsAttr valueAttr) const {
-    size_t bitWidth = valueAttr.getElementType().getIntOrFloatBitWidth();
-    Type elementType = valueAttr.getElementType();
-
-    switch (bitWidth) {
-    case 1:
-      return static_cast<float>(valueAttr.getSplatValue<bool>());
-    case 8:
-      return elementType.isUnsignedInteger()
-                 ? static_cast<float>(valueAttr.getSplatValue<uint8_t>())
-                 : static_cast<float>(valueAttr.getSplatValue<int8_t>());
-    case 16:
-      return elementType.isUnsignedInteger()
-                 ? static_cast<float>(valueAttr.getSplatValue<uint16_t>())
-                 : static_cast<float>(valueAttr.getSplatValue<int16_t>());
-    case 32:
-      return elementType.isUnsignedInteger()
-                 ? static_cast<float>(valueAttr.getSplatValue<uint32_t>())
-                 : static_cast<float>(valueAttr.getSplatValue<int32_t>());
-    case 64:
-      return elementType.isUnsignedInteger()
-                 ? static_cast<float>(valueAttr.getSplatValue<uint64_t>())
-                 : static_cast<float>(valueAttr.getSplatValue<int64_t>());
-    }
-    assert(false && "Unsupported integer type.");
-  }
 };
 } // namespace
 
@@ -952,7 +930,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getBias(), adaptor.getOutput());
+        adaptor.getB(), adaptor.getBias(), adaptor.getOutput(),
+        adaptor.getTransposeA(), adaptor.getTransposeB());
     return success();
   }
 };
@@ -969,7 +948,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getOutput());
+        adaptor.getB(), adaptor.getOutput(), adaptor.getTransposeA(),
+        adaptor.getTransposeB());
     return success();
   }
 };
@@ -1321,7 +1301,7 @@ public:
   using OpConversionPattern<ttir::AllReduceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::AllReduceOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::AllReduceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
@@ -1330,10 +1310,10 @@ public:
     // pass of reduce_scatter output and all_gather input
     int32_t scatter_num =
         replicaGroupsShape[scatter_dim % replicaGroupsShape.size()];
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
-        op, this->getTypeConverter()->convertType(op.getType(0)),
-        adaptor.getInputs().front(), device, scatter_dim, scatter_num,
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        adaptor.getInput(), device, scatter_dim, scatter_num,
         adaptor.getReduceType());
 
     return success();

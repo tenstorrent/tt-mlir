@@ -362,7 +362,7 @@ static CoreType toCoreType(::tt::target::metal::CoreType coreType) {
 }
 
 static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
-    ::tt::target::CBRef const *cbRef,
+    ::tt::target::metal::CBRef const *cbRef,
     std::unordered_map<std::uint32_t,
                        std::shared_ptr<::tt::tt_metal::Buffer>> const
         &buffers) {
@@ -387,8 +387,8 @@ static void processRuntimeArgs(
     ::tt::tt_metal::Program &program,
     ::tt::target::metal::KernelDesc const *kernelDesc,
     ::tt::tt_metal::KernelHandle &handle, CoreRangeSet &coreRange,
-    const ::flatbuffers::Vector<::flatbuffers::Offset<tt::target::TensorRef>>
-        *operands,
+    const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<tt::target::metal::TensorRef>> *operands,
     std::unordered_map<std::uint32_t,
                        std::shared_ptr<::tt::tt_metal::Buffer>> const
         &buffers) {
@@ -460,7 +460,7 @@ void CQExecutor::execute(
     ::tt::tt_metal::KernelHandle handle =
         ::tt::tt_metal::CreateKernel(program, fileName, coreRangeSet, config);
 
-    for (::tt::target::CBRef const *cbRef : *kernelDesc->cbs()) {
+    for (::tt::target::metal::CBRef const *cbRef : *kernelDesc->cbs()) {
       if (createdCBs.count(cbRef->desc()->port())) {
         // Since kernels may share the same CB, we only need to create it once.
         continue;
@@ -549,7 +549,7 @@ void CQExecutor::execute(
 void CQExecutor::execute(
     ::tt::target::metal::CreateEventCommand const *command) {
   ZoneScopedN("CreateEventCommand");
-  LOG_ASSERT(not events.contains(command->ref()->global_id()));
+  LOG_ASSERT(!events.contains(command->ref()->global_id()));
   events[command->ref()->global_id()] =
       std::make_shared<::tt::tt_metal::Event>();
 }

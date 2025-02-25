@@ -14,6 +14,7 @@
 #include "ttmlir/Target/TTMetal/binary_generated.h"
 #include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Target/TTMetal/program_generated.h"
+#include "ttmlir/Target/TTMetal/types_generated.h"
 
 #pragma clang diagnostic pop
 

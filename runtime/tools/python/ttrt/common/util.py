@@ -698,6 +698,22 @@ class SystemDesc(Flatbuffer):
         self.test_result = "pass"
 
 
+class TTRTTestException(Exception):
+    """ "Base class for all "Test Specific" Errors in TTRT"""
+
+    pass
+
+
+class PCCErrorException(TTRTTestException):
+    """Class to store PCC Comparison Errors"""
+
+    pass
+
+
+# Define a constant TTRT_TEST_ERROR_RETURN_CODE
+TTRT_TEST_EXCEPTION_RETURN_CODE = 42
+
+
 class Results:
     def __init__(self, logger, file_manager):
         self.logger = logger
@@ -750,11 +766,17 @@ class Results:
         tree.write(xml_file_path, encoding="utf-8", xml_declaration=True)
 
     def get_result_code(self):
+        return_code = 0
         for entry in self.results:
+            res = entry.get("result")
             if entry.get("result") != "pass":
-                return 1
+                if res == "test_error":
+                    return_code = TTRT_TEST_EXCEPTION_RETURN_CODE
+                else:
+                    # Prioritize severity of return_code 1 if any non-test errors are encountered
+                    return 1
 
-        return 0
+        return return_code
 
     def get_results(self):
         return self.results

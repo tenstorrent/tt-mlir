@@ -4,11 +4,12 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/InitAllDialects.h"
 #include "mlir/Interfaces/FoldInterfaces.h"
 #include "mlir/Transforms/InliningUtils.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -94,8 +95,11 @@ void TTIRDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
       >();
+  addOperations<
+#define GET_OP_LIST
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"
+      >();
   addInterfaces<TTIRInlinerInterface, TTIRDialectFoldInterface>();
-  // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"

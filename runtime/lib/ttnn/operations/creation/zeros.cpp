@@ -24,7 +24,7 @@ void run(const ::tt::target::ttnn::ZerosOp *op, ProgramContext &context) {
   std::optional<::ttnn::Layout> layout = std::optional<::ttnn::Layout>();
   std::optional<std::reference_wrapper<::ttnn::IDevice>> device = std::nullopt;
   std::optional<::ttnn::MemoryConfig> memoryConfig =
-      std::optional<::ttnn::MemoryConfig>();
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   if (op->dtype()) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
@@ -41,10 +41,6 @@ void run(const ::tt::target::ttnn::ZerosOp *op, ProgramContext &context) {
                    targetDevice),
                "ttnn::zeros does not support MeshDevice.");
     device = std::get<std::reference_wrapper<::ttnn::IDevice>>(targetDevice);
-  }
-
-  if (op->memcfg()) {
-    memoryConfig = utils::createMemoryConfig(op->memcfg(), op->out());
   }
 
   ::ttnn::Tensor out =

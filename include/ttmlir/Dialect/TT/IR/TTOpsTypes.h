@@ -110,6 +110,39 @@ inline DataType elementTypeToDataType(Type elementType) {
   }
   return dtype;
 }
+
+inline Type dataTypeToElementType(::mlir::MLIRContext *context,
+                                  DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return Float32Type::get(context);
+  case DataType::Float16:
+    return Float16Type::get(context);
+  case DataType::BFloat16:
+    return BFloat16Type::get(context);
+  case DataType::BFP_Float8:
+    return Float16Type::get(context);
+  case DataType::BFP_BFloat8:
+    return BFloat16Type::get(context);
+  case DataType::BFP_Float4:
+    return Float16Type::get(context);
+  case DataType::BFP_BFloat4:
+    return BFloat16Type::get(context);
+  case DataType::BFP_Float2:
+    return Float16Type::get(context);
+  case DataType::BFP_BFloat2:
+    return BFloat16Type::get(context);
+  case DataType::UInt32:
+    return IntegerType::get(context, 32,
+                            IntegerType::SignednessSemantics::Unsigned);
+  case DataType::UInt16:
+    return IntegerType::get(context, 16,
+                            IntegerType::SignednessSemantics::Unsigned);
+  case DataType::UInt8:
+    return IntegerType::get(context, 8,
+                            IntegerType::SignednessSemantics::Unsigned);
+  }
+}
 } // namespace mlir::tt
 
 #define GET_ATTRDEF_CLASSES

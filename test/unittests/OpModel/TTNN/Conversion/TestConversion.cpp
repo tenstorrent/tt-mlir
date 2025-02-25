@@ -449,14 +449,20 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ToMemoryConfig, MlirToTtnnConversionMemoryConfig,
-    ::testing::Combine(
-        ::testing::Values(mlir::tt::ttnn::BufferType::DRAM,
-                          mlir::tt::ttnn::BufferType::L1),
-        ::testing::Values(mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
-                          mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
-                          mlir::tt::ttnn::TensorMemoryLayout::WidthSharded,
-                          mlir::tt::ttnn::TensorMemoryLayout::BlockSharded)));
+    ToMemoryConfig, MlirToTtnnConversionMemoryConfig, ::testing::ValuesIn([] {
+      using mlir::tt::ttnn::BufferType;
+      using mlir::tt::ttnn::TensorMemoryLayout;
+
+      std::vector<std::tuple<BufferType, TensorMemoryLayout>>
+          validCombinations = {
+              {BufferType::DRAM,
+               TensorMemoryLayout::Interleaved}, // DRAM only with Interleaved
+              {BufferType::L1, TensorMemoryLayout::Interleaved},
+              {BufferType::L1, TensorMemoryLayout::HeightSharded},
+              {BufferType::L1, TensorMemoryLayout::WidthSharded},
+              {BufferType::L1, TensorMemoryLayout::BlockSharded}};
+      return validCombinations;
+    }()));
 
 //================================================================================
 // getTensorLayout

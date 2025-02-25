@@ -16,12 +16,10 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   DEBUG_ASSERT(inputTensor.is_allocated());
   DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(inputTensor.storage_type()),
                "Calling ttnn::to_device on a device tensor");
-  std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
 
-  if (op->memcfg()) {
-    memoryConfig =
-        std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
-  }
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());
   ::ttnn::Tensor out = std::visit(

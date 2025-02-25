@@ -14,15 +14,15 @@ namespace tt::runtime::ttnn {
 LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
                                  const LayoutDesc &outputDesc)
     : inputDesc(inputDesc), outputDesc(outputDesc) {
-  shouldTilize = (inputDesc.layout == ::ttnn::Layout::ROW_MAJOR and
+  shouldTilize = (inputDesc.layout == ::ttnn::Layout::ROW_MAJOR &&
                   outputDesc.layout == ::ttnn::Layout::TILE);
-  shouldUntilize = (inputDesc.layout == ::ttnn::Layout::TILE and
+  shouldUntilize = (inputDesc.layout == ::ttnn::Layout::TILE &&
                     outputDesc.layout == ::ttnn::Layout::ROW_MAJOR);
   shouldTypecast = (inputDesc.dataType != outputDesc.dataType);
-  shouldToDevice = (inputDesc.isOnHost() and outputDesc.isOnDevice());
-  shouldToMemoryConfig = (not shouldToDevice and outputDesc.isOnDevice() and
+  shouldToDevice = (inputDesc.isOnHost() && outputDesc.isOnDevice());
+  shouldToMemoryConfig = (!shouldToDevice && outputDesc.isOnDevice() &&
                           (inputDesc.memoryConfig != outputDesc.memoryConfig));
-  shouldFromDevice = (inputDesc.isOnDevice() and outputDesc.isOnHost());
+  shouldFromDevice = (inputDesc.isOnDevice() && outputDesc.isOnHost());
 }
 
 ::ttnn::Tensor LayoutConverter::convertTensorLayout(
@@ -48,7 +48,7 @@ LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
 }
 
 ::ttnn::Tensor LayoutConverter::typecastIfNeeded(const ::ttnn::Tensor &input) {
-  if (not shouldTypecast) {
+  if (!shouldTypecast) {
     return input;
   }
   if (utils::isOnHost(input.storage_type())) {
@@ -61,7 +61,7 @@ LayoutConverter::LayoutConverter(const LayoutDesc &inputDesc,
 LayoutConverter::toDeviceIfNeeded(const ::ttnn::Tensor &input,
                                   std::optional<DeviceVariant> targetDevice,
                                   bool force) {
-  if (shouldToDevice or force) {
+  if (shouldToDevice || force) {
     LOG_ASSERT(targetDevice.has_value());
     return std::visit(
         [&](auto &&targetDevice) -> ::ttnn::Tensor {
@@ -106,14 +106,14 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and outputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize && outputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = toLayoutIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
     return out;
   }
 
-  if (shouldTilize and outputDesc.dataType != ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize && outputDesc.dataType != ::ttnn::DataType::BFLOAT16) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
     out = toMemoryConfigIfNeeded(out);
@@ -150,7 +150,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize && inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = toLayoutIfNeeded(out);
     out = typecastIfNeeded(out);
@@ -158,7 +158,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and outputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize && outputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
     out = toLayoutIfNeeded(input);
@@ -166,7 +166,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
+  if (shouldTilize && inputDesc.dataType != ::ttnn::DataType::BFLOAT16 &&
       outputDesc.dataType != ::ttnn::DataType::BFLOAT16) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toLayoutIfNeeded(out);
@@ -180,19 +180,19 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
 ::ttnn::Tensor LayoutConverter::convertHostTensorLayout(
     const ::ttnn::Tensor &input, std::optional<DeviceVariant> targetDevice) {
-  bool shouldToLayout = (shouldTilize or shouldUntilize);
-  LOG_ASSERT(not shouldToDevice or targetDevice.has_value(),
+  bool shouldToLayout = (shouldTilize || shouldUntilize);
+  LOG_ASSERT(!shouldToDevice || targetDevice.has_value(),
              "Target device must be provided for ToDevice");
-  if (not shouldToLayout and not shouldTypecast) {
+  if (!shouldToLayout && !shouldTypecast) {
     return handleHostInputNoLayoutNoTypecast(input, targetDevice);
   }
-  if (shouldToLayout and not shouldTypecast) {
+  if (shouldToLayout && !shouldTypecast) {
     return handleHostInputLayoutNoTypecast(input, targetDevice);
   }
-  if (not shouldToLayout and shouldTypecast) {
+  if (!shouldToLayout && shouldTypecast) {
     return handleHostInputNoLayoutTypecast(input, targetDevice);
   }
-  if (shouldToLayout and shouldTypecast) {
+  if (shouldToLayout && shouldTypecast) {
     return handleHostInputLayoutTypecast(input, targetDevice);
   }
   LOG_FATAL("Unreachable code path");
@@ -207,13 +207,13 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
 ::ttnn::Tensor LayoutConverter::handleDeviceInputLayoutNoTypecast(
     const ::ttnn::Tensor &input) {
-  if (shouldUntilize and shouldFromDevice) {
+  if (shouldUntilize && shouldFromDevice) {
     ::ttnn::Tensor out = fromDeviceIfNeeded(input);
     out = toLayoutIfNeeded(out);
     return out;
   }
 
-  if (shouldUntilize and not shouldFromDevice) {
+  if (shouldUntilize && !shouldFromDevice) {
     LOG_WARNING("Currently no constraint checking for on-device untilize.");
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toMemoryConfigIfNeeded(out);
@@ -222,7 +222,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
   /* If we should tilize and the input data type is bfloat16, tilize on device
    */
-  if (shouldTilize and inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize && inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toMemoryConfigIfNeeded(out);
     out = fromDeviceIfNeeded(out);
@@ -231,15 +231,15 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
   /* If we should tilize and the input data type is not bfloat16, tilize on
    * host */
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
+  if (shouldTilize && inputDesc.dataType != ::ttnn::DataType::BFLOAT16 &&
       shouldFromDevice) {
     ::ttnn::Tensor out = fromDeviceIfNeeded(input);
     out = toLayoutIfNeeded(out);
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
-      not shouldFromDevice) {
+  if (shouldTilize && inputDesc.dataType != ::ttnn::DataType::BFLOAT16 &&
+      !shouldFromDevice) {
     LOG_WARNING("Currently no constraint checking for on-device tilize.");
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toMemoryConfigIfNeeded(out);
@@ -258,13 +258,13 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (not inputDesc.isTilized() and shouldFromDevice) {
+  if (!inputDesc.isTilized() && shouldFromDevice) {
     ::ttnn::Tensor out = fromDeviceIfNeeded(input);
     out = typecastIfNeeded(out);
     return out;
   }
 
-  if (not inputDesc.isTilized() and not shouldFromDevice) {
+  if (!inputDesc.isTilized() && !shouldFromDevice) {
     LOG_WARNING("Currently no constraint checking for on-device typecast.");
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toMemoryConfigIfNeeded(out);
@@ -275,14 +275,14 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
 ::ttnn::Tensor
 LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
-  if (shouldUntilize and shouldFromDevice) {
+  if (shouldUntilize && shouldFromDevice) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = fromDeviceIfNeeded(input);
     out = toLayoutIfNeeded(out);
     return out;
   }
 
-  if (shouldUntilize and not shouldFromDevice) {
+  if (shouldUntilize && !shouldFromDevice) {
     LOG_WARNING("Currently no constraint checking for on-device untilize.");
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toLayoutIfNeeded(input);
@@ -290,7 +290,7 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize && inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = typecastIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
@@ -298,7 +298,7 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
+  if (shouldTilize && inputDesc.dataType != ::ttnn::DataType::BFLOAT16 &&
       shouldFromDevice) {
     ::ttnn::Tensor out = fromDeviceIfNeeded(input);
     out = toLayoutIfNeeded(out);
@@ -306,8 +306,8 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
-      not shouldFromDevice) {
+  if (shouldTilize && inputDesc.dataType != ::ttnn::DataType::BFLOAT16 &&
+      !shouldFromDevice) {
     LOG_WARNING("Currently no constraint checking for on-device tilize.");
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = typecastIfNeeded(out);
@@ -320,17 +320,17 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
 
 ::ttnn::Tensor
 LayoutConverter::convertDeviceTensorLayout(const ::ttnn::Tensor &input) {
-  bool shouldToLayout = (shouldTilize or shouldUntilize);
-  if (not shouldToLayout and not shouldTypecast) {
+  bool shouldToLayout = (shouldTilize || shouldUntilize);
+  if (!shouldToLayout && !shouldTypecast) {
     return handleDeviceInputNoLayoutNoTypecast(input);
   }
-  if (shouldToLayout and not shouldTypecast) {
+  if (shouldToLayout && !shouldTypecast) {
     return handleDeviceInputLayoutNoTypecast(input);
   }
-  if (not shouldToLayout and shouldTypecast) {
+  if (!shouldToLayout && shouldTypecast) {
     return handleDeviceInputNoLayoutTypecast(input);
   }
-  if (shouldToLayout and shouldTypecast) {
+  if (shouldToLayout && shouldTypecast) {
     return handleDeviceInputLayoutTypecast(input);
   }
   LOG_FATAL("Unreachable code path");
@@ -421,18 +421,19 @@ size_t ProgramContext::subMeshSize(uint32_t meshId) const {
   return *subMesh.get_device(physicalDeviceId);
 }
 
-::ttnn::IDevice &ProgramContext::getDeviceIndexFromSubMesh(uint32_t meshId,
-                                                           int deviceIndex) {
+::ttnn::IDevice &ProgramContext::getDeviceIndexFromSubMesh(
+    uint32_t meshId, ::tt::tt_metal::distributed::MeshCoordinate meshCoords) {
   LOG_ASSERT(subMeshes.contains(meshId));
   auto &subMesh = *subMeshes.at(meshId);
-  return *subMesh.get_device_index(deviceIndex);
+  return *subMesh.get_device(meshCoords);
 }
 
 DeviceVariant ProgramContext::getTargetDevice(uint32_t meshId) {
   LOG_ASSERT(subMeshes.contains(meshId));
   auto &subMesh = *subMeshes.at(meshId);
   if (subMesh.num_devices() == 1) {
-    return std::ref(*subMesh.get_device_index(0));
+    return std::ref(
+        *subMesh.get_device(::tt::tt_metal::distributed::MeshCoordinate(0, 0)));
   }
   return std::ref(subMesh);
 }

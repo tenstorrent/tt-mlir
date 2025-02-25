@@ -173,7 +173,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       ttnn::utils::createRankedTensorTypeWithEncoding(
           ttnn::utils::createRankedTensorTypeWithElementType(
               opResultType,
-              ttnn::utils::dataTypeToElementType(
+              mlir::tt::dataTypeToElementType(
                   rewriter.getContext(),
                   outputWorkaroundResults.tensorDataTypeResult.targetValue)),
           newOutputLayoutAttr);
@@ -475,8 +475,7 @@ private:
     // This configuration specifies that the rewriter should traverse the IR
     // in a top-down order.
     config.useTopDownTraversal = true;
-    if (failed(
-            applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
+    if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
       signalPassFailure();
       return;
     }

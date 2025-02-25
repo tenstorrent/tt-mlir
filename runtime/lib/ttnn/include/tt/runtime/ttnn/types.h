@@ -15,19 +15,21 @@ using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
                                    std::reference_wrapper<::ttnn::MeshDevice>>;
 
 struct LayoutDesc {
-  ::ttnn::BufferType bufferType;
+  ::ttnn::StorageType storageType;
   ::ttnn::Layout layout;
   ::ttnn::DataType dataType;
   std::optional<::ttnn::MemoryConfig> memoryConfig;
 
-  LayoutDesc(const ::ttnn::BufferType &bufferType, const ::ttnn::Layout &layout,
-             const ::ttnn::DataType &dataType,
+  LayoutDesc(const ::ttnn::StorageType &storageType,
+             const ::ttnn::Layout &layout, const ::ttnn::DataType &dataType,
              const std::optional<::ttnn::MemoryConfig> &memoryConfig)
-      : bufferType(bufferType), layout(layout), dataType(dataType),
+      : storageType(storageType), layout(layout), dataType(dataType),
         memoryConfig(memoryConfig) {}
 
   bool isOnHost() const {
-    return bufferType == ::ttnn::BufferType::SYSTEM_MEMORY;
+    return (storageType == ::ttnn::StorageType::OWNED) ||
+           (storageType == ::ttnn::StorageType::BORROWED) ||
+           (storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST);
   }
   bool isOnDevice() const { return !isOnHost(); }
 
@@ -165,7 +167,8 @@ public:
 
   ::ttnn::IDevice &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
 
-  ::ttnn::IDevice &getDeviceIndexFromSubMesh(uint32_t meshId, int deviceIndex);
+  ::ttnn::IDevice &getDeviceIndexFromSubMesh(
+      uint32_t meshId, ::tt::tt_metal::distributed::MeshCoordinate meshCoords);
 
   DeviceVariant getTargetDevice(uint32_t meshId);
 
