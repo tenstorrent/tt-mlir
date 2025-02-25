@@ -362,7 +362,8 @@ public:
           RankedTensorType::Builder(inputType).setShape(reshapedInputShape);
 
       ttnn::ReshapeOp preReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr);
+          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
+          /* memory_config */ nullptr);
 
       scatter_dim = scatter_dim + (4 - inputTypeShape.size());
 
@@ -395,9 +396,9 @@ public:
       ArrayAttr reshapedOutputShapeAttr = rewriter.getI32ArrayAttr(
           std::vector<int32_t>(outputTypeShape.begin(), outputTypeShape.end()));
 
-      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(op, Type(outputType),
-                                                   allGatherOp.getResult(),
-                                                   reshapedOutputShapeAttr);
+      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+          op, Type(outputType), allGatherOp.getResult(),
+          reshapedOutputShapeAttr, /* memory_config */ nullptr);
     } else {
       // TODO(wooseoklee): Once ttnn supports all_reduce op
       // (https://github.com/tenstorrent/tt-metal/issues/13835), we can convert

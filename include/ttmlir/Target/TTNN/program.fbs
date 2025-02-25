@@ -267,6 +267,7 @@ table ReshapeOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   shape: [int32];
+  memory_config: tt.target.ttnn.MemoryConfig;
 }
 
 table RepeatOp {
