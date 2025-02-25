@@ -5,6 +5,8 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/STLExtras.h"
@@ -317,6 +319,132 @@ struct EmitCTypeConverter<std::variant<First, Rest...>> {
     llvm_unreachable("Invalid variant type");
   }
 };
+
+inline std::string convert(ttnn::ShapeAttr attr) {
+  if (!attr) {
+    return "::std::nullopt";
+  }
+
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+
+  auto shape = attr.getShape();
+  rso << "::ttnn::Shape({";
+  llvm::interleaveComma(shape, rso);
+  rso << "})";
+
+  return buf;
+}
+
+inline std::string convert(tt::DataTypeAttr attr) {
+  if (!attr) {
+    return "::std::nullopt";
+  }
+
+  switch (attr.getValue()) {
+  case tt::DataType::BFloat16:
+    return "::ttnn::DataType::BFLOAT16";
+  case tt::DataType::Float32:
+    return "::ttnn::DataType::FLOAT32";
+  case tt::DataType::UInt32:
+    return "::ttnn::DataType::UINT32";
+  case tt::DataType::BFP_BFloat8:
+    return "::ttnn::DataType::BFLOAT8_B";
+  case tt::DataType::BFP_BFloat4:
+    return "::ttnn::DataType::BFLOAT4_B";
+  case tt::DataType::UInt8:
+    return "::ttnn::DataType::UINT8";
+  case tt::DataType::UInt16:
+    return "::ttnn::DataType::UINT16";
+  // TODO(svuckovic):
+  // Add support for INT32
+  //
+  // case tt::DataType::Int32:
+  //   return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::INT32");
+  case tt::DataType::Float16:
+  case tt::DataType::BFP_Float2:
+  case tt::DataType::BFP_Float4:
+  case tt::DataType::BFP_Float8:
+  case tt::DataType::BFP_BFloat2:
+    llvm_unreachable("Unsupported ttnn::DataType");
+  }
+
+  llvm_unreachable("Unkonwn tt::DataType");
+}
+
+inline std::string convert(ttnn::LayoutAttr attr) {
+  if (!attr) {
+    return "::std::nullopt";
+  }
+
+  switch (attr.getValue()) {
+  case ttnn::Layout::RowMajor:
+    return "::ttnn::Layout::ROW_MAJOR";
+  case ttnn::Layout::Tile:
+    return "::ttnn::Layout::TILE";
+  case ttnn::Layout::Invalid:
+    return "::ttnn::Layout::INVALID";
+  }
+
+  llvm_unreachable("Unknown ttnn::Layout");
+}
+
+inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
+  if (!attr) {
+    return "::std::nullopt";
+  }
+
+  switch (attr.getValue()) {
+  case ttnn::TensorMemoryLayout::BlockSharded:
+    return "::ttnn::TensorMemoryLayout::BLOCK_SHARDED";
+  case ttnn::TensorMemoryLayout::HeightSharded:
+    return "::ttnn::TensorMemoryLayout::HEIGHT_SHARDED";
+  case ttnn::TensorMemoryLayout::Interleaved:
+    return "::ttnn::TensorMemoryLayout::INTERLEAVED";
+  case ttnn::TensorMemoryLayout::SingleBank:
+    return "::ttnn::TensorMemoryLayout::SINGLE_BANK";
+  case ttnn::TensorMemoryLayout::WidthSharded:
+    return "::ttnn::TensorMemoryLayout::WIDTH_SHARDED";
+  }
+
+  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
+}
+
+inline std::string convert(ttnn::BufferTypeAttr attr) {
+  if (!attr) {
+    return "::std::nullopt";
+  }
+
+  switch (attr.getValue()) {
+  case ttnn::BufferType::DRAM:
+    return "::ttnn::BufferType::DRAM";
+  case ttnn::BufferType::L1:
+    return "::ttnn::BufferType::L1";
+  case ttnn::BufferType::L1Small:
+    return "::ttnn::BufferType::L1_SMALL";
+  case ttnn::BufferType::SystemMemory:
+    return "::ttnn::BufferType::SYSTEM_MEMORY";
+  case ttnn::BufferType::Trace:
+    return "::ttnn::BufferType::TRACE";
+  }
+
+  llvm_unreachable("Unknown ttnn::BufferType");
+}
+
+inline std::string convert(ttnn::MemoryConfigAttr attr) {
+  if (!attr) {
+    return "::std::nullopt";
+  }
+
+  // TODO (azecevic): Add ShardSpec once it's modeled in the `MemoryConfigAttr`.
+  std::string buf;
+  llvm::raw_string_ostream rso(buf);
+  rso << "::ttnn::MemoryConfig(";
+  rso << convert(attr.getTensorMemoryLayout()) << ", ";
+  rso << convert(attr.getBufferType());
+  rso << ")";
+  return buf;
+}
 
 } // namespace ttnn_to_emitc
 } // namespace tt
