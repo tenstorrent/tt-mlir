@@ -737,7 +737,7 @@ private:
     // Create data structure for other types.
     std::vector<mlir::APInt> IntegerValue = {};
     for (ElementType value : valueAttr.getValues<ElementType>()) {
-      mlir::APInt input(bitWidth, value);
+      mlir::APInt input(bitWidth, value, false, true);
       IntegerValue.emplace_back(input);
     }
     return mlir::DenseElementsAttr::get(valueType, IntegerValue);
