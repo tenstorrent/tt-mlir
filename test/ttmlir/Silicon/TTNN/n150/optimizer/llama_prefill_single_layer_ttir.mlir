@@ -1,3 +1,4 @@
+// REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" -o llama_prefill_single_layer_ttnn.mlir %s
 // RUN: FileCheck %s --input-file=llama_prefill_single_layer_ttnn.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer llama_prefill_single_layer_ttnn.mlir > %t.ttnn

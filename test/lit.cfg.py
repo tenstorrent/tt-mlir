@@ -47,8 +47,9 @@ config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 # TODO(odjuricic): This can be removed once https://github.com/tenstorrent/tt-metal/issues/14000 is implemented.
 # Also this is only required when optimizer is enabled, tho i didn't find a way to set this for specific tests with lit config.
 if config.enable_opmodel:
-    lit_config.parallelism_groups["optimizer"] = 1
-    config.parallelism_group = "optimizer"
+    lit_config.parallelism_groups["opmodel"] = 1
+    config.parallelism_group = "opmodel"
+    config.available_features.add("opmodel")
 
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
