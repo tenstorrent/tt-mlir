@@ -594,9 +594,11 @@ def build_graph(module, perf_trace=None):
     if perf_trace is not None:
         for _, row in perf_trace.iterrows():
             loc = parse_loc_string(row["LOC"])
-            assert loc not in loc_to_perf
-            if loc:
-                loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
+            if not loc:
+                continue
+            if loc not in loc_to_perf:
+                loc_to_perf[loc] = 0
+            loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
 
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
