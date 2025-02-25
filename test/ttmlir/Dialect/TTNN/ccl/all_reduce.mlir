@@ -9,10 +9,10 @@ module attributes {} {
     return %1 : tensor<4096x16384xf32>
   }
 }
-// CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+// CHECK: = "ttnn.reshape"
 // CHECK: "ttnn.reduce_scatter"
 // CHECK: "ttnn.all_gather"
-// CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+// CHECK: = "ttnn.reshape"
 
 // -----
 
@@ -24,7 +24,7 @@ module attributes {} {
     return %1 : tensor<1x1x4096x16384xf32>
   }
 }
-// CHECK-NOT: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+// CHECK-NOT: = "ttnn.reshape"
 // CHECK: "ttnn.reduce_scatter"
 // CHECK: "ttnn.all_gather"
-// CHECK-NOT: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+// CHECK-NOT: = "ttnn.reshape"

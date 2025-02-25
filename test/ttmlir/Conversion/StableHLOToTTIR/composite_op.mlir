@@ -10,7 +10,7 @@ module @jit_eltwise_add attributes {} {
     %results = stablehlo.composite "jit_eltwise_add.my_add" %arg0, %arg1 {
         decomposition = @add_impl
     } : (tensor<13x21x3xf32>, tensor<13x21x3xf32>) -> tensor<13x21x3xf32>
-    // CHECK: %[[C:.*]] = call @add_impl
+    // CHECK: = call @add_impl
     return %results : tensor<13x21x3xf32>
   }
 }

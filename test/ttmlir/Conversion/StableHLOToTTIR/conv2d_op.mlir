@@ -2,8 +2,8 @@
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
 module @jit_convolution attributes {} {
   func.func public @test_convolution(%arg0: tensor<1x128x128x32xf32>, %arg1: tensor<64x32x3x3xf32>) -> tensor<1x128x128x64xf32> {
-    // CHECK: %[[C:.*]] = tensor.empty[[C:.*]]
-    // CHECK: %[[C:.*]] = "ttir.convolution"[[C:.*]]
+    // CHECK: = tensor.empty
+    // CHECK: = "ttir.convolution"
     %0 = stablehlo.convolution(%arg0, %arg1)
       dim_numbers = [b, 0, 1, f]x[o, i, 0, 1]->[b, 0, 1, f],
       window = {

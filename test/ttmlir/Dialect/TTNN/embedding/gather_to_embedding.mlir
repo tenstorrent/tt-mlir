@@ -1,9 +1,9 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 module attributes {} {
   func.func @gather_0(%operand: tensor<32000x1024xbf16>, %start_indices: tensor<1x32xi32>) -> tensor<1x32x1024xbf16> {
-    // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+    // CHECK: = "ttnn.empty"
     %0 = tensor.empty() : tensor<1x32x1024xbf16>
-    // CHECK: %[[C:.*]] = "ttnn.embedding"[[C:.*]]
+    // CHECK: = "ttnn.embedding"
     %1 = "ttir.gather"(%operand, %start_indices, %0) {
         offset_dims = array<i64: 2>,
         collapsed_slice_dims = array<i64: 0>,
@@ -18,9 +18,9 @@ module attributes {} {
   }
 
   func.func @gather_1(%operand: tensor<448x384xbf16>, %start_indices: tensor<1x2x1xi32>) -> tensor<1x2x384xbf16> {
-    // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+    // CHECK: = "ttnn.empty"
     %0 = tensor.empty() : tensor<1x2x384xbf16>
-    // CHECK: %[[C:.*]] = "ttnn.embedding"[[C:.*]]
+    // CHECK: = "ttnn.embedding"
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         offset_dims = array<i64: 2>,
         collapsed_slice_dims = array<i64: 0>,
@@ -35,9 +35,9 @@ module attributes {} {
   }
 
   func.func @gather_2(%operand: tensor<51864x384xbf16>, %start_indices: tensor<1x2xi32>) -> tensor<1x2x384xbf16> {
-    // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+    // CHECK: = "ttnn.empty"
     %0 = tensor.empty() : tensor<1x2x384xbf16>
-    // CHECK: %[[C:.*]] = "ttnn.embedding"[[C:.*]]
+    // CHECK: = "ttnn.embedding"
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         offset_dims = array<i64: 2>,
         collapsed_slice_dims = array<i64: 0>,

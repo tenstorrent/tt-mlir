@@ -18,6 +18,7 @@ with Context() as ctx:
     %3 = "ttir.multiply"(%0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     """
     )
-    # CHECK: %[[C:.*]] = tensor.empty() : tensor<64x128xf32>
-    # CHECK: %[[C:.*]] = "ttir.multiply"[[C:.*]] : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    # CHECK: = tensor.empty() : tensor<64x128xf32>
+    # CHECK: = "ttir.multiply"
+    # CHECK-SAME: (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     print(str(module))

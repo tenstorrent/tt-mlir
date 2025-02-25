@@ -11,7 +11,7 @@ from pykernel.pykernel_ast import *
 @ttkernel_compile()
 def test_assign():
     # CHECK: module {
-    # CHECK: func.func @[[C:.*]]
+    # CHECK: func.func @
 
     # TEST: SSA assignment
     # CHECK: {{.*}} = arith.constant 1 : i32
@@ -34,7 +34,7 @@ def test_assign():
 @ttkernel_compile()
 def test_ifstmt():
     # CHECK: module {
-    # CHECK: func.func @[[C:.*]]
+    # CHECK: func.func @
 
     # TEST: if stmt scope stacks with memref and SSA
     # CHECK: %[[C1:.*]] = arith.constant{{.*}} : i32
@@ -74,7 +74,7 @@ def test_ifstmt():
 @ttkernel_compile()
 def test_for():
     # CHECK: module {
-    # CHECK: func.func @[[C:.*]]
+    # CHECK: func.func @
 
     # TEST: simple for loop
     # CHECK: scf.for {{.*}} to {{.*}} step {{.*}}
@@ -105,7 +105,7 @@ def test_for():
 @ttkernel_compile()
 def test_binops():
     # CHECK: module {
-    # CHECK: func.func @[[C:.*]]
+    # CHECK: func.func @
     a = 1
     b = 1
     # CHECK: %{{.*}} = arith.addi{{.*}}
@@ -127,7 +127,7 @@ def test_binops():
 @ttkernel_compile()
 def test_compare_expr():
     # CHECK: module {
-    # CHECK: func.func @[[C:.*]]
+    # CHECK: func.func @
     a = 1
     b = 2
     # CHECK: %{{.*}} = arith.cmpi eq{{.*}}
