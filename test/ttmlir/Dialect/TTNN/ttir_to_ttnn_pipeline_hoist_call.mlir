@@ -19,7 +19,6 @@ module {
     %4 = "ttir.zeros"() <{shape = array<i32:64, 128>}> : () -> tensor<64x128xf32>
     // CHECK: %{{.*}} = call @hoisted_ttir_add_64x128_64x128_64x128_func_decl(%{{.*}}, %{{.*}}, %{{.*}})
     %5 = "ttir.add"(%arg0, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> {should_hoist} : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-    // CHECK: %{{.*}} = "ttnn.empty"(%{{.*}})
     %6 = tensor.empty() : tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.to_layout"(%{{.*}}) <{layout = #ttnn.layout<{{.*}}>}> : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = "ttnn.to_device"(%{{.*}}, %{{.*}}) <{memory_config = {{.*}}}> : (tensor<[[DIMS:.*]], #{{.*}}>, !tt.device<#{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
