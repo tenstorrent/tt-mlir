@@ -172,7 +172,6 @@ auto convertToTensorSpec(::tt::tt_metal::v0::IDevice *device, Args... args) {
   };
   return std::make_tuple(transformArg(std::forward<Args>(args))...);
 }
-
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
