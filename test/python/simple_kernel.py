@@ -239,18 +239,18 @@ def ttkernel_compile(f):
         b = TTKernelBuilder(f.__name__, arg_shapes, arg_dtypes)
         # print(ast.dump(m, indent=4))
         b.visit(m)
-        # CHECK: "func.func"[[C:.*]]
+        # CHECK: "func.func"
         # CHECK: = "arith.constant"
-        # CHECK: "scf.for"[[C:.*]]
-        # CHECK: "ttkernel.cb_wait_front"[[C:.*]]
-        # CHECK: "ttkernel.cb_reserve_back"[[C:.*]]
-        # CHECK: "ttkernel.tile_regs_acquire"[[C:.*]]
-        # CHECK: "ttkernel.unpack_ab"[[C:.*]]
-        # CHECK: "ttkernel.add"[[C:.*]]
-        # CHECK: "ttkernel.pack"[[C:.*]]
-        # CHECK: "ttkernel.tile_regs_release"[[C:.*]]
-        # CHECK: "ttkernel.cb_pop_front"[[C:.*]]
-        # CHECK: "ttkernel.cb_push_back"[[C:.*]]
+        # CHECK: "scf.for"
+        # CHECK: "ttkernel.cb_wait_front"
+        # CHECK: "ttkernel.cb_reserve_back"
+        # CHECK: "ttkernel.tile_regs_acquire"
+        # CHECK: "ttkernel.unpack_ab"
+        # CHECK: "ttkernel.add"
+        # CHECK: "ttkernel.pack"
+        # CHECK: "ttkernel.tile_regs_release"
+        # CHECK: "ttkernel.cb_pop_front"
+        # CHECK: "ttkernel.cb_push_back"
         print(b.module)
         # return f(*args, **kwargs)
 
