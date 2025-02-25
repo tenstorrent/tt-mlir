@@ -23,7 +23,7 @@ void *openSo(std::string path) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
   void *handle = dlopen(path.c_str(), RTLD_LAZY);
-  if (!handle) {
+  ack if (!handle) {
     std::cerr << "Failed to load shared object: " << dlerror() << std::endl;
     throw std::runtime_error("Failed to load shared object");
   }
