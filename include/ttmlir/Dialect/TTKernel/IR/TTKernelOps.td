@@ -20,51 +20,6 @@ def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_PackSetDataTypeOp : TTKernel_Op<"pack_set_data_type"> {
-    let summary = "Pack set DataType op.";
-    let description = [{
-      Pack set DataType operation
-    }];
-
-    let arguments = (ins TT_DataType:$data_type);
-}
-
-def TTKernel_UnpackSetDataTypeOp : TTKernel_Op<"unpack_set_data_type"> {
-    let summary = "Unpack set DataType op.";
-    let description = [{
-      Unpack set DataType operation
-    }];
-
-    let arguments = (ins TT_DataType:$data_type_a, TT_DataType:$data_type_b);
-}
-
-def TTKernel_PackOp : TTKernel_Op<"pack"> {
-    let summary = "Pack op.";
-    let description = [{
-      Pack operation
-    }];
-
-    let arguments = (ins I32:$dst_index, TTKernel_CB:$out_cb, I32:$out_index);
-}
-
-def TTKernel_UnpackAOp : TTKernel_Op<"unpack_a"> {
-    let summary = "UnpackA op.";
-    let description = [{
-      UnpackA operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cb, I32:$src_index);
-}
-
-def TTKernel_UnpackABOp : TTKernel_Op<"unpack_ab"> {
-    let summary = "UnpackAB op.";
-    let description = [{
-      UnpackAB operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cb_a, I32:$src_a_index, TTKernel_CB:$cb_b, I32:$src_b_index);
-}
-
 def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
     let summary = "tile_regs_acquire";
     let description = [{
@@ -154,51 +109,6 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
 //===----------------------------------------------------------------------===//
 // TTKernel FPU operations
 //===----------------------------------------------------------------------===//
-
-def TTKernel_AddOp : TTKernel_Op<"add"> {
-    let summary = "Add operation";
-    let description = [{
-      Add operation
-    }];
-
-    let arguments = (ins I32:$dst_index);
-}
-
-def TTKernel_SubOp : TTKernel_Op<"sub"> {
-    let summary = "Sub operation";
-    let description = [{
-      Sub operation
-    }];
-
-    let arguments = (ins I32:$dst_index);
-}
-
-def TTKernel_MulOp : TTKernel_Op<"mul"> {
-    let summary = "Mul operation";
-    let description = [{
-      Mul operation
-    }];
-
-    let arguments = (ins I32:$dst_index);
-}
-
-def TTKernel_MaxOp : TTKernel_Op<"max"> {
-    let summary = "Max operation";
-    let description = [{
-      Max operation
-    }];
-
-    let arguments = (ins I32:$dst_index);
-}
-
-def TTKernel_MatmulOp : TTKernel_Op<"matmul"> {
-    let summary = "Matmul operation";
-    let description = [{
-      Matmul operation
-    }];
-
-    let arguments = (ins I32:$dst_index);
-}
 
 def TTKernel_BinaryOpInitCommonOp : TTKernel_Op<"binary_op_init_common"> {
     let summary = "Init function for all binary ops";
