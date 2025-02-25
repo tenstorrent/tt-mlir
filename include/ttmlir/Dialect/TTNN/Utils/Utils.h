@@ -21,22 +21,10 @@ namespace mlir::tt::ttnn::utils {
 mlir::tt::ttnn::BufferType
 toTTNNBufferType(const mlir::tt::MemorySpace memorySpace);
 
-// Map tt::TensorMemoryLayout to ttnn::TensorMemoryLayout
-//
-ttnn::TensorMemoryLayout
-toTTNNTensorMemoryLayout(const tt::TensorMemoryLayout ttTensorMemoryLayout);
-
-// Map ttnn::BufferType to tt::MemorySpace
-//
-mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
-    const ::mlir::tt::ttnn::TensorMemoryLayout ttnnTensorMemoryLayout);
-
 // Map ttnn::BufferType to tt::MemorySpace
 //
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
-
-mlir::Type dataTypeToElementType(::mlir::MLIRContext *context, DataType dtype);
 
 // Helper method to create a RankedTensorType with the given encoding.
 RankedTensorType

@@ -19,13 +19,19 @@ void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
 
   // default params for embedding op
   std::optional<int> padToken = std::nullopt;
-  ::tt::tt_metal::Layout layout = utils::isTilized(op->out())
-                                      ? ::ttnn::TILE_LAYOUT
-                                      : ::ttnn::ROW_MAJOR_LAYOUT;
+  ::ttnn::Layout layout = utils::isTilized(op->out())
+                              ? ::ttnn::TILE_LAYOUT
+                              : ::ttnn::ROW_MAJOR_LAYOUT;
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
-  ::ttnn::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
   ::ttnn::Tensor out =
       ::ttnn::embedding(input, weight, padToken, layout, embeddingsType,
                         outputDataType, outputMemoryConfig);

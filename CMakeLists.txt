@@ -11,12 +11,7 @@ option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
 option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
-option(TTMLIR_ENABLE_DEBUG_STRINGS "Enable debug strings in flatbuffer" ON)
 option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
-
-if (TTMLIR_ENABLE_DEBUG_STRINGS)
-  add_compile_definitions(TTMLIR_ENABLE_DEBUG_STRINGS)
-endif()
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
@@ -88,6 +83,14 @@ if (TTMLIR_ENABLE_STABLEHLO)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
   include_directories(${CMAKE_CURRENT_BINARY_DIR}/stablehlo)
   include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
+  install(DIRECTORY shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy/shardy
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    COMPONENT SharedLib
+    FILES_MATCHING
+    PATTERN "*.h"
+    PATTERN "*.inc"
+    PATTERN "*.td"
+  )
   install(DIRECTORY stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo/stablehlo
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     COMPONENT SharedLib

@@ -60,8 +60,7 @@ jobs:
       shell: bash
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build_tidy" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -75,7 +74,6 @@ jobs:
         -DCMAKE_CXX_COMPILER=clang++-17 \
         -DCMAKE_C_COMPILER=clang-17 \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DTTMLIR_ENABLE_RUNTIME=ON \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
@@ -88,7 +86,89 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- COMMON_FBS TTMETAL_FBS TTNN_FBS mlir-headers mlir-generic-headers
+        python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+
+    - name: Unique-ify clang-tidy fixes
+      shell: bash
+      if: failure() && steps.lint.outcome == 'failure'
+      run: |
+        source env/activate
+        python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+
+    - name: Clang-tidy PR Comments
+      uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
+      if: failure() && steps.lint.outcome == 'failure'
+      with:
+        # The GitHub token (or a personal access token)
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        # The path to the clang-tidy fixes generated above
+        clang_tidy_fixes: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+        # Optionally set to true if you want the Action to request
+        # changes in case warnings are found
+        request_changes: false
+        # Optionally set the number of comments per review
+        # to avoid GitHub API timeouts for heavily loaded
+        # pull requests
+        suggestions_per_comment: 10
+        python_path: "python3"
+
+  debug:
+    needs: build-image
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+    name: Debug Build
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.build-image.outputs.docker-image }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+        -B ${{ steps.strings.outputs.build-output-dir }} \
+        -DCMAKE_CXX_COMPILER=clang++-17 \
+        -DCMAKE_C_COMPILER=clang-17 \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        -DTTMLIR_ENABLE_RUNTIME=OFF \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
+        -DTTMLIR_ENABLE_STABLEHLO=ON \
+        -DTTMLIR_ENABLE_OPMODEL=OFF \
+        -S ${{ steps.strings.outputs.work-dir }}
+
+    - name: Build
+      id: build
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: Check
+      id: check
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
 
   build-ttmlir:
     needs: build-image
@@ -168,18 +248,19 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, enable_async: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          {runs-on: llmbox, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          #{runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          #{runs-on: tg, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, name: "perf", build_name: "perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: ON, enable_runtime_debug: OFF, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "run", build_name: "runtime_debug", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: llmbox, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          #{runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          #{runs-on: tg, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.build_name }})"
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug }}, ${{ matrix.build.build_name }})"
 
     runs-on:
       - in-service
@@ -204,7 +285,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.build_name }})"
+        job_name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug }}, ${{ matrix.build.build_name }})"
 
     - name: Set reusable strings
       id: strings
@@ -283,7 +364,7 @@ jobs:
 
     - name: Run functional tests
       shell: bash
-      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_emitc == 'OFF' && matrix.build.enable_async == 'OFF'
+      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_emitc == 'OFF' && matrix.build.enable_async == 'OFF' && matrix.build.enable_runtime_debug == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
@@ -294,6 +375,13 @@ jobs:
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
+
+    - name: Run runtime debug tests
+      shell: bash
+      if: matrix.build.enable_runtime_debug == 'ON'
+      run: |
+        source env/activate
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
 
     - name: Run perf tests
       shell: bash
@@ -323,7 +411,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.enable_async }}_${{ matrix.build.build_name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.enable_async }}_${{ matrix.build.enable_runtime_debug }}_${{ matrix.build.build_name }}_results.json
         path: ${{ matrix.build.build_name }}_results.json
     - name: Upload Test Report xml
       uses: actions/upload-artifact@v4
@@ -653,7 +741,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n300, enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, enable_async: OFF, name: "op_model", build_name: "op_model", ttrt_flags: ""}
+          {runs-on: n300, enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "op_model", build_name: "op_model", ttrt_flags: ""}
         ]
 
     name: Run build and test tt-mlir (TT machine)
@@ -679,7 +767,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "Run build and test tt-mlir (TT machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.name }}, ${{ matrix.build.build_name }})"
+        job_name: "Run build and test tt-mlir (TT machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug }}, ${{ matrix.build.name }}, ${{ matrix.build.build_name }})"
 
     - name: Set reusable strings
       id: strings
@@ -699,7 +787,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ matrix.build.enable_emitc }}-async-${{ matrix.build.enable_async }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ matrix.build.enable_emitc }}-async-${{ matrix.build.enable_async }}-runtime_debug-${{ matrix.build.enable_runtime_debug}}-${{ env.SDK_VERSION }}
 
     # Build project
     - name: Run build and test tt-mlir
@@ -709,6 +797,7 @@ jobs:
         enable-op-model: ${{ matrix.build.enable_op_model }}
         enable-emitc: ${{ matrix.build.enable_emitc }}
         enable-async: ${{ matrix.build.enable_async }}
+        enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
         build-name: ${{ matrix.build.build_name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}

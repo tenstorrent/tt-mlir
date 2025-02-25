@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, tt, tensor
-from ttmlir.passes import create_golden_tensor, DataType
+from ttmlir.passes import GoldenTensor, DataType
 import torch
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
@@ -172,12 +172,13 @@ class TTIRBuilder:
         golden_info = {}
         for name, golden_tensor in self.id_golden_map.items():
             golden_tensor = golden_tensor.contiguous()
-            golden_info[name] = create_golden_tensor(
+            golden_info[name] = GoldenTensor(
                 name,
                 list(golden_tensor.tensor.shape),
                 list(golden_tensor.tensor.stride()),
                 DataType.Float32,
                 golden_tensor.tensor.data_ptr(),
+                golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
             )
         return golden_info
 
@@ -680,6 +681,17 @@ class TTIRBuilder:
             ttir.MatmulOp,
             inputs,
             organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+        )
+
+    def transpose(self, in0: Operand, dim0: int = 0, dim1: int = 1) -> OpView:
+        kwargs = {"dim0": dim0, "dim1": dim1}
+        return self.op_proxy(
+            torch.transpose,
+            ttir.TransposeOp,
+            [in0],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
     def softmax(self, in0: Operand, dimension: int = 1) -> OpView:

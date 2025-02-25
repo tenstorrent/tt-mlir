@@ -127,15 +127,14 @@ class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments])> {
+    TTNN_Op<mnemonic, traits> {
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs);
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs);
     let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, traits> {
+    TTNN_ElementwiseOp<mnemonic, !listconcat([OneOperand], traits)> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -143,15 +142,19 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out),
+      OpBuilder<(ins "Value": $in, "Type": $outputType),
       [{
-        build($_builder, $_state, {out.getType()}, in, out);
+        build($_builder, $_state, {outputType}, in);
+      }]>,
+      OpBuilder<(ins "Value": $in),
+      [{
+        build($_builder, $_state, in, in.getType());
       }]>
     ];
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, traits> {
+    TTNN_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -159,15 +162,19 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Type": $outputType),
       [{
-        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
+        build($_builder, $_state, {outputType}, {lhs, rhs});
+      }]>,
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs),
+      [{
+        build($_builder, $_state, lhs, rhs, lhs.getType());
       }]>
     ];
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, traits> {
+    TTNN_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -175,9 +182,13 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Type": $outputType),
       [{
-        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
+        build($_builder, $_state, {outputType}, {first, second, third});
+      }]>,
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third),
+      [{
+        build($_builder, $_state, first, second, third, first.getType());
       }]>
     ];
 }
@@ -186,6 +197,15 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
     let summary = "Eltwise where.";
     let description = [{
       Eltwise where operation.
+    }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::Operation::operand_range inputs = getInputs();
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
+                                                                        inputs);
+      }
     }];
 }
 
@@ -380,14 +400,13 @@ class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
                          F32Attr:$parameter);
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter),
+      OpBuilder<(ins "Value": $in, "FloatAttr":$parameter),
       [{
-        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
+        build($_builder, $_state, {in.getType()}, {in}, parameter);
       }]>
     ];
 }
@@ -663,6 +682,50 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
       // Computing for entire tensor
       output: 1
   }];
+}
+
+def TTNN_ArgMaxOp : TTNN_NamedDPSOp<"argmax"> {
+  let summary = "Argmax reduction op.";
+  let description = [{
+    Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `dim`: Specifies the dimension along which the argmax is applied.
+      - `use_multicore`: Whether to use multiple cores or not.
+
+    IR usage:
+    // Input tensor of shape (128, 28, 28, 64)
+    %input = ... : tensor<128x28x28x64xbf16>
+
+    %empty = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<u32>, ....}> : -> tensor<128x28x28xi32>
+    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32, use_multicore = false}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
+
+    Example:
+      input: [[1, 5, 3],
+              [2, 4, 6]]
+
+      // Computing along dim 0
+      output: [1, 0, 1]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 5
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       OptionalAttr<I32Attr>:$dim,
+                       BoolAttr:$use_multicore,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       AnyRankedTensor:$output);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_ProdOp : TTNN_Op<"prod"> {
@@ -991,7 +1054,10 @@ def TTNN_LinearOp : TTNN_NamedDPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -1008,7 +1074,10 @@ def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul",
       > {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -1461,6 +1530,29 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]> {
+    let summary = "Constant op.";
+    let description = [{
+      Produces tensor filled with given constant value.
+
+      Examples:
+        %0 = "ttnn.constant"() {value = dense<[[3, 4, 2], [1, 7, 8]]> : tensor<2x3xui16>} : () -> tensor<2x3xui16>
+        // %0: [[3, 4, 2], [1, 7, 8]]
+        %1 = "ttnn.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+        // %1: [0.2, 1.3]
+    }];
+
+    let arguments = (ins ElementsAttr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
+      }
+    }];
 }
 
 #endif

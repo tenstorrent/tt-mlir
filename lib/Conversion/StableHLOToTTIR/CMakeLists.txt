@@ -6,10 +6,12 @@ include_directories(${TTMLIR_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
 add_mlir_conversion_library(TTMLIRStableHLOToTTIR
-  StableHLOToTTIRPatterns.cpp
-  StableHLOToTTIRPass.cpp
   ArithToStableHLOPass.cpp
+  EmptyOpTypeConversion.cpp
   ShardingUtils.cpp
+  StableHLOToTTIRPass.cpp
+  StableHLOToTTIRPatterns.cpp
+  ShardyToTTIRPatterns.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/StableHLOToTTIR

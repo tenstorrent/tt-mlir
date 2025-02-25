@@ -172,6 +172,8 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
     AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
   }];
+
+  let genVerifyDecl = 1;
 }
 
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD

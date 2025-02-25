@@ -1,0 +1,43 @@
+include "Common/types.fbs";
+
+namespace tt.target.metal;
+
+table MemoryDesc {
+  shape: [int];
+  tile_shape: Dim2d;
+  data_type: DataType;
+  memory_space: MemorySpace;
+  size: uint64;
+}
+
+table LayoutDesc {
+  oob_val: OOBVal;
+  core_range_set: [Dim2dRange];
+  memory_desc: MemoryDesc;
+}
+
+table TensorDesc {
+  shape: [int];
+  layout: LayoutDesc;
+}
+
+table CBDesc {
+  port: uint32;
+  memory_desc: MemoryDesc;
+  page_size: uint64;
+  num_buffers: uint64;
+}
+
+table TensorRef {
+  global_id: uint32;
+  address: uint64;
+  size: uint64;
+  desc: TensorDesc;
+}
+
+table CBRef {
+  global_id: uint32;
+  tensor_ref: TensorRef;
+  address: uint64;
+  desc: CBDesc;
+}

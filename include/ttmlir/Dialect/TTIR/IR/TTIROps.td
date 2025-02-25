@@ -14,6 +14,7 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
@@ -132,7 +133,6 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
         bool isGridChange;
         bool isFormatChange;
         bool isMemorySpaceChange;
-        bool isMemoryLayoutChange;
       };
 
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
@@ -140,6 +140,8 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_AllocOp : TTIR_Op<"alloc"> {
@@ -706,6 +708,40 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     let hasVerifier = 1;
 }
 
+def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
+  let summary = "Argmax reduction op.";
+  let description = [{
+    Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
+
+    Parameters:
+      - `input`: The input tensor.
+      - `dim`: Specifies the dimension along which the argmax is applied.
+      - `keep_dim`: Whether to keep the reduce dimension or not.
+
+    ### Example IR Usage:
+    ```mlir
+    // Input tensor of shape (128, 28, 28)
+    %input = ... : tensor<128x28x28xbf16>
+
+    %empty = tensor.empty() : tensor<128x28xi32>
+    %argmax = "ttir.argmax"(%arg0, %0) <{dim_arg = [0: i32, 2 : i32], keep_dim = false}> : (tensor<128x28x28xbf16>, tensor<128x28xi32>) -> tensor<128x28xi32>
+    ```
+
+    Example:
+      input: [[1, 5, 3],
+              [2, 4, 6]]
+
+      // Computing along dim 0
+      output: [1, 0, 1]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 5
+  }];
+}
+
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
     let summary = "Sum reduction op.";
     let description = [{
@@ -767,6 +803,28 @@ def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
 
         // Reduction for both dimensions (entire tensor)
         output: [False]
+    }];
+}
+
+def TTIR_ReduceOrOp : TTIR_ReductionOp<"reduce_or"> {
+    let summary = "Or reduction op.";
+    let description = [{
+      Reduces a given tensor using logical or operator along the given dimension(s).
+
+      Example:
+        input: [[True,  False, False, False],
+                [True,  True,  False, True],
+                [False, False, False, True],
+                [False, False, False, False]]
+
+        // Reduction along dim 0
+        output: [True, True, False, True]
+
+        // Reduction along dim 1
+        output: [True, True, True, False]
+
+        // Reduction for both dimensions (entire tensor)
+        output: [True]
     }];
 }
 
@@ -1619,7 +1677,9 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1629,7 +1689,7 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizeMethod = 1;
+    let hasCanonicalizer = 1;
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
@@ -1641,7 +1701,9 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1650,6 +1712,8 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
@@ -1838,6 +1902,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
 
 //===----------------------------------------------------------------------===//
 // TTIR region ops (ops that may appear inside of ttir.generic region)
+//    DEPRECATED: Generic region ops are moving to TTIRGenericRegionOps.td
 //===----------------------------------------------------------------------===//
 
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
@@ -1853,15 +1918,6 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
                          Variadic<AnyRankedTensorOrMemRef>:$inputs,
                          Variadic<AnyRankedTensorOrMemRef>:$outputs);
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
-}
-
-def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
-    let summary = "Yield op.";
-    let description = [{
-      Yield operation, this is required by MLIR to mark the end of a dispatch region.
-    }];
-
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1894,7 +1950,7 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
       AllReduce op.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          I64ElementsAttr:$replica_groups,
                          SI32Attr:$dim,
@@ -1903,7 +1959,7 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
                          TT_ReduceTypeAttr:$reduce_type
     );
 
-    let results = (outs Variadic<AnyRankedTensor>:$results);
+    let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }

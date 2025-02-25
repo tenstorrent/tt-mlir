@@ -61,7 +61,7 @@ inline std::vector<std::string> backtrace(int size = 64, int skip = 1) {
   std::unique_ptr<char *, decltype(&free)> strings(
       backtrace_symbols(array.data(), s), free);
 
-  if (not strings) {
+  if (!strings) {
     std::cout << "backtrace_symbols error." << std::endl;
     return bt;
   }

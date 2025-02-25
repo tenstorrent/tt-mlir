@@ -6,11 +6,13 @@
 #include "mlir/InitAllTranslations.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
 #include <pybind11/stl_bind.h>
 
+// Make Opaque so Casts & Copies don't occur
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
 
@@ -216,6 +218,24 @@ void populatePassesModule(py::module &m) {
           }
         });
 
+  m.def(
+      "ttkernel_to_cpp",
+      [](MlirModule module, bool isTensixKernel) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        tt::ttkernel::ThreadType threadType =
+            isTensixKernel ? tt::ttkernel::ThreadType::Tensix
+                           : tt::ttkernel::ThreadType::Noc;
+        std::string output;
+        llvm::raw_string_ostream output_stream(output);
+        if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
+                moduleOp, output_stream, threadType))) {
+          throw std::runtime_error("Failed to generate cpp");
+        }
+        output_stream.flush();
+        return output;
+      },
+      py::arg("module"), py::arg("isTensixKernel"));
+
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16);
@@ -235,22 +255,25 @@ void populatePassesModule(py::module &m) {
     return ::tt::target::DataType::MIN;
   });
 
-  py::class_<mlir::tt::GoldenTensor>(m, "GoldenTensor")
-      .def(py::init<std::string, std::vector<int64_t>, std::vector<int64_t>,
-                    ::tt::target::DataType, std::uint8_t *>())
+  // Preserve the Data by holding it in a SharedPtr.
+  py::class_<mlir::tt::GoldenTensor, std::shared_ptr<mlir::tt::GoldenTensor>>(
+      m, "GoldenTensor")
+      .def(py::init([](std::string name, std::vector<int64_t> shape,
+                       std::vector<int64_t> strides,
+                       ::tt::target::DataType dtype, std::uintptr_t ptr,
+                       std::size_t dataSize) {
+        // Create Golden Tensor and move ownership to GoldenTensor
+        auto *dataPtr = reinterpret_cast<std::uint8_t *>(ptr);
+
+        return std::make_shared<mlir::tt::GoldenTensor>(
+            name, shape, strides, dtype,
+            std::vector<std::uint8_t>(dataPtr, dataPtr + dataSize));
+      }))
       .def_readwrite("name", &mlir::tt::GoldenTensor::name)
       .def_readwrite("shape", &mlir::tt::GoldenTensor::shape)
       .def_readwrite("strides", &mlir::tt::GoldenTensor::strides)
       .def_readwrite("dtype", &mlir::tt::GoldenTensor::dtype)
       .def_readwrite("data", &mlir::tt::GoldenTensor::data);
-
-  m.def("create_golden_tensor",
-        [](std::string name, std::vector<int64_t> shape,
-           std::vector<int64_t> strides, ::tt::target::DataType dtype,
-           std::uintptr_t ptr) {
-          return mlir::tt::GoldenTensor(name, shape, strides, dtype,
-                                        reinterpret_cast<std::uint8_t *>(ptr));
-        });
 
   py::class_<mlir::tt::MLIRModuleLogger,
              std::shared_ptr<mlir::tt::MLIRModuleLogger>>(m, "MLIRModuleLogger")

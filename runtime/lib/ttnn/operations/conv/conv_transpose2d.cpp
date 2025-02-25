@@ -44,8 +44,6 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
   config.shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
-  ::ttnn::MemoryConfig outMemConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());

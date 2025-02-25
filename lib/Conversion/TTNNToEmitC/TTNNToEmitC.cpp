@@ -136,7 +136,6 @@ public:
     llvm::SmallVector<Attribute, 5> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
     attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
 
@@ -173,8 +172,7 @@ public:
         {mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
          ttnn_to_emitc::utils::convertBoolAttr(
              rewriter, BoolAttr::get(rewriter.getContext(), false)),
-         ttnn_to_emitc::utils::createStdNullopt(rewriter),
-         mlir::IntegerAttr::get(rewriter.getIndexType(), 1)});
+         ttnn_to_emitc::utils::createStdNullopt(rewriter)});
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType(0)),
@@ -243,7 +241,6 @@ public:
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
     attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
 
@@ -272,11 +269,22 @@ public:
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this.
     //
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 1),
-        mlir::IntegerAttr::get(rewriter.getIndexType(), 2),
-    });
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
+        {rewriter.getIndexAttr(0), rewriter.getIndexAttr(1),
+         rewriter.getIndexAttr(2),
+         ttnn_to_emitc::utils::convertBoolAttr(rewriter,
+                                               linearOp.getTransposeAAttr()),
+         ttnn_to_emitc::utils::convertBoolAttr(rewriter,
+                                               linearOp.getTransposeBAttr()),
+         /*memory_config=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*dtype=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*program_config=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*activation=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*compute_kernel_config=*/
+         ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*core_grid=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*output_tile=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         rewriter.getIndexAttr(3)});
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         linearOp, this->getTypeConverter()->convertType(linearOp.getType()),
@@ -306,28 +314,21 @@ public:
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this.
     //
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
-        mlir::IntegerAttr::get(rewriter.getIndexType(),
-                               0), // points to operand 0
-        mlir::IntegerAttr::get(rewriter.getIndexType(),
-                               1), // points to operand 1
-        ttnn_to_emitc::utils::convertBoolAttr(
-            rewriter,
-            BoolAttr::get(
-                rewriter.getContext(),
-                false)), // bool attr denoting transposeA is set to false
-        ttnn_to_emitc::utils::convertBoolAttr(
-            rewriter, BoolAttr::get(rewriter.getContext(), false)),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter), // std::nullopt
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        mlir::IntegerAttr::get(rewriter.getIndexType(),
-                               2), // points to operand 2
-    });
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
+        {rewriter.getIndexAttr(0), rewriter.getIndexAttr(1),
+         ttnn_to_emitc::utils::convertBoolAttr(rewriter,
+                                               matmulOp.getTransposeAAttr()),
+         ttnn_to_emitc::utils::convertBoolAttr(rewriter,
+                                               matmulOp.getTransposeBAttr()),
+         /*memory_config=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*dtype=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*program_config=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*activation=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*compute_kernel_config=*/
+         ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*core_grid=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         /*output_tile=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
+         rewriter.getIndexAttr(2)});
     // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
@@ -460,6 +461,39 @@ public:
              : ttnn_to_emitc::utils::createStdNullopt(rewriter),
          ttnn_to_emitc::utils::convertBoolAttr(rewriter,
                                                srcOp.getKeepDimAttr())});
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// Argmax op conversion pattern
+//
+class ArgMaxOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ArgMaxOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::ArgMaxOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::ArgMaxOp srcOp, ttnn::ArgMaxOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
+    // an ArrayAttr object holding IndexTypes is created to denote this.
+    //
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(0),
+        srcOp.getDimAttr(),
+        ttnn_to_emitc::utils::convertBoolAttr(rewriter,
+                                              srcOp.getUseMulticoreAttr()),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+    });
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
@@ -1302,7 +1336,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                ZerosOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<ttnn::FullOp>,
-               DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::ArangeOp>,
+               DefaultOpConversionPattern<ttnn::ConstantOp>>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops
@@ -1375,10 +1410,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Reduction ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::SumOp>, MeanOpConversionPattern,
-               DefaultOpConversionPattern<ttnn::MaxOp>,
-               DefaultOpConversionPattern<ttnn::MinOp>,
-               DefaultOpConversionPattern<ttnn::ProdOp>>(typeConverter, ctx);
+  patterns
+      .add<DefaultOpConversionPattern<ttnn::SumOp>, MeanOpConversionPattern,
+           DefaultOpConversionPattern<ttnn::MaxOp>,
+           DefaultOpConversionPattern<ttnn::MinOp>,
+           DefaultOpConversionPattern<ttnn::ProdOp>, ArgMaxOpConversionPattern>(
+          typeConverter, ctx);
 
   // Conv ops
   //

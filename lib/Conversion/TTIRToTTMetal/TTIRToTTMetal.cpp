@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -518,13 +519,9 @@ public:
                        static_cast<int>(components.isGridChange ||
                                         components.isMemorySpaceChange) +
                        static_cast<int>(components.isFormatChange)) > 1;
-    assert(!components.isMemoryLayoutChange &&
-           "Memory layout is not used in direct to metal path");
     assert(!isCompound && "Only one change is allowed");
 
     assert(!isCompound && "Only one change is allowed");
-    assert(!components.isMemoryLayoutChange &&
-           "Tensor memory layout shouldn't change in metal backend");
     if (components.isMemorySpaceChange) {
       if (inputLayout.isSystemMemorySpace()) {
         assert(outputLayout.isDeviceMemorySpace());

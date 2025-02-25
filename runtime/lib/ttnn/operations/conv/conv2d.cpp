@@ -27,9 +27,13 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
 
   // Use defaults for now, until compiler drives this.
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
-  ::ttnn::MemoryConfig outMemConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());
   ::ttnn::Tensor out = std::visit(
@@ -41,7 +45,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
             {op->stride_height(), op->stride_width()},
             {op->padding_height(), op->padding_width()},
             {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
-            config, computeConfig, outMemConfig));
+            config, computeConfig, outputMemoryConfig));
       },
       targetDevice);
 

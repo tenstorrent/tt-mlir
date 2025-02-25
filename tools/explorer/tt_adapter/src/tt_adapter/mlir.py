@@ -30,7 +30,7 @@ class AttrHandler:
 
     @staticmethod
     def default_parser(attr):
-        return [graph_builder.KeyValue(key=str(attr.name), value=str(attr.attr))]
+        return [graph_builder.KeyValue(key=attr.name, value=str(attr.attr))]
 
     @staticmethod
     def parse_attr(attr):
@@ -364,12 +364,6 @@ def parse_tt_layout(attr):
     )
     result.append(
         graph_builder.KeyValue(
-            key="memory_layout",
-            value=str(tt.TensorMemoryLayout(layout.memory_layout_as_int)),
-        )
-    )
-    result.append(
-        graph_builder.KeyValue(
             key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
         )
     )
@@ -591,6 +585,8 @@ def build_graph(module, perf_trace=None):
     graph = graph_builder.Graph(id="tt-graph")
 
     op_to_graph_node = {}
+    # Track operands already added to graph to avoid duplicates
+    operands_in_graph = set()
 
     # Prepare perf data for color overlay
     perf_node_data = {}
@@ -639,12 +635,14 @@ def build_graph(module, perf_trace=None):
                         ):
                             # If the owner is not an op, then it is a constant provided from the toplevel FuncOp.
 
-                            # This is a constant and we need to create a node for it.
-                            operand_node = operation.make_constant_node(
-                                operand.get_name()
-                            )
-                            graph.nodes.append(operand_node)
-                            op_to_graph_node[operand] = operand_node
+                            if operand not in operands_in_graph:
+                                # This is a constant and we need to create a node for it.
+                                operand_node = operation.make_constant_node(
+                                    operand.get_name()
+                                )
+                                graph.nodes.append(operand_node)
+                                op_to_graph_node[operand] = operand_node
+                                operands_in_graph.add(operand)
 
                 # This puts the node at the far right when viewing which is a bit more consistant with it being the last operand.
                 for node in append_later:

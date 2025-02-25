@@ -13,6 +13,7 @@ cmake -B env/build env
 cmake --build env/build
 ```
 
+> - Use `-DLLVM_BUILD_TYPE=*` to specify the build type of LLVM. The default is `MinSizeRel`, available options are listed [here](https://llvm.org/docs/CMake.html#frequently-used-cmake-variables).
 > - It is recommended to use the **system installation of python3** for the virtual environment.
 >   Please ensure that you do not already have a venv activated before running the above command.
 > - Please ensure the directory `/opt/ttmlir-toolchain` exist and its

@@ -17,6 +17,9 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   let options = [
     ListOption<"meshShape", "mesh-shape", "int64_t",
                "Set the multi-device mesh shape.">,
+    Option<"forceReload", "force-reload", "bool",
+           /*default=*/"false",
+           "Force reload the system descriptor.">
   ];
 }
 
@@ -53,10 +56,6 @@ def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
           "::mlir::tt::MemorySpace",
           /*default=*/"::mlir::tt::MemorySpace::DeviceDRAM",
            "Set the default memory space for layout pass to prefer for operation operands, if not constrained">,
-    Option<"defaultDeviceMemoryLayout", "default-device-memory-layout",
-          "::mlir::tt::TensorMemoryLayout",
-          /*default=*/"::mlir::tt::TensorMemoryLayout::Interleaved",
-          "Set the default memory layout for layout pass to prefer for operation operands that are on device, if not constrained">
   ];
 }
 

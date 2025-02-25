@@ -9,9 +9,7 @@
 module @jit_eltwise_multiply attributes {} {
   func.func public @test_multiply(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_multiply
-    // CHECK: ttnn.empty
     // CHECK: ttnn.multiply
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
