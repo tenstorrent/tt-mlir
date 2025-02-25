@@ -505,7 +505,12 @@ MetalLayoutAttr MetalLayoutAttr::get(
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
     OOBVal oobVal) {
   assert(ty);
-  return get(context, ty.getShape(), ty.getElementType(), memorySpace, grid,
+  SmallVector<int64_t> tensorShape(ty.getShape());
+  if (mlir::isa<TileType>(ty.getElementType())) {
+    tensorShape =
+        mlir::cast<TileType>(ty.getElementType()).getScalarShape(tensorShape);
+  }
+  return get(context, tensorShape, ty.getElementType(), memorySpace, grid,
              collapseIntervals, oobVal);
 }
 
@@ -659,7 +664,7 @@ MetalLayoutAttr MetalLayoutAttr::withElementType(::mlir::MLIRContext *context,
                                                  Type elementType) {
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
                                                 elementType, getMemorySpace()));
 }
 
@@ -667,7 +672,7 @@ MetalLayoutAttr MetalLayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
                                                  MemorySpace memorySpace) {
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
                                                 getElementType(), memorySpace));
 }
 
@@ -685,8 +690,18 @@ MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
                                                   StreamLayoutAttr layout) {
   return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
                               buildMemRef<MemorySpace, MemorySpaceAttr>(
-                                  context, getShardShape(), getElementType(),
-                                  getMemorySpace(), layout));
+                                  context, getShardShape(true),
+                                  getElementType(), getMemorySpace(), layout));
+}
+
+MetalLayoutAttr MetalLayoutAttr::withStreamMode(::mlir::MLIRContext *context,
+                                                StreamMode streamMode,
+                                                std::uint32_t numBuffers) {
+  return withStreamLayout(
+      context, StreamLayoutAttr::get(context,
+                                     mlir::AffineMap::getMultiDimIdentityMap(
+                                         getShardShape().size(), context),
+                                     streamMode, numBuffers));
 }
 
 MetalLayoutAttr MetalLayoutAttr::withOuterScale(
