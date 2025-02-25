@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --pass-pipeline="builtin.module(ttir-to-ttnn-backend-pipeline{system-desc-path=%system_desc_path%}, tt.device_module(builtin.module(ttnn-modify-signatures-for-dylib)))" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --tt-unwrap-device-module --ttnn-modify-signatures-for-dylib %s | FileCheck %s
 
 module attributes {} {
   // CHECK: func.func @add(%arg0: tuple<[[TENSOR_A:.*>]], [[TENSOR_B:.*>]]>) -> tuple<tensor<32x32xbf16, #ttnn_layout>> {
