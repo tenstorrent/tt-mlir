@@ -640,7 +640,7 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
       Returns an InterleavedAddrGenFast type.
     }];
 
-    let arguments = (ins I1:$DRAM, I32:$bank_base_address, I32:$page_size, I32:$data_format);
+    let arguments = (ins I1:$DRAM, I32:$bank_base_address, I32:$page_size, TTKernel_DataFormat:$data_format);
     let results = (outs TTKernel_InterleavedAddrGenFast:$result);
 }
 
@@ -773,5 +773,13 @@ def TTKernel_GetTileSizeOp : TTKernel_Op<"get_tile_size"> {
     let results = (outs I32:$tileSizeBytes);
 }
 
+def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
+    let summary = "Get the data format of a given CB";
+    let description = [{
+      get_dataformat operation
+    }];
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs TTKernel_DataFormat:$dataFormat);
+}
 
 #endif

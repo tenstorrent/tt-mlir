@@ -98,6 +98,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         "get_write_ptr": ttkernel.get_write_ptr,
         "get_read_ptr": ttkernel.get_read_ptr,
         "get_tile_size": ttkernel.get_tile_size,
+        "get_dataformat": ttkernel.get_dataformat,
         "get_noc_addr_from_bank_id": ttkernel.get_noc_addr_from_bank_id,
         "noc_async_read": ttkernel.noc_async_read,
         "noc_async_write": ttkernel.noc_async_write,
