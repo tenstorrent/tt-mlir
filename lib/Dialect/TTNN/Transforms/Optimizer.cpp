@@ -554,7 +554,7 @@ private:
       builder.setInsertionPointAfter(op);
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
           op->getLoc(), newTensorType, op->getResult(0), newLayout, dataType,
-          memConfigAttr, getDeviceOpValue(op));
+          memConfigAttr, getOrCreateDeviceOpValue(op, builder));
 
       for (auto &use : op->getResult(0).getUses()) {
         if (use.getOwner() != toLayoutOp) {
