@@ -12,7 +12,6 @@
 #include "gtest/gtest.h"
 
 #include <cstdint>
-#include <llvm/ADT/SmallVector.h>
 #include <optional>
 
 namespace mlir::tt::ttnn {
