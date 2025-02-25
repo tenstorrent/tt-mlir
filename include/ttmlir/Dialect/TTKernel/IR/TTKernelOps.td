@@ -634,7 +634,7 @@ def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
     let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
 }
 
-def TTKernel_GetInterleavedAddrGenFastConfigOp : TTKernel_Op<"get_interleaved_addr_gen_fast"> {
+def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen_fast"> {
     let summary = "GetAddrGenFastConfig";
     let description = [{
       Returns an InterleavedAddrGenFast type.

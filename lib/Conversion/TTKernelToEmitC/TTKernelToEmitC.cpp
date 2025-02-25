@@ -151,6 +151,12 @@ public:
           return emitc::PointerType::get(
               emitc::OpaqueType::get(ctx, "volatile tt_l1_ptr uint32_t"));
         });
+    addConversion(
+        [ctx](mlir::tt::ttkernel::InterleavedAddrGenFastType type) -> Type {
+          // There is never a case in metal kernel code where template is false.
+          return emitc::OpaqueType::get(ctx,
+                                        "const InterleavedAddrGenFast<true>");
+        });
   }
 };
 } // namespace
@@ -454,16 +460,17 @@ struct ConvertNocTransactionsTableOp
 } // namespace
 
 namespace {
-struct ConvertGetInterleavedAddrGenFastOp
-    : public OpConversionPattern<ttkernel::GetInterleavedAddrGenFastConfigOp> {
-  using Op = ttkernel::GetInterleavedAddrGenFastConfigOp;
+class TTKernelGetInterleavedAddrGenFastOpRewriter
+    : public OpConversionPattern<ttkernel::GetInterleavedAddrGenFastOp> {
+  using Op = ttkernel::GetInterleavedAddrGenFastOp;
 
-  ConvertGetInterleavedAddrGenFastOp(const TypeConverter &typeConvert,
-                                     MLIRContext *context)
-      : OpConversionPattern(typeConvert, context) {}
+public:
+  TTKernelGetInterleavedAddrGenFastOpRewriter(
+      const TypeConverter &typeConverter, MLIRContext *context)
+      : OpConversionPattern(typeConverter, context) {}
 
-  bool extractValue(Value operand, std::int32_t &value) const {
-    if (auto constantOp = operand.getDefiningOp<arith::ConstantOp>()) {
+  bool extractValue(Value operand, std::uint32_t &value) const {
+    if (auto constantOp = operand.getDefiningOp<emitc::ConstantOp>()) {
       if (auto attr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
         value = attr.getInt();
         return true;
@@ -473,15 +480,13 @@ struct ConvertGetInterleavedAddrGenFastOp
   }
 
   LogicalResult
-  matchAndRewrite(Op op,
-                  ttkernel::GetInterleavedAddrGenFastConfigOp::Adaptor adaptor,
+  matchAndRewrite(Op op, ttkernel::GetInterleavedAddrGenFastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     // if (op.getResult().getUses().empty()) {
     //   rewriter.eraseOp(op);
     // } else {
-    int32_t isDRAM, bankBaseAddress, pageSize, dataFormat;
-    if (!extractValue(op.getDRAM(), isDRAM) ||
-        !extractValue(op.getBankBaseAddress(), bankBaseAddress) ||
+    std::uint32_t isDRAM, bankBaseAddress, pageSize, dataFormat;
+    if (!extractValue(op.getBankBaseAddress(), bankBaseAddress) ||
         !extractValue(op.getPageSize(), pageSize) ||
         !extractValue(op.getDataFormat(), dataFormat)) {
       return rewriter.notifyMatchFailure(
@@ -493,16 +498,20 @@ struct ConvertGetInterleavedAddrGenFastOp
        << ", .page_size = " << pageSize << ", .data_format = " << dataFormat
        << "}";
     ss.flush();
-    std::string opaqueTypeStr;
-    llvm::raw_string_ostream ssType(opaqueTypeStr);
-    ssType << "const InterleavedAddrGenFast<"
-           << (isDRAM == 0 ? "false" : "true") << ">";
-    ssType.flush();
 
-    auto opaqueResultType =
-        emitc::OpaqueType::get(op.getContext(), opaqueTypeStr);
+    // std::string opaqueTypeStr;
+    // llvm::raw_string_ostream ssType(opaqueTypeStr);
+    // ssType << "const InterleavedAddrGenFast<"
+    //        << (isDRAM == 0 ? "false" : "true") << ">";
+    // ssType.flush();
+    // auto opaqueResultType =
+    //     emitc::OpaqueType::get(op.getContext(), opaqueTypeStr);
+    assert(op->getResultTypes().size() == 1);
+    mlir::Type opaqueStructType =
+        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+
     rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
-        op, opaqueResultType,
+        op, opaqueStructType,
         emitc::OpaqueAttr::get(op->getContext(), opaqueConfigStr));
     // }
     return success();
@@ -594,9 +603,6 @@ public:
 
         patterns.add<ConvertNocTransactionsTableOp>(
             typeConverter, funcOp->getContext(), globals);
-
-        patterns.add<ConvertGetInterleavedAddrGenFastOp>(typeConverter,
-                                                         funcOp->getContext());
       }
 
       if (failed(applyPartialConversion(funcOp, target, std::move(patterns)))) {
@@ -616,6 +622,7 @@ public:
         return op.getNumArguments() == 0;
       });
       target.addLegalOp<func::ReturnOp>();
+      target.addIllegalOp<ttkernel::GetInterleavedAddrGenFastOp>();
       target.addIllegalDialect<ttkernel::TTKernelDialect>();
 
       patterns.add<
@@ -689,6 +696,9 @@ public:
 
       patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
                                                          funcOp.getContext());
+
+      patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
+          typeConverter, funcOp->getContext());
 
       if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
         signalPassFailure();
