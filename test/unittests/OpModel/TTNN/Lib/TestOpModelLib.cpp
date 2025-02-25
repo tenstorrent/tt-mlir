@@ -315,8 +315,8 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
+  EXPECT_EQ(output_size, 2048);
+  EXPECT_EQ(peak_size, 4096);
 
   runtimeExp = ReshapeOpInterface::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
