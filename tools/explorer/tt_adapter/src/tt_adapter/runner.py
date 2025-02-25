@@ -13,6 +13,7 @@ from . import utils, mlir
 import pandas as pd
 import threading
 import queue
+import json
 
 
 class ExplorerRunException(Exception):
@@ -139,6 +140,18 @@ class ModelRunner:
             raise FileNotFoundError(f"Performance file {op_perf_file} not found.")
 
         return pd.read_csv(op_perf_file)
+    
+    def get_memory_usage(self, model_path):
+        mem_file = (
+            f"{self.model_state[model_path].model_output_dir}/run/program_0/memory_results.json"
+        )
+        if not os.path.exists(mem_file):
+            raise FileNotFoundError(f"Memory file {mem_file} not found. Memory file may not have been created. Try running command: ttrt run out.ttnn --memory --save-artifacts")
+
+        with open(mem_file, "r") as file:
+            memory_trace = json.load(file)
+
+        return memory_trace
 
     def run_in_subprocess(self, command):
         self.log(f"Running command:\n{' '.join(command)}\n")

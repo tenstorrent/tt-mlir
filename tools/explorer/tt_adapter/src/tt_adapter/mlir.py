@@ -580,7 +580,7 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(module, perf_trace=None):
+def build_graph(module, perf_trace=None, memory_trace=None):
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id="tt-graph")
 
@@ -598,9 +598,18 @@ def build_graph(module, perf_trace=None):
             if loc:
                 loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
 
+    memory_data = {}
+    if memory_trace is not None:
+        for node in memory_trace:
+            memory_data[node]["dram"] = memory_data[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]/memory_data[node]["dram"]["device_0"]["total_bytes_per_bank"]
+            memory_data[node]["l1"] = memory_data[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]/memory_data[node]["l1"]["device_0"]["total_bytes_per_bank"]
+            #memory_data[node]["l1_small"] = memory_data[node]["l1_small"]["device_0"]["total_bytes_allocated_per_bank"]/memory_data[node]["l1_small"]["device_0"]["total_bytes_per_bank"]
+
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
     module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+    #Is this where ^ to add the 2 or three new attributes?
+
     # Add module attributes to the graph as "namespace attributes"
     group_node_attrs = {}
     group_node_attrs[module_op.get_namespace()] = module_attrs
@@ -724,4 +733,4 @@ def build_graph(module, perf_trace=None):
 
     graph.groupNodeAttributes = group_node_attrs
     OpHandler.schedule = 0
-    return graph, overlay_data
+    return graph, overlay_data, memory_data
