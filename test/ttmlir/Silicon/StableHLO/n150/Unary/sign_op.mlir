@@ -9,9 +9,7 @@
 module @jit_eltwise_sign attributes {} {
   func.func public @test_sign(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_sign
-    // CHECK: ttnn.empty
     // CHECK: ttnn.sign
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
     %0 = stablehlo.sign %arg0 : tensor<64x128xf32>

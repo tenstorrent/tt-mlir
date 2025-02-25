@@ -133,7 +133,6 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
         bool isGridChange;
         bool isFormatChange;
         bool isMemorySpaceChange;
-        bool isMemoryLayoutChange;
       };
 
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
@@ -804,6 +803,28 @@ def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
 
         // Reduction for both dimensions (entire tensor)
         output: [False]
+    }];
+}
+
+def TTIR_ReduceOrOp : TTIR_ReductionOp<"reduce_or"> {
+    let summary = "Or reduction op.";
+    let description = [{
+      Reduces a given tensor using logical or operator along the given dimension(s).
+
+      Example:
+        input: [[True,  False, False, False],
+                [True,  True,  False, True],
+                [False, False, False, True],
+                [False, False, False, False]]
+
+        // Reduction along dim 0
+        output: [True, True, False, True]
+
+        // Reduction along dim 1
+        output: [True, True, True, False]
+
+        // Reduction for both dimensions (entire tensor)
+        output: [True]
     }];
 }
 
@@ -1656,7 +1677,9 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1666,7 +1689,7 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizeMethod = 1;
+    let hasCanonicalizer = 1;
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
@@ -1678,7 +1701,9 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1687,6 +1712,8 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 

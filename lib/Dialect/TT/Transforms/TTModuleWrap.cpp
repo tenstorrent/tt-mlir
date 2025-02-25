@@ -73,7 +73,8 @@ public:
       (*cpuOpsList.begin())->erase();
     }
 
-    auto innerModule = dyn_cast_or_null<ModuleOp>(deviceOp.getBody()->front());
+    auto innerModule =
+        dyn_cast_if_present<ModuleOp>(deviceOp.getBody()->front());
     assert(innerModule &&
            "tt.device_module must always contain single builtin.module!");
 

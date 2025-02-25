@@ -9,9 +9,7 @@
 module @jit_eltwise_compare attributes {} {
   func.func public @logical_and(%arg0: tensor<64x128xi1>, %arg1: tensor<64x128xi1>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @logical_and
-    // CHECK: ttnn.empty
     // CHECK: ttnn.logical_and
-    // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: -> tensor<64x128xbf16,
@@ -21,9 +19,7 @@ module @jit_eltwise_compare attributes {} {
 
   func.func public @logical_or(%arg0: tensor<64x128xi1>, %arg1: tensor<64x128xi1>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @logical_or
-    // CHECK: ttnn.empty
     // CHECK: ttnn.logical_or
-    // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: -> tensor<64x128xbf16,
@@ -33,9 +29,7 @@ module @jit_eltwise_compare attributes {} {
 
   func.func public @logical_xor(%arg0: tensor<64x128xi1>, %arg1: tensor<64x128xi1>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @logical_xor
-    // CHECK: ttnn.empty
     // CHECK: ttnn.logical_xor
-    // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: -> tensor<64x128xbf16,

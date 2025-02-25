@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-allocate %s | FileCheck %s
 #l1_ = #tt.memory_space<l1>
-#layout = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>, interleaved>
+#layout = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
 module attributes {} {
   func.func @forward(%arg0: tensor<64x128xf32, #layout>, %arg1: tensor<64x128xf32, #layout>) -> tensor<64x128xf32, #layout> {
     // CHECK: %[[C:.*]] = "ttir.alloc"[[C:.*]]

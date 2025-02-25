@@ -136,4 +136,38 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
     let hasVerifier = 1;
 }
 
+def TTIR_TileTilizeBlockOp : TTIR_GenericRegionOp<"tile_tilize_block",
+  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "TTIR Tile Tilize Block Op";
+    let description = [{
+        The `tile_tilize_block` operation tilizes the input row major memref block and outputs the memref containing the tilized data.
+    }];
+
+    let arguments = (ins AnyNon0RankedMemRef:$input,
+                         AnyNon0RankedMemRef:$output);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionOp<"tile_untilize_block",
+  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "TTIR Tile Untilize Block Op";
+    let description = [{
+        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
+    }];
+
+    let arguments = (ins AnyNon0RankedMemRef:$input,
+                         AnyNon0RankedMemRef:$output);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD

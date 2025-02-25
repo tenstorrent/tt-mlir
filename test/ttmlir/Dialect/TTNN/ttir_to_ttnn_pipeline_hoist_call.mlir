@@ -7,9 +7,8 @@ module {
   // CHECK: builtin.module attributes {{.*}} {
   // CHECK: func.func @forward
   func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    // CHECK: %{{.*}} = "ttnn.empty"(%{{.*}})
     %0 = tensor.empty() : tensor<64x128xf32>
-    // CHECK: %{{.*}} = "ttnn.multiply"(%{{.*}}, %{{.*}}, %{{.*}})
+    // CHECK: %{{.*}} = "ttnn.multiply"(%{{.*}}, %{{.*}})
     %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: %{{.*}} = "ttnn.ones"
     %2 = "ttir.ones"() <{shape = array<i32:64, 128>}> : () -> tensor<64x128xf32>
@@ -26,13 +25,13 @@ module {
     // CHECK: %{{.*}} = "ttnn.to_device"(%{{.*}}, %{{.*}}) <{memory_config = {{.*}}}> : (tensor<[[DIMS:.*]], #{{.*}}>, !tt.device<#{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = "ttnn.to_layout"(%{{.*}}) <{layout = #ttnn.layout<{{.*}}>}> : (tensor<[[DIMS:.*]], #{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
     // CHECK: %{{.*}} = "ttnn.to_device"(%{{.*}}, %{{.*}}) <{memory_config = {{.*}}}> : (tensor<[[DIMS:.*]], #{{.*}}>, !tt.device<#{{.*}}>) -> tensor<[[DIMS]], #{{.*}}>
-    // CHECK: %{{.*}} = "ttnn.multiply"(%{{.*}}, %{{.*}}, %{{.*}})
+    // CHECK: %{{.*}} = "ttnn.multiply"(%{{.*}}, %{{.*}})
     %7 = "ttir.multiply"(%3, %5, %6) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     return %7 : tensor<64x128xf32>
   }
   // CHECK: func.func private @hoisted_ttir_add_64x128_64x128_64x128_func_decl
   // CHECK: tt.cpu_module {
   // CHECK: builtin.module {
-   // CHECK: llvm.func @hoisted_ttir_add_64x128_64x128_64x128_func
-   // CHECK: llvm.func @hoisted_ttir_add_64x128_64x128_64x128_func_helper(%arg0: !llvm.ptr)
+  // CHECK: llvm.func @hoisted_ttir_add_64x128_64x128_64x128_func
+  // CHECK: llvm.func @hoisted_ttir_add_64x128_64x128_64x128_func_helper(%arg0: !llvm.ptr)
 }

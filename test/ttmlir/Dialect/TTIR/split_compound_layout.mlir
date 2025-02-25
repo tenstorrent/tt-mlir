@@ -3,21 +3,21 @@
 #dram = #tt.memory_space<dram>
 #l1_ = #tt.memory_space<l1>
 
-// CHECK-DAG: #[[row_major1x1:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>, interleaved>
-// CHECK-DAG: #[[row_major1x1_T:.*]] = #tt.metal_layout<(d0, d1) -> (d1, d0), undef, <1x1>, memref<64x128xf32, #l1_>, interleaved>
-// CHECK-DAG: #[[row_major2x2:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<32x64xf32, #l1_>, interleaved>
-// CHECK-DAG: #[[tile1x1_f32:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, f32>, #l1_>, interleaved>
-// CHECK-DAG: #[[tile1x1_bf16:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, bf16>, #l1_>, interleaved>
-// CHECK-DAG: #[[tile1x1_f32_dram:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, f32>, #dram>, interleaved>
-// CHECK-DAG: #[[tile2x2_f32:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<1x2x!tt.tile<32x32, f32>, #l1_>, interleaved>
+// CHECK-DAG: #[[row_major1x1:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
+// CHECK-DAG: #[[row_major1x1_T:.*]] = #tt.metal_layout<(d0, d1) -> (d1, d0), undef, <1x1>, memref<64x128xf32, #l1_>>
+// CHECK-DAG: #[[row_major2x2:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<32x64xf32, #l1_>>
+// CHECK-DAG: #[[tile1x1_f32:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, f32>, #l1_>>
+// CHECK-DAG: #[[tile1x1_bf16:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, bf16>, #l1_>>
+// CHECK-DAG: #[[tile1x1_f32_dram:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, f32>, #dram>>
+// CHECK-DAG: #[[tile2x2_f32:.*]] = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<1x2x!tt.tile<32x32, f32>, #l1_>>
 
-#row_major1x1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>, interleaved>
-#row_major1x1_T = #tt.metal_layout<(d0, d1) -> (d1, d0), undef, <1x1>, memref<64x128xf32, #l1_>, interleaved>
-#row_major2x2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<32x64xf32, #l1_>, interleaved>
-#tile1x1_f32 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, f32>, #l1_>, interleaved>
-#tile1x1_bf16 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, bf16>, #l1_>, interleaved>
-#tile1x1_f32_dram = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, f32>, #dram>, interleaved>
-#tile2x2_f32 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<1x2x!tt.tile<32x32, f32>, #l1_>, interleaved>
+#row_major1x1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
+#row_major1x1_T = #tt.metal_layout<(d0, d1) -> (d1, d0), undef, <1x1>, memref<64x128xf32, #l1_>>
+#row_major2x2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<32x64xf32, #l1_>>
+#tile1x1_f32 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, f32>, #l1_>>
+#tile1x1_bf16 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, bf16>, #l1_>>
+#tile1x1_f32_dram = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, f32>, #dram>>
+#tile2x2_f32 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<1x2x!tt.tile<32x32, f32>, #l1_>>
 
 func.func @noncompound_linear(%in: tensor<64x128xf32, #row_major1x1>) -> tensor<64x128xf32, #row_major1x1_T> {
     %out = tensor.empty() : tensor<64x128xf32, #row_major1x1_T>

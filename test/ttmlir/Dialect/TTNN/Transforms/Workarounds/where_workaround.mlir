@@ -12,7 +12,6 @@ module @moreh_cumsum attributes {tt.device = #device, tt.system_desc = #system_d
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
     %1 = "ttnn.reshape"(%arg2) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1xf32, #ttnn_layout2>) -> tensor<1x1x1x1xf32, #ttnn_layout3>
     %2 = "ttnn.repeat"(%1) <{repeat_dims = #ttnn.shape<1x12x1x46>}> : (tensor<1x1x1x1xf32, #ttnn_layout3>) -> tensor<1x12x1x46xf32, #ttnn_layout1>
-    %3 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x2>>, <interleaved>>, shape = #ttnn.shape<1x12x1x46>}> : (!tt.device<#device>) -> tensor<1x12x1x46xf32, #ttnn_layout1>
     // CHECK: %[[ARG0:[0-9]+]] = {{.*}}(%arg0,
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x1x1x46xbf16
@@ -21,9 +20,8 @@ module @moreh_cumsum attributes {tt.device = #device, tt.system_desc = #system_d
     // CHECK-SAME: tensor<1x1x1x46xf32
     // CHECK-SAME: tensor<1x12x1x46xf32
     // CHECK-SAME: tensor<1x12x1x46xf32
-    // CHECK-SAME: tensor<1x12x1x46xf32
     // CHECK-SAME: -> tensor<1x12x1x46xf32
-    %4 = "ttnn.where"(%arg0, %arg1, %2, %3) <{operandSegmentSizes = array<i32: 3, 1>}> : (tensor<1x1x1x46xbf16, #ttnn_layout>, tensor<1x12x1x46xf32, #ttnn_layout1>, tensor<1x12x1x46xf32, #ttnn_layout1>, tensor<1x12x1x46xf32, #ttnn_layout1>) -> tensor<1x12x1x46xf32, #ttnn_layout1>
+    %4 = "ttnn.where"(%arg0, %arg1, %2) : (tensor<1x1x1x46xbf16, #ttnn_layout>, tensor<1x12x1x46xf32, #ttnn_layout1>, tensor<1x12x1x46xf32, #ttnn_layout1>) -> tensor<1x12x1x46xf32, #ttnn_layout1>
     return %4 : tensor<1x12x1x46xf32, #ttnn_layout1>
   }
 }

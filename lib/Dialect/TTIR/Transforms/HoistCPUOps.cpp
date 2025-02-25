@@ -70,7 +70,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
   mlir::MLIRContext *context = sourceModule.getContext();
   mlir::OpBuilder typeBuilder(opToHoist);
-  auto f32Type = mlir::FloatType::getF32(context);
+  auto f32Type = mlir::Float32Type::get(context);
 
   // Convert operands and gather types for function signature
   llvm::SmallVector<mlir::Type> operandTypes;
@@ -125,7 +125,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   llvm::SmallString<16> localFunctionName = functionName;
   localFunctionName.append("_decl");
 
-  auto localFunc = llvm::dyn_cast_or_null<func::FuncOp>(
+  auto localFunc = llvm::dyn_cast_if_present<func::FuncOp>(
       sourceModule.lookupSymbol(localFunctionName.str()));
 
   // Create a new hoisted function only if an equivalent one does not exist.
@@ -274,7 +274,7 @@ public:
     assert(deviceModule &&
            "must run tt::WrapDeviceModulePass on IR before hoisting!");
 
-    ModuleOp deviceInnerModule = dyn_cast_or_null<mlir::ModuleOp>(
+    ModuleOp deviceInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
     assert(deviceInnerModule &&
            "tt::DeviceModuleOp must have single ModuleOp child!");
@@ -297,7 +297,7 @@ public:
     for (auto &op : rootModule.getBody()->getOperations()) {
       if (auto module = llvm::dyn_cast<tt::CPUModuleOp>(op)) {
         cpuModule = module;
-        cpuInnerModule = dyn_cast_or_null<mlir::ModuleOp>(
+        cpuInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
             cpuModule.getBodyRegion().front().front());
         assert(cpuInnerModule && "CPUModuleOp must contain 1 ModuleOp!");
         break;

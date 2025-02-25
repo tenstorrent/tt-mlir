@@ -475,8 +475,7 @@ private:
     // This configuration specifies that the rewriter should traverse the IR
     // in a top-down order.
     config.useTopDownTraversal = true;
-    if (failed(
-            applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
+    if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
       signalPassFailure();
       return;
     }

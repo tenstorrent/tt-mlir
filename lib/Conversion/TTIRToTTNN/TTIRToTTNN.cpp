@@ -302,8 +302,7 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, adaptor.getInputs(),
-                                          adaptor.getOutputs());
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, adaptor.getInputs());
     return success();
   }
 };
@@ -633,7 +632,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType(0)),
-        adaptor.getInputs(), adaptor.getOutputs(), adaptor.getParameter());
+        adaptor.getInputs(), adaptor.getParameter());
     return success();
   }
 };
@@ -788,7 +787,7 @@ public:
 
     ttnn::MemoryConfigAttr memcfg = nullptr;
     if (ttnn::TTNNLayoutAttr layoutAttr =
-            mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+            mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
                 op.getResult().getType().getEncoding());
         layoutAttr.getBufferType() != ttnn::BufferType::SystemMemory) {
       memcfg = ttnn::MemoryConfigAttr::get(
@@ -930,7 +929,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getBias(), adaptor.getOutput());
+        adaptor.getB(), adaptor.getBias(), adaptor.getOutput(),
+        adaptor.getTransposeA(), adaptor.getTransposeB());
     return success();
   }
 };
@@ -947,7 +947,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getOutput());
+        adaptor.getB(), adaptor.getOutput(), adaptor.getTransposeA(),
+        adaptor.getTransposeB());
     return success();
   }
 };
@@ -1270,8 +1271,7 @@ public:
 
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
-          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back(),
-          adaptor.getOutputs().front());
+          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
@@ -1280,11 +1280,10 @@ public:
 
     } else {
       ttnn::NegOp negOp = ttmlir::utils::createDPSOp<ttnn::NegOp>(
-          rewriter, srcOp.getLoc(), rhsType, adaptor.getInputs().back());
+          rewriter, srcOp.getLoc(), rhsType);
 
       rewriter.replaceOpWithNewOp<ttnn::AddOp>(
-          srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
-          adaptor.getOutputs().front());
+          srcOp, adaptor.getInputs().front(), negOp.getResults().front());
     }
 
     return success();
@@ -1413,8 +1412,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // The ttnn interface has the inverse inputs of the TTIR dialect op (which
     // matches torch ops).
-    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getUpdate(), adaptor.getInput(), adaptor.getOutput());
+    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(op, adaptor.getUpdate(),
+                                                 adaptor.getInput(),
+                                                 adaptor.getOutput().getType());
 
     return success();
   }

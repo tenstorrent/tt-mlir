@@ -80,13 +80,17 @@ public:
             ? virtualGrid.value()
             : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
 
+    auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
+                             ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
+                             : mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                   &context, tensorMemoryLayout);
+
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
         &context, tensorShape,
         mlir::tt::TileType::get(&context, builder.getBF16Type()), bufferType,
         CreateGrid(&context, tensorMemoryLayout, virtualGridSelected,
                    physicalGrid),
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                    tensorMemoryLayout));
+        memLayoutAttr);
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateRowMajorLayout(

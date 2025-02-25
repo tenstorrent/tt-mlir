@@ -9,9 +9,7 @@
 module @jit_eltwise_sine attributes {} {
   func.func public @test_sine(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_sine
-    // CHECK: ttnn.empty
     // CHECK: ttnn.sin
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
     %0 = stablehlo.sine %arg0 : tensor<64x128xf32>

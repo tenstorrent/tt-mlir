@@ -21,12 +21,15 @@ namespace mlir::tt::ttnn {
 static const std::array<std::pair<int64_t, int64_t>, 1> g_defaultCollapseDims =
     {{{0, -1}}};
 
-// Default memory space for tensors on device
-static const BufferType g_defaultMemorySpaceDevice = BufferType::DRAM;
+static const llvm::SmallDenseMap<BufferType, std::optional<TensorMemoryLayout>,
+                                 4>
+    g_bufferLayoutMap = {
+        {BufferType::DRAM, TensorMemoryLayout::Interleaved},
+        {BufferType::L1, TensorMemoryLayout::Interleaved},
+        {BufferType::SystemMemory, std::nullopt},
+};
 
-// Default memory layout for tensors on device
-static const TensorMemoryLayout g_defaultMemoryLayout =
-    TensorMemoryLayout::Interleaved;
+static const BufferType g_defaultMemorySpaceDevice = BufferType::DRAM;
 
 //===----------------------------------------------------------------------===//
 // Helper methods
@@ -45,16 +48,21 @@ inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
   return loc;
 }
 
-static TTNNLayoutAttr createLayoutAttr(
-    MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
-    std::optional<BufferType> bufferTypeOpt = std::nullopt,
-    std::optional<TensorMemoryLayout> memoryLayoutOpt = std::nullopt,
-    std::optional<bool> isTiledOpt = std::nullopt) {
+static TensorMemoryLayoutAttr getMemoryLayoutAttr(MLIRContext *ctx,
+                                                  BufferType bufferType) {
+  std::optional<TensorMemoryLayout> layout = g_bufferLayoutMap.at(bufferType);
+  if (layout) {
+    return TensorMemoryLayoutAttr::get(ctx, layout.value());
+  }
 
-  BufferType bufferType = bufferTypeOpt.value_or(g_defaultMemorySpaceDevice);
-  TensorMemoryLayout memoryLayout =
-      memoryLayoutOpt.value_or(g_defaultMemoryLayout);
-  bool isTiled = isTiledOpt.value_or(true);
+  return TensorMemoryLayoutAttr{};
+}
+
+static TTNNLayoutAttr
+createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
+                 BufferType bufferType = g_defaultMemorySpaceDevice,
+                 bool isTiled = true) {
+
   std::int64_t deviceGridRank = deviceGrid.getShape().size();
   // Default to single core grid
   GridAttr tensorGrid = GridAttr::get(ctx, deviceGridRank);
@@ -65,9 +73,11 @@ static TTNNLayoutAttr createLayoutAttr(
   // Force TileType for tensors
   auto elementType = isTiled ? TileType::get(ctx, type.getElementType())
                              : type.getElementType();
-  return TTNNLayoutAttr::get(
-      ctx, type.getShape(), elementType, bufferType, tensorGrid,
-      TensorMemoryLayoutAttr::get(ctx, memoryLayout), collapseDimsRef);
+
+  TensorMemoryLayoutAttr memoryLayoutAttr =
+      getMemoryLayoutAttr(ctx, bufferType);
+  return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
+                             tensorGrid, memoryLayoutAttr, collapseDimsRef);
 }
 
 //===----------------------------------------------------------------------===//
@@ -117,7 +127,7 @@ public:
       }
 
       TTNNLayoutAttr newLayout = createLayoutAttr(
-          ctx, deviceGrid, type, BufferType::SystemMemory, std::nullopt, false);
+          ctx, deviceGrid, type, BufferType::SystemMemory, false);
       // Convert mlir data types to tt data types
       Type elementType = mlir::tt::dataTypeToElementType(
           ctx, elementTypeToDataType(type.getElementType()));
@@ -210,10 +220,12 @@ public:
 // Given desired buffer type, memory layout and type checks if the input tensor
 // needs to be converted to the desired layout. If it does, creates a new
 // EmptyOp/ConstantOp/EmptyOp + ToLayoutOp depending on the input.
-static std::optional<Value>
-createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 BufferType desiredBufferType,
-                 TensorMemoryLayoutAttr desiredMemLayoutAttr, bool tiled) {
+static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
+                                             Location loc, Value input,
+                                             BufferType desiredBufferType,
+                                             bool tiled) {
+  TensorMemoryLayoutAttr desiredMemLayoutAttr =
+      getMemoryLayoutAttr(rewriter.getContext(), desiredBufferType);
 
   // Get type
   RankedTensorType ty = mlir::cast<RankedTensorType>(input.getType());
@@ -309,9 +321,9 @@ static bool changeLayoutToHost(DestinationStyleOpInterface &op,
                                OpOperand &operand, PatternRewriter &rewriter,
                                bool isDPSResult) {
   Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-  std::optional<Value> layout = createToLayoutOp(
-      rewriter, newLoc, operand.get(), BufferType::SystemMemory,
-      nullptr /* desiredMemLayoutAttr */, false /* tiled */);
+  std::optional<Value> layout =
+      createToLayoutOp(rewriter, newLoc, operand.get(),
+                       BufferType::SystemMemory, false /* tiled */);
   if (layout.has_value()) {
     rewriter.modifyOpInPlace(op, [&]() {
       op->setOperand(operand.getOperandNumber(), *layout);
@@ -385,10 +397,7 @@ public:
 
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
-          TensorMemoryLayoutAttr::get(rewriter.getContext(),
-                                      g_defaultMemoryLayout),
-          isTiled);
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice, isTiled);
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -451,9 +460,9 @@ public:
     size_t locIdx = 0;
     for (auto operand : callOp.getOperands()) {
       Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
-      std::optional<Value> optionalLayoutOp = createToLayoutOp(
-          rewriter, newLoc, operand, BufferType::SystemMemory,
-          nullptr /* desiredMemLayoutAttr */, false /* tiled */);
+      std::optional<Value> optionalLayoutOp =
+          createToLayoutOp(rewriter, newLoc, operand, BufferType::SystemMemory,
+                           false /* tiled */);
       fromDeviceOperands.push_back(
           optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand);
     }
@@ -576,7 +585,7 @@ private:
   RankedTensorType toSystemMemoryType(MLIRContext *ctx,
                                       RankedTensorType ty) const {
     TTNNLayoutAttr newLayout = createLayoutAttr(
-        ctx, deviceGrid, ty, BufferType::SystemMemory, std::nullopt, false);
+        ctx, deviceGrid, ty, BufferType::SystemMemory, false /* isTiledOpt */);
     auto newType =
         RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
     return newType;
@@ -632,18 +641,12 @@ public:
       BufferType desiredBufferType =
           forceHost ? BufferType::SystemMemory : g_defaultMemorySpaceDevice;
 
-      TensorMemoryLayoutAttr desiredMemLayoutAttr =
-          forceHost ? nullptr
-                    : TensorMemoryLayoutAttr::get(rewriter.getContext(),
-                                                  g_defaultMemoryLayout);
-
       bool isTiled = !forceHost;
 
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-      std::optional<Value> updatedLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(), desiredBufferType,
-                           desiredMemLayoutAttr, isTiled);
+      std::optional<Value> updatedLayout = createToLayoutOp(
+          rewriter, newLoc, operand.get(), desiredBufferType, isTiled);
       if (updatedLayout.has_value()) {
         rewriter.modifyOpInPlace(op, [&]() {
           op.setOperand(operand.getOperandNumber(), *updatedLayout);
@@ -693,7 +696,7 @@ public:
       patterns.add<TTNNLayoutFuncInputOutputTypeRewriter>(
           &getContext(), device.getWorkerGrid());
       FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
         signalPassFailure();
         return;
       }
@@ -711,8 +714,7 @@ public:
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
+      if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
         signalPassFailure();
         return;
       }

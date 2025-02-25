@@ -40,7 +40,7 @@ struct TTIRToTTIRDecompositionPass
                                                        // func.func and
                                                        // func.call as legal ops
     target.addLegalDialect<BuiltinDialect>(); // This contains the "module" op
-                                              // which is necesarry
+                                              // which is necessary
 
     target.addLegalOp<tensor::EmptyOp>(); // DPS operands are create with
                                           // tensor::EmptyOp
@@ -54,6 +54,7 @@ struct TTIRToTTIRDecompositionPass
     target.addIllegalOp<ttir::SelectOp>();
     target.addIllegalOp<ttir::DotGeneralOp>();
     target.addIllegalOp<ttir::ReduceAndOp>();
+    target.addIllegalOp<ttir::ReduceOrOp>();
 
     // These are the ops that must satisfy some conditions after this pass
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {

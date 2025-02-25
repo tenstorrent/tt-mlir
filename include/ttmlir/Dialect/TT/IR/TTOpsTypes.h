@@ -45,12 +45,6 @@ inline bool isL1MemorySpace(MemorySpace memorySpace) {
   return memorySpace == MemorySpace::DeviceL1;
 }
 
-inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
-  return layout == TensorMemoryLayout::HeightSharded ||
-         layout == TensorMemoryLayout::WidthSharded ||
-         layout == TensorMemoryLayout::BlockSharded;
-}
-
 inline void printDimensionList(::mlir::AsmPrinter &printer,
                                ::llvm::ArrayRef<int64_t> shape) {
   printer.printDimensionList(shape);
@@ -115,23 +109,23 @@ inline Type dataTypeToElementType(::mlir::MLIRContext *context,
                                   DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
-    return FloatType::getF32(context);
+    return Float32Type::get(context);
   case DataType::Float16:
-    return FloatType::getF16(context);
+    return Float16Type::get(context);
   case DataType::BFloat16:
-    return FloatType::getBF16(context);
+    return BFloat16Type::get(context);
   case DataType::BFP_Float8:
-    return FloatType::getF16(context);
+    return Float16Type::get(context);
   case DataType::BFP_BFloat8:
-    return FloatType::getBF16(context);
+    return BFloat16Type::get(context);
   case DataType::BFP_Float4:
-    return FloatType::getF16(context);
+    return Float16Type::get(context);
   case DataType::BFP_BFloat4:
-    return FloatType::getBF16(context);
+    return BFloat16Type::get(context);
   case DataType::BFP_Float2:
-    return FloatType::getF16(context);
+    return Float16Type::get(context);
   case DataType::BFP_BFloat2:
-    return FloatType::getBF16(context);
+    return BFloat16Type::get(context);
   case DataType::UInt32:
     return IntegerType::get(context, 32,
                             IntegerType::SignednessSemantics::Unsigned);
