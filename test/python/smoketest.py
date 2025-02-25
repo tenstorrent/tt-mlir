@@ -19,5 +19,5 @@ with Context() as ctx:
     """
     )
     # CHECK: %[[C:.*]] = tensor.empty() : tensor<64x128xf32>
-    # CHECK: %[[C:.*]] = "ttir.multiply"[[C:.*]] : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    # CHECK: = "ttir.multiply" : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     print(str(module))

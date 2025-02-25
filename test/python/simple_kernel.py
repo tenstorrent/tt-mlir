@@ -240,7 +240,7 @@ def ttkernel_compile(f):
         # print(ast.dump(m, indent=4))
         b.visit(m)
         # CHECK: "func.func"[[C:.*]]
-        # CHECK: %[[C:.*]] = "arith.constant"[[C:.*]]
+        # CHECK: = "arith.constant"
         # CHECK: "scf.for"[[C:.*]]
         # CHECK: "ttkernel.cb_wait_front"[[C:.*]]
         # CHECK: "ttkernel.cb_reserve_back"[[C:.*]]

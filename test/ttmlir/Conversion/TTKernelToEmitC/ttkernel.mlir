@@ -2,23 +2,23 @@
 #l1_ = #tt.memory_space<l1>
 module attributes {} {
   func.func @ttkernel_noc() -> () {
-    // CHECK: [[C:.*]] = "emitc.constant"[[C:.*]]
+    // CHECK: = "emitc.constant"
     %c262432_i32 = arith.constant 262432 : i32
-    // CHECK: [[C:.*]] = "emitc.constant"[[C:.*]]
+    // CHECK: = "emitc.constant"
     %c262208_i32 = arith.constant 262208 : i32
-    // CHECK: [[C:.*]] = "emitc.constant"[[C:.*]]
+    // CHECK: = "emitc.constant"
     %c32_i32 = arith.constant 32 : i32
-    // CHECK: [[C:.*]] = "emitc.constant"[[C:.*]]
+    // CHECK: = "emitc.constant"
     %c262400_i32 = arith.constant 262400 : i32
-    // CHECK: [[C:.*]] = "emitc.constant"[[C:.*]]
+    // CHECK: = "emitc.constant"
     %c0_i32 = arith.constant 0 : i32
-    // CHECK: [[C:.*]] = "emitc.constant"[[C:.*]]
+    // CHECK: = "emitc.constant"
     %c262144_i32 = arith.constant 262144 : i32
-    // CHECK: [[C:.*]] = emitc.call_opaque "get_noc_addr"[[C:.*]]
+    // CHECK: = emitc.call_opaque "get_noc_addr"
     %3 = "ttkernel.get_noc_addr_xy"(%c0_i32, %c0_i32, %c262144_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
     // CHECK: emitc.call_opaque "noc_async_read"[[C:.*]]
     "ttkernel.noc_async_read"(%3, %c262400_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
-    // CHECK: [[C:.*]] = emitc.call_opaque "get_noc_addr"[[C:.*]]
+    // CHECK: = emitc.call_opaque "get_noc_addr"
     %4 = "ttkernel.get_noc_addr_xy"(%c0_i32, %c0_i32, %c262208_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
     // CHECK: emitc.call_opaque "noc_async_read"[[C:.*]]
     "ttkernel.noc_async_read"(%4, %c262432_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
