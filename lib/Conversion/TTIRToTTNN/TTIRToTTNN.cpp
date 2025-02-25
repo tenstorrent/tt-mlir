@@ -29,7 +29,6 @@
 #include "llvm/Support/Casting.h"
 
 #include <cstdint>
-#include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <optional>
 
 using namespace mlir;
