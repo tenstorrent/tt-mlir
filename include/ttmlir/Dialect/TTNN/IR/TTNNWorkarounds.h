@@ -251,9 +251,12 @@ public:
   // dialect.
   static TTNNOperandsWorkarounds createConstantOpOperandsWorkarounds();
 
-  // Create workarounds for concat op operands.
+  // Create workarounds for where op operands.
   static TTNNOperandsWorkarounds
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
+
+  // Create workarounds for ArgMax op operands.
+  static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

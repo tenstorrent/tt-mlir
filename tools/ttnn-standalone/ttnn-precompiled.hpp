@@ -23,6 +23,7 @@
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
+#include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
