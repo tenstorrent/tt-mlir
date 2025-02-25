@@ -9,47 +9,55 @@ import multiprocessing
 import pytest
 import glob
 import os
+import logging
 
 HOST = "localhost"
 PORT = 8002
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
-    "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
     "test/ttmlir/Explorer/**/*.mlir",
-    "test/ttmlir/Silicon/TTNN/**/*.mlir",
+    "test/ttmlir/Silicon/TTNN/n150/perf/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
 
-if "TT_EXPLORER_GENERATED_TEST_DIR" in os.environ:
-    TEST_LOAD_MODEL_PATHS.append(
-        os.environ["TT_EXPLORER_GENERATED_TEST_DIR"] + "/**/*.mlir"
-    )
+if "TT_EXPLORER_GENERATED_MLIR_TEST_DIRS" in os.environ:
+    for path in os.environ["TT_EXPLORER_GENERATED_MLIR_TEST_DIRS"].split(","):
+        if os.path.exists(path):
+            TEST_LOAD_MODEL_PATHS.append(path + "/**/*.mlir")
+        else:
+            logging.error(
+                "Path %s provided in TT_EXPLORER_GENERED_MLIR_TEST_DIRS doesn't exist. Tests not added.",
+                path,
+            )
+
+if "TT_EXPLORER_GENERATED_TTNN_TEST_DIRS" in os.environ:
+    for path in os.environ["TT_EXPLORER_GENERATED_TTNN_TEST_DIRS"].split(","):
+        if os.path.exists(path):
+            TEST_LOAD_MODEL_PATHS.append(path + "/**/*.ttnn")
+            TEST_EXECUTE_MODEL_PATHS.append(path + "/**/*.ttnn")
+        else:
+            logging.error(
+                "Path %s provided in TT_EXPLORER_GENERED_TTNN_TEST_DIRS doesn't exist. Tests not added.",
+                path,
+            )
 
 
 def get_test_files(paths):
     files = []
     for path in paths:
         files.extend(glob.glob(path, recursive=True))
+
     return files
 
 
-def execute_command(model_path, settings):
-    cmd = {
-        "extensionId": "tt_adapter",
-        "cmdId": "execute",
-        "modelPath": model_path,
-        "deleteAfterConversion": False,
-        "settings": settings,
-    }
-
-    result = requests.post(COMMAND_URL, json=cmd)
-    assert result.ok
-    if "error" in result.json():
-        print(result.json())
-        assert False
+def GET_TTNN_TEST():
+    for test in get_test_files(TEST_EXECUTE_MODEL_PATHS):
+        if test.endswith("test_mnist.ttnn"):
+            return test
+    return None
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -86,13 +94,6 @@ def start_server(request):
         server_thread.join()
 
     request.addfinalizer(server_shutdown)
-
-
-def get_test_files(paths):
-    files = []
-    for path in paths:
-        files.extend(glob.glob(path))
-    return files
 
 
 def send_command(command, model_path, settings={}):
@@ -157,7 +158,7 @@ def test_load_model(model_path):
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
 def test_execute_model(model_path):
     execute_command_and_wait(
-        model_path, {"optimizationPolicy": "DF Sharding"}, timeout=300
+        model_path, {"optimizationPolicy": "Optimizer Disabled"}, timeout=300
     )
     convert_command_and_assert(model_path)
 
@@ -171,10 +172,10 @@ def test_execute_mnist_l1_interleaved():
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
 
-def test_execute_mnist_optimizer_disabled():
+def test_execute_mnist_df_sharding():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
-        {"optimizationPolicy": "Optimizer Disabled"},
+        {"optimizationPolicy": "DF Sharding"},
         timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
@@ -208,7 +209,7 @@ def test_execute_and_check_perf_data_exists():
         timeout=300,
     )
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
-    assert "perf_data" in result["graphs"][0]
+    assert "perf_data" in result["graphs"][0]["overlays"]
 
 
 def test_execute_model_invalid_policy():
@@ -218,3 +219,18 @@ def test_execute_model_invalid_policy():
             {"optimizationPolicy": "Invalid Policy"},
             timeout=300,
         )
+
+
+def test_execute_and_check_accuracy_data_exists():
+    # Get the test_mnist path
+    test_mnist_path = GET_TTNN_TEST()
+
+    # Key Decision: Make Test Fail or just provide error message and skip?
+    assert (
+        test_mnist_path is not None
+    ), "Couldn't find test_mnist.ttnn in GENERATED_TTNN_TEST_DIRS"
+    execute_command_and_wait(
+        test_mnist_path, {"optimizationPolicy": "Optimizer Disabled"}, timeout=300
+    )
+    result = convert_command_and_assert(test_mnist_path)
+    assert "accuracy_data" in result["graphs"][0]["overlays"]
