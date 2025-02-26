@@ -9,9 +9,7 @@
 module @jit_eltwise_subtract attributes {} {
   func.func public @test_subtract(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_subtract
-    // CHECK: ttnn.empty
     // CHECK: ttnn.subtract
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,

@@ -27,7 +27,7 @@ module @jit_matmul_shardy0 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_r
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
 // CHECK-SAME: shard_type = #tt.shard_type<devices>
-// CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+// CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
@@ -62,7 +62,7 @@ module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
 // CHECK-SAME: shard_type = #tt.shard_type<devices>
-// CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+// CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
@@ -97,7 +97,7 @@ module @jit_matmul_shardy2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
 // CHECK-SAME: shard_type = #tt.shard_type<devices>
-// CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+// CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
@@ -324,7 +324,7 @@ module @jit_matmul_shardy_automatic attributes {mhlo.num_partitions = 8 : i32, m
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
 // CHECK-SAME: shard_type = #tt.shard_type<manual>
-// CHECK: %[[C:.*]] = "ttir.all_reduce"[[C:.*]]
+// CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>

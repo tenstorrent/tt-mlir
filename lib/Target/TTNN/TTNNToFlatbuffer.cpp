@@ -50,25 +50,6 @@ static OpType findOpAtTopLevel(mlir::ModuleOp module) {
 
 ::tt::target::ttnn::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &,
-             ::mlir::tt::TensorMemoryLayout memLayout) {
-  switch (memLayout) {
-  case TensorMemoryLayout::Interleaved:
-    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
-  case TensorMemoryLayout::SingleBank:
-    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
-  case TensorMemoryLayout::HeightSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
-  case TensorMemoryLayout::WidthSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
-  case TensorMemoryLayout::BlockSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
-  default:
-    llvm_unreachable("unhandled TensorMemoryLayout");
-  }
-}
-
-::tt::target::ttnn::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &,
              ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
   switch (memLayoutAttr.getValue()) {
   case ttnn::TensorMemoryLayout::SingleBank:
@@ -188,6 +169,44 @@ memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
       ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
                                              bufferType, shardSpec);
   return memoryConfig;
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
+conv2dConfigToFlatbuffer(FlatbufferObjectCache &cache,
+                         ::mlir::tt::ttnn::Conv2dConfigAttr conv2dConfig) {
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(conv2dConfig.getDtype());
+  ::tt::target::DataType weightsDtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(conv2dConfig.getWeightsDtype());
+  ::flatbuffers::Offset<::flatbuffers::String> activation =
+      toFlatbuffer(cache, conv2dConfig.getActivation().getValue());
+  ::flatbuffers::Optional<::tt::target::ttnn::TensorMemoryLayout> shardLayout =
+      conv2dConfig.getShardLayout()
+          ? std::optional{::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
+                conv2dConfig.getShardLayout().getValue())}
+          : std::nullopt;
+  ::flatbuffers::Optional<bool> coreGrid = std::nullopt;
+  ::tt::target::TensorLayout outputLayout =
+      ::tt::mlir::ttnn::utils::toTargetTensorLayout(
+          conv2dConfig.getOutputLayout());
+
+  ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig> conv2dConfigDesc =
+      ::tt::target::ttnn::CreateConv2dConfig(
+          *cache.fbb, dtype, weightsDtype, activation,
+          conv2dConfig.getInputChannelsAlignment().getInt(),
+          conv2dConfig.getDeallocateActivation().getValue(),
+          conv2dConfig.getReallocateHaloOutput().getValue(),
+          conv2dConfig.getActBlockHOverride().getInt(),
+          conv2dConfig.getActBlockWDiv().getInt(),
+          conv2dConfig.getReshardIfNotOptimal().getValue(),
+          conv2dConfig.getOverrideShardingConfig().getValue(), shardLayout,
+          coreGrid, conv2dConfig.getTransposeShards().getValue(), outputLayout,
+          conv2dConfig.getEnableActDoubleBuffer().getValue(),
+          conv2dConfig.getEnableWeightsDoubleBuffer().getValue(),
+          conv2dConfig.getEnableSplitReader().getValue(),
+          conv2dConfig.getEnableSubblockPadding().getValue());
+
+  return conv2dConfigDesc;
 }
 
 flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
@@ -681,26 +700,40 @@ createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
 createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
-  auto in0 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  auto in1 = cache.at<::tt::target::ttnn::TensorRef>(
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getWeight()));
-  auto in2 = op.getODSOperands(2).empty()
-                 ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
-                 : cache.at<::tt::target::ttnn::TensorRef>(
-                       getOperandThroughDPSOps(op.getBias()));
+  auto bias = op.getODSOperands(2).empty()
+                  ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
+                  : cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()));
   auto output = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
 
   auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
+      conv2dConfig =
+          op.getConv2dConfig() ? std::optional{conv2dConfigToFlatbuffer(
+                                     cache, *op.getConv2dConfig())}
+                               : std::nullopt;
+
   return ::tt::target::ttnn::CreateConv2dOp(
-      *cache.fbb, in0, in1, in2, output,
+      *cache.fbb, input, weight, bias, output,
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
-      op.getInputWidth(), op.getKernelHeight(), op.getKernelWidth(),
-      op.getStrideHeight(), op.getStrideWidth(), op.getPaddingHeight(),
-      op.getPaddingWidth(), op.getDilationHeight(), op.getDilationWidth(),
-      op.getGroups());
+      op.getInputWidth(), kernelSize, stride, padding, dilation, op.getGroups(),
+      conv2dConfig ? *conv2dConfig : 0);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConvTranspose2dOp>
@@ -1058,12 +1091,12 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
         getOperandThroughDPSOps(input)));
   }
-  assert(op.getOutputs().size() == 1);
-  return ::tt::target::ttnn::CreateEltwiseOpDirect(
-      *cache.fbb, type, &ins,
-      cache.at<::tt::target::ttnn::TensorRef>(
-          getOperandThroughDPSOps(op.getOutputs().front())),
-      paramsType, params);
+  assert(op.getResults().size() == 1);
+  auto out = cache.getOrCreate(op.getResult(0), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,
+                                                   paramsType, params);
 }
 
 template <typename ReductionOp>

@@ -21,9 +21,26 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   std::optional<::ttnn::Tensor> bias =
       op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
                  : std::nullopt;
-  auto config = ::ttnn::operations::conv::Conv2dConfig();
-  config.dtype = utils::getDataType(op->input());
-  config.weights_dtype = utils::getDataType(op->weight());
+
+  LOG_ASSERT(op->kernel_size()->size() == 2,
+             "Kernel size expected to have 2 elements");
+  LOG_ASSERT(op->stride()->size() == 2, "Stride expected to have 2 elements");
+  LOG_ASSERT(op->padding()->size() == 2, "Padding expected to have 2 elements");
+  LOG_ASSERT(op->dilation()->size() == 2,
+             "Dilation expected to have 2 elements");
+
+  std::array<uint32_t, 2> kernelSize, stride, padding, dilation;
+  std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
+  std::copy_n(op->stride()->begin(), 2, stride.begin());
+  std::copy_n(op->padding()->begin(), 2, padding.begin());
+  std::copy_n(op->dilation()->begin(), 2, dilation.begin());
+
+  std::optional<::ttnn::operations::conv::Conv2dConfig> conv2dConfig =
+      op->conv2d_config()
+          ? std::make_optional(
+                ::tt::runtime::ttnn::operations::utils::createConv2dConfig(
+                    op->conv2d_config()))
+          : std::nullopt;
 
   // Use defaults for now, until compiler drives this.
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
@@ -41,11 +58,9 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
         return std::get<0>(::ttnn::operations::conv::conv2d::conv2d(
             input, weight, &(targetDevice.get()), op->in_channels(),
             op->out_channels(), op->batch_size(), op->input_height(),
-            op->input_width(), {op->kernel_height(), op->kernel_width()},
-            {op->stride_height(), op->stride_width()},
-            {op->padding_height(), op->padding_width()},
-            {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
-            config, computeConfig, outputMemoryConfig));
+            op->input_width(), kernelSize, stride, padding, dilation,
+            op->groups(), bias, conv2dConfig, computeConfig,
+            outputMemoryConfig));
       },
       targetDevice);
 

@@ -8,9 +8,7 @@
 module @jit_eltwise_scalar_add attributes {} {
   func.func public @test_scalar_add(%arg0: tensor<f32>, %arg1: tensor<f32>) -> tensor<f32> {
     // CHECK-LABEL: func.func public @test_scalar_add
-    // CHECK: ttnn.empty
     // CHECK: ttnn.add
-    // CHECK-SAME: tensor<1xf32,
     // CHECK-SAME: tensor<1xf32,
     // CHECK-SAME: tensor<1xf32,
     // CHECK-SAME: -> tensor<1xf32,
