@@ -58,7 +58,7 @@ ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
 
-  auto check = detail::checkDeviceWorkerGrid(getOperation());
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
   }
@@ -100,7 +100,7 @@ AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResult(0).getType()).getShape();
 
-  auto check = detail::checkDeviceWorkerGrid(getOperation());
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
   }
@@ -141,7 +141,7 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
-  auto check = detail::checkDeviceWorkerGrid(getOperation());
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
   }
@@ -177,7 +177,7 @@ MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape =
       mlir::cast<RankedTensorType>(getOperand().getType()).getShape();
 
-  auto check = detail::checkDeviceWorkerGrid(getOperation());
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
   }
@@ -215,7 +215,7 @@ ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
-  auto check = detail::checkDeviceWorkerGrid(getOperation());
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
   }
@@ -255,7 +255,7 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
-  auto check = detail::checkDeviceWorkerGrid(getOperation());
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
   }
