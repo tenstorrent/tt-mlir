@@ -465,7 +465,7 @@ def test_arbitrary_op_chain(
 if __name__ == "__main__":
     import argparse, os
 
-    parser = argparse.ArgumentParser(description="Run TTIR tests")
+    parser = argparse.ArgumentParser(description="Run TTIR Builder Op tests")
     parser.add_argument(
         "--path",
         type=str,

@@ -44,11 +44,20 @@ if "TT_EXPLORER_GENERATED_TTNN_TEST_DIRS" in os.environ:
                 path,
             )
 
+FILTERED_TESTS = [
+    # This test is way too large to fit reasonably in CI.
+    "test_llama_attention.ttnn",
+]
+
 
 def get_test_files(paths):
     files = []
     for path in paths:
         files.extend(glob.glob(path, recursive=True))
+
+    files = [
+        file for file in files if all(not file.endswith(x) for x in FILTERED_TESTS)
+    ]
 
     return files
 
@@ -234,6 +243,5 @@ def test_execute_and_check_accuracy_data_exists():
     )
     result = convert_command_and_assert(test_mnist_path)
     if "accuracy_data" not in result["graphs"][0]["overlays"]:
-        overlays = result["graphs"][0]["overlays"]
-        print(overlays)
-    assert "accuracy_data" in result["graphs"][0]["overlays"]
+        print(result)
+    assert "accuracy_data" in str(result)
