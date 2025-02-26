@@ -20,7 +20,7 @@ def has_device_module(module):
     return False
 
 
-def get_innermost_module(module):
+def get_inner_module(module):
     """Navigate to the innermost module in the hierarchy.
 
     For structure: module { tt.device_module { module { ... } } }
@@ -58,7 +58,9 @@ def parse_mlir_str(module_str):
         module = ttmlir.ir.Module.parse(module_str, ctx)
 
         if has_device_module(module):
+            print("had device module!")
             return get_innermost_module(module)
+        print("no device module!")
         return module
 
 
