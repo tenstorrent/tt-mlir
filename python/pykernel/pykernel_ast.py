@@ -101,6 +101,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         "get_dataformat": ttkernel.get_dataformat,
         "get_noc_addr_from_bank_id": ttkernel.get_noc_addr_from_bank_id,
         "noc_async_read": ttkernel.noc_async_read,
+        "noc_async_read_tile": ttkernel.noc_async_read_tile,
         "noc_async_write": ttkernel.noc_async_write,
         "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
         "noc_async_write_barrier": ttkernel.noc_async_write_barrier,

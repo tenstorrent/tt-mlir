@@ -418,6 +418,15 @@ def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
     let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$dstLocalL1Addr, I32:$size);
 }
 
+def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
+    let summary = "NocAsyncReadTile";
+    let description = [{
+      NocAsyncReadTile
+    }];
+
+    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$s, I32:$dstLocalL1Addr);
+}
+
 def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state"> {
     let summary = "NocAsyncReadOnePacketSetState";
     let description = [{
