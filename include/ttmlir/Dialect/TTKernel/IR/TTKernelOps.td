@@ -461,6 +461,15 @@ def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write"> {
     let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size);
 }
 
+def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
+    let summary = "NocAsyncWriteTile";
+    let description = [{
+      NocAsyncWriteTilie
+    }];
+
+    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$s, I32:$srcLocalL1Addr);
+}
+
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{

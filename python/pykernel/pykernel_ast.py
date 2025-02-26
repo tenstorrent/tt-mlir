@@ -103,6 +103,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         "noc_async_read": ttkernel.noc_async_read,
         "noc_async_read_tile": ttkernel.noc_async_read_tile,
         "noc_async_write": ttkernel.noc_async_write,
+        "noc_async_write_tile": ttkernel.noc_async_write_tile,
         "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
         "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
         "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
