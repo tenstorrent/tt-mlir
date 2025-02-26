@@ -649,7 +649,9 @@ def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
     }];
 }
 
-def TTNN_MeanOp : TTNN_ReductionOp<"mean"> {
+def TTNN_MeanOp : TTNN_ReductionOp<"mean",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Mean reduction op.";
   let description = [{
     Mean reduction op.
@@ -952,7 +954,9 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat", [HasMemoryConfigTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
+def TTNN_ReshapeOp : TTNN_Op<"reshape",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Reshape op.";
     let description = [{
       Reshape tensor.
