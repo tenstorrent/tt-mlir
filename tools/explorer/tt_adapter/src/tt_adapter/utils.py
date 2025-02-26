@@ -114,7 +114,6 @@ def to_adapter_format(*objs):
 def make_editable_kv(kv, editable):
     obj = asdict(kv)
     obj["editable"] = editable
-    #print("in utils.make_editable_kv: obj type and self: ", type(obj), obj)
     return to_dataclass(obj, "KeyValue")
 
 

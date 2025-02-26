@@ -95,9 +95,8 @@ class TTAdapter(model_explorer.Adapter):
             logging.info(f"Using optimized model: {optimized_model_path}")
             # Get performance and memory results.
             perf_trace = self.model_runner.get_perf_trace(model_path)
-            print("Main, convert, running get_memory_usage")
             memory_trace = self.model_runner.get_memory_usage(model_path)
-            #print("Main, convert, running get_memory_usage success: ", memory_trace)
+
             with open(optimized_model_path, "r") as model_file:
                 module = utils.parse_mlir_str(model_file.read())
 
@@ -106,13 +105,9 @@ class TTAdapter(model_explorer.Adapter):
             if perf_data:
                 # TODO(odjuricic) We should replace the perf_data with overlays once this is fixed on FE.
                 graph = utils.add_to_dataclass(graph, "perf_data", perf_data.graphsData)
-                print("perf_data type: ", type(perf_data))
-                print("perf_data.graphsData type: ", type(perf_data.graphsData))
 
             if memory_data:
-                print("Main, convert, running add_to_dataclass")
                 graph = utils.add_to_dataclass(graph, "memory", memory_data)
-                print("Main, convert, ran add_to_dataclass")
 
             if overrides := self.model_runner.get_overrides(model_path):
                 graph = utils.add_to_dataclass(graph, "overrides", overrides)
