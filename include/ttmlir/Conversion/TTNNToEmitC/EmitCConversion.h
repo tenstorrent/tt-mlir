@@ -666,6 +666,15 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(result);
   }
 
+  template <typename OpConversionPatternTy>
+  emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
+                                llvm::ArrayRef<mlir::Attribute> attrs) {
+    return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, opConversionPattern.getTypeConverter()->convertType(op.getType()),
+        opConversionPattern.convertOpName(op), rewriter.getArrayAttr(attrs),
+        nullptr, adaptor.getOperands());
+  }
+
 private:
   TTNNOp op;
   OpAdaptor adaptor;
