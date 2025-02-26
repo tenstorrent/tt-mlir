@@ -57,7 +57,7 @@ public:
 
 private:
   std::string virtual getPrefixSearchPattern() const { return "ttnn."; }
-  std::string virtual getPrefixSwapPattern() const { return "ttnn::"; }
+  std::string virtual getPrefixSwapPattern() const { return "::ttnn::"; }
 
 public:
   // Converts op name by removing the dialect prefix ("ttnn.") and replacing
@@ -136,16 +136,12 @@ public:
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this.
     //
-    llvm::SmallVector<Attribute, 5> attrs;
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
-    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
-
-    ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType(0)),
-        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
-
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> attrs{
+        emitter.emit(srcOp.getInputs()[0]),
+        emitter.emit(std::nullopt),
+    };
+    emitter.replaceOp(*this, attrs);
     return success();
   }
 };
@@ -582,14 +578,14 @@ public:
     // we can't really create a `std::vector<>` with `Value` objects without
     // introducing an EmitC op that takes in these `Value` objects. We do this
     // by creating a utility function within the IR that converts a list of
-    // `Tensor` objects into a `std::vector<tt::ttnn::Tensor>`.
+    // `Tensor` objects into a `std::vector<ttnn::Tensor>`.
 
     tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, srcOp);
 
     mlir::emitc::CallOpaqueOp vectorOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(),
         emitc::OpaqueType::get(rewriter.getContext(),
-                               "std::vector<tt::ttnn::Tensor>"),
+                               "std::vector<ttnn::Tensor>"),
         tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr, nullptr,
         adaptor.getInputs());
 
