@@ -398,7 +398,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight(), adaptor.getOutput());
+        adaptor.getInput(), adaptor.getWeight());
 
     return success();
   }
@@ -653,7 +653,7 @@ public:
     }
     rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInputs(), adaptor.getOutput(), dim,
+        adaptor.getInputs(), dim,
         /* memory_config */ nullptr);
     return success();
   }
@@ -686,8 +686,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::SliceOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getBegins(),
-        adaptor.getEnds(), adaptor.getStep());
+        adaptor.getInput(), adaptor.getBegins(), adaptor.getEnds(),
+        adaptor.getStep());
     return success();
   }
 };

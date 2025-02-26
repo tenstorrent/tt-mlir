@@ -128,7 +128,6 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
       .addInputOperandWorkaround(inputRowMajorInt32Workaround)
       .addInputOperandWorkaround(bf16Workaround)
-      .addInputOperandWorkaround(bf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
 }
 
@@ -311,7 +310,6 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
     rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }

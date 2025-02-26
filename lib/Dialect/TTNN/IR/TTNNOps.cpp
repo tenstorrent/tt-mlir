@@ -750,7 +750,7 @@ namespace mlir::tt::ttnn {
   ::mlir::ArrayAttr begins = getBeginsAttr();
   ::mlir::ArrayAttr ends = getEndsAttr();
   ::mlir::ArrayAttr stepAttr = getStepAttr();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // Verify that the input is at least 1D tensor
   if (inputType.getRank() < 1) {

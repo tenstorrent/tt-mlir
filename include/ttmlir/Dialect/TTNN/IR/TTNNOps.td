@@ -759,20 +759,18 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
   let hasVerifier = 1;
 }
 
-def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
+def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$weight,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$weight);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds();
       }
@@ -923,22 +921,19 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat", [HasMemoryConfigTrait]> {
+def TTNN_ConcatOp : TTNN_Op<"concat", [HasMemoryConfigTrait]> {
     let summary = "Concat op.";
     let description = [{
       Concat tensors along a given dimension.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dim,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         ::mlir::Operation::operand_range inputs = getInputs();
         int64_t numOperands = getOperands().size();
@@ -1006,7 +1001,7 @@ def TTNN_PadOp: TTNN_Op<"pad"> {
     let hasVerifier = 1;
 }
 
-def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
+def TTNN_SliceOp: TTNN_Op<"slice"> {
     let summary = "Slice op.";
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
@@ -1014,7 +1009,6 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          I32ArrayAttr:$begins,
                          I32ArrayAttr:$ends,
                          I32ArrayAttr:$step);
@@ -1022,11 +1016,9 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-            getOutput().getType().getEncoding());
+            getResult().getType().getEncoding());
         ::mlir::ArrayAttr begins = getBegins();
         ::mlir::ArrayAttr step = getStep();
         return wa::TTNNOperandsWorkaroundsFactory::
