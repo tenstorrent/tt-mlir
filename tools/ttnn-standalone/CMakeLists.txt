@@ -135,6 +135,9 @@ target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
 #  \__,_| \__, ||_||_||_.__/
 #         |___/
 
+if(NOT EXISTS "ttnn-dylib.cpp")
+    file(TOUCH "ttnn-dylib.cpp")
+endif()
 add_library(ttnn-dylib SHARED ttnn-dylib.cpp)
 set_property(TARGET ttnn-dylib PROPERTY CXX_STANDARD 20)
 
