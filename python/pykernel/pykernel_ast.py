@@ -302,6 +302,11 @@ class TTKernelCompiler(ast.NodeVisitor):
         sym_table = self.symbol_tables[-1]
         var_name = node.target.id
 
+        if hasattr(value, "type") and isinstance(value.type, MemRefType):
+            raise ValueError(
+                "Not allowed to AnnAssign to another AnnAssign'ed variable. Temporary fix is to just add 0 to the variable."
+            )
+
         if not var:
             var_type = value.type
             memref_type = MemRefType.get([1], var_type)
