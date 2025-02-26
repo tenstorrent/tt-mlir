@@ -587,7 +587,7 @@ public:
 
   EmitCTTNNEmitter(TTNNOp op, OpAdaptor adaptor,
                    mlir::ConversionPatternRewriter &rewriter)
-      : rewriter{rewriter}, op{op}, adaptor{adaptor} {}
+      : op{op}, adaptor{adaptor}, rewriter{rewriter} {}
 
   mlir::Attribute emit(tt::ttnn::ShapeAttr attr) {
     return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
@@ -670,7 +670,9 @@ public:
   emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
                                 llvm::ArrayRef<mlir::Attribute> attrs) {
     return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, opConversionPattern.getTypeConverter()->convertType(op.getType()),
+        op,
+        opConversionPattern.getTypeConverter()->convertType(
+            op->getResult(0).getType()),
         opConversionPattern.convertOpName(op), rewriter.getArrayAttr(attrs),
         nullptr, adaptor.getOperands());
   }
