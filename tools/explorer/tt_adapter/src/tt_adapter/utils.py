@@ -59,7 +59,7 @@ def parse_mlir_str(module_str):
 
         if has_device_module(module):
             print("had device module!")
-            return get_innermost_module(module)
+            return get_inner_module(module)
         print("no device module!")
         return module
 
