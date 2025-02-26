@@ -753,20 +753,18 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
   let hasVerifier = 1;
 }
 
-def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
+def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$weight,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$weight);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds();
       }
@@ -809,7 +807,7 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let hasVerifier = 1;
 }
 
-def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
+def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw"> {
     let summary = "Embedding backward op.";
     let description = [{
       Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
@@ -819,13 +817,11 @@ def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
                          AnyRankedTensor:$weight,
                          AnyRankedTensor:$in_gradient,
                          OptionalAttr<TT_DataTypeAttr>:$dtype,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         AnyRankedTensor:$output);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds();
       }
@@ -834,7 +830,7 @@ def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
     let hasVerifier = 1;
 }
 
-def TTNN_MorehCumSumOp : TTNN_NamedDPSOp<"moreh_cumsum"> {
+def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum"> {
   let summary = "Moreh cummulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
@@ -854,14 +850,11 @@ def TTNN_MorehCumSumOp : TTNN_NamedDPSOp<"moreh_cumsum"> {
 
   let arguments = (ins AnyRankedTensor:$input,
                        I64Attr:$dim,
-                       AnyRankedTensor:$output,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
 
   let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         RankedTensorType inputType = getInput().getType();
         return wa::TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(inputType);
@@ -924,22 +917,19 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat", [HasMemoryConfigTrait]> {
+def TTNN_ConcatOp : TTNN_Op<"concat", [HasMemoryConfigTrait]> {
     let summary = "Concat op.";
     let description = [{
       Concat tensors along a given dimension.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dim,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         ::mlir::Operation::operand_range inputs = getInputs();
         int64_t numOperands = getOperands().size();
@@ -1016,7 +1006,7 @@ def TTNN_PadOp: TTNN_Op<"pad"> {
     let hasVerifier = 1;
 }
 
-def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
+def TTNN_SliceOp: TTNN_Op<"slice"> {
     let summary = "Slice op.";
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
@@ -1024,7 +1014,6 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          I32ArrayAttr:$begins,
                          I32ArrayAttr:$ends,
                          I32ArrayAttr:$step);
@@ -1032,11 +1021,9 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-            getOutput().getType().getEncoding());
+            getResult().getType().getEncoding());
         ::mlir::ArrayAttr begins = getBegins();
         ::mlir::ArrayAttr step = getStep();
         return wa::TTNNOperandsWorkaroundsFactory::
@@ -1047,7 +1034,7 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
-def TTNN_LinearOp : TTNN_NamedDPSOp<"linear"> {
+def TTNN_LinearOp : TTNN_Op<"linear"> {
     let summary = "Linear transformation of inputs.";
 
     let description = [{
@@ -1064,41 +1051,31 @@ def TTNN_LinearOp : TTNN_NamedDPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }
 
 
 // ANCHOR: adding_an_op_matmul_ttnn
-def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul",
+def TTNN_MatmulOp : TTNN_Op<"matmul",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
+def TTNN_Conv2dOp : TTNN_Op<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
       Applies a 2D convolution over an input image composed of several input planes.
@@ -1107,7 +1084,6 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
                          TT_Device:$device,
                          I32Attr:$in_channels,
                          I32Attr:$out_channels,
@@ -1123,14 +1099,10 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
-def TTNN_ConvTranspose2dOp : TTNN_NamedDPSOp<"conv_transpose2d"> {
+def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let summary = "ConvTranspose2d operation.";
     let description = [{
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
@@ -1191,7 +1163,6 @@ def TTNN_ConvTranspose2dOp : TTNN_NamedDPSOp<"conv_transpose2d"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
                          TT_Device:$device,
                          I32Attr:$in_channels,
                          I32Attr:$out_channels,
@@ -1207,21 +1178,16 @@ def TTNN_ConvTranspose2dOp : TTNN_NamedDPSOp<"conv_transpose2d"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
-def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
+def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          TT_Device:$device,
                          SI32Attr:$batch_size,
                          SI32Attr:$input_height,
@@ -1240,7 +1206,6 @@ def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds();
       }
