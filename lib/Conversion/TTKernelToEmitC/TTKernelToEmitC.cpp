@@ -33,7 +33,6 @@
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <cctype>
-#include <iostream>
 #include <string>
 #include <unordered_map>
 using namespace mlir;
@@ -483,8 +482,8 @@ public:
     mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
 
     // Declare the struct variable and then assign to its members
-    auto varOp = rewriter.replaceOpWithNewOp<emitc::VariableOp>(
-        op, lvalueType, emitc::OpaqueAttr::get(op.getContext(), ""));
+    auto varOp = rewriter.create<emitc::VariableOp>(
+        op->getLoc(), lvalueType, emitc::OpaqueAttr::get(op.getContext(), ""));
 
     // Create an lvalue for all struct field accesses
     auto lvalueBankBaseAddr = rewriter.create<emitc::MemberOp>(
@@ -497,13 +496,21 @@ public:
         op->getLoc(), emitc::LValueType::get(adaptor.getDataFormat().getType()),
         "data_format", varOp);
 
-    // Assign corresponding values to the struct fields
+    // Assign corresponding values to the struct members
     rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueBankBaseAddr,
                                      op.getBankBaseAddress());
     rewriter.create<emitc::AssignOp>(op->getLoc(), lvaluePageSize,
                                      op.getPageSize());
     rewriter.create<emitc::AssignOp>(op.getLoc(), lvalueDataFormat,
                                      adaptor.getDataFormat());
+
+    // Load the value from the lvalue variable
+    auto loadOp =
+        rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
+
+    // Replace the original operation with the loaded value so it can be used.
+    op.replaceAllUsesWith(loadOp.getResult());
+    rewriter.replaceOp(op, loadOp.getResult());
 
     return success();
   }
@@ -658,6 +665,7 @@ public:
           TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadTileOp>,
           TTMetalToEmitCOpaqueRewriter<
               ttkernel::NocAsyncReadOnePacketSetStateOp>,
           TTMetalToEmitCOpaqueRewriter<
@@ -690,7 +698,7 @@ public:
                                                          funcOp.getContext());
 
       patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
-          typeConverter, funcOp->getContext());
+          typeConverter, funcOp.getContext());
 
       if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
         signalPassFailure();
