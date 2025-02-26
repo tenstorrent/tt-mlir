@@ -452,21 +452,16 @@ public:
   matchAndRewrite(tt::ttnn::MeanOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
-    // an ArrayAttr object holding IndexTypes is created to denote this.
-    //
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-        {rewriter.getIndexAttr(0),
-         srcOp.getDimArg().has_value()
-             ? tt::ttnn_to_emitc::utils::convertArrayAttrToTTNNSmallVector(
-                   rewriter, srcOp.getDimArgAttr())
-             : tt::ttnn_to_emitc::utils::createStdNullopt(rewriter),
-         tt::ttnn_to_emitc::utils::convertBoolAttr(rewriter,
-                                                   srcOp.getKeepDimAttr())});
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::MeanOp> emitter(srcOp, adaptor,
+                                                              rewriter);
 
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<::ttnn::SmallVector<int32_t>>(srcOp.getDimArg()),
+        emitter.emit(srcOp.getKeepDim()),
+    };
+
+    emitter.replaceOp(*this, args);
 
     return success();
   }

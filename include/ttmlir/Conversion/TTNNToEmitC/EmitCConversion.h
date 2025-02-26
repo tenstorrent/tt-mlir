@@ -606,13 +606,17 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(convert(attr));
   }
 
-  template <typename T>
-  mlir::Attribute emit(std::optional<T> attr) {
+  template <typename TargetTy = void, typename SourceTy>
+  mlir::Attribute emit(std::optional<SourceTy> attr) {
     if (!attr) {
       return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
     }
 
-    return emit(*attr);
+    if constexpr (std::is_void_v<TargetTy>) {
+      return emit(*attr);
+    } else {
+      return emit<TargetTy>(*attr);
+    }
   }
 
   mlir::Attribute emit(std::nullopt_t) {
