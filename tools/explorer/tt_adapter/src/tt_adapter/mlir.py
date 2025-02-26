@@ -462,6 +462,25 @@ def parse_ttnn_ttnn_layout(attr):
             },
         )
     )
+    temp_var = utils.add_to_dataclass(
+            graph_builder.KeyValue(
+                key="dram_memory",
+                value=str(.4), #whatever the % is I think
+            ),
+            "dram_memory", 
+            str(.4)
+        )
+    #print("trying to add to dataclass", type(temp_var), temp_var)
+    #result.append(
+    #    utils.add_to_dataclass(
+    #        graph_builder.KeyValue(
+    #            key="dram_memory",
+    #            value=str(.4), #whatever the % is I think
+    #        ),
+    #        "dram_memory", 
+    #        str(.4)
+    #    )
+    #)   
     return result
 
 
@@ -601,18 +620,21 @@ def build_graph(module, perf_trace=None, memory_trace=None):
     memory_data = {}
     if memory_trace is not None:
         for node in memory_trace:
-            memory_data[node]["dram"] = memory_data[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]/memory_data[node]["dram"]["device_0"]["total_bytes_per_bank"]
-            memory_data[node]["l1"] = memory_data[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]/memory_data[node]["l1"]["device_0"]["total_bytes_per_bank"]
-            #memory_data[node]["l1_small"] = memory_data[node]["l1_small"]["device_0"]["total_bytes_allocated_per_bank"]/memory_data[node]["l1_small"]["device_0"]["total_bytes_per_bank"]
+            memory_data[node] = {}
+            memory_data[node]["dram"] = memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]/memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"]
+            memory_data[node]["l1"] = memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]/memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"]
 
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
     module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+    #print("mlir: module_attrs type and self: ", type(module_attrs), module_attrs)
+    #module_attrs[]
     #Is this where ^ to add the 2 or three new attributes?
 
     # Add module attributes to the graph as "namespace attributes"
     group_node_attrs = {}
     group_node_attrs[module_op.get_namespace()] = module_attrs
+    #print("mlir: group_node_attrs: ", group_node_attrs)
 
     for op in module.body.operations:
         append_later = []
@@ -690,6 +712,11 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                                     key="rank", value=str(operand.type.rank)
                                 ),
                             ]
+                        #print("0: output_attrs: ", output_attrs)
+                        #print(type(operand), operand)
+                        #output_attrs.append(graph_builder.KeyValue(key="dram_memory", value=str(.3), display_type = 'memory'))
+                        #output_attrs.append(graph_builder.KeyValue(key="l1_memory", value=str(operand.index), display_type = 'memory'))
+                        #print("1: output_attrs: ", output_attrs)
                         if hasattr(operand.type, "encoding") and operand.type.encoding:
                             if "ttnn_layout" in str(operand.type.encoding):
                                 output_attrs.extend(
@@ -704,6 +731,30 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                                         operand.type.encoding.get_named("tt.layout")
                                     )
                                 )
+                        #Going to try to figure out how to add memory here, then later maybe move it
+                        if memory_data:
+                            output_attrs.append(
+                                utils.add_to_dataclass(
+                                    graph_builder.KeyValue(
+                                        key="dram_memory",
+                                        value=str(memory_data[str(operand_index)]["dram"]),
+                                    ),
+                                    'display_type', 
+                                    'memory'
+                                )
+                            )
+                            print(operand_index, memory_data)
+                            output_attrs.append(
+                                utils.add_to_dataclass(
+                                    graph_builder.KeyValue(
+                                        key="l1_memory",
+                                        value=str(memory_data[str(operand_index)]["l1"]), 
+                                    ),
+                                    'display_type', 
+                                    'memory'
+                                )
+                            )
+                        print("output_attrs: ", output_attrs)
                         source_node.outputsMetadata.append(
                             graph_builder.MetadataItem(
                                 id=str(output_connections[source_node.id]),

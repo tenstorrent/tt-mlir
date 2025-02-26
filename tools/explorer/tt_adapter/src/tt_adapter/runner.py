@@ -142,6 +142,7 @@ class ModelRunner:
         return pd.read_csv(op_perf_file)
     
     def get_memory_usage(self, model_path):
+        print("Opening get_memory_usage")
         mem_file = (
             f"{self.model_state[model_path].model_output_dir}/run/program_0/memory_results.json"
         )
@@ -150,7 +151,7 @@ class ModelRunner:
 
         with open(mem_file, "r") as file:
             memory_trace = json.load(file)
-
+        #print("memory_trace: ", memory_trace)
         return memory_trace
 
     def run_in_subprocess(self, command):
@@ -312,6 +313,7 @@ class ModelRunner:
             "perf",
             flatbuffer_file,
             f"--artifact-dir={self._explorer_artifacts_dir}",
+            "--memory"
         ]
 
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
