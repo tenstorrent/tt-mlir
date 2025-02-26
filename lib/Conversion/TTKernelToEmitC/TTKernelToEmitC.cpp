@@ -35,6 +35,7 @@
 #include <cctype>
 #include <string>
 #include <unordered_map>
+
 using namespace mlir;
 using namespace tt;
 
@@ -473,45 +474,48 @@ public:
   LogicalResult
   matchAndRewrite(Op op, ttkernel::GetInterleavedAddrGenFastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // if (op.getResult().getUses().empty()) {
-    //   rewriter.eraseOp(op);
-    // } else {
-    mlir::Type opaqueStructType =
-        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+    if (op.getResult().getUses().empty()) {
+      rewriter.eraseOp(op);
+    } else {
+      mlir::Type opaqueStructType =
+          this->getTypeConverter()->convertType(op->getResultTypes()[0]);
 
-    mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
+      mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
 
-    // Declare the struct variable and then assign to its members
-    auto varOp = rewriter.create<emitc::VariableOp>(
-        op->getLoc(), lvalueType, emitc::OpaqueAttr::get(op.getContext(), ""));
+      // Declare the struct variable and then assign to its members
+      auto varOp = rewriter.create<emitc::VariableOp>(
+          op->getLoc(), lvalueType,
+          emitc::OpaqueAttr::get(op.getContext(), ""));
 
-    // Create an lvalue for all struct field accesses
-    auto lvalueBankBaseAddr = rewriter.create<emitc::MemberOp>(
-        op->getLoc(), emitc::LValueType::get(op.getBankBaseAddress().getType()),
-        "bank_base_address", varOp);
-    auto lvaluePageSize = rewriter.create<emitc::MemberOp>(
-        op->getLoc(), emitc::LValueType::get(op.getPageSize().getType()),
-        "page_size", varOp);
-    auto lvalueDataFormat = rewriter.create<emitc::MemberOp>(
-        op->getLoc(), emitc::LValueType::get(adaptor.getDataFormat().getType()),
-        "data_format", varOp);
+      // Create an lvalue for all struct field accesses
+      auto lvalueBankBaseAddr = rewriter.create<emitc::MemberOp>(
+          op->getLoc(),
+          emitc::LValueType::get(op.getBankBaseAddress().getType()),
+          "bank_base_address", varOp);
+      auto lvaluePageSize = rewriter.create<emitc::MemberOp>(
+          op->getLoc(), emitc::LValueType::get(op.getPageSize().getType()),
+          "page_size", varOp);
+      auto lvalueDataFormat = rewriter.create<emitc::MemberOp>(
+          op->getLoc(),
+          emitc::LValueType::get(adaptor.getDataFormat().getType()),
+          "data_format", varOp);
 
-    // Assign corresponding values to the struct members
-    rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueBankBaseAddr,
-                                     op.getBankBaseAddress());
-    rewriter.create<emitc::AssignOp>(op->getLoc(), lvaluePageSize,
-                                     op.getPageSize());
-    rewriter.create<emitc::AssignOp>(op.getLoc(), lvalueDataFormat,
-                                     adaptor.getDataFormat());
+      // Assign corresponding values to the struct members
+      rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueBankBaseAddr,
+                                       op.getBankBaseAddress());
+      rewriter.create<emitc::AssignOp>(op->getLoc(), lvaluePageSize,
+                                       op.getPageSize());
+      rewriter.create<emitc::AssignOp>(op.getLoc(), lvalueDataFormat,
+                                       adaptor.getDataFormat());
 
-    // Load the value from the lvalue variable
-    auto loadOp =
-        rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
+      // Load the value from the lvalue variable
+      auto loadOp =
+          rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
 
-    // Replace the original operation with the loaded value so it can be used.
-    op.replaceAllUsesWith(loadOp.getResult());
-    rewriter.replaceOp(op, loadOp.getResult());
-
+      // Replace the original operation with the loaded value so it can be used.
+      op.replaceAllUsesWith(loadOp.getResult());
+      rewriter.replaceOp(op, loadOp.getResult());
+    }
     return success();
   }
 };

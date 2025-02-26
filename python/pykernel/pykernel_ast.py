@@ -434,8 +434,6 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Literals
     def visit_Constant(self, node):
-        # print(node.value)
-        # print(isinstance(node.value, bool))
         if isinstance(node.value, bool):
             return arith.ConstantOp(IntegerType.get_signless(1, self.ctx), node.value)
         elif isinstance(node.value, int):
