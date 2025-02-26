@@ -29,6 +29,7 @@
 #include "llvm/Support/Casting.h"
 
 #include <cstdint>
+#include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <optional>
 
 using namespace mlir;
@@ -1308,7 +1309,6 @@ public:
         mlir::cast<RankedTensorType>(adaptor.getInputs().front().getType());
     RankedTensorType rhsType =
         mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
-
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
           srcOp, adaptor.getInputs().front(), adaptor.getInputs().back());
@@ -1319,8 +1319,8 @@ public:
       // addOp(lhs, negOp(rhs))
 
     } else {
-      ttnn::NegOp negOp = ttmlir::utils::createDPSOp<ttnn::NegOp>(
-          rewriter, srcOp.getLoc(), rhsType);
+      ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
+          srcOp.getLoc(), adaptor.getInputs().back());
 
       rewriter.replaceOpWithNewOp<ttnn::AddOp>(
           srcOp, adaptor.getInputs().front(), negOp.getResults().front());

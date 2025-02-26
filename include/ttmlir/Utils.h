@@ -15,6 +15,7 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
+#include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <type_traits>
 
 namespace ttmlir::utils {
@@ -366,6 +367,9 @@ auto splitAndCall(mlir::PatternRewriter &rewriter, mlir::Location loc,
 template <typename OpTy, typename... ArgsTy>
 OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
                  mlir::RankedTensorType outputType, ArgsTy &&...args) {
+  static_assert(
+      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
+
   auto output = rewriter.create<mlir::tensor::EmptyOp>(
       loc, outputType.getShape(), outputType.getElementType(),
       outputType.getEncoding());
@@ -393,6 +397,9 @@ OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
                  llvm::ArrayRef<int64_t> outputShape,
                  mlir::Type outputElementType, mlir::Attribute outputEncoding,
                  ArgsTy &&...args) {
+  static_assert(
+      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
+
   auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
                                                 outputEncoding);
   return createDPSOp<OpTy>(rewriter, loc, outputType,
@@ -414,6 +421,9 @@ template <typename OpTy, typename... ArgsTy>
 OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
                            mlir::RankedTensorType outputType,
                            ArgsTy &&...args) {
+  static_assert(
+      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
+
   auto newOp = createDPSOp<OpTy>(rewriter, op->getLoc(), outputType,
                                  std::forward<ArgsTy>(args)...);
   rewriter.replaceOp(op, newOp.getOperation());
@@ -440,6 +450,9 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
                            llvm::ArrayRef<int64_t> outputShape,
                            mlir::Type outputElementType,
                            mlir::Attribute outputEncoding, ArgsTy &&...args) {
+  static_assert(
+      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
+
   auto newOp =
       createDPSOp<OpTy>(rewriter, op->getLoc(), outputShape, outputElementType,
                         outputEncoding, std::forward<ArgsTy>(args)...);
