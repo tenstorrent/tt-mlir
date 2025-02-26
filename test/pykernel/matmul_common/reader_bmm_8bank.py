@@ -2,6 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+# RUN: %python %s
+# REQUIRES: pykernel
+
 from pykernel.pykernel_ast import *
 from pykernel.types import *
 
