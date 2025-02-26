@@ -5,6 +5,9 @@ import subprocess
 import os
 import logging
 
+logging.basicConfig(
+    level=logging.DEBUG)
+
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttrt import API as ttrt
@@ -70,8 +73,10 @@ class ModelRunner:
             raise RuntimeError("TT_MLIR_HOME not set. Did you run source env/activate?")
 
         # TODO(odjuricic, #1200) ttrt perf breaks if artifacts dir is changed from default.
-        # self._explorer_artifacts_dir = os.environ['TT_MLIR_HOME'] + '/explorer-artifacts'
-        self._explorer_artifacts_dir = os.environ["TT_MLIR_HOME"] + "/ttrt-artifacts"
+        self._explorer_artifacts_dir = (
+            os.environ["TT_MLIR_HOME"] + "/explorer-artifacts"
+        )
+        # self._explorer_artifacts_dir = os.environ["TT_MLIR_HOME"] + "/ttrt-artifacts"
         self._build_dir = os.environ["TT_MLIR_HOME"] + "/build"
         os.makedirs(self._explorer_artifacts_dir, exist_ok=True)
 
@@ -185,10 +190,13 @@ class ModelRunner:
                 temp_module.write(ttir_module_str)
 
         model_name = os.path.basename(model_path)
-        flatbuffer_file = model_name + ".ttnn"
+        flatbuffer_file_name = model_name + ".ttnn"
         state = self.model_state[model_path]
 
-        state.model_output_dir = self._explorer_artifacts_dir + "/" + flatbuffer_file
+        state.model_output_dir = (
+            self._explorer_artifacts_dir + "/" + flatbuffer_file_name
+        )
+        flatbuffer_file = state.model_output_dir + "/" + flatbuffer_file_name
 
         if os.path.exists(state.model_output_dir):
             self.log("Removing artifacts of previous run.")
@@ -296,33 +304,58 @@ class ModelRunner:
 
         ttrt_perf_command = [
             "ttrt",
-            "perf",
+            "run",
             flatbuffer_file,
             f"--artifact-dir={self._explorer_artifacts_dir}",
         ]
 
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)
 
+        # TODO COPY PERF OUTPUT TO explorer artifacts
+
         if ttrt_process.returncode != 0:
             error = "Error while running TTRT perf"
             self.log(error, severity=logging.error)
             raise ExplorerRunException(error)
 
-        perf = self.get_perf_trace(model_path)
-        columns = [
-            "GLOBAL CALL COUNT",
-            "OP CODE",
-            "DEVICE FW DURATION [ns]",
-            "CORE COUNT",
-            "OUTPUT_0_MEMORY",
-            "LOC",
-        ]
-        perf = perf[columns]
-        logging.info(perf)
+        # perf = self.get_perf_trace(model_path)
+        # columns = [
+        #     "GLOBAL CALL COUNT",
+        #     "OP CODE",
+        #     "DEVICE FW DURATION [ns]",
+        #     "CORE COUNT",
+        #     "OUTPUT_0_MEMORY",
+        #     "LOC",
+        # ]
+        # perf = perf[columns]
+        # logging.info(perf)
 
-        logging.info(
-            "Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns"
-        )
+        # logging.info(
+        #     "Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns"
+        # )
+        # self.log(error)
+
+        # self.log("TTRT perf failed. Check the logs for more information.")
+        # # TODO return error here
+        # state.optimized_model_path = ttnn_ir_file
+        # self.progress = 100
+        # return
+
+        # raise ExplorerRunException(error)
+
+        # perf = self.get_perf_trace(model_path)
+        # columns = [
+        #     "GLOBAL CALL COUNT",
+        #     "OP CODE",
+        #     "DEVICE FW DURATION [ns]",
+        #     "CORE COUNT",
+        #     "OUTPUT_0_MEMORY",
+        #     "LOC",
+        # ]
+        # perf = perf[columns]
+        # print(perf)
+
+        # print("Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns")
 
         # TTNN_IR_FILE from flatbuffer is still relevant since model_path is the FB with golden data and it will rented optimized_model_path instead
         state.optimized_model_path = ttnn_ir_file

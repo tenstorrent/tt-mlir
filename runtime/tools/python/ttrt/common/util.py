@@ -214,7 +214,12 @@ class FileManager:
                 f"permission denied: '{src_file_path}' or '{dest_file_path}'"
             )
         except Exception as e:
-            raise Exception(f"an unexpected error occurred: {e}")
+            if "SameFile" in str(e):
+                self.logging.warning(
+                    f"source and destination files are the same - skipping"
+                )
+            else:
+                raise Exception(f"an unexpected error occurred: {e}")
 
     def copy_directory(self, dest_directory_path, src_directory_path):
         self.logging.debug(

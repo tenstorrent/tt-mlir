@@ -17,9 +17,7 @@ ExternalProject_Add(
 
 set(PIP_EDITABLE_FLAG "")
 
-if (TT_EXPLORER_EDITABLE)
-  set(PIP_EDITABLE_FLAG "-e")
-endif()
+set(PIP_EDITABLE_FLAG "-e")
 
 add_custom_target(explorer
   COMMENT "Building tt-explorer... ${TTMLIR_BIN_DIR}"

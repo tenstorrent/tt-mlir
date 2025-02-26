@@ -1,0 +1,24 @@
+@LIT_SITE_CFG_IN_HEADER@
+
+config.llvm_tools_dir = lit_config.substitute("@LLVM_TOOLS_DIR@")
+config.lit_tools_dir = "@LLVM_LIT_TOOLS_DIR@"
+config.mlir_obj_dir = "@MLIR_BINARY_DIR@"
+config.enable_bindings_python = @MLIR_ENABLE_BINDINGS_PYTHON@ and "@TTMLIR_ENABLE_BINDINGS_PYTHON@" == "ON"
+config.ttmlir_obj_root = "@TTMLIR_BINARY_DIR@"
+config.ttmlir_source_dir = "@TTMLIR_SOURCE_DIR@"
+config.llvm_shlib_ext = "@SHLIBEXT@"
+config.enable_stablehlo = "@TTMLIR_ENABLE_STABLEHLO@" and "@TTMLIR_ENABLE_STABLEHLO@" == "ON"
+config.enable_pykernel = "@TTMLIR_ENABLE_PYKERNEL@" and "@TTMLIR_ENABLE_PYKERNEL@" == "ON"
+config.enable_opmodel = "@TTMLIR_ENABLE_OPMODEL@" and "@TTMLIR_ENABLE_OPMODEL@" == "ON"
+
+import lit.llvm
+lit.llvm.initialize(lit_config, config)
+
+# Let the main config do the real work.
+lit_config.load_config(config, "@TTMLIR_SOURCE_DIR@/test/lit.cfg.py")
+
+
+config.name = "Optimizer"
+# test_source_root: The root path where tests are located.
+config.test_source_root = os.path.dirname(__file__)
+
