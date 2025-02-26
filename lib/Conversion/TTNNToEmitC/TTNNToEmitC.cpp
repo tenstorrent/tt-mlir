@@ -57,7 +57,7 @@ public:
 
 private:
   std::string virtual getPrefixSearchPattern() const { return "ttnn."; }
-  std::string virtual getPrefixSwapPattern() const { return "::ttnn::"; }
+  std::string virtual getPrefixSwapPattern() const { return "ttnn::"; }
 
 public:
   // Converts op name by removing the dialect prefix ("ttnn.") and replacing
@@ -582,6 +582,9 @@ public:
 
     tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, srcOp);
 
+    // TODO (azecevic): Investigate if this op is the special case that needs to
+    // use this fallback, or if it can be handled in a more general way with
+    // TTNNToEmitCEmitter.
     mlir::emitc::CallOpaqueOp vectorOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(),
         emitc::OpaqueType::get(rewriter.getContext(),
@@ -614,29 +617,16 @@ public:
   matchAndRewrite(tt::ttnn::RepeatOp repeatOp,
                   tt::ttnn::RepeatOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    tt::ttnn::ShapeAttr repeatDims = repeatOp.getRepeatDimsAttr();
 
-    // Create tt::ttnn::Shape() call
-    //
-    emitc::CallOpaqueOp shapeOp = tt::ttnn_to_emitc::utils::createShapeOp(
-        rewriter, repeatDims, repeatOp.getLoc());
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::RepeatOp> emitter(
+        repeatOp, adaptor, rewriter);
 
-    // Create operands vector
-    //
-    llvm::SmallVector<Value, 2> operands{
-        adaptor.getOperands()[0], // input tensor
-        shapeOp->getResult(0)};
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(repeatOp.getInput()),
+        emitter.emit(repeatOp.getRepeatDims()),
+    };
 
-    // Create ArrayAttr object holding attributes and pointers to operands
-    //
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(0), // input tensor
-        rewriter.getIndexAttr(1)  // tt::ttnn::Shape
-    });
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        repeatOp, this->getTypeConverter()->convertType(repeatOp.getType()),
-        this->convertOpName(repeatOp), arrayAttrs, nullptr, operands);
+    emitter.replaceOp(*this, args);
 
     return success();
   }
@@ -654,32 +644,18 @@ public:
   matchAndRewrite(tt::ttnn::RepeatInterleaveOp repeatInterleaveOp,
                   tt::ttnn::RepeatInterleaveOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Create operands vector
-    //
-    llvm::SmallVector<Value, 2> operands{
-        adaptor.getOperands()[0],
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::RepeatInterleaveOp> emitter(
+        repeatInterleaveOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(repeatInterleaveOp.getInput()),
+        emitter.emit(repeatInterleaveOp.getRepeats()),
+        emitter.emit(repeatInterleaveOp.getDim()),
+        emitter.emit(repeatInterleaveOp.getMemoryConfig()),
     };
 
-    // Create ArrayAttr object holding attributes and pointers to operands
-    //
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(0), // input tensor
-        repeatInterleaveOp.getRepeatsAttr(), repeatInterleaveOp.getDimAttr(),
-        repeatInterleaveOp.getMemoryConfig().has_value()
-            ? (operands.push_back(
-                   tt::ttnn_to_emitc::utils::createMemoryConfigOp(
-                       rewriter, repeatInterleaveOp.getMemoryConfigAttr(),
-                       repeatInterleaveOp.getLoc())
-                       ->getResult(0)),
-               mlir::cast<Attribute>(rewriter.getIndexAttr(1)))
-            : tt::ttnn_to_emitc::utils::createStdNullopt(
-                  rewriter), // tt::ttnn::MemoryConfig
-    });
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        repeatInterleaveOp,
-        this->getTypeConverter()->convertType(repeatInterleaveOp.getType()),
-        this->convertOpName(repeatInterleaveOp), arrayAttrs, nullptr, operands);
+    emitter.replaceOp(*this, args);
 
     return success();
   }

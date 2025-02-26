@@ -642,8 +642,7 @@ public:
   mlir::Attribute emit(mlir::Attribute attr) {
     // It's assumed that the conversion might fail, in which case the result
     // will be `emitc::OpaqueAttr("::std::nullopt")`.
-    if (auto convertedValue =
-            tt::ttnn_to_emitc::EmitCTypeConverter<TargetTy>::convert(attr)) {
+    if (auto convertedValue = EmitCTypeConverter<TargetTy>::convert(attr)) {
       return rewriter.getType<emitc::OpaqueAttr>(*convertedValue);
     }
     return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
@@ -651,16 +650,23 @@ public:
 
   // Handles the case when source type is a non mlir::Attribute convertible type
   // and source and target types are in many-to-many relationship (i.e.
-  // llvm::ArrayRef<T> to std::vector<U>).
-  template <typename TargetTy, typename SourceTy>
-  std::enable_if_t<!std::is_convertible_v<SourceTy, mlir::Attribute>,
+  // llvm::ArrayRef<T> to std::vector<U>). For convenience, by default
+  // `TargetTy` is the same as `SourceTy`, for cases where we already have an
+  // appropriate C++ type.
+  // TODO (azecevic): See if we can simplify the condition for this overload
+  // instantiation.
+  template <typename SourceTy, typename TargetTy = SourceTy>
+  std::enable_if_t<!std::is_convertible_v<SourceTy, mlir::Attribute> &&
+                       !std::is_convertible_v<SourceTy, mlir::Value>,
                    mlir::Attribute>
   emit(SourceTy &&attr) {
-    auto result = emit(std::forward<SourceTy>(attr));
+    auto result =
+        EmitCTypeConverter<TargetTy>::convert(std::forward<SourceTy>(attr));
     // It's assumed that the conversion will always succeed, if the result is
     // `std::optional<std::string>` we assume that it contains the converted
     // value.
-    if (std::is_same_v<decltype(result), std::optional<std::string>>) {
+    if constexpr (std::is_same_v<decltype(result),
+                                 std::optional<std::string>>) {
       return rewriter.getType<emitc::OpaqueAttr>(*result);
     }
     return rewriter.getType<emitc::OpaqueAttr>(result);
@@ -668,12 +674,12 @@ public:
 
   template <typename OpConversionPatternTy>
   emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
-                                llvm::ArrayRef<mlir::Attribute> attrs) {
+                                llvm::ArrayRef<mlir::Attribute> args) {
     return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op,
         opConversionPattern.getTypeConverter()->convertType(
             op->getResult(0).getType()),
-        opConversionPattern.convertOpName(op), rewriter.getArrayAttr(attrs),
+        opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
         nullptr, adaptor.getOperands());
   }
 
