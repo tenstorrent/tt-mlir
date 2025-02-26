@@ -7,8 +7,10 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -76,6 +78,13 @@ struct TypeName<bool> {
 template <>
 struct TypeName<std::string> {
   inline static const std::string value = "::std::string";
+};
+
+template <>
+struct TypeName<std::nullopt_t> {
+  // This is a special case, as std::nullopt is not a type, but is the only
+  // value of type std::nullopt_t.
+  inline static const std::string value = "::std::nullopt";
 };
 
 template <typename T, size_t k>
@@ -463,7 +472,7 @@ inline std::string convert(ttnn::ShapeAttr attr) {
 
 inline std::string convert(tt::DataTypeAttr attr) {
   if (!attr) {
-    return "::std::nullopt";
+    return TypeNameV<std::nullopt_t>;
   }
 
   switch (attr.getValue()) {
@@ -499,7 +508,7 @@ inline std::string convert(tt::DataTypeAttr attr) {
 
 inline std::string convert(ttnn::LayoutAttr attr) {
   if (!attr) {
-    return "::std::nullopt";
+    return TypeNameV<std::nullopt_t>;
   }
 
   switch (attr.getValue()) {
@@ -516,7 +525,7 @@ inline std::string convert(ttnn::LayoutAttr attr) {
 
 inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
   if (!attr) {
-    return "::std::nullopt";
+    return TypeNameV<std::nullopt_t>;
   }
 
   switch (attr.getValue()) {
@@ -537,7 +546,7 @@ inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
 
 inline std::string convert(ttnn::BufferTypeAttr attr) {
   if (!attr) {
-    return "::std::nullopt";
+    return TypeNameV<std::nullopt_t>;
   }
 
   switch (attr.getValue()) {
@@ -558,7 +567,7 @@ inline std::string convert(ttnn::BufferTypeAttr attr) {
 
 inline std::string convert(ttnn::MemoryConfigAttr attr) {
   if (!attr) {
-    return "::std::nullopt";
+    return TypeNameV<std::nullopt_t>;
   }
 
   // TODO (azecevic): Add ShardSpec once it's modeled in the `MemoryConfigAttr`.
@@ -569,6 +578,111 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   rso << convert(attr.getBufferType());
   rso << ")";
   return buf;
+}
+
+template <typename TTNNOp>
+class EmitCTTNNEmitter {
+public:
+  using OpAdaptor = typename TTNNOp::Adaptor;
+
+  EmitCTTNNEmitter(TTNNOp op, OpAdaptor adaptor,
+                   mlir::ConversionPatternRewriter &rewriter)
+      : rewriter{rewriter}, op{op}, adaptor{adaptor} {}
+
+  mlir::Attribute emit(tt::ttnn::ShapeAttr attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
+  }
+
+  mlir::Attribute emit(tt::DataTypeAttr attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(
+        tt::ttnn_to_emitc::convert(attr));
+  }
+
+  mlir::Attribute emit(tt::ttnn::LayoutAttr attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
+  }
+
+  mlir::Attribute emit(tt::ttnn::MemoryConfigAttr attr) {
+    return rewriter.getType<emitc::OpaqueAttr>(convert(attr));
+  }
+
+  template <typename T>
+  mlir::Attribute emit(std::optional<T> attr) {
+    if (!attr) {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    }
+
+    return emit(*attr);
+  }
+
+  mlir::Attribute emit(std::nullopt_t) {
+    return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+  }
+
+  mlir::Attribute emit(Value val) {
+    if (!val) {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    }
+
+    auto operand =
+        llvm::find_if(op->getOpOperands(), [&](OpOperand &opOperand) {
+          return opOperand.get() == val;
+        });
+    if (operand == op->getOpOperands().end()) {
+      llvm_unreachable("Unknown operand");
+    }
+
+    return rewriter.getIndexAttr(operand->getOperandNumber());
+  }
+
+  // Handles the case when source type is convertible to mlir::Attribute type
+  // and source and target types are in many-to-many relationship (i.e.
+  // mlir::DenseI32ArrayAttr to ttnn::SmallVector<int32_t>).
+  template <typename TargetTy>
+  mlir::Attribute emit(mlir::Attribute attr) {
+    // It's assumed that the conversion might fail, in which case the result
+    // will be `emitc::OpaqueAttr("::std::nullopt")`.
+    if (auto convertedValue =
+            tt::ttnn_to_emitc::EmitCTypeConverter<TargetTy>::convert(attr)) {
+      return rewriter.getType<emitc::OpaqueAttr>(*convertedValue);
+    }
+    return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+  }
+
+  // Handles the case when source type is a non mlir::Attribute convertible type
+  // and source and target types are in many-to-many relationship (i.e.
+  // llvm::ArrayRef<T> to std::vector<U>).
+  template <typename TargetTy, typename SourceTy>
+  std::enable_if_t<!std::is_convertible_v<SourceTy, mlir::Attribute>,
+                   mlir::Attribute>
+  emit(SourceTy &&attr) {
+    auto result = emit(std::forward<SourceTy>(attr));
+    // It's assumed that the conversion will always succeed, if the result is
+    // `std::optional<std::string>` we assume that it contains the converted
+    // value.
+    if (std::is_same_v<decltype(result), std::optional<std::string>>) {
+      return rewriter.getType<emitc::OpaqueAttr>(*result);
+    }
+    return rewriter.getType<emitc::OpaqueAttr>(result);
+  }
+
+private:
+  TTNNOp op;
+  OpAdaptor adaptor;
+  ConversionPatternRewriter &rewriter;
+};
+
+// Helper function that serves as an alternative to the
+// `emit<std::variant<...>>` member function of the `EmitCTTNNEmitter` class.
+// For example, instead of calling `emit<std::variant<int32_t, float>>(attr)`,
+// one can call `emit<int32_t>(attr) | emit<float>(attr)`.
+inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {
+  static const mlir::Attribute nulloptAttr =
+      emitc::OpaqueAttr::get(lhs.getContext(), TypeNameV<std::nullopt_t>);
+  if (!lhs || lhs == nulloptAttr) {
+    return rhs;
+  }
+  return lhs;
 }
 
 } // namespace ttnn_to_emitc
