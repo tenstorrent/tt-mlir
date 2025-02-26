@@ -233,4 +233,7 @@ def test_execute_and_check_accuracy_data_exists():
         test_mnist_path, {"optimizationPolicy": "Optimizer Disabled"}, timeout=300
     )
     result = convert_command_and_assert(test_mnist_path)
+    if "accuracy_data" not in result["graphs"][0]["overlays"]:
+        overlays = result["graphs"][0]["overlays"]
+        print(overlays)
     assert "accuracy_data" in result["graphs"][0]["overlays"]
