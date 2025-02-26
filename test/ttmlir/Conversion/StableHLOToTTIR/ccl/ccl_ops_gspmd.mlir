@@ -35,7 +35,7 @@ module @all_reduce_1x2 attributes {mhlo.num_partitions = 2 : i32, mhlo.num_repli
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<8192x16384xf32>) -> tensor<8192x16384xf32>
-    // CHECK: = "ttir.all_reduce"
+    // CHECK: "ttir.all_reduce"
     return %1 : tensor<8192x16384xf32>
   }
 }
@@ -76,7 +76,7 @@ module @all_reduce_2x4 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
-    // CHECK: = "ttir.all_reduce"
+    // CHECK: "ttir.all_reduce"
     return %1 : tensor<4096x16384xf32>
   }
 }
@@ -117,7 +117,7 @@ module @all_reduce_1x8 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<8192x16384xf32>) -> tensor<8192x16384xf32>
-    // CHECK: = "ttir.all_reduce"
+    // CHECK: "ttir.all_reduce"
     return %1 : tensor<8192x16384xf32>
   }
 }
@@ -158,7 +158,7 @@ module @all_reduce_8x4 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_repl
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<1024x16384xf32>) -> tensor<1024x16384xf32>
-    // CHECK: = "ttir.all_reduce"
+    // CHECK: "ttir.all_reduce"
     return %1 : tensor<1024x16384xf32>
   }
 }
@@ -199,7 +199,7 @@ module @all_reduce_1x32 attributes {mhlo.num_partitions = 32 : i32, mhlo.num_rep
       %2 = stablehlo.add %arg2, %arg3 : tensor<f32>
       stablehlo.return %2 : tensor<f32>
     }) : (tensor<8192x16384xf32>) -> tensor<8192x16384xf32>
-    // CHECK: = "ttir.all_reduce"
+    // CHECK: "ttir.all_reduce"
     return %1 : tensor<8192x16384xf32>
   }
 }
@@ -1025,5 +1025,38 @@ module @jit_neg_basic7 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
   func.func private @shmap_body(%arg0: tensor<1x128x128x1024xf32>) -> (tensor<1x128x128x1024xf32> {jax.result_info = "[None, ('y',), None, None]"}) {
     %0 = stablehlo.negate %arg0 : tensor<1x128x128x1024xf32>
     return %0 : tensor<1x128x128x1024xf32>
+  }
+}
+
+// -----
+
+// jax/pjrt automatic input/output sharding tests
+module @jit_negative_basic attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
+  func.func public @main(%arg0: tensor<256x256xf32> {mhlo.sharding = "{devices=[1,2]<=[2]}"}) -> (tensor<256x128xf32> {jax.result_info = "", mhlo.sharding = "{replicated}"}) {
+    %0 = stablehlo.custom_call @Sharding(%arg0) {mhlo.sharding = "{devices=[1,2]<=[2]}"} : (tensor<256x256xf32>) -> tensor<256x256xf32>
+    %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} : (tensor<256x256xf32>) -> tensor<256x128xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1, 1>
+    // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+    // CHECK-SAME: shard_shape = array<i64: 1, 2>
+    // CHECK-SAME: shard_type = #tt.shard_type<manual>
+    %2 = call @shmap_body(%1) : (tensor<256x128xf32>) -> tensor<256x128xf32>
+    %3 = stablehlo.custom_call @Sharding(%2) {mhlo.sharding = "{manual}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
+    %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {mhlo.sharding = "{replicated}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
+    // CHECK: "ttir.mesh_shard"
+    // CHECK-SAME: shard_dims = array<i64: -1>
+    // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+    // CHECK-SAME: shard_shape = array<i64: 1>
+    // CHECK-SAME: shard_type = #tt.shard_type<manual>
+    return %4 : tensor<256x128xf32>
+  }
+  func.func private @shmap_body(%arg0: tensor<256x128xf32>) -> (tensor<256x128xf32> {jax.result_info = "[None, None]"}) {
+    %0 = stablehlo.negate %arg0 : tensor<256x128xf32>
+    %1 = "stablehlo.all_reduce"(%0) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 0>, replica_groups = dense<[[0, 1]]> : tensor<1x2xi64>, use_global_device_ids}> ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %2 = stablehlo.add %arg1, %arg2 : tensor<f32>
+      stablehlo.return %2 : tensor<f32>
+    }) : (tensor<256x128xf32>) -> tensor<256x128xf32>
+    return %1 : tensor<256x128xf32>
   }
 }
