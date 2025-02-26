@@ -672,6 +672,7 @@ public:
               ttkernel::NocAsyncReadOnePacketWithStateOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteTileOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
           TTMetalToEmitCOpaqueRewriter<
