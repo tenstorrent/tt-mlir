@@ -26,36 +26,4 @@ RUN source env/activate && \
     cmake -B env/build env && \
     cmake --build env/build
 
-# Self-test
-
-# Build project to test the container
-RUN source env/activate && \
-    cmake -G Ninja \
-    -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DTTMLIR_ENABLE_RUNTIME=ON \
-    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
-    -DTTMLIR_ENABLE_STABLEHLO=ON
-
-RUN source env/activate && \
-    cmake --build build --config Release
-
-RUN source env/activate && \
-    cmake --build build -- ttrt
-
-# Run the tests
-RUN source env/activate && \
-    cmake --build build -- check-ttmlir
-
-# Final stage
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
-
-# Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
-ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
-RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
-COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
-
 RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR
