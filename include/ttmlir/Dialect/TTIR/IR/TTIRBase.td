@@ -68,4 +68,10 @@ def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationSty
 // GenericRegionOpTrait is a trait that acts as a label for all generic region operations.
 def TTIR_GenericRegionOpTrait : TTIR_Trait<"TTIRGenericRegionOpTrait", []>;
 
+//===----------------------------------------------------------------------===//
+// TTIR common types.
+//===----------------------------------------------------------------------===//
+
+def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
+
 #endif

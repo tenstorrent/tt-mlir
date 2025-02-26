@@ -1591,7 +1591,7 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
     return maybeOutput;
   }
 
-  rewriter.create<::mlir::tt::ttir::ToLayoutOp>(getLoc(), ValueRange(),
+  rewriter.create<::mlir::tt::ttir::ToLayoutOp>(getLoc(), TypeRange(),
                                                 *maybeInput, *maybeOutput);
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
@@ -1600,7 +1600,7 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
 
 mlir::bufferization::AliasingValueList
 mlir::tt::ttir::ToLayoutOp::getAliasingValues(
-    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   return result;
 }
@@ -1609,10 +1609,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  mlir::Type memrefResultType =
-      mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-          .getMemref();
-  return mlir::cast<::mlir::BaseMemRefType>(memrefResultType);
+  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+      .getMemref();
 }
 
 //===----------------------------------------------------------------------===//
@@ -2692,7 +2690,7 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
     if (failed(maybeValue)) {
       return maybeValue;
     }
-    bufferInputs.push_back(maybeValue.value());
+    bufferInputs.push_back(*maybeValue);
   }
   mlir::SmallVector<mlir::Value> bufferOutputs;
   bufferOutputs.reserve(getOutputs().size());
@@ -2701,10 +2699,10 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
     if (failed(maybeValue)) {
       return maybeValue;
     }
-    bufferOutputs.push_back(maybeValue.value());
+    bufferOutputs.push_back(*maybeValue);
   }
   auto bufferGeneric = rewriter.create<mlir::tt::ttir::GenericOp>(
-      getLoc(), ValueRange(), bufferInputs, ValueRange(), bufferOutputs,
+      getLoc(), TypeRange(), bufferInputs, ValueRange(), bufferOutputs,
       getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping());
   bufferGeneric.getRegion().takeBody(getRegion());
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
@@ -2714,7 +2712,7 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
 
 mlir::bufferization::AliasingValueList
 mlir::tt::ttir::GenericOp::getAliasingValues(
-    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   return result;
 }
@@ -2723,10 +2721,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::GenericOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  mlir::Type memrefResultType =
-      mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-          .getMemref();
-  return mlir::cast<mlir::BaseMemRefType>(memrefResultType);
+  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+      .getMemref();
 }
 
 // GenericOp builders
