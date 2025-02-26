@@ -1308,10 +1308,12 @@ public:
         mlir::cast<RankedTensorType>(adaptor.getInputs().front().getType());
     RankedTensorType rhsType =
         mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
+    Type outputType = this->getTypeConverter()->convertType(srcOp.getType(0));
 
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
-          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back());
+          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back(),
+          outputType);
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
@@ -1323,7 +1325,8 @@ public:
           srcOp.getLoc(), adaptor.getInputs().back());
 
       rewriter.replaceOpWithNewOp<ttnn::AddOp>(
-          srcOp, adaptor.getInputs().front(), negOp.getResults().front());
+          srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
+          outputType);
     }
 
     return success();
