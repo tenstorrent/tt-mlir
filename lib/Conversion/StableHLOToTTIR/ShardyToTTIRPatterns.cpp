@@ -108,23 +108,12 @@ public:
       // JAX automatic sharding pre-shards input tensors and provides multiple
       // buffers. Thus, mesh sharding operations should not shard the tensors
       // twice if they are function arguments and pre-sharded by frontend.
-      // Runtime ignores mesh sharding operation if it is set as manual
-      // sharding.
       if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(globalOperand)) {
         auto argNum = blockArg.getArgNumber();
-        if (mlir::sdy::TensorShardingAttr argShardingAttr =
-                funcOp.getArgAttrOfType<mlir::sdy::TensorShardingAttr>(
-                    argNum, mlir::sdy::kShardingAttr)) {
-          if (argShardingAttr == argSharding) {
-            meshSharding.setDummyShardingOp();
-            rewriter.modifyOpInPlace(funcOp, [&]() {
-              funcOp.removeArgAttr(argNum, mlir::sdy::kShardingAttr);
-            });
-          } else {
-            llvm_unreachable("Manual computation op and function argument "
-                             "shardings are different.");
-          }
-        }
+        meshSharding
+            .checkAndUpdateFuncArgSharding<mlir::sdy::TensorShardingAttr>(
+                rewriter, funcOp, argNum, argSharding,
+                mlir::sdy::kShardingAttr);
       }
 
       auto outputType = mlir::cast<mlir::RankedTensorType>(
@@ -142,16 +131,23 @@ public:
     // Add mesh_shard (ShardToFullShape) for outputs.
     rewriter.setInsertionPointAfter(srcOp);
     mlir::Operation *sdyReturn = getBodyTerminator(srcOp);
-    for (auto [returnOperand, outSharding, opResult] : llvm::zip_equal(
+    for (auto [retNum, args] : llvm::enumerate(llvm::zip_equal(
              sdyReturn->getOpOperands(), srcOp.getOutShardings().getShardings(),
-             srcOp.getResults())) {
-
+             srcOp.getResults()))) {
+      auto [returnOperand, outSharding, opResult] = args;
       mlir::tt::sharding_utils::MeshSharding meshSharding;
       auto error = meshSharding.convertSdyShardingToMeshSharding(
           outSharding, targetMesh, mlir::tt::MeshShardDirection::ShardToFull);
       if (auto e = error.takeError()) {
         return rewriter.notifyMatchFailure(srcOp, llvm::toString(std::move(e)));
       }
+
+      // JAX automatic sharding may expect pre-sharded output tensors. Thus,
+      // mesh sharding operations should not concat the tensors twice if
+      // frontent expects pre-sharded tensor.
+      meshSharding
+          .checkAndUpdateFuncReturnSharding<mlir::sdy::TensorShardingAttr>(
+              rewriter, funcOp, retNum, outSharding, mlir::sdy::kShardingAttr);
 
       auto inputOperand = returnOperand.get();
       auto inputType = mlir::cast<mlir::RankedTensorType>(

@@ -1749,6 +1749,7 @@ public:
           meshShape);
     }
 
+    auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
     if (callTargetName ==
         mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName) {
       // @Sharding => @SPMDFullToShardShape pattern
@@ -1765,6 +1766,23 @@ public:
       if (!shardingOp) {
         return rewriter.notifyMatchFailure(
             srcOp, "Requires operand to be defined by prior Sharding op.");
+      }
+
+      // JAX automatic sharding may expect pre-sharded output tensors. Thus,
+      // mesh sharding operations should not concat the tensors twice if
+      // frontent expects pre-sharded tensor.
+      if (auto *funcReturnOp = funcOp.getBody().front().getTerminator()) {
+        auto returnOperands = funcReturnOp->getOperands();
+        auto returnOperandIt =
+            llvm::find_if(returnOperands, [&](Value operand) {
+              return operand == srcOp->getResult(0);
+            });
+        if (returnOperandIt != returnOperands.end()) {
+          auto retNum = std::distance(returnOperands.begin(), returnOperandIt);
+          meshSharding.checkAndUpdateFuncReturnSharding<mlir::StringAttr>(
+              rewriter, funcOp, retNum, shardingAttr,
+              mlir::tt::sharding_utils::kXlaShardingAttr);
+        }
       }
 
       auto outputType = mlir::cast<RankedTensorType>(
@@ -1794,25 +1812,12 @@ public:
         // JAX automatic sharding pre-shards input tensors and provides multiple
         // buffers. Thus, mesh sharding operations should not shard the tensors
         // twice if they are function arguments and pre-sharded by frontend.
-        // Runtime ignores mesh sharding operation if it is set as manual
-        // sharding.
         auto inputOperand = adaptor.getInputs().front();
-        auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
         if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(inputOperand)) {
           auto argNum = blockArg.getArgNumber();
-          if (auto argShardingAttr = funcOp.getArgAttrOfType<mlir::StringAttr>(
-                  argNum, mlir::tt::sharding_utils::kXlaShardingAttr)) {
-            if (argShardingAttr == shardingAttr) {
-              meshSharding.setDummyShardingOp();
-              rewriter.modifyOpInPlace(funcOp, [&]() {
-                funcOp.removeArgAttr(
-                    argNum, mlir::tt::sharding_utils::kXlaShardingAttr);
-              });
-            } else {
-              llvm_unreachable("GSPMD customCallOp and function argument "
-                               "shardings are different.");
-            }
-          }
+          meshSharding.checkAndUpdateFuncArgSharding<mlir::StringAttr>(
+              rewriter, funcOp, argNum, shardingAttr,
+              mlir::tt::sharding_utils::kXlaShardingAttr);
         }
 
         auto outputType =
