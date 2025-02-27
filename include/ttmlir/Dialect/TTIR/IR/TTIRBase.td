@@ -42,7 +42,7 @@ def TTIR_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTIR_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTIR_Dialect, mnemonic, !listconcat([Pure], traits)>;
+        Op<TTIR_Dialect, mnemonic, traits>;
 
 //===----------------------------------------------------------------------===//
 // TTIR traits definition.
@@ -67,5 +67,11 @@ def TTIR_Idempotence : TTIR_Trait<"TTIRIdempotence", [DestinationStyleOpInterfac
 def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationStyleOpInterface, ThreeOperands, NoMemoryEffect]>;
 // GenericRegionOpTrait is a trait that acts as a label for all generic region operations.
 def TTIR_GenericRegionOpTrait : TTIR_Trait<"TTIRGenericRegionOpTrait", []>;
+
+//===----------------------------------------------------------------------===//
+// TTIR common types.
+//===----------------------------------------------------------------------===//
+
+def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 
 #endif

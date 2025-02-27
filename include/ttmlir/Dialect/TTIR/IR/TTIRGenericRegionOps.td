@@ -20,8 +20,6 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRe
 // TTIR Generic Region Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
-
 def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator, TTIR_GenericRegionOpTrait]> {
     let summary = "Yield op.";
     let description = [{
