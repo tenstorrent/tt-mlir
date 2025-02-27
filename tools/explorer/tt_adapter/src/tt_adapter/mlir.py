@@ -581,10 +581,6 @@ FILTERED_OPS = [
 
 
 def build_graph(module, perf_trace=None):
-    print("Starting build_graph")
-    print(f"Module type: {type(module).__name__}")
-    print(f"Module operation name: {module.operation.name}")
-
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id="tt-graph")
 
@@ -596,185 +592,26 @@ def build_graph(module, perf_trace=None):
     perf_node_data = {}
     loc_to_perf = {}
     if perf_trace is not None:
-        print(f"Performance trace provided with {len(perf_trace)} rows")
-        for idx, (_, row) in enumerate(perf_trace.iterrows()):
+        for _, row in perf_trace.iterrows():
             loc = parse_loc_string(row["LOC"])
-            print(f"  Perf entry {idx}: LOC={row['LOC']}, parsed={loc}")
             assert loc not in loc_to_perf
             if loc:
                 loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
-        print(f"Created {len(loc_to_perf)} loc_to_perf mappings")
-    else:
-        print("No performance trace provided")
 
-    module_op = OpHandler(module.operation)
-    print(
-        f"Module OpHandler: id={module_op.id}, named_location={module_op.named_location}"
+    # Process the module hierarchy recursively
+    process_module(
+        module,
+        graph,
+        op_to_graph_node,
+        operands_in_graph,
+        output_connections,
+        loc_to_perf,
+        perf_node_data,
     )
-
-    module_attrs = module_op.get_attributes()
-    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
-    # Add module attributes to the graph as "namespace attributes"
-    group_node_attrs = {}
-    group_node_attrs[module_op.get_namespace()] = module_attrs
-
-    print(f"Starting operation traversal")
-    operation_count = 0
-    op_with_loc_count = 0
-    matched_perf_count = 0
-
-    # This function will recursively process operations, handling nested modules
-    def process_operations(operations, current_depth=0):
-        nonlocal operation_count, op_with_loc_count, matched_perf_count
-        append_later = []
-
-        for op in operations:
-            indent = "  " * current_depth
-            print(f"{indent}Operation: {op.name}")
-
-            # Handle tt.device_module and nested modules
-            if op.name == "tt.device_module" or op.name == "builtin.module":
-                print(f"{indent}Found nested module: {op.name}")
-                # Process operations inside this nested module
-                if len(op.regions) > 0 and len(op.regions[0].blocks) > 0:
-                    process_operations(
-                        op.regions[0].blocks[0].operations, current_depth + 1
-                    )
-                continue
-
-            # Create node for this operation
-            operation_count += 1
-            operation = OpHandler(op)
-            print(
-                f"{indent}Operation {operation_count}: {op.name}, named_location={operation.named_location}"
-            )
-            graph_node = operation.make_graph_node()
-
-            if operation.named_location:
-                op_with_loc_count += 1
-                print(f"{indent}  Has named location: {operation.named_location}")
-                print(
-                    f"{indent}  Is in loc_to_perf: {operation.named_location in loc_to_perf}"
-                )
-
-            if (
-                operation.named_location in loc_to_perf
-                and operation.op.name not in EMPTY_OPS
-            ):
-                matched_perf_count += 1
-                print(f"{indent}  MATCH FOUND: Adding to perf_node_data")
-                perf_node_data[operation.id] = node_data_builder.NodeDataResult(
-                    loc_to_perf[operation.named_location]
-                )
-
-            if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
-                append_later.append(graph_node)
-            elif op.name not in FILTERED_OPS:
-                graph.nodes.append(graph_node)
-
-            op_to_graph_node[op] = graph_node
-
-            for operand in op.operands:
-                if isinstance(operand, ir.Value) and not isinstance(
-                    operand.owner, ir.Operation
-                ):
-                    # If the owner is not an op, then it is a constant provided from the toplevel FuncOp.
-                    if operand not in operands_in_graph:
-                        # This is a constant and we need to create a node for it.
-                        operand_node = operation.make_constant_node(operand.get_name())
-                        graph.nodes.append(operand_node)
-                        op_to_graph_node[operand] = operand_node
-                        operands_in_graph.add(operand)
-
-            # Process nested regions (except for nested modules which we handled above)
-            if op.name != "tt.device_module" and op.name != "builtin.module":
-                for region in op.regions:
-                    for block in region.blocks:
-                        process_operations(block.operations, current_depth + 1)
-
-        # Add the nodes that were set aside to append later
-        for node in append_later:
-            graph.nodes.append(node)
-
-        # Process connections for all operations at this level
-        for op in operations:
-            # Skip nested modules, we already processed their contents
-            if op.name == "tt.device_module" or op.name == "builtin.module":
-                continue
-
-            # Create edges for this operation
-            for operand_index, operand in enumerate(op.operands):
-                if hasattr(operand, "owner") and operand.owner:
-                    if hasattr(operand.owner, "regions") and isinstance(
-                        operand.owner, ir.Block
-                    ):
-                        source_node = op_to_graph_node[operand]
-                    else:
-                        source_node = op_to_graph_node[operand.owner]
-
-                    target_node = op_to_graph_node[op]
-
-                    target_node.incomingEdges.append(
-                        graph_builder.IncomingEdge(
-                            sourceNodeId=source_node.id,
-                            sourceNodeOutputId=str(output_connections[source_node.id]),
-                            targetNodeInputId=str(operand_index),
-                        )
-                    )
-
-                    output_attrs = []
-                    if isinstance(operand.type, ir.RankedTensorType):
-                        output_attrs = [
-                            graph_builder.KeyValue(
-                                key="shape", value=str(operand.type.shape)
-                            ),
-                            graph_builder.KeyValue(
-                                key="dtype", value=str(operand.type.element_type)
-                            ),
-                            graph_builder.KeyValue(
-                                key="rank", value=str(operand.type.rank)
-                            ),
-                        ]
-                    if hasattr(operand.type, "encoding") and operand.type.encoding:
-                        if "ttnn_layout" in str(operand.type.encoding):
-                            output_attrs.extend(
-                                AttrHandler.parse_attr(
-                                    operand.type.encoding.get_named("ttnn_layout")
-                                )
-                            )
-                        else:
-                            # Parse as a standard layout
-                            output_attrs.extend(
-                                AttrHandler.parse_attr(
-                                    operand.type.encoding.get_named("tt.layout")
-                                )
-                            )
-                    source_node.outputsMetadata.append(
-                        graph_builder.MetadataItem(
-                            id=str(output_connections[source_node.id]),
-                            attrs=[
-                                graph_builder.KeyValue(
-                                    key="__tensor_tag", value=str(target_node.label)
-                                ),
-                            ]
-                            + output_attrs,
-                        )
-                    )
-                    output_connections[source_node.id] += 1
-
-    # Start processing from the top-level module's operations
-    process_operations(module.body.operations)
-
-    print(f"Operation traversal complete")
-    print(f"Total operations: {operation_count}")
-    print(f"Operations with named locations: {op_with_loc_count}")
-    print(f"Operations with matching perf data: {matched_perf_count}")
-    print(f"perf_node_data entries: {len(perf_node_data)}")
 
     # Add performance data to the graph color overlay, if it exists
     overlay_data = None
     if perf_node_data:
-        print("Creating overlay_data from perf_node_data")
         gradient = [
             node_data_builder.GradientItem(stop=0, bgColor="yellow"),
             node_data_builder.GradientItem(stop=1, bgColor="red"),
@@ -785,10 +622,264 @@ def build_graph(module, perf_trace=None):
         overlay_data = node_data_builder.ModelNodeData(
             graphsData={"tt-graph": graph_node_data}
         )
-    else:
-        print("No perf_node_data, overlay_data will be None")
 
-    graph.groupNodeAttributes = group_node_attrs
     OpHandler.schedule = 0
-    print(f"Returning graph and overlay_data (is None: {overlay_data is None})")
     return graph, overlay_data
+
+
+def process_module(
+    module,
+    graph,
+    op_to_graph_node,
+    operands_in_graph,
+    output_connections,
+    loc_to_perf,
+    perf_node_data,
+):
+    """
+    Recursively process a module and its nested submodules.
+
+    Args:
+        module: The module to process
+        graph: The graph being built
+        op_to_graph_node: Mapping from operations to graph nodes
+        operands_in_graph: Set of operands already added to graph
+        output_connections: Tracking of output connections
+        loc_to_perf: Mapping from locations to performance data
+        perf_node_data: Performance data for nodes
+    """
+    module_op = OpHandler(module.operation)
+    module_attrs = module_op.get_attributes()
+    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+
+    # Add module attributes to the graph as "namespace attributes"
+    if not hasattr(graph, "groupNodeAttributes"):
+        graph.groupNodeAttributes = {}
+
+    # Add this module's namespace attributes
+    namespace = module_op.get_namespace()
+    if namespace not in graph.groupNodeAttributes:
+        graph.groupNodeAttributes[namespace] = module_attrs
+    else:
+        # Merge with existing attributes if namespace already exists
+        graph.groupNodeAttributes[namespace].update(module_attrs)
+
+    # Process operations in this module
+    process_operations(
+        module.body.operations,
+        graph,
+        op_to_graph_node,
+        operands_in_graph,
+        output_connections,
+        loc_to_perf,
+        perf_node_data,
+    )
+
+
+def process_operations(
+    operations,
+    graph,
+    op_to_graph_node,
+    operands_in_graph,
+    output_connections,
+    loc_to_perf,
+    perf_node_data,
+):
+    """
+    Process a list of operations, including handling nested modules.
+
+    Args:
+        operations: List of operations to process
+        graph: The graph being built
+        op_to_graph_node: Mapping from operations to graph nodes
+        operands_in_graph: Set of operands already added to graph
+        output_connections: Tracking of output connections
+        loc_to_perf: Mapping from locations to performance data
+        perf_node_data: Performance data for nodes
+    """
+    append_later = []
+
+    # First pass: create all nodes and constants
+    for op in operations:
+        # Check if this operation is a nested module
+        if is_module_op(op):
+            # Process the nested module recursively
+            nested_module = get_module_from_op(op)
+            process_module(
+                nested_module,
+                graph,
+                op_to_graph_node,
+                operands_in_graph,
+                output_connections,
+                loc_to_perf,
+                perf_node_data,
+            )
+            continue
+
+        # Process regions in the operation
+        for region in op.regions:
+            for block in region.blocks:
+                # Recursively process operations in this block
+                process_operations(
+                    block.operations,
+                    graph,
+                    op_to_graph_node,
+                    operands_in_graph,
+                    output_connections,
+                    loc_to_perf,
+                    perf_node_data,
+                )
+
+        # Create graph node for this operation
+        operation = OpHandler(op)
+        graph_node = operation.make_graph_node()
+
+        if (
+            operation.named_location in loc_to_perf
+            and operation.op.name not in EMPTY_OPS
+        ):
+            perf_node_data[operation.id] = node_data_builder.NodeDataResult(
+                loc_to_perf[operation.named_location]
+            )
+
+        if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
+            append_later.append(graph_node)
+        elif op.name not in FILTERED_OPS:
+            graph.nodes.append(graph_node)
+
+        op_to_graph_node[op] = graph_node
+
+        # Process operands
+        for operand in op.operands:
+            if isinstance(operand, ir.Value) and not isinstance(
+                operand.owner, ir.Operation
+            ):
+                # If the owner is not an op, then it is a constant provided from the toplevel FuncOp.
+                if operand not in operands_in_graph:
+                    # This is a constant and we need to create a node for it.
+                    operand_node = operation.make_constant_node(operand.get_name())
+                    graph.nodes.append(operand_node)
+                    op_to_graph_node[operand] = operand_node
+                    operands_in_graph.add(operand)
+
+    # Add the nodes that should be appended later
+    for node in append_later:
+        graph.nodes.append(node)
+
+    # Second pass: create all edges
+    for op in operations:
+        # Skip module operations as they've been processed recursively
+        if is_module_op(op):
+            continue
+
+        # Process regions in the operation
+        for region in op.regions:
+            for block in region.blocks:
+                create_edges_for_block(block, op_to_graph_node, output_connections)
+
+
+def create_edges_for_block(block, op_to_graph_node, output_connections):
+    """
+    Create edges between nodes for operations in a block.
+
+    Args:
+        block: The block containing operations
+        op_to_graph_node: Mapping from operations to graph nodes
+        output_connections: Tracking of output connections
+    """
+    for op in block.operations:
+        # Skip module operations as they've been processed recursively
+        if is_module_op(op):
+            continue
+
+        # Create edges for this operation
+        for operand_index, operand in enumerate(op.operands):
+            if operand.owner == block:
+                source_node = op_to_graph_node[operand]
+            else:
+                source_node = op_to_graph_node[operand.owner]
+
+            target_node = op_to_graph_node[op]
+
+            target_node.incomingEdges.append(
+                graph_builder.IncomingEdge(
+                    sourceNodeId=source_node.id,
+                    sourceNodeOutputId=str(output_connections[source_node.id]),
+                    targetNodeInputId=str(operand_index),
+                )
+            )
+
+            output_attrs = []
+            if isinstance(operand.type, ir.RankedTensorType):
+                output_attrs = [
+                    graph_builder.KeyValue(key="shape", value=str(operand.type.shape)),
+                    graph_builder.KeyValue(
+                        key="dtype", value=str(operand.type.element_type)
+                    ),
+                    graph_builder.KeyValue(key="rank", value=str(operand.type.rank)),
+                ]
+            if hasattr(operand.type, "encoding") and operand.type.encoding:
+                if "ttnn_layout" in str(operand.type.encoding):
+                    output_attrs.extend(
+                        AttrHandler.parse_attr(
+                            operand.type.encoding.get_named("ttnn_layout")
+                        )
+                    )
+                else:
+                    # Parse as a standard layout
+                    output_attrs.extend(
+                        AttrHandler.parse_attr(
+                            operand.type.encoding.get_named("tt.layout")
+                        )
+                    )
+            source_node.outputsMetadata.append(
+                graph_builder.MetadataItem(
+                    id=str(output_connections[source_node.id]),
+                    attrs=[
+                        graph_builder.KeyValue(
+                            key="__tensor_tag", value=str(target_node.label)
+                        ),
+                    ]
+                    + output_attrs,
+                )
+            )
+            output_connections[source_node.id] += 1
+
+
+def is_module_op(op):
+    """
+    Check if an operation represents a module.
+
+    Args:
+        op: The operation to check
+
+    Returns:
+        bool: True if the operation is a module, False otherwise
+    """
+    # Check for tt.device_module or builtin.module operations
+    return op.name == "tt.device_module" or op.name == "builtin.module"
+
+
+def get_module_from_op(op):
+    """
+    Extract a module from a module operation.
+
+    Args:
+        op: The module operation
+
+    Returns:
+        Module: The extracted module
+    """
+    # For tt.device_module or builtin.module, the module is typically
+    # accessible via the first region
+    if len(op.regions) > 0 and len(op.regions[0].blocks) > 0:
+        # Create a synthetic module object with the operation and body
+        class SyntheticModule:
+            def __init__(self, operation, body):
+                self.operation = operation
+                self.body = body
+
+        return SyntheticModule(op, op.regions[0])
+
+    # If we can't extract a module, return None
+    return None
