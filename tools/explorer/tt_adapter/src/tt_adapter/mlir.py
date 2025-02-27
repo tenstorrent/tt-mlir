@@ -653,7 +653,7 @@ def process_module(
     module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
 
     # Add module attributes to the graph as "namespace attributes"
-    if not hasattr(graph, "groupNodeAttributes"):
+    if not graph.groupNodeAttributes:
         graph.groupNodeAttributes = {}
 
     # Add this module's namespace attributes
@@ -703,10 +703,9 @@ def process_operations(
     for op in operations:
         # Check if this operation is a nested module
         if is_module_op(op):
-            # Process the nested module recursively
-            nested_module = get_module_from_op(op)
-            process_module(
-                nested_module,
+            # Process the nested module's ops recursively
+            process_operations(
+                op.regions[0].blocks[0],
                 graph,
                 op_to_graph_node,
                 operands_in_graph,
@@ -858,28 +857,3 @@ def is_module_op(op):
     """
     # Check for tt.device_module or builtin.module operations
     return op.name == "tt.device_module" or op.name == "builtin.module"
-
-
-def get_module_from_op(op):
-    """
-    Extract a module from a module operation.
-
-    Args:
-        op: The module operation
-
-    Returns:
-        Module: The extracted module
-    """
-    # For tt.device_module or builtin.module, the module is typically
-    # accessible via the first region
-    if len(op.regions) > 0 and len(op.regions[0].blocks) > 0:
-        # Create a synthetic module object with the operation and body
-        class SyntheticModule:
-            def __init__(self, operation, body):
-                self.operation = operation
-                self.body = body
-
-        return SyntheticModule(op, op.regions[0])
-
-    # If we can't extract a module, return None
-    return None
