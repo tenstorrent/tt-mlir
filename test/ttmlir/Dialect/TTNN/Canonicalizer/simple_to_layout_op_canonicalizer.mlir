@@ -66,7 +66,7 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
     return %2 : tensor<32x32xf32, #ttnn_layout5>
   }
 
-    func.func @merge_to_layout_op_4x(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout5> {
+  func.func @merge_to_layout_op_4x(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout5> {
     // Verify that the to_layout op is canonicalized to a single to_layout op and the attributes are merged.
     // CHECK: "ttnn.to_layout"(%arg0, %0)
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
@@ -80,5 +80,13 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
     %3 = "ttnn.to_layout"(%2, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout5>, !tt.device<#device>) -> tensor<32x32xf32, #ttnn_layout3>
     %4 = "ttnn.to_layout"(%3, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>}> : (tensor<32x32xf32, #ttnn_layout3>, !tt.device<#device>) -> tensor<32x32xf32, #ttnn_layout5>
     return %4 : tensor<32x32xf32, #ttnn_layout5>
+  }
+
+  func.func @fold_to_layout_op(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
+    // Verify folding of to_layout_op.
+    %0 = "ttnn.to_layout"(%arg0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory, <<32x32>>>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    // CHECK-NOT: "ttnn.to_layout"
+    return %0 : tensor<32x32xbf16, #ttnn_layout>
+    // CHECK: return %arg0 : tensor<32x32xbf16
   }
 }
