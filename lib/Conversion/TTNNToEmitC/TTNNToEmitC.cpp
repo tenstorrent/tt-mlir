@@ -513,17 +513,15 @@ public:
   matchAndRewrite(tt::ttnn::ReshapeOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
-    // an ArrayAttr object holding IndexTypes is created to denote this.
-    //
-    ArrayAttr arrayAttrs =
-        rewriter.getArrayAttr({rewriter.getIndexAttr(0),
-                               tt::ttnn_to_emitc::utils::convertArrayAttrToSpan(
-                                   rewriter, srcOp.getShapeAttr())});
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ReshapeOp> emitter(srcOp, adaptor,
+                                                                 rewriter);
 
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<std::vector<int32_t>>(srcOp.getShape()),
+    };
+
+    emitter.replaceOp(*this, args);
 
     return success();
   }
@@ -919,53 +917,16 @@ public:
   matchAndRewrite(tt::ttnn::EmptyOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    tt::ttnn::ShapeAttr shapeAttr = srcOp.getShapeAttr();
-    tt::DataTypeAttr dataTypeAttr = srcOp.getDtypeAttr();
-    tt::ttnn::LayoutAttr layoutAttr = srcOp.getLayoutAttr();
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::EmptyOp> emitter(srcOp, adaptor,
+                                                               rewriter);
 
-    // Find the GetDeviceOp.
-    //
-    tt::ttnn::GetDeviceOp getDeviceOp;
-    srcOp->getParentOp()->walk(
-        [&getDeviceOp](tt::ttnn::GetDeviceOp currGetDeviceOp) {
-          getDeviceOp = currGetDeviceOp;
-        });
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getShape()),        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getLayout()),       emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
 
-    // Create tt::ttnn::Shape() call.
-    //
-    emitc::CallOpaqueOp shapeOp = tt::ttnn_to_emitc::utils::createShapeOp(
-        rewriter, shapeAttr, srcOp.getLoc());
-
-    // Create operands vector.
-    //
-    llvm::SmallVector<Value, 3> operands{shapeOp->getResult(0),
-                                         adaptor.getDevice()};
-
-    // Create MemoryConfig object first, then pass it to the op.
-    //
-    emitc::CallOpaqueOp memCfgOp =
-        tt::ttnn_to_emitc::utils::createMemoryConfigOp(
-            rewriter, srcOp.getMemoryConfig(), srcOp.getLoc());
-
-    // Concat operands and MemoryConfig object.
-    //
-    operands.append(1, memCfgOp.getResult(0));
-
-    // Create ArrayAttr object holding attributes and pointers to operands.
-    //
-    ArrayAttr arrayAttr = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(0), // tt::ttnn::Shape
-        tt::ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
-        tt::ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
-        rewriter.getIndexAttr(1), // tt::ttnn::Device
-        rewriter.getIndexAttr(2), // tt::ttnn::MemoryConfig
-    });
-
-    // Finally, convert ttir::EmptyOp to tt::ttnn::EmptyOp.
-    //
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttr, nullptr, operands);
+    emitter.replaceOp(*this, args);
 
     return success();
   }
