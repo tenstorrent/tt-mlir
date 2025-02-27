@@ -1,15 +1,22 @@
 include(AddMLIRPython)
 
+# Disables generation of "version soname" (i.e. libFoo.so.<version>), which
+# causes pure duplication as part of Python wheels.
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
+# The directory at which the Python import tree begins.
+# See documentation for `declare_mlir_python_sources`'s ROOT_DIR
+# argument.
 set(TTMLIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ttmlir")
-set(TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra")
 
+# We vendor our own MLIR instance in the `ttmlir` namespace.
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 
+################################################################################
+# Sources
+################################################################################
+
 declare_mlir_python_sources(TTMLIRPythonSources)
-declare_mlir_python_sources(TTMLIRPythonExtensions)
-declare_mlir_python_sources(TTMLIRPythonTestInfra)
 
 declare_mlir_python_sources(TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
@@ -76,21 +83,18 @@ declare_mlir_python_sources(TTMLIRPythonSources.Util
   SOURCES util.py
 )
 
-declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
-  ROOT_DIR "${TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR}"
-  ADD_TO_PARENT TTMLIRPythonTestInfra
-  SOURCES
-    ttir_builder.py
-    test_utils.py
-    ccl_golden.py
-)
-
 # Enable Site Initialization Target to be piped into _mlir_libs/__init__.py
 declare_mlir_python_sources(TTMLIRPythonSiteInitialize
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonSources
   SOURCES _mlir_libs/_site_initialize_0.py
 )
+
+################################################################################
+# Extensions
+################################################################################
+
+declare_mlir_python_sources(TTMLIRPythonExtensions)
 
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   MODULE_NAME _ttmlir
@@ -130,6 +134,60 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
 
 set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir")
 
+################################################################################
+# Additional custom python code we want to bundle in the package
+################################################################################
+
+declare_mlir_python_sources(TTMLIRPythonCommon)
+
+declare_mlir_python_sources(TTMLIRPythonCommon.Main
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common"
+  ADD_TO_PARENT TTMLIRPythonCommon
+  SOURCES
+    compile_and_run.py
+)
+
+declare_mlir_python_sources(TTMLIRPythonOpByOpInfra)
+
+declare_mlir_python_sources(TTMLIRPythonOpByOpInfra.Main
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/op_by_op_infra"
+  ADD_TO_PARENT TTMLIRPythonOpByOpInfra
+  SOURCES
+    execution_result.py
+    mlir_module_executor.py
+    mlir_module_splitter.py
+    pydantic_models.py
+    utils.py
+    workflow_utils.py
+    workflows.py
+)
+
+declare_mlir_python_sources(TTMLIRPythonTestInfra)
+
+declare_mlir_python_sources(TTMLIRPythonTestInfra.Main
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra"
+  ADD_TO_PARENT TTMLIRPythonTestInfra
+  SOURCES
+    ccl_golden.py
+    test_utils.py
+    ttir_builder.py
+)
+
+if(TTMLIR_ENABLE_PYKERNEL)
+  declare_mlir_python_sources(TTPykernelSources)
+
+  declare_mlir_python_sources(TTPykernelSources.Main
+    ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pykernel"
+    SOURCES
+      pykernel_ast.py
+      types.py
+  )
+endif()
+
+################################################################################
+# Generate packages and shared library
+################################################################################
+
 set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Core
   MLIRPythonSources.Dialects.affine
@@ -145,9 +203,27 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.quant
   TTMLIRPythonSources
   TTMLIRPythonExtensions
+  TTMLIRPythonCommon
+  TTMLIRPythonOpByOpInfra
   TTMLIRPythonTestInfra
   TTMLIRPythonSiteInitialize
 )
+
+if(TTMLIR_ENABLE_STABLEHLO)
+  # The following options are used specifically for compiling nanobind codebase.
+  # They are copied over from SHLO's cmake file and will prevent nanobind warnings
+  # being treated as build errors and breaking the build.
+  add_compile_options(-Wno-error=cast-qual -Wno-error=nested-anon-types
+    -Wno-error=extra-semi -Wno-error=zero-length-array
+    -Wno-error=covered-switch-default)
+
+  # To defined python sources we append minimal set of targets exposed by SHLO's cmake.
+  # This will put `stablehlo` under `ttmlir` and allow us to import it from `ttmlir`.
+  list(APPEND TTMLIR_PYTHON_SOURCES
+    StablehloPythonSources
+    StablehloPythonExtensions
+  )
+endif()
 
 add_mlir_python_common_capi_library(TTMLIRPythonCAPI
   INSTALL_COMPONENT TTMLIRPythonModules
@@ -166,13 +242,6 @@ add_mlir_python_modules(TTMLIRPythonModules
 )
 
 if(TTMLIR_ENABLE_PYKERNEL)
-  set(TTPYKERNEL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pykernel")
-  declare_mlir_python_sources(TTPykernelSources
-    ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
-    SOURCES
-      pykernel_ast.py
-      types.py
-  )
   add_mlir_python_modules(TTPykernelModules
     ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/pykernel"
     INSTALL_PREFIX "python_packages/pykernel"
