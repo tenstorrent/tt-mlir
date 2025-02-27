@@ -261,6 +261,11 @@ public:
 
   static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
+
+  // Create workarounds for binary op operands.
+  static TTNNOperandsWorkarounds
+  createBinaryOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
+                                    mlir::Operation *op);
 };
 
 } // namespace mlir::tt::ttnn::wa

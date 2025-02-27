@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
@@ -399,5 +400,68 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
       .addInputOperandWorkaround(nullWorkarounds)
       .addInputOperandWorkaround(nullWorkarounds)
       .addInputOperandWorkaround(typeWorkarounds);
+}
+
+// Helper function to determine if data type workaround is required for a binary
+// op. Set the workaround data type based on the binary op.
+static bool isWorkaroundRequiredForBinaryOps(mlir::Operation *op,
+                                             DataType dType,
+                                             DataType &waDataType) {
+  if (isa<ttnn::AddOp>(op) || isa<ttnn::SubtractOp>(op)) {
+    waDataType = DataType::BFloat16;
+    return !(dType == DataType::Float32 || dType == DataType::BFloat16 ||
+             dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4 ||
+             dType == DataType::Int32);
+  }
+  // Left shift and right shift ops have same requirements but they are not
+  // implemented for TTNN dialect currently.
+  if (isa<ttnn::BitwiseAndOp>(op) || isa<ttnn::BitwiseOrOp>(op) ||
+      isa<ttnn::BitwiseXorOp>(op)) {
+    waDataType = DataType::Int32;
+    return dType != DataType::Int32;
+  }
+  // All remaining binary ops.
+  waDataType = DataType::BFloat16;
+  return !(dType == DataType::Float32 || dType == DataType::BFloat16 ||
+           dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4);
+}
+
+// Factory method to create a set of workarounds for binary operation operands.
+// This workaround is based on tt-metal PR for data type checker for binary ops.
+// https://github.com/tenstorrent/tt-metal/pull/17828
+// Apply the workaround if any of the input does not satisfy the data type
+// requirement.
+// Elementwise binary ops requires TILE layout. Apply layout workaround if any
+// of the input is using ROW_MAJOR layout.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
+    mlir::Operation::operand_range inputs, mlir::Operation *op) {
+  DataType waDataType;
+  bool isDataTypeWARequired = false;
+  bool isLayoutWARequired = false;
+  for (size_t idx = 0; idx < inputs.size(); ++idx) {
+    RankedTensorType inputTensor =
+        mlir::dyn_cast<RankedTensorType>(inputs[idx].getType());
+    DataType elementType = elementTypeToDataType(inputTensor.getElementType());
+    isDataTypeWARequired |=
+        isWorkaroundRequiredForBinaryOps(op, elementType, waDataType);
+    isLayoutWARequired |= !(
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputTensor.getEncoding()).isTiled());
+  }
+
+  TTNNOperandWorkarounds tileLayoutDataTypeWorkaround;
+  if (isDataTypeWARequired) {
+    tileLayoutDataTypeWorkaround.tensorDataTypeWorkaround = waDataType;
+  }
+  if (isLayoutWARequired) {
+    tileLayoutDataTypeWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  }
+
+  TTNNOperandsWorkarounds workaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+  for (size_t idx = 0; idx < inputs.size(); ++idx) {
+    workaround.addInputOperandWorkaround(tileLayoutDataTypeWorkaround);
+  }
+  return workaround.addOutputOperandWorkaround(tileLayoutDataTypeWorkaround);
 }
 } // namespace mlir::tt::ttnn::wa
