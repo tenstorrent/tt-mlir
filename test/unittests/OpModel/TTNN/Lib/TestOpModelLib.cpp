@@ -324,6 +324,45 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
+TEST_F(OpModelTest, Transpose) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAM =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1 =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = TransposeOpInterface::getOpConstraints(
+      tensorShape, layoutDRAM, 0, 1, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  EXPECT_EQ(cb_size, 8192);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  auto runtimeExp = TransposeOpInterface::getOpRuntime(tensorShape, layoutDRAM,
+                                                       0, 1, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = TransposeOpInterface::getOpConstraints(
+      tensorShape, layoutDRAM, 0, 1, layoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 8192);
+  EXPECT_EQ(output_size, 2048);
+  EXPECT_EQ(peak_size, 2048);
+
+  runtimeExp = TransposeOpInterface::getOpRuntime(tensorShape, layoutDRAM, 0, 1,
+                                                  layoutL1);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
 TEST_F(OpModelTest, SoftmaxSharded) {
   const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
                                                   32};
