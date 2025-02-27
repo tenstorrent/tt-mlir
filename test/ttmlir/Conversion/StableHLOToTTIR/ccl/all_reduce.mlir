@@ -17,10 +17,8 @@ module {
 }
 
 // CHECK: "ttir.all_reduce"
-// CHECK-SAME: channel_handle = 1
-// CHECK-SAME: dim = 0
+// CHECK-SAME: cluster_axis = 1 : ui32
 // CHECK-SAME: reduce_type = #tt.reduce_type<sum>
 // CHECK: "ttir.all_reduce"
-// CHECK-SAME: channel_handle = 1
-// CHECK-SAME: dim = 0
+// CHECK-SAME: cluster_axis = 1 : ui32
 // CHECK-SAME: reduce_type = #tt.reduce_type<sum>
