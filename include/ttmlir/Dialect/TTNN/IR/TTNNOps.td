@@ -1429,9 +1429,10 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         SI32Attr:$scatter_split_dim,
-                         TT_ReduceTypeAttr:$math_op,
-                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$scatter_dim,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1446,10 +1447,9 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         SI32Attr:$scatter_dim,
-                         SI32Attr:$scatter_num,
-                         TT_ReduceTypeAttr:$math_op,
-                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+                         TT_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 

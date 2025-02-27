@@ -394,8 +394,9 @@ table ReduceScatterOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
-  scatter_split_dim: uint32;
-  math_op: uint32;
+  scatter_dim: int32;
+  reduce_type: uint32;
+  cluster_axis: uint32;
   num_links: uint32;
 }
 

@@ -23,6 +23,8 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 bool isSharded(
     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
+::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType);
+
 ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType);
 
 ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType);
