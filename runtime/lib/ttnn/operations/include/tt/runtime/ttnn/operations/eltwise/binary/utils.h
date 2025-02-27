@@ -13,7 +13,7 @@ namespace tt::runtime::ttnn::operations::binary {
 
 void getEltwiseBinaryOpInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
                                     ProgramTensorPool &tensorPool,
-                                    ::ttnn::Tensor &lhs, ::ttnn::Tensor &rhs);
+                                    ::ttnn::Tensor **lhs, ::ttnn::Tensor **rhs);
 
 } // namespace tt::runtime::ttnn::operations::binary
 

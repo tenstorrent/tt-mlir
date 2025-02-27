@@ -58,6 +58,7 @@ inline std::uint64_t getElementSizeBytes(DataType dtype) {
   case DataType::BFloat16:
     return 2;
   case DataType::UInt32:
+  case DataType::Int32:
     return 4;
   case DataType::UInt16:
     return 2;
@@ -98,6 +99,8 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::DataType::UInt16;
   case DataType::UInt8:
     return ::tt::target::DataType::UInt8;
+  case DataType::Int32:
+    return ::tt::target::DataType::Int32;
   }
 }
 

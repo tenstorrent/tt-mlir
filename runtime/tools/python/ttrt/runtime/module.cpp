@@ -60,7 +60,8 @@ PYBIND11_MODULE(_C, m) {
       .value("BFP_BFloat2", ::tt::target::DataType::BFP_BFloat2)
       .value("UInt32", ::tt::target::DataType::UInt32)
       .value("UInt16", ::tt::target::DataType::UInt16)
-      .value("UInt8", ::tt::target::DataType::UInt8);
+      .value("UInt8", ::tt::target::DataType::UInt8)
+      .value("Int32", ::tt::target::DataType::Int32);
   py::enum_<::tt::runtime::DeviceRuntime>(m, "DeviceRuntime")
       .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
