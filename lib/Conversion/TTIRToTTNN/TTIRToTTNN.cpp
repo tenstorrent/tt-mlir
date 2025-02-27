@@ -883,9 +883,11 @@ public:
 
       mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
       if (valueAttr.getElementType().isInteger()) {
+        // Both signed and signless integer can have negative values.
+        bool isSigned = valueAttr.getElementType().isSignedInteger() ||
+                        valueAttr.getElementType().isSignlessInteger();
         fillValue.convertFromAPInt(valueAttr.getSplatValue<llvm::APInt>(),
-                                   valueAttr.getElementType().isSignedInteger(),
-                                   llvm::RoundingMode::TowardZero);
+                                   isSigned, llvm::RoundingMode::TowardZero);
       } else {
         fillValue = valueAttr.getSplatValue<mlir::APFloat>();
       }
