@@ -169,7 +169,9 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   }
 
   return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
-      rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout, input);
+             rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
+             input)
+      ->getResult(0);
 }
 
 class TTIRLayoutDPSOperandsRewriter
@@ -308,11 +310,10 @@ class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 public:
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
-  ttir::ToLayoutOp
-  createToLayoutOp(PatternRewriter &rewriter, Location loc,
-                   mlir::TypedValue<mlir::RankedTensorType> input,
-                   MetalLayoutAttr desiredLayout) const {
-    auto ty = input.getType();
+  ttir::ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
+                                    Value input,
+                                    MetalLayoutAttr desiredLayout) const {
+    auto ty = mlir::cast<RankedTensorType>(input.getType());
     return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
         rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
         input);
@@ -322,8 +323,10 @@ public:
                MetalLayoutAttr bounceLayout) const {
     auto bounced =
         createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceLayout);
-    return rewriter.replaceOpWithNewOp<ttir::ToLayoutOp>(
-        op, op.getOutput().getType(), bounced, op.getOutput());
+    return rewriter
+        .replaceOpWithNewOp<ttir::ToLayoutOp>(
+            op, op.getOutput().getType(), bounced->getResult(0), op.getOutput())
+        ->getResult(0);
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,

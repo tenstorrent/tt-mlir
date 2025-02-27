@@ -314,7 +314,9 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   // Create the ToLayoutOp which will convert the input tensor to the desired
   // layout.
   return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
-      rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout, input);
+             rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
+             input)
+      ->getResult(0);
 }
 
 static bool changeLayoutToHost(DestinationStyleOpInterface &op,

@@ -32,6 +32,8 @@ struct TTIRToTTMetalBackendPipelineOptions
       llvm::cl::init(1)};
 };
 
+void createTTIRBufferizationPipeline(OpPassManager &pm);
+
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options);
 

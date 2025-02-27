@@ -13,4 +13,7 @@ add_mlir_dialect_library(MLIRTTIRDialect
         TTIRGenericRegionOpsIncGen
         MLIRTTIRPassesIncGen
         MLIRTTOpsIncGen
+
+        LINK_LIBS PUBLIC
+        MLIRBufferizationTransforms
         )
