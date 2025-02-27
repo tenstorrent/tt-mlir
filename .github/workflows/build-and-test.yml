@@ -128,10 +128,16 @@ jobs:
     steps:
 
     - name: Maximize build space
-      uses: easimon/maximize-build-space@v10
-      with:
-        remove-dotnet: 'true'
-        remove-android: 'true'
+      shell: bash
+      run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo docker builder prune -a
+          df -h
         
     - uses: actions/checkout@v4
       with:
@@ -201,10 +207,16 @@ jobs:
     steps:
 
     - name: Maximize build space
-      uses: easimon/maximize-build-space@v10
-      with:
-        remove-dotnet: 'true'
-        remove-android: 'true'
+      shell: bash
+      run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo docker builder prune -a
+          df -h
 
     - uses: actions/checkout@v4
       with:
