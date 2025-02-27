@@ -1529,33 +1529,24 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     let hasVerifier = 1;
 }
 
-def TTNN_DownsampleOp : TTNN_Op<"downsample2d"> {
-    let summary = "Upsample 2D op.";
+def TTNN_DownsampleOp : TTNN_Op<"downsample"> {
+    let summary = "Downsample 2D op.";
 
     let description = [{
-      Upsample 2D operation. Input tensor is assumed to be in NHWC format.
+      Downsample 2D operation. Input tensor is assumed to be in NHWC format.
 
       Attributes:
-      - `scale_factor` (si32 | array<i32>): The scale factor for upsampling in H and W dimensions respectively.
-      - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
+      - `downsample_params` (array<5xi32>): Expected in format: (batch_size, conv_input H, conv_input_W, conv_stride_H, conv_stride_W).
 
       Example:
         // %a: tensor<10x64x32xbf16>
-        %0 = "ttnn.upsample"(%a) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>) -> tensor<10x128x128x3xbf16>
+        %0 = "ttnn.downsample"(%a) <{downsample_params = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>) -> tensor<10x128x128x3xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
-                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         DenseI32ArrayAttr:$downsample_params);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds();
-      }
-    }];
 
     let hasVerifier = 1;
 }

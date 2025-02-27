@@ -1498,6 +1498,31 @@ public:
 };
 } // namespace
 
+namespace {
+  class DownsampleOpConversionPattern
+      : public OpConversionPattern<ttir::Downsample2dOp> {
+  public:
+    using OpConversionPattern<ttir::Downsample2dOp>::OpConversionPattern;
+  
+    LogicalResult
+    matchAndRewrite(ttir::Downsample2dOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+      auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+      auto inputShape = inputTy.getShape();
+      auto scaleFactor = ttmlir::utils::getPairOfInteger<int32_t>(adaptor.getScaleFactor());
+      int32_t scaleH = scaleFactor->first;
+      int32_t scaleW = scaleFactor->second;
+      ::llvm::SmallVector<uint32_t, 5> downsample_params = {static_cast<uint32_t>(inputShape[0]), static_cast<uint32_t>(inputShape[1]), static_cast<uint32_t>(inputShape[2]), static_cast<uint32_t>(scaleH), static_cast<uint32_t>(scaleW)};
+
+      rewriter.replaceOpWithNewOp<ttnn::DownsampleOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getInput(), downsample_params);
+  
+      return success();
+    }
+  };
+  } // namespace
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -1590,7 +1615,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
            PermuteOpConversionPattern,
-           UpsampleOpConversionPattern
+           UpsampleOpConversionPattern,
+           DownsampleOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

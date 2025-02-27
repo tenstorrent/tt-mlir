@@ -1817,19 +1817,16 @@ def TTIR_Downsample2dOp : TTIR_DPSOp<"downsample2d"> {
 
       Attributes:
       - `scale_factor` (si32 | array<i32>): The scale factor for downsampling in H and W dimensions respectively.
-      - `channel_last` (bool): Whether the input tensor is in NHWC or NCHW format. Default is true (NHWC format).
 
       Example:
         %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
-        %output = tensor.empty() : () -> tensor<10x128x128x3xbf16>
-        %0 = "ttir.downsample"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128x3xbf16>
-
+        %output = tensor.empty() : () -> tensor<10x32x8x3xbf16>
+        %0 = "ttir.downsample"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x32x8x3xbf16>) -> tensor<10x32x8x3xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
-                         DefaultValuedAttr<BoolAttr, "true">:$channel_last);
+                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor);
 
     let results = (outs AnyRankedTensor:$result);
 
