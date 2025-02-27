@@ -620,7 +620,13 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    mlir::ElementsAttr valueAttr = getValueAttr(srcOp.getValue());
+    mlir::ElementsAttr valueAttr;
+    LogicalResult valueAttrLegalityResult =
+        getValueAttr(srcOp, rewriter, valueAttr);
+
+    if (!valueAttrLegalityResult.succeeded()) {
+      return valueAttrLegalityResult;
+    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
                                                             valueAttr);
@@ -644,103 +650,81 @@ private:
   // 2. Boolean tensor: TTNN does not support boolean data. So they are
   //    converted to bfloat16 tensors.
   // 3. Integer tensor: TTNN does not support 64 bit integer. So they are
-  //    converted to 32 bit tensor.
+  //    converted to 32 bit tensor (with signed saturation).
   // 4. Float tensor: TTNN does not support 64 bit float. So they are converted
   //    to 32 bit tensor.
-  mlir::ElementsAttr getValueAttr(mlir::ElementsAttr valueAttr) const {
+  LogicalResult getValueAttr(mlir::stablehlo::ConstantOp &srcOp,
+                             ConversionPatternRewriter &rewriter,
+                             mlir::ElementsAttr &newValueAttr) const {
+    mlir::ElementsAttr valueAttr = srcOp.getValue();
     Type elementType = valueAttr.getElementType();
     size_t bitWidth = elementType.getIntOrFloatBitWidth();
-    bool isTensor = !valueAttr.getShapedType().getShape().empty();
-    bool isIntTensor = isTensor && isa<IntegerType>(elementType) &&
-                       bitWidth != 1 && bitWidth != 64;
-    bool isFloatTensor = isTensor && isa<FloatType>(elementType) &&
-                         bitWidth != 1 && bitWidth != 64;
-
-    if (isTensor && (isIntTensor || isFloatTensor)) {
-      return valueAttr;
+    bool isScalar = valueAttr.getShapedType().getShape().empty();
+    bool isElementTypeSupported =
+        (isa<IntegerType>(elementType) || isa<FloatType>(elementType)) &&
+        bitWidth != 1 && bitWidth != 64;
+    if (!isScalar && isElementTypeSupported) {
+      newValueAttr = valueAttr;
+      return success();
     }
 
     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
         getTypeConverter()->convertType(valueAttr.getShapedType()));
     if (isa<IntegerType>(elementType)) {
-      switch (bitWidth) {
-      case 1: {
-        return rebuildValueAttr<bool>(valueAttr, 1);
-      }
-      case 8: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint8_t>(valueAttr, 8)
-                   : rebuildValueAttr<int8_t>(valueAttr, 8);
-      }
-      case 16: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint16_t>(valueAttr, 16)
-                   : rebuildValueAttr<int16_t>(valueAttr, 16);
-      }
-      case 32: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint32_t>(valueAttr, 32)
-                   : rebuildValueAttr<int32_t>(valueAttr, 32);
-      }
-      case 64: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint64_t>(valueAttr, 32)
-                   : rebuildValueAttr<int64_t>(valueAttr, 32);
-      }
-      default: {
-        assert(false && "Unsupported integer type.");
-      }
-      }
+      newValueAttr = rebuildIntValueAttr(valueAttr, valueType, bitWidth);
+      return success();
     }
     if (isa<FloatType>(elementType)) {
-      // Convert 64 bit floating point numbers to 32 bit floating point numbers.
-      if (bitWidth == 64) {
-        std::vector<mlir::APFloat> floatValues;
-        for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
-          float fl = static_cast<float>(value.convertToDouble());
-          mlir::APFloat input = mlir::APFloat(fl);
-          floatValues.emplace_back(input);
-        }
-        return mlir::DenseElementsAttr::get(valueType, floatValues);
-      }
-      // In case of float values llvm has a bug where not all float types are
-      // supported for iterating in DenseElementsAttr, so we have to use a
-      // different constructor.
-      std::vector<mlir::APFloat> floatValues(
-          valueAttr.getValues<mlir::APFloat>().begin(),
-          valueAttr.getValues<mlir::APFloat>().end());
-      return mlir::DenseElementsAttr::get(valueType, floatValues);
+      newValueAttr = rebuildFloatValueAttr(valueAttr, valueType, bitWidth);
+      return success();
     }
-    assert(false && "Unsupported data type.");
+    return rewriter.notifyMatchFailure(srcOp, "Unsupported data type.");
   }
 
-  // Extract the values (using the given ElementType) and create new data
-  // structure. This is used to convert scalars (of type boolean, int8, int16,
-  // int32, int64, uint8, uint16, uint32, uint64) and tensors (of type boolean
-  // and int64).
-  template <typename ElementType>
-  mlir::ElementsAttr rebuildValueAttr(mlir::ElementsAttr valueAttr,
-                                      size_t bitWidth) const {
-    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
-        getTypeConverter()->convertType(valueAttr.getShapedType()));
-
+  // Extract the values and create new ElementsAttr data structure. This is used
+  // to convert scalars boolean to bfloat16 and 64 bit integer to 32 bit integer
+  // by truncating with signed saturation.
+  mlir::ElementsAttr rebuildIntValueAttr(mlir::ElementsAttr valueAttr,
+                                         mlir::ShapedType valueType,
+                                         size_t bitWidth) const {
     // Create data structure for boolean type with bfloat16.
     if (bitWidth == 1) {
       std::vector<mlir::APFloat> booleanValue = {};
-      for (ElementType value : valueAttr.getValues<ElementType>()) {
-        mlir::APFloat input(mlir::APFloat::BFloat(), value);
-        booleanValue.emplace_back(input);
+      for (bool value : valueAttr.getValues<bool>()) {
+        booleanValue.emplace_back(mlir::APFloat::BFloat(), value);
       }
       return mlir::DenseElementsAttr::get(valueType, booleanValue);
     }
 
     // Create data structure for other types.
     std::vector<mlir::APInt> IntegerValue = {};
-    for (ElementType value : valueAttr.getValues<ElementType>()) {
-      mlir::APInt input(bitWidth, value);
-      IntegerValue.emplace_back(input);
+    for (mlir::APInt value : valueAttr.getValues<mlir::APInt>()) {
+      // Truncate to 32 bits with signed saturation in case of 64 bit integers.
+      IntegerValue.emplace_back(bitWidth == 64 ? value.truncSSat(32) : value);
     }
     return mlir::DenseElementsAttr::get(valueType, IntegerValue);
+  }
+
+  mlir::ElementsAttr rebuildFloatValueAttr(mlir::ElementsAttr valueAttr,
+                                           mlir::ShapedType valueType,
+                                           size_t bitWidth) const {
+    // Convert 64 bit floating point numbers to 32 bit floating point numbers.
+    if (bitWidth == 64) {
+      std::vector<mlir::APFloat> floatValues;
+      for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
+        float fl = static_cast<float>(value.convertToDouble());
+        mlir::APFloat input = mlir::APFloat(fl);
+        floatValues.emplace_back(input);
+      }
+      return mlir::DenseElementsAttr::get(valueType, floatValues);
+    }
+    // In case of float values llvm has a bug where not all float types are
+    // supported for iterating in DenseElementsAttr, so we have to use a
+    // different constructor.
+    std::vector<mlir::APFloat> floatValues(
+        valueAttr.getValues<mlir::APFloat>().begin(),
+        valueAttr.getValues<mlir::APFloat>().end());
+    return mlir::DenseElementsAttr::get(valueType, floatValues);
   }
 };
 } // namespace
