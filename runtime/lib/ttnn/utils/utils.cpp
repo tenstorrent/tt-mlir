@@ -64,6 +64,8 @@ bool isSharded(
     return ::ttnn::DataType::UINT16;
   case ::tt::target::DataType::UInt8:
     return ::ttnn::DataType::UINT8;
+  case ::tt::target::DataType::Int32:
+    return ::ttnn::DataType::INT32;
 
   default:
     LOG_FATAL("Unsupported data type");
@@ -86,6 +88,8 @@ bool isSharded(
     return ::tt::target::DataType::UInt16;
   case ::ttnn::DataType::UINT8:
     return ::tt::target::DataType::UInt8;
+  case ::ttnn::DataType::INT32:
+    return ::tt::target::DataType::Int32;
 
   default:
     LOG_FATAL("Unsupported data type");

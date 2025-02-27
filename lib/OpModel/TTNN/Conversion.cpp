@@ -36,6 +36,8 @@ getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
     return ::tt::tt_metal::DataType::UINT16;
   case tt::DataType::UInt8:
     return ::tt::tt_metal::DataType::UINT8;
+  case tt::DataType::Int32:
+    return ::tt::tt_metal::DataType::INT32;
   default:
     throw std::runtime_error("Invalid element type");
   }
