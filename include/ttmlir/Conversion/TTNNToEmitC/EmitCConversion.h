@@ -5,6 +5,7 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -470,12 +471,8 @@ inline std::string convert(ttnn::ShapeAttr attr) {
   return buf;
 }
 
-inline std::string convert(tt::DataTypeAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
-
-  switch (attr.getValue()) {
+inline std::string convert(tt::DataType attr) {
+  switch (attr) {
   case tt::DataType::BFloat16:
     return "::ttnn::DataType::BFLOAT16";
   case tt::DataType::Float32:
@@ -506,12 +503,16 @@ inline std::string convert(tt::DataTypeAttr attr) {
   llvm_unreachable("Unkonwn tt::DataType");
 }
 
-inline std::string convert(ttnn::LayoutAttr attr) {
+inline std::string convert(tt::DataTypeAttr attr) {
   if (!attr) {
     return TypeNameV<std::nullopt_t>;
   }
 
-  switch (attr.getValue()) {
+  return convert(attr.getValue());
+}
+
+inline std::string convert(ttnn::Layout attr) {
+  switch (attr) {
   case ttnn::Layout::RowMajor:
     return "::ttnn::Layout::ROW_MAJOR";
   case ttnn::Layout::Tile:
@@ -521,6 +522,14 @@ inline std::string convert(ttnn::LayoutAttr attr) {
   }
 
   llvm_unreachable("Unknown ttnn::Layout");
+}
+
+inline std::string convert(ttnn::LayoutAttr attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  return convert(attr.getValue());
 }
 
 inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
@@ -544,12 +553,8 @@ inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
   llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
 }
 
-inline std::string convert(ttnn::BufferTypeAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
-
-  switch (attr.getValue()) {
+inline std::string convert(ttnn::BufferType attr) {
+  switch (attr) {
   case ttnn::BufferType::DRAM:
     return "::ttnn::BufferType::DRAM";
   case ttnn::BufferType::L1:
@@ -563,6 +568,14 @@ inline std::string convert(ttnn::BufferTypeAttr attr) {
   }
 
   llvm_unreachable("Unknown ttnn::BufferType");
+}
+
+inline std::string convert(ttnn::BufferTypeAttr attr) {
+  if (!attr) {
+    return TypeNameV<std::nullopt_t>;
+  }
+
+  return convert(attr.getValue());
 }
 
 inline std::string convert(ttnn::MemoryConfigAttr attr) {
@@ -593,9 +606,17 @@ public:
     return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
   }
 
+  mlir::Attribute emit(tt::DataType attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
+  }
+
   mlir::Attribute emit(tt::DataTypeAttr attr) {
     return rewriter.getAttr<emitc::OpaqueAttr>(
         tt::ttnn_to_emitc::convert(attr));
+  }
+
+  mlir::Attribute emit(tt::ttnn::Layout attr) {
+    return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
   }
 
   mlir::Attribute emit(tt::ttnn::LayoutAttr attr) {
