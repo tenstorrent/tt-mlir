@@ -74,7 +74,9 @@ INSTANTIATE_TEST_SUITE_P(
                       std::make_tuple(mlir::tt::DataType::UInt16,
                                       ::tt::tt_metal::DataType::UINT16),
                       std::make_tuple(mlir::tt::DataType::UInt8,
-                                      ::tt::tt_metal::DataType::UINT8)));
+                                      ::tt::tt_metal::DataType::UINT8),
+                      std::make_tuple(mlir::tt::DataType::Int32,
+                                      ::tt::tt_metal::DataType::INT32)));
 
 //================================================================================
 // getShardShape

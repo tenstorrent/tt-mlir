@@ -93,7 +93,10 @@ inline DataType elementTypeToDataType(Type elementType) {
   } else if (isa<IntegerType>(elementType)) {
     auto intType = mlir::cast<IntegerType>(elementType);
     if (intType.getWidth() == 32) {
-      dtype = DataType::UInt32;
+      // We interpret signed ints (si32) and signless ints (i32) as signed
+      // integers
+      dtype = (intType.isSigned() || intType.isSignless()) ? DataType::Int32
+                                                           : DataType::UInt32;
     } else if (intType.getWidth() == 16) {
       dtype = DataType::UInt16;
     } else if (intType.getWidth() == 8) {
@@ -135,6 +138,9 @@ inline Type dataTypeToElementType(::mlir::MLIRContext *context,
   case DataType::UInt8:
     return IntegerType::get(context, 8,
                             IntegerType::SignednessSemantics::Unsigned);
+  case DataType::Int32:
+    return IntegerType::get(context, 32,
+                            IntegerType::SignednessSemantics::Signed);
   }
 }
 } // namespace mlir::tt
