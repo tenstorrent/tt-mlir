@@ -121,6 +121,23 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace ReshapeOpInterface
 
 //===----------------------------------------------------------------------===//
+// TransposeOp
+//===----------------------------------------------------------------------===//
+
+namespace TransposeOpInterface {
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dim0,
+                 const int dim1, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dim0,
+             const int dim1, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace TransposeOpInterface
+
+//===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
 
