@@ -581,6 +581,10 @@ FILTERED_OPS = [
 
 
 def build_graph(module, perf_trace=None):
+    print("Starting build_graph")
+    print(f"Module type: {type(module).__name__}")
+    print(f"Module operation name: {module.operation.name}")
+
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id="tt-graph")
 
@@ -592,32 +596,63 @@ def build_graph(module, perf_trace=None):
     perf_node_data = {}
     loc_to_perf = {}
     if perf_trace is not None:
-        for _, row in perf_trace.iterrows():
+        print(f"Performance trace provided with {len(perf_trace)} rows")
+        for idx, (_, row) in enumerate(perf_trace.iterrows()):
             loc = parse_loc_string(row["LOC"])
+            print(f"  Perf entry {idx}: LOC={row['LOC']}, parsed={loc}")
             assert loc not in loc_to_perf
             if loc:
                 loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
+        print(f"Created {len(loc_to_perf)} loc_to_perf mappings")
+    else:
+        print("No performance trace provided")
 
     module_op = OpHandler(module.operation)
+    print(
+        f"Module OpHandler: id={module_op.id}, named_location={module_op.named_location}"
+    )
+
     module_attrs = module_op.get_attributes()
     module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
     # Add module attributes to the graph as "namespace attributes"
     group_node_attrs = {}
     group_node_attrs[module_op.get_namespace()] = module_attrs
 
+    print(f"Starting operation traversal")
+    operation_count = 0
+    op_with_loc_count = 0
+    matched_perf_count = 0
+
     for op in module.body.operations:
+        print(f"Top-level operation: {op.name}")
         append_later = []
         for region in op.regions:
             for block in region.blocks:
+                print(f"  Block has {len(block.operations)} operations")
                 for op in block.operations:
+                    operation_count += 1
                     # Create all the nodes and constants in the first pass.
                     operation = OpHandler(op)
+                    print(
+                        f"  Operation {operation_count}: {op.name}, named_location={operation.named_location}"
+                    )
                     graph_node = operation.make_graph_node()
+
+                    if operation.named_location:
+                        op_with_loc_count += 1
+                        print(f"    Has named location: {operation.named_location}")
+                        print(
+                            f"    Is in loc_to_perf: {operation.named_location in loc_to_perf}"
+                        )
 
                     if (
                         operation.named_location in loc_to_perf
                         and operation.op.name not in EMPTY_OPS
                     ):
+                        matched_perf_count += 1
+                        print(
+                            f"    MATCH FOUND: Adding to perf_node_data with value {loc_to_perf[operation.named_location]}"
+                        )
                         perf_node_data[operation.id] = node_data_builder.NodeDataResult(
                             loc_to_perf[operation.named_location]
                         )
@@ -708,9 +743,16 @@ def build_graph(module, perf_trace=None):
                         )
                         output_connections[source_node.id] += 1
 
+    print(f"Operation traversal complete")
+    print(f"Total operations: {operation_count}")
+    print(f"Operations with named locations: {op_with_loc_count}")
+    print(f"Operations with matching perf data: {matched_perf_count}")
+    print(f"perf_node_data entries: {len(perf_node_data)}")
+
     # Add performance data to the graph color overlay, if it exists
     overlay_data = None
     if perf_node_data:
+        print("Creating overlay_data from perf_node_data")
         gradient = [
             node_data_builder.GradientItem(stop=0, bgColor="yellow"),
             node_data_builder.GradientItem(stop=1, bgColor="red"),
@@ -721,7 +763,10 @@ def build_graph(module, perf_trace=None):
         overlay_data = node_data_builder.ModelNodeData(
             graphsData={"tt-graph": graph_node_data}
         )
+    else:
+        print("No perf_node_data, overlay_data will be None")
 
     graph.groupNodeAttributes = group_node_attrs
     OpHandler.schedule = 0
+    print(f"Returning graph and overlay_data (is None: {overlay_data is None})")
     return graph, overlay_data

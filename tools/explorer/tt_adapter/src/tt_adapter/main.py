@@ -89,6 +89,7 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
+        logging.info("start convert()")
         if optimized_model_path := self.model_runner.get_optimized_model_path(
             model_path
         ):

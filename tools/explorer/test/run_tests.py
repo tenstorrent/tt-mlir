@@ -11,7 +11,7 @@ import glob
 import os
 
 HOST = "localhost"
-PORT = 8002
+PORT = 8003
 COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
