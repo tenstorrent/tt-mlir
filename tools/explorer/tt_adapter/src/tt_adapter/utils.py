@@ -44,7 +44,7 @@ def get_inner_module(module):
     inner_module = None
     for op in device_module.regions[0].blocks[0].operations:
         if op.name == "builtin.module":
-            return ttmlir.ir.Module(op)
+            return op
 
     # If no inner module found, return the original
     return module
