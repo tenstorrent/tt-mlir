@@ -21,8 +21,7 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class TTIRGenericLinearizeMemrefRewriter
-    : public OpRewritePattern<GenericOp> {
+class TTIRGenericLinearizeMemrefRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
@@ -38,8 +37,8 @@ public:
   }
 
   static mlir::AffineMap linearizeAffineMap(::mlir::MLIRContext *context,
-                                             mlir::AffineMap map,
-                                             ArrayRef<int64_t> shape) {
+                                            mlir::AffineMap map,
+                                            ArrayRef<int64_t> shape) {
     auto evaledShape = ttmlir::utils::evalShape(map, shape);
     mlir::AffineExpr indexing = getAffineConstantExpr(0, context);
     mlir::AffineExpr volumeExpr = getAffineConstantExpr(1, context);
@@ -80,7 +79,7 @@ public:
             arg.getLoc(), arg, collapsedDims);
         rewriter.replaceAllUsesExcept(arg, linearizedArg->getResult(0),
                                       linearizedArg);
-        for (auto user : linearizedArg->getUsers()) {
+        for (auto *user : linearizedArg->getUsers()) {
           if (auto load = mlir::dyn_cast<affine::AffineLoadOp>(user)) {
             load.setMap(linearMap.compose(load.getMap()));
           } else if (auto store = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
