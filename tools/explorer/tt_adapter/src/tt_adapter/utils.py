@@ -12,42 +12,39 @@ import torch
 TTRT_INSTALLED = importlib.util.find_spec("ttrt") is not None
 
 
-def has_device_module(module):
-    """Check if the module contains a tt.device_module."""
-    for op in module.body.operations:
-        if op.name == "tt.device_module":
-            return True
-    return False
+# def has_device_module(module):
+#     """Check if the module contains a tt.device_module."""
+#     for op in module.body.operations:
+#         if op.name == "tt.device_module":
+#             return True
+#     return False
 
 
-def get_inner_module(module):
-    """Navigate to the innermost module in the hierarchy.
+# def get_inner_module(module):
+#     """Navigate to the innermost module in the hierarchy.
 
-    For structure: module { tt.device_module { module { ... } } }
-    This will return the innermost module.
-    """
-    # Check if this is a flat structure
-    if not has_device_module(module):
-        return module
+#     For structure: module { tt.device_module { module { ... } } }
+#     This will return the innermost module.
+#     """
 
-    # Find the tt.device_module
-    device_module = None
-    for op in module.body.operations:
-        if op.name == "tt.device_module":
-            device_module = op
-            break
+#     # Find the tt.device_module
+#     device_module = None
+#     for op in module.body.operations:
+#         if op.name == "tt.device_module":
+#             device_module = op
+#             break
 
-    if not device_module:
-        return module
+#     if not device_module:
+#         return module.body
 
-    # Find the inner module inside tt.device_module
-    inner_module = None
-    for op in device_module.regions[0].blocks[0].operations:
-        if op.name == "builtin.module":
-            return op
+#     # Find the inner module inside tt.device_module
+#     inner_module = None
+#     for op in device_module.regions[0].blocks[0].operations:
+#         if op.name == "builtin.module":
+#             return op.regions[0].blocks[0]
 
-    # If no inner module found, return the original
-    return module
+#     # If no inner module found, return the original
+#     return module.body
 
 
 def parse_mlir_str(module_str):
@@ -57,10 +54,10 @@ def parse_mlir_str(module_str):
         ttmlir.dialects.ttnn.register_dialect(ctx)
         module = ttmlir.ir.Module.parse(module_str, ctx)
 
-        if has_device_module(module):
-            print("had device module!")
-            return get_inner_module(module)
-        print("no device module!")
+        # if has_device_module(module):
+        #     print("had device module!")
+        #     return get_inner_module(module)
+        # print("no device module!")
         return module
 
 
