@@ -1115,35 +1115,36 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
       Applies a 2D convolution over an input image composed of several input planes.
 
       Inputs:
-      - `input` AnyRankedTensor: expected in the following format (N, H_in, W_in, C) where:
+      - `input` (AnyRankedTensor): expected in the following format (N, H_in, W_in, C) where:
         - N is the batch size
         - H_in is the height of the input planes
         - W_in is the width of the input planes
         - C is the number of channels
-
-      - `weight` AnyRankedTensor: expected in the following format (O, C/G, K_H, K_W).
+      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K_H, K_W).
       - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O) where:
         - C is the number of input channels
         - O is the number of output channels
         - G is the number of groups
         - K_H is the height of the kernel
         - K_W is the width of the kernel
-
-      - `output` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
-        - `H_out = (H_in + padding_top + padding_bottom - dilation[0] * (K_H - 1) - 1) / stride[0] + 1`
-        - `W_out = (W_in + padding_left + padding_right - dilation[1] * (K_W - 1) - 1) / stride[1] + 1`
+      - `output` AnyRankedTensor()): expected in the following format (N, H_out, W_out, O) where:
+        - `H_out = (H_in + pT + pB - dH * (K_H - 1) - 1) / sH + 1`
+        - `W_out = (W_in + pL + pR - dW * (K_W - 1) - 1) / sW + 1`
 
       Attributes:
-      - `stride` (i32 | array<2xi32>): Stride of the convolution.
-      - `padding` (i32 | array<2xi32> | array<4xi32>): Padding on height/width. Can be symmetric (`[pH, pW]`) or asymmetric (`[pT, pL, pB, pR]`).
+      - `stride` (i32 | array<2xi32>):
+        - i32: Same stride for height and width dimensions (sH = sW = value).
+        - array<2xi32>: [sH, sW] where sH is stride for height and sW is stride for width.
+      - `padding` (i32 | array<2xi32> | array<4xi32>):
+        - i32: Same padding for all sides (pT = pL = pB = pR = value).
+        - array<2xi32>: [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
+        - array<4xi32>: [pT, pL, pB, pR] for top, left, bottom, and right padding respectively.
       - `dilation` (i32 | array<2xi32>): Spacing between kernel elements.
-      - `groups` i32: Number of blocked connections from input channels to output channels. input and output channels must both be divisible by groups.
+        - i32: Same dilation for height and width dimensions (dH = dW = value).
+        - array<2xi32>: [dH, dW] where dH is dilation for height and dW is dilation for width.
+      - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
 
       Example:
-        %input = tensor.empty() : () -> tensor<1x32x32x64xbf16>
-        %weight = tensor.empty() : () -> tensor<64x64x3x3xbf16>
-        %bias = tensor.empty() : () -> tensor<1x1x1x64xbf16>
-        %output = tensor.empty() : () -> tensor<1x30x30x64xbf16>
         %0 = "ttir.conv2d"(%input, %weight, %bias, %output)
           <{
             stride = 1: i32,
@@ -1151,6 +1152,14 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
             dilation = 1: i32,
             groups = 1: i32
           > : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+        %1 = "ttir.conv2d"(%input, %weight, %bias, %output)
+          <{
+              stride = array<i32: 2, 1>,        // Height stride=2, width stride=1
+              padding = array<i32: 1, 1, 2, 0>, // Top=1, left=1, bottom=2, right=0
+              dilation = array<i32: 1, 2>,      // Height dilation=1, width dilation=2
+              groups = 2: i32                   // Group convolution with 2 groups
+          }> : (tensor<1x32x32x64xbf16>, tensor<64x32x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x16x28x64xbf16>) -> tensor<1x16x28x64xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

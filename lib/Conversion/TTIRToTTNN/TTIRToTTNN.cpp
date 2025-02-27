@@ -982,18 +982,18 @@ public:
 
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto paddingAttr =
         attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
     if (auto error = paddingAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[1] ||
-        paddingArrayRef[2] != paddingArrayRef[3]) {
+    if (paddingArrayRef[0] != paddingArrayRef[2] ||
+        paddingArrayRef[1] != paddingArrayRef[3]) {
       return rewriter.notifyMatchFailure(
           op,
           "TTNN only supports padding height/width attributes. Thus, "
@@ -1008,7 +1008,7 @@ public:
     auto dilationAttr =
         attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
     if (auto error = dilationAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
