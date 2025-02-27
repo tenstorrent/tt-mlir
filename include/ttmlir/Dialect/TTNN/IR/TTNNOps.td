@@ -889,7 +889,9 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     let hasVerifier = 1;
 }
 
-def TTNN_TransposeOp : TTNN_Op<"transpose"> {
+def TTNN_TransposeOp : TTNN_Op<"transpose",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Transpose op.";
     let description = [{
       Transpose tensor along two given dimensions.
