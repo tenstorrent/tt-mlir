@@ -41,7 +41,7 @@ int32_t main() {
   ttnn::Tensor v8 = ttnn::to_device(v2, v3, v7);
   ttnn::Tensor v9 = ttnn::to_layout(v8, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
   ttnn::deallocate(v8, false);
-  ttnn::SimpleShape v10 = ttnn::SimpleShape(tt::tt_metal::LegacyShape({32, 32, }));
+  ttnn::Shape v10 = ttnn::Shape(tt::tt_metal::LegacyShape({32, 32, }));
   ttnn::MemoryConfig v11 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v12 = ttnn::empty(v10, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, v3, v11);
   ttnn::Tensor v13 = ttnn::add(v6, v9, std::nullopt, std::nullopt, v12);
@@ -55,9 +55,9 @@ int32_t main() {
 }
 
 std::tuple<ttnn::Tensor, ttnn::Tensor> createInputsFor_add() {
-  ttnn::SimpleShape v1 = ttnn::SimpleShape(tt::tt_metal::LegacyShape({32, 32, }));
+  ttnn::Shape v1 = ttnn::Shape(tt::tt_metal::LegacyShape({32, 32, }));
   ttnn::Tensor v2 = ttnn::ones(v1, ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt);
-  ttnn::SimpleShape v3 = ttnn::SimpleShape(tt::tt_metal::LegacyShape({32, 32, }));
+  ttnn::Shape v3 = ttnn::Shape(tt::tt_metal::LegacyShape({32, 32, }));
   ttnn::Tensor v4 = ttnn::ones(v3, ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt);
   return std::make_tuple(v2, v4);
 }
