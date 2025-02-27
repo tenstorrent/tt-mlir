@@ -244,6 +244,13 @@ void closeDevice(Device device) {
   ttnnMeshDevice.close();
 }
 
+void clearProgramCache(Device device) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  ttnnMeshDevice.disable_and_clear_program_cache();
+  ttnnMeshDevice.enable_program_cache();
+}
+
 void deallocateBuffers(Device deviceHandle) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);

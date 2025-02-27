@@ -103,6 +103,7 @@ openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
            std::optional<bool> enableAsyncTTNN = std::nullopt);
 
 void closeDevice(Device device);
+void clearProgramCache(Device device);
 
 void deallocateBuffers(Device device);
 

@@ -292,6 +292,21 @@ void closeDevice(Device device) {
   LOG_FATAL("runtime is not enabled");
 }
 
+void clearProgramCache(Device device) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::clearProgramCache(device);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    TT_ASSERT(false, "Not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 void wait(Event event) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {

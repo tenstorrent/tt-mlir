@@ -100,6 +100,8 @@ openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
 
 void closeDevice(Device device);
 
+void clearProgramCache(Device device);
+
 void wait(Event event);
 
 void wait(Tensor tensor);
