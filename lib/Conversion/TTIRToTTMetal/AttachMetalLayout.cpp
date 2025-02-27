@@ -26,8 +26,6 @@ public:
         return type;
       }
       std::int64_t deviceGridRank = deviceGrid.getShape().size();
-      std::int64_t collapsedTensorRank = deviceGridRank;
-
       // Default to single core grid
       auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
 
@@ -39,9 +37,6 @@ public:
           return layout;
         }
 
-        // Default to '1x1x...' for outer scaling:
-        llvm::SmallVector<int64_t> outerScale(collapsedTensorRank, 1);
-
         // Select some stream layout defaults for the given memory space:
         StreamMode streamMode;
         uint32_t numBuffers;
@@ -50,11 +45,11 @@ public:
         auto tileType = TileType::get(ctx, type.getElementType());
 
         return layout.withElementType(ctx, tileType)
-            .withOuterScale(ctx, outerScale, streamMode, numBuffers);
+            .withStreamMode(ctx, streamMode, numBuffers);
       }();
 
-      return RankedTensorType::get(newLayout.getShardShape(false),
-                                   newLayout.getElementType(), newLayout);
+      return RankedTensorType::get(type.getShape(), type.getElementType(),
+                                   newLayout);
     });
   }
 };
