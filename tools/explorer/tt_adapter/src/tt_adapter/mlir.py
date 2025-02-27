@@ -637,7 +637,7 @@ def process_module(
     perf_node_data,
 ):
     """
-    Recursively process a module and its nested submodules.
+    Process a module's operations.  Only works on top-level module, any nested modules won't have a body so they need to directly call process_operations instead.
 
     Args:
         module: The module to process
@@ -686,7 +686,7 @@ def process_operations(
     perf_node_data,
 ):
     """
-    Process a list of operations, including handling nested modules.
+    Recursively process a list of operations, including handling nested modules.
 
     Args:
         operations: List of operations to process
