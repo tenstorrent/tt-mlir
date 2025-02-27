@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+from typing import List
+
+from mlir.ir import *
+from ttmlir.dialects import ttnn
+
+from .module_splitter import ModuleSplitter
+from .utils import parse_module_str
+
+
+class TTNNModuleSplitter(ModuleSplitter):
+    """Splits TTNN MLIR module into constituent ops."""
+
+    # ----- Public methods -----
+
+    @staticmethod
+    def create_from_module(module: Module) -> TTNNModuleSplitter:
+        return TTNNModuleSplitter(module)
+
+    @staticmethod
+    def create_from_module_str(module_str: str) -> TTNNModuleSplitter:
+        module = parse_module_str(
+            module_str,
+            TTNNModuleSplitter._get_required_dialects(),
+        )
+        return TTNNModuleSplitter(module)
+
+    # ----- Private methods -----
+
+    def __init__(self, module: Module) -> None:
+        super().__init__(module)
+
+    # @override
+    @staticmethod
+    def _get_required_dialects() -> List[Dialect]:
+        return [ttnn]
+
+
+if __name__ == "__main__":
+    # TODO find a convenient TTNN graph
+    ttnn_module_str = ""
+
+    splitter: TTNNModuleSplitter = TTNNModuleSplitter.create_from_module_str(
+        ttnn_module_str
+    )
+    print(splitter.get_sub_ops())
+    print(splitter.get_sub_modules())
