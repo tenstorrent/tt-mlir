@@ -1088,6 +1088,53 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
       Applies a 2D convolution over an input image composed of several input planes.
+
+      Inputs:
+      - `input` (AnyRankedTensor): expected in the following format (N, H_in, W_in, C) where:
+        - N is the batch size
+        - H_in is the height of the input planes
+        - W_in is the width of the input planes
+        - C is the number of channels
+      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K_H, K_W).
+      - `bias` (Optional<AnyRankedTensor>): expected in the following format (1, 1, 1, O) where:
+        - C is the number of input channels
+        - O is the number of output channels
+        - G is the number of groups
+        - K_H is the height of the kernel
+        - K_W is the width of the kernel
+      - `output` (AnyRankedTensor): expected in the following format (N, H_out, W_out, O) where:
+        - `H_out = (H_in + 2 * pH - dH * (K_H - 1) - 1) / sH + 1`
+        - `W_out = (W_in + 2 * pW - dW * (K_W - 1) - 1) / sW + 1`
+
+      Attributes:
+      - `in_channels` (i32): The number of input channels.
+      - `out_channels` (i32): The number of output channels.
+      - `batch_size` (i32): The batch size.
+      - `input_height` (i32): The input height.
+      - `input_width` (i32): The input width.
+      - `stride` (i32 | array<2xi32>):
+        - i32: Same stride for height and width dimensions (sH = sW = value).
+        - array<2xi32>: [sH, sW] where sH is stride for height and sW is stride for width.
+      - `padding` (i32 | array<2xi32>):
+        - i32: Same padding for all sides (pH = pW = value).
+        - array<2xi32>: [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
+      - `dilation` (i32 | array<2xi32>): Spacing between kernel elements.
+        - i32: Same dilation for height and width dimensions (dH = dW = value).
+        - array<2xi32>: [dH, dW] where dH is dilation for height and dW is dilation for width.
+      - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+
+      Example:
+        %input = tensor.empty() : () -> tensor<1x32x32x64xbf16>
+        %weight = tensor.empty() : () -> tensor<64x64x3x3xbf16>
+        %bias = tensor.empty() : () -> tensor<1x1x1x64xbf16>
+        %output = tensor.empty() : () -> tensor<1x30x30x64xbf16>
+        %0 = "ttnn.conv2d"(%input, %weight, %bias, %output)
+          <{
+            stride = 1: i32,
+            padding = 0: i32,
+            dilation = 1: i32,
+            groups = 1: i32
+          > : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

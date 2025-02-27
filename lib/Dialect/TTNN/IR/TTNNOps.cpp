@@ -109,12 +109,6 @@ namespace mlir::tt::ttnn {
                        std::to_string(batchSize) + " and " +
                        std::to_string(inputType.getDimSize(0)));
   }
-  if (batchSize != outputType.getDimSize(0)) {
-    return emitOpError("Batch size attribute must match the first dimension of "
-                       "the output tensor, got: " +
-                       std::to_string(batchSize) + " and " +
-                       std::to_string(outputType.getDimSize(0)));
-  }
 
   uint32_t inputHeight = getInputHeight();
   if (inputHeight != inputType.getDimSize(inputType.getRank() - 3)) {
@@ -243,6 +237,15 @@ namespace mlir::tt::ttnn {
                          << "Calculated output size per channel: ("
                          << calculatedHOut << " x " << calculatedWOut << "). "
                          << "Output size is too small";
+  }
+
+  // Since output tensor is flattened we need to validate the third dimension.
+  uint32_t expectedFlattenedSize = batchSize * calculatedHOut * calculatedWOut;
+  if (outputType.getDimSize(2) != expectedFlattenedSize) {
+    return emitOpError()
+           << "Output tensor's third dimension should be batch_size * "
+              "output_height * output_width, expected: "
+           << expectedFlattenedSize << ", got: " << outputType.getDimSize(2);
   }
 
   return success();
