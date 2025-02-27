@@ -2004,12 +2004,8 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I64ElementsAttr:$replica_groups,
-                         SI32Attr:$dim,
-                         OptionalAttr<SI32Attr>:$channel_handle,
-                         UnitAttr:$use_global_device_ids,
-                         TT_ReduceTypeAttr:$reduce_type
-    );
+                         TT_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$result);
 
