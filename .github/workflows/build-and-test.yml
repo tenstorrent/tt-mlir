@@ -126,6 +126,13 @@ jobs:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
+
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@v10
+      with:
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
@@ -192,6 +199,12 @@ jobs:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
+
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@v10
+      with:
+        remove-dotnet: 'true'
+        remove-android: 'true'
 
     - uses: actions/checkout@v4
       with:
