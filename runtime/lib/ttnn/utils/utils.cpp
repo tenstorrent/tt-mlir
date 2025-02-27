@@ -225,7 +225,7 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
                                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
   }
 
-  ::ttnn::MemoryConfig memoryConfig{.memory_layout = ttnnMemLayout,
+  ::ttnn::MemoryConfig memoryConfig{.memory_layout = ttnnMemLjjayout,
                                     .buffer_type = ttnnBufferType,
                                     .shard_spec = metalShardSpec};
   return std::make_optional(memoryConfig);
@@ -233,8 +233,16 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor) {
   auto tensorPtr = std::make_shared<::ttnn::Tensor>(tensor);
+  // TODO: convert to row major
   TensorDesc desc = descFromTTNNTensor(tensor);
   return Tensor(std::static_pointer_cast<void>(tensorPtr), nullptr,
+                DeviceRuntime::TTNN, desc);
+}
+
+Tensor createRuntimeTensorFromTTNN(const std::shared_ptr<::ttnn::Tensor> &tensor) {
+  TensorDesc desc = descFromTTNNTensor(*tensor.get());
+  // TODO: convert to row major
+  return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
                 DeviceRuntime::TTNN, desc);
 }
 

@@ -54,6 +54,8 @@ TensorDesc descFromTTNNTensor(const ::ttnn::Tensor &t);
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor);
 
+Tensor createRuntimeTensorFromTTNN(const std::shared_ptr<::ttnn::Tensor> &tensor);
+
 // Translates a flatbuffer DataType to the native (C++) type.
 template <::tt::target::DataType DataType>
 struct NativeDType {

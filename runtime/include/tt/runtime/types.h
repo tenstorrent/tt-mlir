@@ -162,6 +162,12 @@ public:
   std::uint32_t itemsize() { return desc.itemsize; }
 
   ::tt::target::DataType dataType() { return desc.dataType; }
+
+  std::shared_ptr<void> getData(bool rowMajor = true) {
+    // TODO: check if we are already RM, if so return
+    // TODO: otherwise, convert to RM and then return new buffer
+    return this->data;
+  }
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {
