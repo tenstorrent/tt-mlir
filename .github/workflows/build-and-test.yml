@@ -129,7 +129,7 @@ jobs:
 
     - name: Maximize space
       uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
-        
+
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
