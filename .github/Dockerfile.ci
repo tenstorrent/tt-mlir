@@ -26,4 +26,12 @@ RUN source env/activate && \
     cmake -B env/build env && \
     cmake --build env/build
 
+# Final stage
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
+
+# Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
+
 RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR
