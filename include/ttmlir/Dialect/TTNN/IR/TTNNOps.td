@@ -165,10 +165,6 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Type": $outputType),
       [{
         build($_builder, $_state, {outputType}, {lhs, rhs});
-      }]>,
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs),
-      [{
-        build($_builder, $_state, lhs, rhs, lhs.getType());
       }]>
     ];
 }
@@ -185,10 +181,6 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
       OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Type": $outputType),
       [{
         build($_builder, $_state, {outputType}, {first, second, third});
-      }]>,
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third),
-      [{
-        build($_builder, $_state, first, second, third, first.getType());
       }]>
     ];
 }
