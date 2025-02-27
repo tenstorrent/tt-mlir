@@ -10,6 +10,8 @@ from ttmlir.dialects import tt, ttnn, ttir
 from ttmlir import ir, util
 from . import utils
 
+global memory_data
+global node_id_number
 
 def parse_loc_string(loc_str):
     """
@@ -394,6 +396,7 @@ def parse_ttnn_ttnn_layout(attr):
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
     memory_layout = layout.tensor_memory_layout_as_int
+
     if memory_layout is not None:
         result.append(
             utils.make_editable_kv(
@@ -462,14 +465,31 @@ def parse_ttnn_ttnn_layout(attr):
             },
         )
     )
-    temp_var = utils.add_to_dataclass(
-            graph_builder.KeyValue(
-                key="dram_memory",
-                value=str(.4), #whatever the % is I think
-            ),
-            "dram_memory", 
-            str(.4)
+
+    try:
+        result.append(
+            utils.add_to_dataclass(
+                graph_builder.KeyValue(
+                    key="dram_memory",
+                    value=str(memory_data[str(node_id_number)]["dram"]),
+                ),
+                'display_type', 
+                'memory'
+            )
         )
+
+        result.append(
+            utils.add_to_dataclass(
+                graph_builder.KeyValue(
+                    key="l1_memory",
+                    value=str(memory_data[str(node_id_number)]["l1"]),
+                ),
+                'display_type', 
+                'memory'
+            )
+        )
+    except:
+        pass
 
     return result
 
@@ -537,6 +557,7 @@ class OpHandler:
                         key="rank", value=str(output_tensor.type.rank)
                     ),
                 ]
+
             if hasattr(output_tensor.type, "encoding") and output_tensor.type.encoding:
                 if "ttnn_layout" in str(output_tensor.type.encoding):
                     output_attrs.extend(
@@ -552,6 +573,7 @@ class OpHandler:
                         )
                     )
             result.extend(output_attrs)
+
 
         # Add schedule as an attribute
         result.append(
@@ -607,6 +629,8 @@ def build_graph(module, perf_trace=None, memory_trace=None):
             if loc:
                 loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
 
+    global memory_data
+    global node_id_number
     memory_data = {}
     if memory_trace is not None:
         for node in memory_trace:
@@ -686,6 +710,7 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                         )
 
                         output_attrs = []
+                        node_id_number = operand_index
                         if isinstance(operand.type, ir.RankedTensorType):
                             output_attrs = [
                                 graph_builder.KeyValue(
@@ -698,6 +723,7 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                                     key="rank", value=str(operand.type.rank)
                                 ),
                             ]
+ 
                         if hasattr(operand.type, "encoding") and operand.type.encoding:
                             if "ttnn_layout" in str(operand.type.encoding):
                                 output_attrs.extend(
@@ -711,28 +737,7 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                                     AttrHandler.parse_attr(
                                         operand.type.encoding.get_named("tt.layout")
                                     )
-                                )
-                        if memory_data:
-                            output_attrs.append(
-                                utils.add_to_dataclass(
-                                    graph_builder.KeyValue(
-                                        key="dram_memory",
-                                        value=str(memory_data[str(operand_index)]["dram"]),
-                                    ),
-                                    'display_type', 
-                                    'memory'
-                                )
-                            )
-                            output_attrs.append(
-                                utils.add_to_dataclass(
-                                    graph_builder.KeyValue(
-                                        key="l1_memory",
-                                        value=str(memory_data[str(operand_index)]["l1"]), 
-                                    ),
-                                    'display_type', 
-                                    'memory'
-                                )
-                            )
+                                )     
                         source_node.outputsMetadata.append(
                             graph_builder.MetadataItem(
                                 id=str(output_connections[source_node.id]),
@@ -762,4 +767,4 @@ def build_graph(module, perf_trace=None, memory_trace=None):
 
     graph.groupNodeAttributes = group_node_attrs
     OpHandler.schedule = 0
-    return graph, overlay_data, memory_data
+    return graph, overlay_data

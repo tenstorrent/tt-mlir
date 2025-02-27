@@ -101,13 +101,13 @@ class TTAdapter(model_explorer.Adapter):
                 module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, perf_data, memory_data = mlir.build_graph(module, perf_trace, memory_trace)
+            graph, perf_data = mlir.build_graph(module, perf_trace, memory_trace)
             if perf_data:
                 # TODO(odjuricic) We should replace the perf_data with overlays once this is fixed on FE.
                 graph = utils.add_to_dataclass(graph, "perf_data", perf_data.graphsData)
 
-            if memory_data:
-                graph = utils.add_to_dataclass(graph, "memory", memory_data)
+            #if memory_data:
+            #    graph = utils.add_to_dataclass(graph, "memory", memory_data)
 
             if overrides := self.model_runner.get_overrides(model_path):
                 graph = utils.add_to_dataclass(graph, "overrides", overrides)
@@ -127,7 +127,7 @@ class TTAdapter(model_explorer.Adapter):
                     module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, _, _ = mlir.build_graph(module)
+            graph, _ = mlir.build_graph(module)
 
         return {"graphs": [graph]}
 
