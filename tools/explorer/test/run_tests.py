@@ -231,7 +231,7 @@ def test_execute_model_invalid_policy():
 
 
 def test_execute_and_check_accuracy_data_exists():
-    # Get the test_mnist path
+    # Get the test_mnist path cccc
     test_mnist_path = GET_TTNN_TEST()
 
     # Key Decision: Make Test Fail or just provide error message and skip?
