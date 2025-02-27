@@ -99,7 +99,7 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   // sure if the tensor is multi-device host tensor.
   if (shardType == ::tt::target::ttnn::MeshShardType::Manual) {
     LOG_ASSERT(
-        input.storage_type() == ::tt::tt_metal::StorageType::MULTI_DEVICE,
+        input.storage_type() == ::tt::tt_metal::StorageType::MULTI_DEVICE || input.storage_type() == ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST,
         "Input of mesh_shard with manual sharding must be MULTIDEVICE. id:",
         op->in()->global_id());
     tensorPool.insert_or_assign(op->out()->global_id(), input);
