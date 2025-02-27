@@ -1,5 +1,6 @@
 add_mlir_conversion_library(TTMLIRTTIRToTTMetal
   TTIRToTTMetal.cpp
+  TTIRToTTKernel.cpp
   TTIRToTTMetalPass.cpp
   AttachMetalLayout.cpp
 

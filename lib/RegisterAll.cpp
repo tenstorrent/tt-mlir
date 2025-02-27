@@ -46,7 +46,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
       mlir::vector::VectorDialect, mlir::memref::MemRefDialect,
       mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect>();
+      mlir::LLVM::LLVMDialect, mlir::memref::MemRefDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
