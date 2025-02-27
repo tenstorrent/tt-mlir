@@ -121,17 +121,11 @@ jobs:
     strategy:
       fail-fast: false
     name: Debug Build
-    runs-on: ubuntu-latest
+    runs-on: runner
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
-
-    - name: Maximize build space
-      uses: easimon/maximize-build-space@master
-      with:
-        remove-dotnet: 'true'
-        remove-android: 'true'
         
     - uses: actions/checkout@v4
       with:
@@ -185,11 +179,11 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, enable_async: OFF, enable_runtime_debug: OFF, name: "emitc", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: ON, enable_runtime_debug: OFF, name: "async", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "runtime_debug", ttrt_flags: ""},
+          {runs-on: runner, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: runner, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", ttrt_flags: ""},
+          {runs-on: runner, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, enable_async: OFF, enable_runtime_debug: OFF, name: "emitc", ttrt_flags: ""},
+          {runs-on: runner, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: ON, enable_runtime_debug: OFF, name: "async", ttrt_flags: ""},
+          {runs-on: runner, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "runtime_debug", ttrt_flags: ""},
         ]
 
     name: Build and test tt-mlir (compute machine)
@@ -199,12 +193,6 @@ jobs:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
-
-    - name: Maximize build space
-      uses: easimon/maximize-build-space@master
-      with:
-        remove-dotnet: 'true'
-        remove-android: 'true'
 
     - uses: actions/checkout@v4
       with:
