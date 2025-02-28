@@ -668,9 +668,9 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
   auto in1 = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getWeight()));
   auto in2 = op.getODSOperands(2).empty()
-                  ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
-                  : cache.at<::tt::target::ttnn::TensorRef>(
-                        getOperandThroughDPSOps(op.getBias()));
+                 ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
+                 : cache.at<::tt::target::ttnn::TensorRef>(
+                       getOperandThroughDPSOps(op.getBias()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 

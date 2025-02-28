@@ -1011,8 +1011,8 @@ public:
         1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
 
     outputTy = mlir::RankedTensorType::get(flattenedOutputShape,
-                                             outputTy.getElementType(),
-                                             outputTy.getEncoding());
+                                           outputTy.getElementType(),
+                                           outputTy.getEncoding());
 
     ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
         op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
