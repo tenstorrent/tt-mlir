@@ -567,6 +567,71 @@ ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// TransposeOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+TransposeOpInterface::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dim0, const int dim1,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto transposeOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                             const int dim0, const int dim1,
+                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const auto [inputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout));
+
+    // run op constraint query
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transpose, device, inputSpec, dim0, dim1,
+        conversion::getMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints("TransposeOpInterface", transposeOpQuery,
+                                     inputShape, inputLayout, dim0, dim1,
+                                     outputLayout);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> TransposeOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dim0, const int dim1,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto transposeOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                             const int dim0, const int dim1,
+                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const auto [inputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout));
+
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transpose, device, inputSpec, dim0, dim1,
+        conversion::getMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime("TransposeOpInterface", transposeOpQuery,
+                                 inputShape, inputLayout, dim0, dim1,
+                                 outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
