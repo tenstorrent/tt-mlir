@@ -118,6 +118,11 @@ struct EmitCTypeConverter<bool> {
     return {};
   }
 
+  static std::string convert(mlir::APInt attr) {
+    assert(attr.getBitWidth() == 1 && "Expected a 1-bit APInt");
+    return convert(static_cast<bool>(attr.getZExtValue()));
+  }
+
   static std::string convert(mlir::BoolAttr attr) {
     return convert(attr.getValue());
   }
