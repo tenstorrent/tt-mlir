@@ -108,6 +108,16 @@ void populateTTNNModule(py::module &m) {
           })
       .def_property_readonly("tensor_memory_layout",
                              &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
+      .def_property_readonly("tensor_memory_layout_as_int",
+                             [](tt::ttnn::MemoryConfigAttr self)
+                                 -> std::variant<uint32_t, py::object> {
+                               if (!self.getTensorMemoryLayout()) {
+                                 return py::none();
+                               }
+                               return static_cast<uint32_t>(
+                                   self.getTensorMemoryLayout().getValue());
+                             })
+
       .def_property_readonly("buffer_type",
                              &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_property_readonly("shard_spec",

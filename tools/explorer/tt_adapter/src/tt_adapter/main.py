@@ -89,12 +89,17 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
+        perf_trace = None
+
         if optimized_model_path := self.model_runner.get_optimized_model_path(
             model_path
         ):
             logging.info(f"Using optimized model: {optimized_model_path}")
             # Get performance results.
-            perf_trace = self.model_runner.get_perf_trace(model_path)
+            try:
+                perf_trace = self.model_runner.get_perf_trace(model_path)
+            except FileNotFoundError:
+                perf_trace = None
 
             with open(optimized_model_path, "r") as model_file:
                 module = utils.parse_mlir_str(model_file.read())
@@ -121,6 +126,16 @@ class TTAdapter(model_explorer.Adapter):
             else:
                 with open(model_path, "r") as model_file:
                     module = utils.parse_mlir_str(model_file.read())
+
+        # Convert TTIR to Model Explorer Graphs and Display/Return
+        graph, perf_data = mlir.build_graph(module, perf_trace)
+        if perf_data:
+            # TODO(odjuricic) We should replace the perf_data with overlays once this is fixed on FE.
+            graph = utils.add_to_dataclass(graph, "perf_data", perf_data.graphsData)
+            # graph = utils.add_to_dataclass(graph, "overlays", [perf_data.graphsData])
+
+        if overrides := self.model_runner.get_overrides(model_path):
+            graph = utils.add_to_dataclass(graph, "overrides", overrides)
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph, _ = mlir.build_graph(module)
