@@ -363,4 +363,10 @@ std::vector<float> getTensorData(Tensor tensor) {
   return {};
 }
 
+std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor) {
+  std::cout << "booo! i am being called from ttmetal. this doesnt work yet.";
+  LOG_WARNING("eh some warning");
+  return {};
+}
+
 } // namespace tt::runtime::ttmetal

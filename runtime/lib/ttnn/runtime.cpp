@@ -568,6 +568,12 @@ std::vector<float> getTensorData(Tensor tensor) {
                             static_cast<float *>(dataPtr) + nnTensor->volume());
 }
 
+std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor) {
+  std::cout << "yaay I am being called from ttnn!";
+
+  return {};
+}
+
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> const &inputHandles) {

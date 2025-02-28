@@ -93,6 +93,7 @@ inline Tensor createTensor(Device device, Layout layout,
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor);
+std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor);
 
 size_t getNumAvailableDevices();
 

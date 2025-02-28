@@ -532,4 +532,20 @@ Event submit(Device deviceHandle, Binary executableHandle,
 #endif
   LOG_FATAL("runtime is not enabled");
 }
+
+std::vector<std::byte> Tensor::getDataBuffer() {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getDataBuffer(*this);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getDataBuffer(*this);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 } // namespace tt::runtime

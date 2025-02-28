@@ -30,6 +30,7 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor);
+std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor);
 
 size_t getNumAvailableDevices();
 

@@ -151,6 +151,8 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
          std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(eventHandle, runtime) {}
+
+  std::vector<std::byte> getDataBuffer();
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {
