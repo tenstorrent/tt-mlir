@@ -652,4 +652,138 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// Conv2dOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+Conv2dOpInterface::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape,
+    mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    uint32_t groups,
+    std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto conv2dOpQuery =
+      [](llvm::ArrayRef<int64_t> inputShape,
+         mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+         llvm::ArrayRef<int64_t> weightShape,
+         mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+         std::optional<llvm::ArrayRef<int64_t>> biasShape,
+         std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+         uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+         uint32_t input_height, uint32_t input_width,
+         llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+         llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+         uint32_t groups,
+         std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+         llvm::ArrayRef<int64_t> outputShape,
+         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+        // open device device, will close it at the end of function
+        ::tt::tt_metal::v0::IDevice *device =
+            SingletonDeviceContext::getInstance().getDevice();
+
+        // prepare io specs
+        const auto [inputSpec, weightSpec, outputSpec] =
+            detail::convertToTensorSpec(
+                device, std::make_tuple(inputShape, inputLayout),
+                std::make_tuple(weightShape, weightLayout),
+                std::make_tuple(outputShape, outputLayout));
+
+        auto conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+
+        return ::ttnn::graph::query_op_constraints(
+            ::ttnn::conv2d, device, inputSpec, weightSpec, device, in_channels,
+            out_channels, batch_size, input_height, input_width,
+            conversion::convertArrayRefToArray(kernel_size),
+            conversion::convertArrayRefToArray(stride),
+            conversion::convertArrayRefToArray(padding),
+            conversion::convertArrayRefToArray(dilation), groups, std::nullopt,
+            conv2dConfigConverted, std::nullopt,
+            outputSpec.tensor_layout().get_memory_config());
+      };
+
+  return operation::getOpConstraints(
+      "Conv2dOpInterface", conv2dOpQuery, inputShape, inputLayout, weightShape,
+      weightLayout, biasShape, biasLayout, in_channels, out_channels,
+      batch_size, input_height, input_width, kernel_size, stride, padding,
+      dilation, groups, conv2dConfig, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape,
+    mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    uint32_t groups,
+    std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto conv2dOpQuery =
+      [](llvm::ArrayRef<int64_t> inputShape,
+         mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+         llvm::ArrayRef<int64_t> weightShape,
+         mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+         std::optional<llvm::ArrayRef<int64_t>> biasShape,
+         std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+         uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+         uint32_t input_height, uint32_t input_width,
+         llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+         llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+         uint32_t groups,
+         std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+         llvm::ArrayRef<int64_t> outputShape,
+         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+        // open device device, will close it at the end of function
+        ::tt::tt_metal::v0::IDevice *device =
+            SingletonDeviceContext::getInstance().getDevice();
+
+        // prepare io specs
+        const auto [inputSpec, weightSpec, outputSpec] =
+            detail::convertToTensorSpec(
+                device, std::make_tuple(inputShape, inputLayout),
+                std::make_tuple(weightShape, weightLayout),
+                std::make_tuple(outputShape, outputLayout));
+
+        auto conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+
+        return ::ttnn::graph::query_op_runtime(
+            ::ttnn::conv2d, device, inputSpec, weightSpec, device, in_channels,
+            out_channels, batch_size, input_height, input_width,
+            conversion::convertArrayRefToArray(kernel_size),
+            conversion::convertArrayRefToArray(stride),
+            conversion::convertArrayRefToArray(padding),
+            conversion::convertArrayRefToArray(dilation), groups, std::nullopt,
+            conv2dConfigConverted, std::nullopt,
+            outputSpec.tensor_layout().get_memory_config());
+      };
+
+  return operation::getOpRuntime(
+      "Conv2dOpInterface", conv2dOpQuery, inputShape, inputLayout, weightShape,
+      weightLayout, biasShape, biasLayout, in_channels, out_channels,
+      batch_size, input_height, input_width, kernel_size, stride, padding,
+      dilation, groups, conv2dConfig, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::op_model::ttnn

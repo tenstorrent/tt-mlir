@@ -141,6 +141,9 @@ let assemblyFormat = "`<` `dtype` `=` $dtype `,` "
                      "`enableWeightsDoubleBuffer` `=` $enableWeightsDoubleBuffer `,` "
                      "`enableSplitReader` `=` $enableSplitReader `,` "
                      "`enableSubblockPadding` `=` $enableSubblockPadding `>`";
+  let extraClassDeclaration = [{
+    std::optional<TensorMemoryLayout> getShardLayoutOpt() const;
+  }];
 }
 
 def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {

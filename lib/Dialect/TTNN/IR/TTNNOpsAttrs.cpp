@@ -654,3 +654,9 @@ MemoryConfigAttr::withMemoryLayout(::mlir::MLIRContext *context,
   // TODO(#2140): Once we complete #1628, we should add a verifier for
   // ShardSpecAttr. ShardSpecAttr is only valid if the buffer type is L1.
 }
+
+// Get optional conv shard layout
+std::optional<TensorMemoryLayout> Conv2dConfigAttr::getShardLayoutOpt() const {
+  return getShardLayout() ? std::make_optional(getShardLayout().getValue())
+                          : std::nullopt;
+}

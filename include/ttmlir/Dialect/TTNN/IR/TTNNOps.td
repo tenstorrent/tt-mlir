@@ -1098,7 +1098,9 @@ def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul",
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
+def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Conv2d operation.";
     let description = [{
       Applies a 2D convolution over an input image composed of several input planes.
@@ -1109,16 +1111,16 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
                          Optional<AnyRankedTensor>:$bias,
                          AnyRankedTensor:$output,
                          TT_Device:$device,
-                         I32Attr:$in_channels,
-                         I32Attr:$out_channels,
-                         I32Attr:$batch_size,
-                         I32Attr:$input_height,
-                         I32Attr:$input_width,
+                         UI32Attr:$in_channels,
+                         UI32Attr:$out_channels,
+                         UI32Attr:$batch_size,
+                         UI32Attr:$input_height,
+                         UI32Attr:$input_width,
                          DenseI32ArrayAttr:$kernel_size,
                          DenseI32ArrayAttr:$stride,
                          DenseI32ArrayAttr:$padding,
                          DenseI32ArrayAttr:$dilation,
-                         I32Attr:$groups,
+                         UI32Attr:$groups,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
 
     let results = (outs AnyRankedTensor:$result);

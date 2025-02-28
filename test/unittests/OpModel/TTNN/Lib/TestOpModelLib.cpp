@@ -707,4 +707,128 @@ INSTANTIATE_TEST_SUITE_P(
                 llvm::SmallVector<int64_t>{56, 1}},
             llvm::SmallVector<int64_t>{7, 8},
             detail::ExpectedResult{true, 114688, 114688, 114688})));
+
+class OpModelConv2dParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,         // input
+                     detail::TestTensor,         // weight
+                     detail::TestTensor,         // output
+                     uint32_t,                   // in_channels
+                     uint32_t,                   // out_channels
+                     uint32_t,                   // batch_size
+                     uint32_t,                   // input_height
+                     uint32_t,                   // input_width
+                     llvm::SmallVector<int32_t>, // kernel_size
+                     llvm::SmallVector<int32_t>, // stride
+                     llvm::SmallVector<int32_t>, // padding
+                     llvm::SmallVector<int32_t>, // dilation
+                     uint32_t,                   // groups
+                     detail::ExpectedResult>> {};
+
+TEST_P(OpModelConv2dParam, Conv2d) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [weightShape, weightTensorLayout, weightBufferType,
+              weightVirtualGrid] = std::get<1>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<2>(params);
+  const auto in_channels = std::get<3>(params);
+  const auto out_channels = std::get<4>(params);
+  const auto batch_size = std::get<5>(params);
+  const auto input_height = std::get<6>(params);
+  const auto input_width = std::get<7>(params);
+  const auto kernel_size = std::get<8>(params);
+  const auto stride = std::get<9>(params);
+  const auto padding = std::get<10>(params);
+  const auto dilation = std::get<11>(params);
+  const auto groups = std::get<12>(params);
+  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+              expectedOutputSize] = std::get<13>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const mlir::tt::ttnn::TTNNLayoutAttr weightLayout = CreateTiledLayout(
+      weightShape, weightBufferType, weightTensorLayout, weightVirtualGrid);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  auto constraintsExp = Conv2dOpInterface::getOpConstraints(
+      inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
+      std::nullopt, in_channels, out_channels, batch_size, input_height,
+      input_width, kernel_size, stride, padding, dilation, groups, std::nullopt,
+      outputShape, outputLayout);
+  // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+  // which llvm::Expected<T> does not have
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (expectedLegal) {
+    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    EXPECT_EQ(cbSize, expectedCbSize);
+    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(outputSize, expectedOutputSize);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+}
+
+// TODO need to look at what Silicon/**/simple_conv2d.mlir gets trnslated into
+// and use that Also this will probably require extending test tensors to
+// include system memory, or find the dram layout somehow...
+
+// module attributes {} {
+//     func.func @forward(%arg0: tensor<1x32x32x64xbf16>, %arg1:
+//     tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) ->
+//     tensor<1x32x32x64xbf16> {
+//       %0 = tensor.empty() : tensor<1x32x32x64xbf16>
+//       // CHECK: %[[C:.*]] = "ttnn.conv2d"[[C:.*]]
+//       %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
+//               <{
+//                 stride = array<i32: 1, 1>,
+//                 padding = array<i32: 1, 1>,
+//                 dilation = 1: i32,
+//                 groups = 1: i32
+//               }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>,
+//               tensor<1x1x1x64xbf16>, tensor<1x32x32x64xbf16>) ->
+//               tensor<1x32x32x64xbf16>
+//       return %1 : tensor<1x32x32x64xbf16>
+//     }
+//   }
+
+INSTANTIATE_TEST_SUITE_P(
+    Conv2dTests, OpModelConv2dParam,
+    ::testing::Values(
+        std::make_tuple(
+            detail::TestTensor{{1, 1, 50176, 3},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{64, 3, 7, 7},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::SystemMemory},
+            detail::TestTensor{{1, 1, 12544, 64},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
+            llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{3, 3},
+            llvm::SmallVector<int32_t>{1, 1}, 1,
+            detail::ExpectedResult{true, 8192, 0, 0}),
+        std::make_tuple(
+            detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+            detail::interleavedN300X1024L1, 3, 64, 32, 224, 224,
+            llvm::SmallVector<int32_t>{7, 7}, llvm::SmallVector<int32_t>{2, 2},
+            llvm::SmallVector<int32_t>{3, 3}, llvm::SmallVector<int32_t>{1, 1},
+            1, detail::ExpectedResult{false, 8192, 2048, 2048}),
+        std::make_tuple(
+            detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
+            detail::interleavedN300X1024L1, 3, 64, 32, 224, 224,
+            llvm::SmallVector<int32_t>{7, 7}, llvm::SmallVector<int32_t>{2, 2},
+            llvm::SmallVector<int32_t>{3, 3}, llvm::SmallVector<int32_t>{1, 1},
+            1, detail::ExpectedResult{false, 8192, 2048, 2048}),
+        std::make_tuple(
+            detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+            detail::interleavedN300X1024L1, 3, 64, 32, 224, 224,
+            llvm::SmallVector<int32_t>{7, 7}, llvm::SmallVector<int32_t>{2, 2},
+            llvm::SmallVector<int32_t>{3, 3}, llvm::SmallVector<int32_t>{1, 1},
+            1, detail::ExpectedResult{false, 8192, 2048, 2048})));
 } // namespace mlir::tt::op_model::ttnn
