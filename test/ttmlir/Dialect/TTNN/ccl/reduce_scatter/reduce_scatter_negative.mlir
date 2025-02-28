@@ -1,4 +1,4 @@
-// RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
+// RUN: not ttmlir-opt --split-input-file --ttir-implicit-device="force-reload=true" %s 2>&1 | FileCheck %s
 // Unit tests for ttnn reduce_scatter op
 
 // -----
