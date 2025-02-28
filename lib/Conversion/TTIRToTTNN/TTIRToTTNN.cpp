@@ -967,111 +967,85 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto kernelType =
+        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    llvm::ArrayRef<std::int64_t> kernelShape = kernelType.getShape();
 
-    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    auto outputTy = op.getResult().getType();
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    llvm::ArrayRef<std::int64_t> inputShape = inputType.getShape();
 
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
-    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
-    auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
+    auto outputType = op.getResult().getType();
 
-    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(kernelTy.getDimSize(2)),
-         static_cast<int32_t>(kernelTy.getDimSize(3))});
+    llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
 
-    auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
-    if (auto error = strideAttr.takeError()) {
-      return LogicalResult::failure();
-    }
+    auto inChannels = static_cast<int32_t>(inputShape[inputShape.size() - 1]);
+    auto outChannels =
+        static_cast<int32_t>(outputShape[outputShape.size() - 1]);
+    auto batchSize = static_cast<int32_t>(inputShape[inputShape.size() - 4]);
+    auto inputHeight = static_cast<int32_t>(inputShape[inputShape.size() - 3]);
+    auto inputWidth = static_cast<int32_t>(inputShape[inputShape.size() - 2]);
 
-    auto paddingAttr =
-        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
-    if (auto error = paddingAttr.takeError()) {
-      return LogicalResult::failure();
-    }
+    auto kernelHeight =
+        static_cast<int32_t>(kernelShape[kernelShape.size() - 2]);
+    auto kernelWidth =
+        static_cast<int32_t>(kernelShape[kernelShape.size() - 1]);
 
-    auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[1] ||
-        paddingArrayRef[2] != paddingArrayRef[3]) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports padding height/width attributes. Thus, "
-          "padding_top/padding_left must equal padding_bottom/padding_right "
-          "for the op to execute as expected.");
-    }
+    auto strideHeight = adaptor.getStrideHeight();
+    auto strideWidth = adaptor.getStrideWidth();
 
-    // Padding only supports 2 values in ttnn
-    auto reducedPaddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
+    assert(
+        adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
+        "TTNN only supports padding height/width attributes. Thus, padding_top "
+        "must equal padding_bottom for the op to execute as expected.");
+    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
+           "TTNN only supports padding height/width attributes. Thus, "
+           "padding_left must equal padding_right for the op to execute as "
+           "expected.");
+    auto paddingHeight = adaptor.getPaddingTop();
+    auto paddingWidth = adaptor.getPaddingRight();
 
-    auto dilationAttr =
-        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
-    if (auto error = dilationAttr.takeError()) {
-      return LogicalResult::failure();
-    }
+    auto dilationHeight = adaptor.getDilationHeight();
+    auto dilationWidth = adaptor.getDilationWidth();
+    auto groups = adaptor.getGroups();
 
-    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
-
-    // Convolution in ttnn returns a tensor in a flattened shape
-    // (1 x 1 x N * H * W x C)
-    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
-    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
+    llvm::SmallVector<int64_t> flattenedOutputShape{
         1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
-    outputTy = mlir::RankedTensorType::get(flattenedOutputShape,
-                                           outputTy.getElementType(),
-                                           outputTy.getEncoding());
+    outputType = mlir::RankedTensorType::get(flattenedOutputShape,
+                                             outputType.getElementType(),
+                                             outputType.getEncoding());
 
+    // Version after Milan commit.
+    // ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
+    //     op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
+    //     adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
+    //     batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
+    //     *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
+
+    // // Version after reverting Jovan's commit, before Milan's commit.
+    // ttnn::Conv2dOp newConv = ttmlir::utils::createDPSOp<ttnn::Conv2dOp>(
+    //     rewriter, op.getLoc(), outputType, flattenedInput,
+    //     adaptor.getWeight(), adaptor.getBias(), device, inChannels,
+    //     outChannels, batchSize, inputHeight, inputWidth, kernelHeight,
+    //     kernelWidth, strideHeight, strideWidth, paddingHeight, paddingWidth,
+    //     dilationHeight, dilationWidth, groups);
+
+    // KernelHeight / KernelWidth => KernelSizeAttr
+    // StrideHeight / StrideWidth => StrideAttr
+
+    // Kyle WIP. Start with Milos version, apply revert changes.
     ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
-        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
-        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
+        op.getLoc(), outputType, adaptor.getInput(), adaptor.getWeight(),
+        adaptor.getBias(), device, inChannels, outChannels, batchSize,
+        inputHeight, inputWidth, kernelHeight, kernelWidth, strideHeight,
+        strideWidth, paddingHeight, paddingWidth, dilationHeight, dilationWidth,
+        groups);
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(newConv, outputShape, rewriter);
 
     rewriter.replaceOp(op, output);
     return success();
-  }
-
-private:
-  llvm::Expected<DenseI32ArrayAttr>
-  attrToDenseI32ArrayAttr(mlir::Attribute attr,
-                          ConversionPatternRewriter &rewriter,
-                          uint32_t elementCount = 2) const {
-    switch (elementCount) {
-    case 2: {
-      // Handles attributes requiring 2 spatial dimensions (e.g., stride,
-      // dilation). Converts the attribute into a pair of integers.
-      auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
-      if (auto error = pair.takeError()) {
-        return std::move(error);
-      }
-      return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
-    }
-    case 4: {
-      // Handles attributes requiring 4 spatial dimensions (e.g., padding in
-      // this case). Converts the attribute into a quadruple of integers.
-      auto quadruple = ttmlir::utils::getQuadrupleOfInteger<int32_t>(attr);
-      if (auto error = quadruple.takeError()) {
-        return std::move(error);
-      }
-      return rewriter.getDenseI32ArrayAttr(
-          {std::get<0>(*quadruple), std::get<1>(*quadruple),
-           std::get<2>(*quadruple), std::get<3>(*quadruple)});
-    }
-    default: {
-      return llvm::createStringError(std::errc::invalid_argument,
-                                     "Unsupported element count: %d",
-                                     elementCount);
-    }
-    }
   }
 };
 } // namespace

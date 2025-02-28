@@ -43,34 +43,4 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
   }
   }
 }
-
-::ttnn::operations::conv::conv2d::Conv2dConfig
-createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg) {
-  std::optional<TensorMemoryLayout> shardLayout = std::nullopt;
-  if (memcfg->shard_layout()) {
-    shardLayout = ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
-        memcfg->shard_layout().value());
-  }
-
-  ::ttnn::operations::conv::conv2d::Conv2dConfig conv2dConfig = {
-      .dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(memcfg->dtype()),
-      .weights_dtype =
-          ::tt::runtime::ttnn::utils::toTTNNDataType(memcfg->weights_dtype()),
-      .activation = memcfg->activation()->str(),
-      .input_channels_alignment = memcfg->input_channels_alignment(),
-      .deallocate_activation = memcfg->deallocate_activation(),
-      .reallocate_halo_output = memcfg->reallocate_halo_output(),
-      .act_block_h_override = memcfg->act_block_h_override(),
-      .act_block_w_div = memcfg->act_block_w_div(),
-      .reshard_if_not_optimal = memcfg->reshard_if_not_optimal(),
-      .override_sharding_config = memcfg->override_sharding_config(),
-      .shard_layout = shardLayout,
-      .core_grid = std::nullopt,
-      .transpose_shards = memcfg->transpose_shards(),
-      .output_layout =
-          ::tt::runtime::ttnn::utils::toTTNNLayout(memcfg->output_layout()),
-  };
-
-  return conv2dConfig;
-}
 } // namespace tt::runtime::ttnn::operations::utils
