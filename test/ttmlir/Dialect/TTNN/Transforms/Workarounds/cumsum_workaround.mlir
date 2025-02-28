@@ -20,28 +20,19 @@ module @moreh_cumsum attributes {tt.device = #device, tt.system_desc = #system_d
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<1x32xui32, #ttnn_layout>) -> tensor<1x32xui32, #ttnn_layout1>
     %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<1x32xui32, #ttnn_layout1>, !tt.device<#device>) -> tensor<1x32xui32, #ttnn_layout2>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x32xui32, #ttnn_layout1>) -> ()
-    %3 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>, shape = #ttnn.shape<1x32>}> : (!tt.device<#device>) -> tensor<1x32xui32, #ttnn_layout2>
     // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"
     // CHECK-SAME: {shape = [1 : i32, 32 : i32, 1 : i32, 1 : i32]}
     // CHECK-SAME: tensor<1x32xui32
-    // CHECK-SAME: -> tensor<1x32x1x1xui32
-    // CHECK: %[[EMPTY:[0-9]+]] = "ttnn.empty"
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<u32>
     // CHECK-SAME: -> tensor<1x32x1x1xui32
     // CHECK: %[[ARG1:[0-9]+]] = "ttnn.to_layout"(%[[RESHAPE]]
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x32x1x1xui32
     // CHECK-SAME: -> tensor<1x32x1x1xf32
-    // CHECK: %[[ARG2:[0-9]+]] = "ttnn.to_layout"(%[[EMPTY]]
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
-    // CHECK-SAME: tensor<1x32x1x1xui32
-    // CHECK-SAME: -> tensor<1x32x1x1xf32
-    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"(%[[ARG1]], %[[ARG2]])
+    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"(%[[ARG1]])
     // CHECK-SAME: {dim = 0 : i64}
     // CHECK-SAME: tensor<1x32x1x1xf32
-    // CHECK-SAME: tensor<1x32x1x1xf32
     // CHECK-SAME: -> tensor<1x32x1x1xf32
-    %4 = "ttnn.moreh_cumsum"(%2, %3) <{dim = 0 : i64}> : (tensor<1x32xui32, #ttnn_layout2>, tensor<1x32xui32, #ttnn_layout2>) -> tensor<1x32xui32, #ttnn_layout2>
+    %3 = "ttnn.moreh_cumsum"(%2) <{dim = 0 : i64}> : (tensor<1x32xui32, #ttnn_layout2>) -> tensor<1x32xui32, #ttnn_layout2>
     // CHECK: %[[POSTLAYOUT:[0-9]+]] = "ttnn.to_layout"(%[[CUMSUM]]
     // CHECK-SAME: dtype = #tt.supportedDataTypes<u32>
     // CHECK-SAME: tensor<1x32x1x1xf32
@@ -51,11 +42,11 @@ module @moreh_cumsum attributes {tt.device = #device, tt.system_desc = #system_d
     // CHECK-SAME: tensor<1x32x1x1xui32
     // CHECK-SAME: -> tensor<1x32xui32
     "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x32xui32, #ttnn_layout2>) -> ()
-    %5 = "ttnn.from_device"(%4) : (tensor<1x32xui32, #ttnn_layout2>) -> tensor<1x32xui32, #ttnn_layout1>
+    %4 = "ttnn.from_device"(%3) : (tensor<1x32xui32, #ttnn_layout2>) -> tensor<1x32xui32, #ttnn_layout1>
     "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x32xui32, #ttnn_layout2>) -> ()
-    %6 = "ttnn.to_layout"(%5) <{layout = #ttnn.layout<row_major>}> : (tensor<1x32xui32, #ttnn_layout1>) -> tensor<1x32xui32, #ttnn_layout>
-    "ttnn.deallocate"(%5) <{force = false}> : (tensor<1x32xui32, #ttnn_layout1>) -> ()
-    return %6 : tensor<1x32xui32, #ttnn_layout>
+    %5 = "ttnn.to_layout"(%4) <{layout = #ttnn.layout<row_major>}> : (tensor<1x32xui32, #ttnn_layout1>) -> tensor<1x32xui32, #ttnn_layout>
+    "ttnn.deallocate"(%4) <{force = false}> : (tensor<1x32xui32, #ttnn_layout1>) -> ()
+    return %5 : tensor<1x32xui32, #ttnn_layout>
   }
 
   func.func public @test_cumsum_reshape(%arg0: tensor<1x32xf32, #ttnn_layout3>) -> tensor<1x32xf32, #ttnn_layout3> {
@@ -64,63 +55,52 @@ module @moreh_cumsum attributes {tt.device = #device, tt.system_desc = #system_d
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<1x32xf32, #ttnn_layout3>) -> tensor<1x32xf32, #ttnn_layout4>
     %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<1x32xf32, #ttnn_layout4>, !tt.device<#device>) -> tensor<1x32xf32, #ttnn_layout5>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x32xf32, #ttnn_layout4>) -> ()
-    %3 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>, shape = #ttnn.shape<1x32>}> : (!tt.device<#device>) -> tensor<1x32xf32, #ttnn_layout5>
     // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"
     // CHECK-SAME: {shape = [1 : i32, 32 : i32, 1 : i32, 1 : i32]}
     // CHECK-SAME: tensor<1x32xf32
     // CHECK-SAME: -> tensor<1x32x1x1xf32
-    // CHECK: %[[EMPTY:[0-9]+]] = "ttnn.empty"
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
-    // CHECK-SAME: -> tensor<1x32x1x1xf32
-    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"(%[[RESHAPE]], %[[EMPTY]])
+    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"(%[[RESHAPE]])
     // CHECK-SAME: {dim = 1 : i64}
     // CHECK-SAME: tensor<1x32x1x1xf32
     // CHECK-SAME: -> tensor<1x32x1x1xf32
-    %4 = "ttnn.moreh_cumsum"(%2, %3) <{dim = 1 : i64}> : (tensor<1x32xf32, #ttnn_layout5>, tensor<1x32xf32, #ttnn_layout5>) -> tensor<1x32xf32, #ttnn_layout5>
+    %3 = "ttnn.moreh_cumsum"(%2) <{dim = 1 : i64}> : (tensor<1x32xf32, #ttnn_layout5>) -> tensor<1x32xf32, #ttnn_layout5>
     // CHECK: "ttnn.reshape"(%[[CUMSUM]])
     // CHECK-SAME: {shape = [1 : i32, 32 : i32]}
     // CHECK-SAME: tensor<1x32x1x1xf32
     // CHECK-SAME: -> tensor<1x32xf32
     "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x32xf32, #ttnn_layout5>) -> ()
-    %5 = "ttnn.from_device"(%4) : (tensor<1x32xf32, #ttnn_layout5>) -> tensor<1x32xf32, #ttnn_layout4>
+    %4 = "ttnn.from_device"(%3) : (tensor<1x32xf32, #ttnn_layout5>) -> tensor<1x32xf32, #ttnn_layout4>
     "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x32xf32, #ttnn_layout5>) -> ()
-    %6 = "ttnn.to_layout"(%5) <{layout = #ttnn.layout<row_major>}> : (tensor<1x32xf32, #ttnn_layout4>) -> tensor<1x32xf32, #ttnn_layout3>
-    "ttnn.deallocate"(%5) <{force = false}> : (tensor<1x32xf32, #ttnn_layout4>) -> ()
-    return %6 : tensor<1x32xf32, #ttnn_layout3>
+    %5 = "ttnn.to_layout"(%4) <{layout = #ttnn.layout<row_major>}> : (tensor<1x32xf32, #ttnn_layout4>) -> tensor<1x32xf32, #ttnn_layout3>
+    "ttnn.deallocate"(%4) <{force = false}> : (tensor<1x32xf32, #ttnn_layout4>) -> ()
+    return %5 : tensor<1x32xf32, #ttnn_layout3>
   }
 
   func.func public @test_cumsum_layout(%arg0: tensor<1x32x64x64xui32, #ttnn_layout6>) -> tensor<1x32x64x64xui32, #ttnn_layout6> {
     // CHECK-LABEL: func.func public @test_cumsum_layout(
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<1x32x64x64xui32, #ttnn_layout6>) -> tensor<1x32x64x64xui32, #ttnn_layout7>
+    // CHECK: "ttnn.to_layout"
     %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <<64x2>>, <interleaved>>}> : (tensor<1x32x64x64xui32, #ttnn_layout7>, !tt.device<#device>) -> tensor<1x32x64x64xui32, #ttnn_layout8>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x32x64x64xui32, #ttnn_layout7>) -> ()
-    // CHECK: %[[EMPTY:[0-9]]] = "ttnn.empty"
-    // CHECK-SAME: -> tensor<1x32x64x64xui32
-    %3 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<64x2>>, <interleaved>>, shape = #ttnn.shape<1x32x64x64>}> : (!tt.device<#device>) -> tensor<1x32x64x64xui32, #ttnn_layout8>
     // CHECK: %[[ARG1:[0-9]+]] = "ttnn.to_layout"
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
     // CHECK-SAME: tensor<1x32x64x64xui32
     // CHECK-SAME: -> tensor<1x32x64x64xf32
-    // CHECK: %[[ARG2:[0-9]+]] = "ttnn.to_layout"(%[[EMPTY]]
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
-    // CHECK-SAME: tensor<1x32x64x64xui32
-    // CHECK-SAME: -> tensor<1x32x64x64xf32
-    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"(%[[ARG1]], %[[ARG2]])
+    // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"(%[[ARG1]])
     // CHECK-SAME: <{dim = 1 : i64}>
     // CHECK-SAME: tensor<1x32x64x64xf32
-    // CHECK-SAME: tensor<1x32x64x64xf32
     // CHECK-SAME: -> tensor<1x32x64x64xf32
-    %4 = "ttnn.moreh_cumsum"(%2, %3) <{dim = 1 : i64}> : (tensor<1x32x64x64xui32, #ttnn_layout8>, tensor<1x32x64x64xui32, #ttnn_layout8>) -> tensor<1x32x64x64xui32, #ttnn_layout8>
+    %3 = "ttnn.moreh_cumsum"(%2) <{dim = 1 : i64}> : (tensor<1x32x64x64xui32, #ttnn_layout8>) -> tensor<1x32x64x64xui32, #ttnn_layout8>
     // CHECK: "ttnn.to_layout"(%[[CUMSUM]],
     // CHECK-SAME: dtype = #tt.supportedDataTypes<u32
     // CHECK-SAME: tensor<1x32x64x64xf32
     // CHECK-SAME: -> tensor<1x32x64x64xui32
     "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x32x64x64xui32, #ttnn_layout8>) -> ()
-    %5 = "ttnn.from_device"(%4) : (tensor<1x32x64x64xui32, #ttnn_layout8>) -> tensor<1x32x64x64xui32, #ttnn_layout7>
+    %4 = "ttnn.from_device"(%3) : (tensor<1x32x64x64xui32, #ttnn_layout8>) -> tensor<1x32x64x64xui32, #ttnn_layout7>
     "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x32x64x64xui32, #ttnn_layout8>) -> ()
-    %6 = "ttnn.to_layout"(%5) <{layout = #ttnn.layout<row_major>}> : (tensor<1x32x64x64xui32, #ttnn_layout7>) -> tensor<1x32x64x64xui32, #ttnn_layout6>
-    "ttnn.deallocate"(%5) <{force = false}> : (tensor<1x32x64x64xui32, #ttnn_layout7>) -> ()
-    return %6 : tensor<1x32x64x64xui32, #ttnn_layout6>
+    %5 = "ttnn.to_layout"(%4) <{layout = #ttnn.layout<row_major>}> : (tensor<1x32x64x64xui32, #ttnn_layout7>) -> tensor<1x32x64x64xui32, #ttnn_layout6>
+    "ttnn.deallocate"(%4) <{force = false}> : (tensor<1x32x64x64xui32, #ttnn_layout7>) -> ()
+    return %5 : tensor<1x32x64x64xui32, #ttnn_layout6>
   }
 }

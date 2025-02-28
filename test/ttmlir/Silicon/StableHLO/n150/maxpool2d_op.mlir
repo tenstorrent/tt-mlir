@@ -29,7 +29,6 @@ module @max_pool2d attributes {} {
     // CHECK-SAME: padding_height = 1 : si32, padding_width = 1 : si32,
     // CHECK-SAME: stride_height = 3 : si32, stride_width = 3 : si32}
     // CHECK-SAME: tensor<1x1x1024x128xbf16
-    // CHECK-SAME: tensor<1x1x121x128xbf16
     // CHECK-SAME: -> tensor<1x1x121x128xbf16
     %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<[[0, 0], [0, 0], [1, 1], [1, 1]]> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 3, 3>, window_strides = array<i64: 1, 1, 3, 3>}> ({
     ^bb0(%arg1: tensor<bf16>, %arg2: tensor<bf16>):
@@ -69,7 +68,6 @@ module @max_pool2d attributes {} {
     // CHECK-SAME: kernel_height = 1 : si32, kernel_width = 1 : si32,
     // CHECK-SAME: padding_height = 0 : si32, padding_width = 0 : si32,
     // CHECK-SAME: stride_height = 1 : si32, stride_width = 1 : si32}
-    // CHECK-SAME: tensor<1x1x784x192xbf16
     // CHECK-SAME: tensor<1x1x784x192xbf16
     // CHECK-SAME: -> tensor<1x1x784x192xbf16
     %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<0> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 1>, window_strides = array<i64: 1, 1, 1, 1>}> ({
@@ -111,7 +109,6 @@ module @max_pool2d attributes {} {
     // CHECK-SAME: padding_height = 0 : si32, padding_width = 0 : si32,
     // CHECK-SAME: stride_height = 3 : si32, stride_width = 1 : si32}
     // CHECK-SAME: tensor<1x1x784x192xbf16
-    // CHECK-SAME: tensor<1x1x270x192xbf16
     // CHECK-SAME: -> tensor<1x1x270x192xbf16
     %0 = "stablehlo.reduce_window"(%arg0, %cst) <{padding = dense<0> : tensor<4x2xi64>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 1, 2>, window_strides = array<i64: 1, 1, 3, 1>}> ({
     ^bb0(%arg1: tensor<bf16>, %arg2: tensor<bf16>):

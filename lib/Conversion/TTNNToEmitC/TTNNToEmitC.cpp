@@ -283,8 +283,7 @@ public:
          /*compute_kernel_config=*/
          ttnn_to_emitc::utils::createStdNullopt(rewriter),
          /*core_grid=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
-         /*output_tile=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
-         rewriter.getIndexAttr(3)});
+         /*output_tile=*/ttnn_to_emitc::utils::createStdNullopt(rewriter)});
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         linearOp, this->getTypeConverter()->convertType(linearOp.getType()),
@@ -327,8 +326,7 @@ public:
          /*compute_kernel_config=*/
          ttnn_to_emitc::utils::createStdNullopt(rewriter),
          /*core_grid=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
-         /*output_tile=*/ttnn_to_emitc::utils::createStdNullopt(rewriter),
-         rewriter.getIndexAttr(2)});
+         /*output_tile=*/ttnn_to_emitc::utils::createStdNullopt(rewriter)});
     // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(

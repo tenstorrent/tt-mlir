@@ -47,31 +47,9 @@ CumSumOpRewritePattern::matchAndRewrite(ttnn::MorehCumSumOp srcOp,
       RankedTensorType::get(reshapeOutputType.getShape(),
                             outputType.getElementType(), newOutputLayoutAttr);
 
-  DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(),
-                                             newOutputLayoutAttr.getDataType());
-  ttnn::LayoutAttr tensorLayoutAttr =
-      ttnn::LayoutAttr::get(getContext(), newOutputLayoutAttr.getLayout());
-
-  // Create MemoryConfigAttr
-  ttnn::ShapeAttr shapeAttr =
-      ttnn::ShapeAttr::get(rewriter.getContext(), newOutputType.getShape());
-
-  ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
-      getContext(), newOutputLayoutAttr.getBufferType());
-  ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
-      getContext(),
-      ttnn::ShapeAttr::get(getContext(), newOutputLayoutAttr.getShardShape()));
-  ttnn::MemoryConfigAttr memoryConfigAttr =
-      ttnn::MemoryConfigAttr::get(getContext(), bufferTypeAttr, shardSpecAttr,
-                                  newOutputLayoutAttr.getMemLayout());
-
-  EmptyOp emptyOp = rewriter.create<ttnn::EmptyOp>(
-      srcOp->getLoc(), newOutputType, shapeAttr, dTypeAttr, tensorLayoutAttr,
-      ttnn::utils::getOrInsertDevice(rewriter, srcOp), memoryConfigAttr);
-
   MorehCumSumOp cumsumOp = rewriter.create<mlir::tt::ttnn::MorehCumSumOp>(
       srcOp->getLoc(), newOutputType, preReshapeOp->getResult(0),
-      srcOp.getDim(), emptyOp, nullptr);
+      srcOp.getDim(), nullptr);
 
   llvm::ArrayRef<int64_t> outputShapeAttr(inputTypeShape);
   mlir::TypedValue<mlir::RankedTensorType> cumsumOutput =
