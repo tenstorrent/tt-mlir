@@ -4,7 +4,5 @@ add_mlir_unittest(TTNNToEmitCTests
 
 target_link_libraries(TTNNToEmitCTests
     PRIVATE
-    MLIRTTDialect
-    MLIRTTIRDialect
     MLIRTTNNPipelines
 )

@@ -8,7 +8,6 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "gtest/gtest.h"
-#include <cstdint>
 
 namespace mlir {
 namespace tt {

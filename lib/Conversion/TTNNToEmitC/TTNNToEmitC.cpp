@@ -137,11 +137,11 @@ public:
     // an ArrayAttr object holding IndexTypes is created to denote this.
     //
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
-    llvm::SmallVector<mlir::Attribute> attrs{
+    llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputs()[0]),
         emitter.emit(std::nullopt),
     };
-    emitter.replaceOp(*this, attrs);
+    emitter.replaceOp(*this, args);
     return success();
   }
 };
