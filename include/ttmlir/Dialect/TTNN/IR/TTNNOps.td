@@ -167,6 +167,16 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {outputType}, {lhs, rhs});
       }]>
     ];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        ::mlir::Operation::operand_range inputs = getInputs();
+        mlir::Operation *op = getOperation();
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
+                                                                        inputs, op);
+      }
+    }];
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
