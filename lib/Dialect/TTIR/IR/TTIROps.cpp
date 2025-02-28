@@ -2675,20 +2675,88 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
-  if (getInputs().size() + getOutputs().size() >
-      getRegion(0).getNumArguments()) {
-    return emitOpError("The number of input and output operands must be less "
-                       "than the number of region/block arguments");
+  // Validate CB mappings.
+  if (getCbs().size()) {
+    return emitOpError("CB mappings are deprecated and should not be used");
   }
 
-  // Validate CB mappings.
-  auto operandCBmapping = getOperandCbMapping();
-  auto numCBs = getCbs().size();
-  if (!operandCBmapping.empty()) {
-    for (int64_t mapping : operandCBmapping) {
-      if (mapping < -1 ||
-          (mapping >= 0 && static_cast<size_t>(mapping) >= numCBs)) {
-        return emitOpError("CB index out of bounds");
+  // Output grid shape must equal the GenericOp grid shape.
+  auto opGridShape = getGrid().getShape();
+  for (auto output : getOutputs()) {
+    Type operandType = output.getType();
+    ArrayRef<int64_t> outputGridShape;
+    if (mlir::isa<RankedTensorType>(operandType)) {
+      RankedTensorType tensorType = mlir::cast<RankedTensorType>(operandType);
+      MetalLayoutAttr layout =
+          mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+      outputGridShape = layout.getGrid().getShape();
+    } else {
+      auto memref = mlir::cast<MemRefType>(operandType);
+      // If the top level operand is a memref, the front half of its shape
+      // is the grid shape, so we cut it off the back to get just the grid
+      // shape.
+      assert(memref.getRank() % 2 == 0);
+      outputGridShape = memref.getShape().take_front(memref.getRank() / 2);
+    }
+    if (opGridShape != outputGridShape) {
+      return emitOpError(
+          "Output grid shape must match the GenericOp grid shape");
+    }
+  }
+
+  ValueTypeRange<OperandRange> operandTypes = getOperation()->getOperandTypes();
+  for (Region& region : getRegions()) {
+    if (!region.hasOneBlock()) {
+      return emitOpError("GenericOp region must have a single block");
+    }
+
+    if (region.getNumArguments() < this->getNumOperands()) {
+      return emitOpError("GenericOp region must have at least as many "
+                         "arguments as the number of top-level operands");
+    }
+
+    auto memrefArguments =
+        region.getArguments().take_front(operandTypes.size());
+    for (BlockArgument arg : memrefArguments) {
+      if (!mlir::isa<MemRefType>(arg.getType())) {
+        return emitOpError("GenericOp region arguments must be of MemRefType");
+      }
+      auto blockMemref = mlir::cast<MemRefType>(arg.getType());
+
+      Type operandType = operandTypes[arg.getArgNumber()];
+      Attribute expectedMemorySpace;
+      ArrayRef<int64_t> expectedShardShape;
+      if (mlir::isa<RankedTensorType>(operandType)) {
+        RankedTensorType tensorType = mlir::cast<RankedTensorType>(operandType);
+        MetalLayoutAttr layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+        expectedMemorySpace = layout.getMemref().getMemorySpace();
+        expectedShardShape = layout.getMemref().getShape();
+      } else {
+        auto memref = mlir::cast<MemRefType>(operandType);
+        expectedMemorySpace = memref.getMemorySpace();
+        // If the top level operand is a memref, the front half of its shape
+        // will include the grid shape, so we cut it off to get just the shard
+        // shape.
+        assert(memref.getRank() % 2 == 0);
+        expectedShardShape = memref.getShape().take_back(memref.getRank() / 2);
+      }
+
+      if (expectedMemorySpace != blockMemref.getMemorySpace()) {
+        return emitOpError("GenericOp region argument memory space must match the memory space of the corresponding operand");
+      }
+
+      if (expectedShardShape != blockMemref.getShape()) {
+        return emitOpError("GenericOp region argument shape must match the shape of the corresponding operand");
+      }
+    }
+
+    auto additionalArguments =
+        region.getArguments().drop_front(operandTypes.size());
+    for (BlockArgument arg : additionalArguments) {
+      bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
+      if (!supportedType) {
+        return emitOpError(
+            "Additional GenericOp region arguments must be of SemaphoreType");
       }
     }
   }
