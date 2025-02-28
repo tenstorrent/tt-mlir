@@ -63,7 +63,7 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
                          Optional<TT_Device>:$device);
     let results = (outs AnyRankedTensor:$result);
 
-    let hasCanonicalizeMethod = 1;
+    let hasCanonicalizer = 1;
 }
 
 def TTNN_TypecastOp : TTNN_Op<"typecast"> {
@@ -165,10 +165,6 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Type": $outputType),
       [{
         build($_builder, $_state, {outputType}, {lhs, rhs});
-      }]>,
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs),
-      [{
-        build($_builder, $_state, lhs, rhs, lhs.getType());
       }]>
     ];
 }
@@ -185,10 +181,6 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
       OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Type": $outputType),
       [{
         build($_builder, $_state, {outputType}, {first, second, third});
-      }]>,
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third),
-      [{
-        build($_builder, $_state, first, second, third, first.getType());
       }]>
     ];
 }
@@ -649,7 +641,9 @@ def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
     }];
 }
 
-def TTNN_MeanOp : TTNN_ReductionOp<"mean"> {
+def TTNN_MeanOp : TTNN_ReductionOp<"mean",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Mean reduction op.";
   let description = [{
     Mean reduction op.
@@ -791,6 +785,13 @@ def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        I32Attr:$batch_offset);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        RankedTensorType updateIndexType = getUpdateIndex().getType();
+        return wa::TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(updateIndexType);
+      }
+    }];
 
   let hasVerifier = 1;
 }
@@ -952,7 +953,9 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat", [HasMemoryConfigTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
+def TTNN_ReshapeOp : TTNN_Op<"reshape",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Reshape op.";
     let description = [{
       Reshape tensor.
@@ -962,6 +965,13 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
                          I32ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        RankedTensorType inputType = getInput().getType();
+        return wa::TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(inputType);
+      }
+    }];
 
     let hasVerifier = 1;
 }
@@ -1104,15 +1114,12 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
                          I32Attr:$batch_size,
                          I32Attr:$input_height,
                          I32Attr:$input_width,
-                         I32Attr:$kernel_height,
-                         I32Attr:$kernel_width,
-                         I32Attr:$stride_height,
-                         I32Attr:$stride_width,
-                         I32Attr:$padding_height,
-                         I32Attr:$padding_width,
-                         I32Attr:$dilation_height,
-                         I32Attr:$dilation_width,
-                         I32Attr:$groups);
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         I32Attr:$groups,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1363,12 +1370,7 @@ def TTNN_FullOp : TTNN_Op<"full"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         mlir::tt::ttnn::FullOp op = mlir::cast<mlir::tt::ttnn::FullOp>(this->getOperation());
         auto outputType = mlir::cast<RankedTensorType>(op.getType());
-        ttnn::TTNNLayoutAttr layoutAttr =
-            mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
-        if (outputType.getRank() > 1 || !layoutAttr.isTiled()) {
-          return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(this->getOperation());
-        }
-        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds();
+        return wa::TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(outputType);
       }
     }];
 }
@@ -1427,9 +1429,10 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         SI32Attr:$scatter_split_dim,
-                         TT_ReduceTypeAttr:$math_op,
-                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$scatter_dim,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1444,10 +1447,9 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         SI32Attr:$scatter_dim,
-                         SI32Attr:$scatter_num,
-                         TT_ReduceTypeAttr:$math_op,
-                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+                         TT_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 

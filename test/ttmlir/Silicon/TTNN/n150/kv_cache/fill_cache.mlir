@@ -3,7 +3,7 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module {
   func.func @forward(%arg0: tensor<1x32x64x512xbf16>, %arg1: tensor<1x32x3x512xbf16>) -> tensor<1x32x64x512xbf16> {
-    // CHECK: "ttnn.fill_cache"[[C:.*]]
+    // CHECK: "ttnn.fill_cache"
     %1 = "ttir.fill_cache"(%arg0, %arg1) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x3x512xbf16>) -> tensor<1x32x64x512xbf16>
     %cst = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<1x32x64x512xbf16>}> : () -> tensor<1x32x64x512xbf16>
     %addition_dps = tensor.empty() : tensor<1x32x64x512xbf16>

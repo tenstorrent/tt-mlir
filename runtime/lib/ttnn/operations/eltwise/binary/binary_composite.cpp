@@ -18,6 +18,7 @@ static void runEltwiseBinaryCompositeOp(
 
   ::ttnn::Tensor *lhs = nullptr;
   ::ttnn::Tensor *rhs = nullptr;
+
   getEltwiseBinaryOpInputTensors(op, tensorPool, &lhs, &rhs);
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -28,6 +29,7 @@ static void runEltwiseBinaryCompositeOp(
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
+
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 

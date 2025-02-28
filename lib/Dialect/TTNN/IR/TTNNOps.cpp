@@ -12,7 +12,6 @@
 
 #include "mlir/Dialect/Traits.h"
 
-#include <llvm/ADT/ArrayRef.h>
 #include <numeric>
 #include <optional>
 
@@ -56,27 +55,196 @@ namespace mlir::tt::ttnn {
 
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType weightType = getWeight().getType();
-  std::optional<::mlir::RankedTensorType> biasType =
+  mlir::RankedTensorType inputType = getInput().getType();
+  mlir::RankedTensorType weightType = getWeight().getType();
+  mlir::RankedTensorType outputType = getOutput().getType();
+  std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
 
   if (inputType.getRank() < 3) {
-    return emitOpError("Input must be at least a 3D tensor");
+    return emitOpError("Input must be a 4D tensor");
   }
+
+  if (outputType.getRank() != 4) {
+    return emitOpError("Output must be a 4D tensor");
+  }
+
   if (weightType.getRank() != 4) {
     return emitOpError("Weight must be a 4D tensor");
   }
-  if (biasType.has_value()) {
-    if (biasType->getRank() != 4) {
+
+  if (bias.has_value()) {
+    if (bias->getRank() != 4) {
       return emitOpError("Bias must be a 4D tensor");
     }
-    auto biasShape = biasType->getShape();
+    auto biasShape = bias->getShape();
     if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
       return emitOpError("Bias must only have data on the final dimenstion");
     }
   }
+
+  uint32_t inChannels = getInChannels();
+  if (inChannels != inputType.getDimSize(inputType.getRank() - 1)) {
+    return emitOpError(
+        "Input channels attribute must match the last dimension of the input "
+        "tensor, got: " +
+        std::to_string(inChannels) + " and " +
+        std::to_string(inputType.getDimSize(inputType.getRank() - 1)));
+  }
+
+  uint32_t outChannels = getOutChannels();
+  if (outChannels != outputType.getDimSize(outputType.getRank() - 1)) {
+    return emitOpError(
+        "Output channels attribute must match the last dimension of the output "
+        "tensor, got: " +
+        std::to_string(outChannels) + " and " +
+        std::to_string(outputType.getDimSize(outputType.getRank() - 1)));
+  }
+
+  uint32_t batchSize = getBatchSize();
+  if (batchSize != inputType.getDimSize(0)) {
+    return emitOpError("Batch size attribute must match the first dimension of "
+                       "the input tensor, got: " +
+                       std::to_string(batchSize) + " and " +
+                       std::to_string(inputType.getDimSize(0)));
+  }
+  if (batchSize != outputType.getDimSize(0)) {
+    return emitOpError("Batch size attribute must match the first dimension of "
+                       "the output tensor, got: " +
+                       std::to_string(batchSize) + " and " +
+                       std::to_string(outputType.getDimSize(0)));
+  }
+
+  uint32_t inputHeight = getInputHeight();
+  if (inputHeight != inputType.getDimSize(inputType.getRank() - 3)) {
+    return emitOpError(
+        "Input height attribute must match the second dimension of the input "
+        "tensor, got: " +
+        std::to_string(inputHeight) + " and " +
+        std::to_string(inputType.getDimSize(inputType.getRank() - 3)));
+  }
+
+  uint32_t inputWidth = getInputWidth();
+  if (inputWidth != inputType.getDimSize(inputType.getRank() - 2)) {
+    return emitOpError(
+        "Input width attribute must match the third dimension of the input "
+        "tensor, got: " +
+        std::to_string(inputWidth) + " and " +
+        std::to_string(inputType.getDimSize(inputType.getRank() - 2)));
+  }
+
+  llvm::ArrayRef<int32_t> stride = getStride();
+  if (!std::all_of(stride.begin(), stride.end(),
+                   [](int32_t value) { return value >= 1; })) {
+    return emitOpError(
+        "Stride attribute must be greater than or equal to 1, got: " +
+        std::to_string(stride[0]) + ", " + std::to_string(stride[1]));
+  }
+
+  llvm::ArrayRef<int32_t> padding = getPadding();
+  if (!std::all_of(padding.begin(), padding.end(),
+                   [](int32_t value) { return value >= 0; })) {
+    return emitOpError(
+        "Padding attribute must be greater than or equal to 0, got: " +
+        std::to_string(padding[0]) + ", " + std::to_string(padding[1]));
+  }
+
+  llvm::ArrayRef<int32_t> dilation = getDilation();
+  if (!std::all_of(dilation.begin(), dilation.end(),
+                   [](int32_t value) { return value >= 1; })) {
+    return emitOpError(
+        "Dilation attribute must be greater than or equal to 1, got: " +
+        std::to_string(dilation[0]) + ", " + std::to_string(dilation[1]));
+  }
+
+  llvm::ArrayRef<int32_t> kernelSize = getKernelSize();
+  if (kernelSize[0] != weightType.getDimSize(2) ||
+      kernelSize[1] != weightType.getDimSize(3)) {
+    return emitOpError("Kernel size attribute must match the last two "
+                       "dimensions of the weight tensor, got: " +
+                       std::to_string(kernelSize[0]) + ", " +
+                       std::to_string(kernelSize[1]) + " and " +
+                       std::to_string(weightType.getDimSize(2)) + ", " +
+                       std::to_string(weightType.getDimSize(3)));
+  }
+
+  llvm::SmallVector<uint32_t, 2> paddedInputSize = {
+      inputHeight + 2 * padding[0], inputWidth + 2 * padding[1]};
+  llvm::SmallVector<uint32_t, 2> effectiveKernelSize = {
+      static_cast<uint32_t>(kernelSize[0] +
+                            (kernelSize[0] - 1) * (dilation[0] - 1)),
+      static_cast<uint32_t>(kernelSize[1] +
+                            (kernelSize[1] - 1) * (dilation[1] - 1))};
+  if (paddedInputSize[0] < effectiveKernelSize[0] ||
+      paddedInputSize[1] < effectiveKernelSize[1]) {
+    return emitOpError(
+        "Calculated padded input size per channel: (" +
+        std::to_string(paddedInputSize[0]) + " x " +
+        std::to_string(paddedInputSize[1]) + "). Kernel size: (" +
+        std::to_string(effectiveKernelSize[0]) + " x " +
+        std::to_string(effectiveKernelSize[1]) +
+        "). Kernel size can't be greater than actual input size");
+  }
+
+  uint32_t groups = getGroups();
+  if (inChannels % groups != 0) {
+    return emitOpError() << "Number of input channels from input tensor must "
+                            "be divisible by the number of groups. "
+                         << "Got " << inChannels << " input channels and "
+                         << groups << " groups.";
+  }
+
+  if (outChannels % groups != 0) {
+    return emitOpError() << "Number of output channels from output tensor must "
+                            "be divisible by the number of groups. "
+                         << "Got " << outChannels << " output channels and "
+                         << groups << " groups.";
+  }
+
+  llvm::ArrayRef<std::int64_t> kernelShape = weightType.getShape();
+  if (outChannels != kernelShape[0]) {
+    return emitOpError() << "Number of output channels from output tensor must "
+                            "match the first dimension of the weight tensor. "
+                         << "Got " << outChannels << " output channels and "
+                         << kernelShape[0] << " in the weight tensor.";
+  }
+
+  if (inChannels / groups != kernelShape[1]) {
+    return emitOpError() << "Number of input channels per group must match "
+                            "the second dimension of the weight tensor. "
+                         << "Got " << (inChannels / groups)
+                         << " input channels per group and " << kernelShape[1]
+                         << " in the weight tensor.";
+  }
+
+  if (bias) {
+    if (bias->getDimSize(bias->getRank() - 1) != outChannels) {
+      return emitOpError() << "Mismatch in bias tensor dimensions. "
+                           << "Bias tensor has "
+                           << bias->getDimSize(bias->getRank() - 1)
+                           << " channels, "
+                           << "but the output tensor has " << outChannels
+                           << " channels.";
+    }
+  }
+
+  int32_t calculatedHOut =
+      (inputHeight + 2 * padding[0] - dilation[0] * (kernelSize[0] - 1) - 1) /
+          stride[0] +
+      1;
+  int32_t calculatedWOut =
+      (inputWidth + 2 * padding[1] - dilation[1] * (kernelSize[1] - 1) - 1) /
+          stride[1] +
+      1;
+  if (calculatedHOut < 0 || calculatedWOut < 0) {
+    return emitOpError() << "Given input size per channel: (" << inputHeight
+                         << " x " << inputWidth << "). "
+                         << "Calculated output size per channel: ("
+                         << calculatedHOut << " x " << calculatedWOut << "). "
+                         << "Output size is too small";
+  }
+
   return success();
 }
 
@@ -144,13 +312,13 @@ namespace mlir::tt::ttnn {
 
   uint32_t inputHeight = getInputHeight();
   if (inputHeight != inputType.getDimSize(inputType.getRank() - 3)) {
-    return emitOpError("Input height attribute must match the third "
+    return emitOpError("Input height attribute must match the second "
                        "dimension of the input tensor");
   }
 
   uint32_t inputWidth = getInputWidth();
   if (inputWidth != inputType.getDimSize(inputType.getRank() - 2)) {
-    return emitOpError("Input width attribute must match the second "
+    return emitOpError("Input width attribute must match the third "
                        "dimension of the input tensor");
   }
 
@@ -883,60 +1051,92 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 //===----------------------------------------------------------------------===//
 
 // ToLayoutOp canonicalization
-// ToLayoutOp can be canonicalized if the previous op is also a ToLayoutOp. The
-// previous op can be merged with the current ToLayoutOp op if the previous op
-// has only one use. df - data format, l - layout, ms - memory space, tml -
-// tensor memory layout
-//
-//                |
-//      -----------------------
-//      |     ToLayoutOp      |                     |
-//      | df1, l1, ms1, tml1  |          -----------------------
-//      -----------------------          |     ToLayoutOp      |
-//                |                 -->  | df2, l1, ms2, tml1  |
-//                |                      -----------------------
-//      -----------------------                     |
-//      |     ToLayoutOp      |
-//      |      df2, ms2       |
-//      -----------------------
-//                |
-//
-::mlir::LogicalResult
-mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
-                                         PatternRewriter &rewriter) {
-  // Get the input operand and verify that the previous op is toLayoutOp
-  ToLayoutOp previousToLayoutOp =
-      toLayoutOp.getOperand(0).getDefiningOp<ToLayoutOp>();
+void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // ToLayoutOp can be folded if its input has the same layout as the output of
+  // toLayoutOp.
+  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+                   mlir::PatternRewriter &rewriter) {
+    RankedTensorType previousType = toLayoutOp.getInput().getType();
+    TTNNLayoutAttr previousLayout =
+        mlir::dyn_cast<TTNNLayoutAttr>(previousType.getEncoding());
+    // Verify if input tensor has layout attribute.
+    if (!previousLayout) {
+      return mlir::failure();
+    }
 
-  // NOLINTNEXTLINE
-  if (!previousToLayoutOp) {
-    return mlir::failure();
-  }
+    RankedTensorType currentType = toLayoutOp.getType();
+    TTNNLayoutAttr currentLayout =
+        mlir::dyn_cast<TTNNLayoutAttr>(currentType.getEncoding());
+    // Verify if the output tensor has layout attribute.
+    if (!currentLayout) {
+      return mlir::failure();
+    }
 
-  // Check if the previous op has only one use. We can only merge if the
-  // previous op has single use.
-  if (!previousToLayoutOp->hasOneUse()) {
-    return mlir::failure();
-  }
+    // Verify that the layouts are the same.
+    if (previousLayout != currentLayout) {
+      return mlir::failure();
+    }
 
-  // Replace the previous op with the merged ToLayoutOp
-  Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
-      previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
-      toLayoutOp.getLayoutAttr(),
-      toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
-                                : previousToLayoutOp.getDtypeAttr(),
-      toLayoutOp.getMemoryConfigAttr()
-          ? toLayoutOp.getMemoryConfigAttr()
-          : previousToLayoutOp.getMemoryConfigAttr(),
-      toLayoutOp.getDevice());
+    rewriter.replaceAllUsesWith(toLayoutOp, toLayoutOp->getOperand(0));
+    rewriter.eraseOp(toLayoutOp);
+    return mlir::success();
+  });
 
-  // Replace all uses of the current op with the merged ToLayoutOp
-  rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+  // Two consecutive ToLayoutOps can be merged if the previous op has only one
+  // use.
+  // df - data format, l - layout, ms - memory
+  // space, tml - tensor memory layout
+  //
+  //                |
+  //      -----------------------
+  //      |     ToLayoutOp      |                     |
+  //      | df1, l1, ms1, tml1  |          -----------------------
+  //      -----------------------          |     ToLayoutOp      |
+  //                |                 -->  | df2, l1, ms2, tml1  |
+  //                |                      -----------------------
+  //      -----------------------                     |
+  //      |     ToLayoutOp      |
+  //      |      df2, ms2       |
+  //      -----------------------
+  //                |
+  //
+  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+                   mlir::PatternRewriter &rewriter) {
+    // Get the input operand and verify that the previous op is toLayoutOp.
+    ToLayoutOp previousToLayoutOp =
+        toLayoutOp.getInput().getDefiningOp<ToLayoutOp>();
 
-  // Erase the current op
-  rewriter.eraseOp(toLayoutOp);
+    // NOLINTNEXTLINE
+    if (!previousToLayoutOp) {
+      return mlir::failure();
+    }
 
-  return mlir::success();
+    // Check if the previous op has only one use. We can only merge if the
+    // previous op has single use.
+    if (!previousToLayoutOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Replace the previous op with the merged ToLayoutOp.
+    Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
+        previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
+        toLayoutOp.getLayoutAttr(),
+        toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
+                                  : previousToLayoutOp.getDtypeAttr(),
+        toLayoutOp.getMemoryConfigAttr()
+            ? toLayoutOp.getMemoryConfigAttr()
+            : previousToLayoutOp.getMemoryConfigAttr(),
+        toLayoutOp.getDevice());
+
+    // Replace all uses of the current op with the merged ToLayoutOp.
+    rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+
+    // Erase the current op.
+    rewriter.eraseOp(toLayoutOp);
+
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1338,7 +1538,10 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   int32_t gatherDim = getAllGatherDim();
 
   if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for all gather op.");
+    return emitOpError("Invalid gather dimension for all reduce op. Gather "
+                       "dimension must be >= to input tensor rank or < -input "
+                       "tensor rank, got gather_dim = ")
+           << gatherDim;
   }
 
   return success();
@@ -1350,19 +1553,23 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult ReduceScatterOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t scatterSplitDim = getScatterSplitDim();
-  auto mathOp = getMathOp();
+  int32_t scatterDim = getScatterDim();
+  ::mlir::tt::ReduceType reduceType = getReduceType();
 
-  if (scatterSplitDim >= inputType.getRank() ||
-      scatterSplitDim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for reduce scatter op.");
+  if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
+    return emitOpError("Invalid scatter dimension for all reduce op. Scatter "
+                       "dimension must be >= to input tensor rank or < -input "
+                       "tensor rank, got scatter_dim = ")
+           << scatterDim;
   }
 
-  // Check reduction op that we currently support in tt_nn
-  if (mathOp != ::mlir::tt::ReduceType::Sum &&
-      mathOp != ::mlir::tt::ReduceType::Max &&
-      mathOp != ::mlir::tt::ReduceType::Min) {
-    return emitOpError("Invalid reduction op for reduce scatter op.");
+  // Currently TTNN only supports the following reduce types. Compiler is able
+  // to model the full ReduceType list but only the following can be lowered
+  // into TTNN.
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min) {
+    return emitOpError("Invalid reduction op for all reduce op.");
   }
 
   return success();
@@ -1373,18 +1580,12 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult AllReduceOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t dim = getScatterDim();
-  auto mathOp = getMathOp();
+  ::mlir::tt::ReduceType reduceType = getReduceType();
 
-  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for all reduce op.");
-  }
-
-  // Check reduction op that we currently support in tt_nn
-  if (mathOp != ::mlir::tt::ReduceType::Sum &&
-      mathOp != ::mlir::tt::ReduceType::Max &&
-      mathOp != ::mlir::tt::ReduceType::Min) {
+  // Currently TTNN only supports the following reduce types.
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min) {
     return emitOpError("Invalid reduction op for all reduce op.");
   }
 

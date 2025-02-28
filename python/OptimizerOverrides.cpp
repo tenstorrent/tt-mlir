@@ -108,7 +108,8 @@ void populateOptimizerOverridesModule(py::module &m) {
       .value("BFP_BFloat2", mlir::tt::DataType::BFP_BFloat2)
       .value("UInt32", mlir::tt::DataType::UInt32)
       .value("UInt16", mlir::tt::DataType::UInt16)
-      .value("UInt8", mlir::tt::DataType::UInt8);
+      .value("UInt8", mlir::tt::DataType::UInt8)
+      .value("Int32", mlir::tt::DataType::Int32);
 
   py::class_<mlir::tt::ttnn::InputLayoutOverrideParams>(
       m, "InputLayoutOverrideParams")

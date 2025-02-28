@@ -41,6 +41,7 @@ jobs:
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
 
   lint:
+    if: github.event_name == 'pull_request'
     needs: build-image
     timeout-minutes: 120
     strategy:
@@ -125,6 +126,10 @@ jobs:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
+
+    - name: Maximize space
+      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
@@ -192,6 +197,9 @@ jobs:
 
     steps:
 
+    - name: Maximize space
+      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
@@ -255,8 +263,8 @@ jobs:
           {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "run", build_name: "runtime_debug", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n300, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          {runs-on: llmbox, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: llmbox, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           #{runs-on: tg, enable_perf: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           #{runs-on: tg, enable_perf: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]

@@ -620,7 +620,13 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    mlir::ElementsAttr valueAttr = getValueAttr(srcOp.getValue());
+    mlir::ElementsAttr valueAttr;
+    LogicalResult valueAttrLegalityResult =
+        getValueAttr(srcOp, rewriter, valueAttr);
+
+    if (!valueAttrLegalityResult.succeeded()) {
+      return valueAttrLegalityResult;
+    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
                                                             valueAttr);
@@ -644,103 +650,81 @@ private:
   // 2. Boolean tensor: TTNN does not support boolean data. So they are
   //    converted to bfloat16 tensors.
   // 3. Integer tensor: TTNN does not support 64 bit integer. So they are
-  //    converted to 32 bit tensor.
+  //    converted to 32 bit tensor (with signed saturation).
   // 4. Float tensor: TTNN does not support 64 bit float. So they are converted
   //    to 32 bit tensor.
-  mlir::ElementsAttr getValueAttr(mlir::ElementsAttr valueAttr) const {
+  LogicalResult getValueAttr(mlir::stablehlo::ConstantOp &srcOp,
+                             ConversionPatternRewriter &rewriter,
+                             mlir::ElementsAttr &newValueAttr) const {
+    mlir::ElementsAttr valueAttr = srcOp.getValue();
     Type elementType = valueAttr.getElementType();
     size_t bitWidth = elementType.getIntOrFloatBitWidth();
-    bool isTensor = !valueAttr.getShapedType().getShape().empty();
-    bool isIntTensor = isTensor && isa<IntegerType>(elementType) &&
-                       bitWidth != 1 && bitWidth != 64;
-    bool isFloatTensor = isTensor && isa<FloatType>(elementType) &&
-                         bitWidth != 1 && bitWidth != 64;
-
-    if (isTensor && (isIntTensor || isFloatTensor)) {
-      return valueAttr;
+    bool isScalar = valueAttr.getShapedType().getShape().empty();
+    bool isElementTypeSupported =
+        (isa<IntegerType>(elementType) || isa<FloatType>(elementType)) &&
+        bitWidth != 1 && bitWidth != 64;
+    if (!isScalar && isElementTypeSupported) {
+      newValueAttr = valueAttr;
+      return success();
     }
 
     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
         getTypeConverter()->convertType(valueAttr.getShapedType()));
     if (isa<IntegerType>(elementType)) {
-      switch (bitWidth) {
-      case 1: {
-        return rebuildValueAttr<bool>(valueAttr, 1);
-      }
-      case 8: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint8_t>(valueAttr, 8)
-                   : rebuildValueAttr<int8_t>(valueAttr, 8);
-      }
-      case 16: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint16_t>(valueAttr, 16)
-                   : rebuildValueAttr<int16_t>(valueAttr, 16);
-      }
-      case 32: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint32_t>(valueAttr, 32)
-                   : rebuildValueAttr<int32_t>(valueAttr, 32);
-      }
-      case 64: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint64_t>(valueAttr, 32)
-                   : rebuildValueAttr<int64_t>(valueAttr, 32);
-      }
-      default: {
-        assert(false && "Unsupported integer type.");
-      }
-      }
+      newValueAttr = rebuildIntValueAttr(valueAttr, valueType, bitWidth);
+      return success();
     }
     if (isa<FloatType>(elementType)) {
-      // Convert 64 bit floating point numbers to 32 bit floating point numbers.
-      if (bitWidth == 64) {
-        std::vector<mlir::APFloat> floatValues;
-        for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
-          float fl = static_cast<float>(value.convertToDouble());
-          mlir::APFloat input = mlir::APFloat(fl);
-          floatValues.emplace_back(input);
-        }
-        return mlir::DenseElementsAttr::get(valueType, floatValues);
-      }
-      // In case of float values llvm has a bug where not all float types are
-      // supported for iterating in DenseElementsAttr, so we have to use a
-      // different constructor.
-      std::vector<mlir::APFloat> floatValues(
-          valueAttr.getValues<mlir::APFloat>().begin(),
-          valueAttr.getValues<mlir::APFloat>().end());
-      return mlir::DenseElementsAttr::get(valueType, floatValues);
+      newValueAttr = rebuildFloatValueAttr(valueAttr, valueType, bitWidth);
+      return success();
     }
-    assert(false && "Unsupported data type.");
+    return rewriter.notifyMatchFailure(srcOp, "Unsupported data type.");
   }
 
-  // Extract the values (using the given ElementType) and create new data
-  // structure. This is used to convert scalars (of type boolean, int8, int16,
-  // int32, int64, uint8, uint16, uint32, uint64) and tensors (of type boolean
-  // and int64).
-  template <typename ElementType>
-  mlir::ElementsAttr rebuildValueAttr(mlir::ElementsAttr valueAttr,
-                                      size_t bitWidth) const {
-    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
-        getTypeConverter()->convertType(valueAttr.getShapedType()));
-
+  // Extract the values and create new ElementsAttr data structure. This is used
+  // to convert scalars boolean to bfloat16 and 64 bit integer to 32 bit integer
+  // by truncating with signed saturation.
+  mlir::ElementsAttr rebuildIntValueAttr(mlir::ElementsAttr valueAttr,
+                                         mlir::ShapedType valueType,
+                                         size_t bitWidth) const {
     // Create data structure for boolean type with bfloat16.
     if (bitWidth == 1) {
       std::vector<mlir::APFloat> booleanValue = {};
-      for (ElementType value : valueAttr.getValues<ElementType>()) {
-        mlir::APFloat input(mlir::APFloat::BFloat(), value);
-        booleanValue.emplace_back(input);
+      for (bool value : valueAttr.getValues<bool>()) {
+        booleanValue.emplace_back(mlir::APFloat::BFloat(), value);
       }
       return mlir::DenseElementsAttr::get(valueType, booleanValue);
     }
 
     // Create data structure for other types.
     std::vector<mlir::APInt> IntegerValue = {};
-    for (ElementType value : valueAttr.getValues<ElementType>()) {
-      mlir::APInt input(bitWidth, value);
-      IntegerValue.emplace_back(input);
+    for (mlir::APInt value : valueAttr.getValues<mlir::APInt>()) {
+      // Truncate to 32 bits with signed saturation in case of 64 bit integers.
+      IntegerValue.emplace_back(bitWidth == 64 ? value.truncSSat(32) : value);
     }
     return mlir::DenseElementsAttr::get(valueType, IntegerValue);
+  }
+
+  mlir::ElementsAttr rebuildFloatValueAttr(mlir::ElementsAttr valueAttr,
+                                           mlir::ShapedType valueType,
+                                           size_t bitWidth) const {
+    // Convert 64 bit floating point numbers to 32 bit floating point numbers.
+    if (bitWidth == 64) {
+      std::vector<mlir::APFloat> floatValues;
+      for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
+        float fl = static_cast<float>(value.convertToDouble());
+        mlir::APFloat input = mlir::APFloat(fl);
+        floatValues.emplace_back(input);
+      }
+      return mlir::DenseElementsAttr::get(valueType, floatValues);
+    }
+    // In case of float values llvm has a bug where not all float types are
+    // supported for iterating in DenseElementsAttr, so we have to use a
+    // different constructor.
+    std::vector<mlir::APFloat> floatValues(
+        valueAttr.getValues<mlir::APFloat>().begin(),
+        valueAttr.getValues<mlir::APFloat>().end());
+    return mlir::DenseElementsAttr::get(valueType, floatValues);
   }
 };
 } // namespace
@@ -1506,6 +1490,60 @@ LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
   return failure();
 }
 
+static LogicalResult
+determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
+                     uint32_t &clusterAxis) {
+  /*
+  We need to figure out what the cluster axis is based on replica_groups.
+  Replica groups define which device axis we are performing the collective
+  communication operation on. It is a 2D vector. Each element in replica_groups
+  contains a list of devices that will perform the collective communication
+  operation with each other. Currently we only support 2D meshes, but this
+  algorithm can be expanded for ND.
+
+  ex.
+  mesh = [2, 4]
+  replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
+  0 1 2 3
+  4 5 6 7
+
+  collective communication operation happens on (0, 1, 2, 3) and (4, 5, 6, 7) so
+  cluster_axis = 1 (mesh[1])
+
+  mesh = [2, 4]
+  replica_groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
+  0 1 2 3
+  4 5 6 7
+
+  collective communication operation happens on (0, 4), (1, 5), (2, 6), (3, 7)
+  so cluster_axis = 0 (mesh[0])
+
+  */
+  auto replicaGroupsShape = replicaGroups.getType().getShape();
+
+  if (replicaGroupsShape.size() == 0) {
+    // Cannot have replicas of size 0, this means we are not performing the
+    // collective communication operation across any device.
+    return failure();
+  }
+
+  // Case where we have single devices in each replica_group (ie perform
+  // collective communication operation against itself which should be optimized
+  // away). We also assume we are only using our constrained mesh types (ie 1x8,
+  // 1x32 etc) and cannot have (32x1, 8x1).
+  if (replicaGroupsShape[1] != 1) {
+    auto firstElementIt = replicaGroups.begin();
+    auto secondElementIt = firstElementIt + 1;
+
+    clusterAxis = (((*firstElementIt) + 1) == *secondElementIt);
+    return success();
+  }
+
+  // Default to cluster axis 0
+  clusterAxis = 0;
+  return success();
+}
+
 // StalbeHLO spec.md defines following channel type for ccl ops
 enum StableHLOChannelType {
   // CHANNEL_TYPE_INVALID = 0 : Invalid primitive type to serve as
@@ -1540,64 +1578,43 @@ public:
       return err;
     }
 
-    IntegerAttr channelHandleAttr;
     if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
       // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
       // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
       // Consider preserving this information in the future if the attribute
       // is non-DEVICE_TO_DEVICE values.
       auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
-      if (channelType != kChannelTypeDeviceToDevice &&
-          channelType != kChannelTypeInvalid) {
+      if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
+          channelType != StableHLOChannelType::kChannelTypeInvalid) {
         return failure();
       }
-
-      channelHandleAttr = rewriter.getSI32IntegerAttr(
-          static_cast<int32_t>(srcChannelHandleAttr.getHandle()));
     }
-    mlir::DenseIntElementsAttr replicaGroupsAttr =
-        adaptor.getReplicaGroupsAttr();
-    bool useGlobalDeviceIds = adaptor.getUseGlobalDeviceIds();
 
-    // Parse computation in region and add it to ttirAttrs
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllReduceOp cannot specify cluster axis.");
+    }
+
+    // Convert reduceType shlo attribute into ttir attribute
     ReduceType reduceType;
     if (failed(getReduceType(srcOp, reduceType))) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp cannot specify reduce type.");
     }
 
-    // stablehlo all_reduce op has no dimension defined in the op. Thus, we
-    // estimate possible all reduce dimension. Current algorithm is to search
-    // for first non-one dimension of input tensor from back.
-    auto estimateDim = [](mlir::RankedTensorType inputType) -> int32_t {
-      if (inputType.getRank() == 1) {
-        return 0;
-      }
-      auto inputShape = inputType.getShape();
-      auto nonOneIt = std::find_if(inputShape.rbegin(), inputShape.rend(),
-                                   [](int64_t s) { return s != 1; });
-      int32_t dim = inputType.getRank() - 1 -
-                    std::distance(inputShape.rbegin(), nonOneIt);
-      // all one shape, then select the deepest dim
-      if (dim < 0) {
-        dim = inputType.getRank() - 1;
-      }
-      return dim;
-    };
-
     // Handle variadic input/output pairs by creating mulitple AllReduceOps.
     llvm::SmallVector<mlir::Value> allReduceOpResults;
     for (auto [inputOperand, resultOperand] :
          llvm::zip_equal(adaptor.getOperands(), srcOp->getResults())) {
-      auto inputType = mlir::cast<RankedTensorType>(inputOperand.getType());
       auto outputType = mlir::cast<RankedTensorType>(
           getTypeConverter()->convertType(resultOperand.getType()));
 
       auto allReduceOp =
           ttmlir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
-              rewriter, srcOp.getLoc(), outputType, inputOperand,
-              replicaGroupsAttr, estimateDim(inputType), channelHandleAttr,
-              useGlobalDeviceIds, reduceType);
+              rewriter, srcOp.getLoc(), outputType, inputOperand, reduceType,
+              clusterAxis);
 
       allReduceOpResults.push_back(allReduceOp.getResult());
     }
@@ -1645,60 +1662,11 @@ public:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    SmallVector<Type> ttirTypes;
-    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
-                                                      ttirTypes))) {
-      return failure();
-    }
-
-    auto ttirOperands = srcOp.getOperandsMutable();
-    ttirOperands.append(ValueRange(outputTensor));
-
-    /*
-    We need to figure out what the cluster axis is based on replica_groups.
-    Replica groups define which device axis we are performing all_gather on.
-    It is a 2D vector. Each element in replica_groups contains a list of devices
-    that will perform all_gather with each other. Currently we only support 2D
-    meshes, but this algorithm can be expanded for ND.
-
-    ex.
-    mesh = [2, 4]
-    replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
-    0 1 2 3
-    4 5 6 7
-
-    all_gather happens on (0, 1, 2, 3) and (4, 5, 6, 7) so cluster_axis = 1
-    (mesh[1])
-
-    mesh = [2, 4]
-    replica_groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
-    0 1 2 3
-    4 5 6 7
-
-    all_gather happens on (0, 4), (1, 5), (2, 6), (3, 7) so cluster_axis = 0
-    (mesh[0])
-
-    */
-
-    uint32_t clusterAxis = 0;
-    auto replicaGroups = adaptor.getReplicaGroups();
-    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-
-    if (replicaGroupsShape.size() == 0) {
-      // Cannot have replicas of size 0, this means we are not performing the
-      // all_gather across any device.
-      return failure();
-    }
-
-    // Case where we have single devices in each replica_group (ie perform
-    // all_gather against itself which should be optimized away).
-    // We also assume we are only using our constrained mesh types (ie 1x8, 1x32
-    // etc) and cannot have (32x1, 8x1).
-    if (replicaGroupsShape[1] != 1) {
-      auto firstElementIt = replicaGroups.begin();
-      auto secondElementIt = firstElementIt + 1;
-
-      clusterAxis = (((*firstElementIt) + 1) == *secondElementIt);
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllGather cannot specify cluster axis.");
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::AllGatherOp>(

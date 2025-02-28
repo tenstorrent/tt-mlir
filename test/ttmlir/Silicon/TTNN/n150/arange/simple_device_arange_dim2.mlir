@@ -5,7 +5,7 @@
 // https://github.com/tenstorrent/tt-mlir/issues/1448
 module attributes {} {
   func.func @forward(%arg0: tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16> {
-    // CHECK: %[[C:.*]] = "ttnn.arange"[[C:.*]]
+    // CHECK: = "ttnn.arange"
     %0 = "ttir.arange"() <{start = 0: si64, end = 64: si64, step = 2: si64, arange_dimension = 2: i64}> : () -> tensor<1x1x32x128xbf16>
     %1 = tensor.empty() : tensor<1x1x32x128xbf16>
     %2 = "ttir.multiply"(%arg0, %0, %1) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x1x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16>

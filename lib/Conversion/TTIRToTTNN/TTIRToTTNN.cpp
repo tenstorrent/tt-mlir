@@ -245,7 +245,8 @@ public:
            "Expected RankedTensorType for ToLayoutOp input");
 
     auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
+        mlir::cast<mlir::RankedTensorType>(op.getResult(0).getType())
+            .getEncoding());
 
     // Determine the output data type
     DataType dtype = outputLayoutAttr.getDataType();
@@ -259,7 +260,7 @@ public:
 
     bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
 
-    RankedTensorType result = mlir::cast<RankedTensorType>(op.getType());
+    RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
@@ -883,9 +884,11 @@ public:
 
       mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
       if (valueAttr.getElementType().isInteger()) {
+        // Both signed and signless integer can have negative values.
+        bool isSigned = valueAttr.getElementType().isSignedInteger() ||
+                        valueAttr.getElementType().isSignlessInteger();
         fillValue.convertFromAPInt(valueAttr.getSplatValue<llvm::APInt>(),
-                                   valueAttr.getElementType().isSignedInteger(),
-                                   llvm::RoundingMode::TowardZero);
+                                   isSigned, llvm::RoundingMode::TowardZero);
       } else {
         fillValue = valueAttr.getSplatValue<mlir::APFloat>();
       }
@@ -965,72 +968,112 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto kernelType =
-        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    llvm::ArrayRef<std::int64_t> kernelShape = kernelType.getShape();
 
-    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> inputShape = inputType.getShape();
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
 
-    auto outputType =
-        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
-    llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
+    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
+    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
 
-    auto inChannels = static_cast<int32_t>(inputShape[inputShape.size() - 1]);
-    auto outChannels =
-        static_cast<int32_t>(outputShape[outputShape.size() - 1]);
-    auto batchSize = static_cast<int32_t>(inputShape[inputShape.size() - 4]);
-    auto inputHeight = static_cast<int32_t>(inputShape[inputShape.size() - 3]);
-    auto inputWidth = static_cast<int32_t>(inputShape[inputShape.size() - 2]);
+    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(kernelTy.getDimSize(2)),
+         static_cast<int32_t>(kernelTy.getDimSize(3))});
 
-    auto kernelHeight =
-        static_cast<int32_t>(kernelShape[kernelShape.size() - 2]);
-    auto kernelWidth =
-        static_cast<int32_t>(kernelShape[kernelShape.size() - 1]);
+    auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
+    if (auto error = strideAttr.takeError()) {
+      return LogicalResult::failure();
+    }
 
-    auto strideHeight = adaptor.getStrideHeight();
-    auto strideWidth = adaptor.getStrideWidth();
+    auto paddingAttr =
+        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
+    if (auto error = paddingAttr.takeError()) {
+      return LogicalResult::failure();
+    }
 
-    assert(
-        adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
-        "TTNN only supports padding height/width attributes. Thus, padding_top "
-        "must equal padding_bottom for the op to execute as expected.");
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
-           "TTNN only supports padding height/width attributes. Thus, "
-           "padding_left must equal padding_right for the op to execute as "
-           "expected.");
-    auto paddingHeight = adaptor.getPaddingTop();
-    auto paddingWidth = adaptor.getPaddingRight();
+    auto paddingArrayRef = paddingAttr->asArrayRef();
+    if (paddingArrayRef[0] != paddingArrayRef[1] ||
+        paddingArrayRef[2] != paddingArrayRef[3]) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "TTNN only supports padding height/width attributes. Thus, "
+          "padding_top/padding_left must equal padding_bottom/padding_right "
+          "for the op to execute as expected.");
+    }
 
-    auto dilationHeight = adaptor.getDilationHeight();
-    auto dilationWidth = adaptor.getDilationWidth();
-    auto groups = adaptor.getGroups();
+    // Padding only supports 2 values in ttnn
+    auto reducedPaddingAttr =
+        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
 
-    std::vector<int64_t> flattenedInputShape = {
-        1, 1, inputShape[0] * inputShape[1] * inputShape[2], inputShape[3]};
-    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter);
+    auto dilationAttr =
+        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
+    if (auto error = dilationAttr.takeError()) {
+      return LogicalResult::failure();
+    }
 
-    llvm::SmallVector<int64_t> flattenedOutputShape{
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    // Convolution in ttnn returns a tensor in a flattened shape
+    // (1 x 1 x N * H * W x C)
+    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
+    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
         1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
+    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
-    outputType = mlir::RankedTensorType::get(flattenedOutputShape,
-                                             outputType.getElementType(),
-                                             outputType.getEncoding());
+    outputTy = mlir::RankedTensorType::get(flattenedOutputShape,
+                                           outputTy.getElementType(),
+                                           outputTy.getEncoding());
 
     ttnn::Conv2dOp newConv = ttmlir::utils::createDPSOp<ttnn::Conv2dOp>(
-        rewriter, op.getLoc(), outputType, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), device, inChannels, outChannels, batchSize,
-        inputHeight, inputWidth, kernelHeight, kernelWidth, strideHeight,
-        strideWidth, paddingHeight, paddingWidth, dilationHeight, dilationWidth,
-        groups);
+        rewriter, op.getLoc(), outputTy, adaptor.getInput(),
+        adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
+        outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
+        kernelSizeAttr, *strideAttr, reducedPaddingAttr, *dilationAttr,
+        groupsAttr, nullptr);
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(newConv, outputShape, rewriter);
 
     rewriter.replaceOp(op, output);
     return success();
+  }
+
+private:
+  llvm::Expected<DenseI32ArrayAttr>
+  attrToDenseI32ArrayAttr(mlir::Attribute attr,
+                          ConversionPatternRewriter &rewriter,
+                          uint32_t elementCount = 2) const {
+    switch (elementCount) {
+    case 2: {
+      // Handles attributes requiring 2 spatial dimensions (e.g., stride,
+      // dilation). Converts the attribute into a pair of integers.
+      auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
+      if (auto error = pair.takeError()) {
+        return std::move(error);
+      }
+      return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
+    }
+    case 4: {
+      // Handles attributes requiring 4 spatial dimensions (e.g., padding in
+      // this case). Converts the attribute into a quadruple of integers.
+      auto quadruple = ttmlir::utils::getQuadrupleOfInteger<int32_t>(attr);
+      if (auto error = quadruple.takeError()) {
+        return std::move(error);
+      }
+      return rewriter.getDenseI32ArrayAttr(
+          {std::get<0>(*quadruple), std::get<1>(*quadruple),
+           std::get<2>(*quadruple), std::get<3>(*quadruple)});
+    }
+    default: {
+      return llvm::createStringError(std::errc::invalid_argument,
+                                     "Unsupported element count: %d",
+                                     elementCount);
+    }
+    }
   }
 };
 } // namespace
@@ -1268,10 +1311,12 @@ public:
         mlir::cast<RankedTensorType>(adaptor.getInputs().front().getType());
     RankedTensorType rhsType =
         mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
+    Type outputType = this->getTypeConverter()->convertType(srcOp.getType(0));
 
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
-          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back());
+          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back(),
+          outputType);
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
@@ -1279,11 +1324,12 @@ public:
       // addOp(lhs, negOp(rhs))
 
     } else {
-      ttnn::NegOp negOp = ttmlir::utils::createDPSOp<ttnn::NegOp>(
-          rewriter, srcOp.getLoc(), rhsType);
+      ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
+          srcOp.getLoc(), adaptor.getInputs().back());
 
       rewriter.replaceOpWithNewOp<ttnn::AddOp>(
-          srcOp, adaptor.getInputs().front(), negOp.getResults().front());
+          srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
+          outputType);
     }
 
     return success();
@@ -1300,18 +1346,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllReduceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    size_t scatter_dim = adaptor.getDim();
-    // scatter_num is needed when determining the output shape of workaround
-    // pass of reduce_scatter output and all_gather input
-    int32_t scatter_num =
-        replicaGroupsShape[scatter_dim % replicaGroupsShape.size()];
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
+
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        adaptor.getInput(), device, scatter_dim, scatter_num,
-        adaptor.getReduceType());
+        adaptor.getInput(), device, adaptor.getReduceType(),
+        adaptor.getClusterAxis());
 
     return success();
   }

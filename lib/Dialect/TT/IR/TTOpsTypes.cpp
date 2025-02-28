@@ -70,6 +70,8 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       tt::DataTypeAttr::get(context, tt::DataType::UInt16));
   supported_data_types.push_back(
       tt::DataTypeAttr::get(context, tt::DataType::UInt8));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::Int32));
 
   // populate a placeholder for supported tile sizes
   SmallVector<tt::TileSizeAttr> supported_tile_sizes;
@@ -262,6 +264,10 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
       case ::tt::target::DataType::UInt8:
         supported_data_types_attr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::UInt8));
+        break;
+      case ::tt::target::DataType::Int32:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::Int32));
         break;
       }
     }
@@ -505,7 +511,12 @@ MetalLayoutAttr MetalLayoutAttr::get(
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
     OOBVal oobVal) {
   assert(ty);
-  return get(context, ty.getShape(), ty.getElementType(), memorySpace, grid,
+  SmallVector<int64_t> tensorShape(ty.getShape());
+  if (mlir::isa<TileType>(ty.getElementType())) {
+    tensorShape =
+        mlir::cast<TileType>(ty.getElementType()).getScalarShape(tensorShape);
+  }
+  return get(context, tensorShape, ty.getElementType(), memorySpace, grid,
              collapseIntervals, oobVal);
 }
 
@@ -659,7 +670,7 @@ MetalLayoutAttr MetalLayoutAttr::withElementType(::mlir::MLIRContext *context,
                                                  Type elementType) {
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
                                                 elementType, getMemorySpace()));
 }
 
@@ -667,7 +678,7 @@ MetalLayoutAttr MetalLayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
                                                  MemorySpace memorySpace) {
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
                                                 getElementType(), memorySpace));
 }
 
@@ -685,8 +696,18 @@ MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
                                                   StreamLayoutAttr layout) {
   return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
                               buildMemRef<MemorySpace, MemorySpaceAttr>(
-                                  context, getShardShape(), getElementType(),
-                                  getMemorySpace(), layout));
+                                  context, getShardShape(true),
+                                  getElementType(), getMemorySpace(), layout));
+}
+
+MetalLayoutAttr MetalLayoutAttr::withStreamMode(::mlir::MLIRContext *context,
+                                                StreamMode streamMode,
+                                                std::uint32_t numBuffers) {
+  return withStreamLayout(
+      context, StreamLayoutAttr::get(context,
+                                     mlir::AffineMap::getMultiDimIdentityMap(
+                                         getShardShape().size(), context),
+                                     streamMode, numBuffers));
 }
 
 MetalLayoutAttr MetalLayoutAttr::withOuterScale(
@@ -1159,6 +1180,7 @@ uint64_t TileType::getSizeBytes() const {
     assert(getHeight() == 32 && getWidth() == 32);
     return 256;
   case DataType::UInt32:
+  case DataType::Int32:
     return getHeight() * getWidth() * 4;
   case DataType::UInt16:
     return getHeight() * getWidth() * 2;

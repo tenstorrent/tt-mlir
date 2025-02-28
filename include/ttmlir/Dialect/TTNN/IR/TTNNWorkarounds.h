@@ -231,7 +231,8 @@ public:
   createCumSumOpOperandsWorkarounds(RankedTensorType inputType);
 
   // Create workarounds for full op operands.
-  static TTNNOperandsWorkarounds createFullOpOperandsWorkarounds();
+  static TTNNOperandsWorkarounds
+  createFullOpOperandsWorkarounds(RankedTensorType outputType);
 
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds createMeshShardOpOperandsWorkarounds();
@@ -254,6 +255,12 @@ public:
   // Create workarounds for concat op operands.
   static TTNNOperandsWorkarounds
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
+
+  static TTNNOperandsWorkarounds
+  createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
+
+  static TTNNOperandsWorkarounds
+  createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
 };
 
 } // namespace mlir::tt::ttnn::wa

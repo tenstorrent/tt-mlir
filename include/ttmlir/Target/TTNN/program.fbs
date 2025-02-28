@@ -322,15 +322,12 @@ table Conv2dOp {
   batch_size: uint32;
   input_height: uint32;
   input_width: uint32;
-  kernel_height: uint32;
-  kernel_width: uint32;
-  stride_height: uint32;
-  stride_width: uint32;
-  padding_height: uint32;
-  padding_width: uint32;
-  dilation_height: uint32;
-  dilation_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  dilation: [int32];
   groups: uint32;
+  conv2d_config: tt.target.ttnn.Conv2dConfig;
 }
 
 table ConvTranspose2dOp {
@@ -397,8 +394,9 @@ table ReduceScatterOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   device: tt.target.DeviceRef;
-  scatter_split_dim: uint32;
-  math_op: uint32;
+  scatter_dim: int32;
+  reduce_type: uint32;
+  cluster_axis: uint32;
   num_links: uint32;
 }
 
