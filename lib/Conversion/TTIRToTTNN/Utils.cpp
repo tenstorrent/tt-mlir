@@ -27,8 +27,9 @@ ttnn::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
       newShape, inputType.getElementType(), outputLayoutAttr);
 
   llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-  return rewriter.create<ttnn::ReshapeOp>(
-      input.getLoc(), outputType, input, rewriter.getI32ArrayAttr(newShapeI32));
+  return rewriter.create<ttnn::ReshapeOp>(input.getLoc(), outputType, input,
+                                          rewriter.getI32ArrayAttr(newShapeI32),
+                                          /* memory_config */ nullptr);
 }
 
 ttnn::ReshapeOp
