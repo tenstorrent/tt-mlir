@@ -418,6 +418,15 @@ def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
     let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$dstLocalL1Addr, I32:$size);
 }
 
+def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
+    let summary = "NocAsyncReadTile";
+    let description = [{
+      NocAsyncReadTile
+    }];
+
+    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$dstLocalL1Addr);
+}
+
 def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state"> {
     let summary = "NocAsyncReadOnePacketSetState";
     let description = [{
@@ -450,6 +459,15 @@ def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write"> {
     }];
 
     let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size);
+}
+
+def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
+    let summary = "NocAsyncWriteTile";
+    let description = [{
+      NocAsyncWriteTilie
+    }];
+
+    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$srcLocalL1Addr);
 }
 
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
@@ -634,6 +652,16 @@ def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
     let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
 }
 
+def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen_fast"> {
+    let summary = "GetInterleavedAddrGenFastOp";
+    let description = [{
+      Returns an InterleavedAddrGenFast type.
+    }];
+
+    let arguments = (ins I1:$DRAM, I32:$bank_base_address, I32:$page_size, TTKernel_DataFormat:$data_format);
+    let results = (outs TTKernel_InterleavedAddrGenFast:$result);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//
@@ -763,5 +791,13 @@ def TTKernel_GetTileSizeOp : TTKernel_Op<"get_tile_size"> {
     let results = (outs I32:$tileSizeBytes);
 }
 
+def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
+    let summary = "Get the data format of a given CB";
+    let description = [{
+      get_dataformat operation
+    }];
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs TTKernel_DataFormat:$dataFormat);
+}
 
 #endif
