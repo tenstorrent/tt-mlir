@@ -147,7 +147,7 @@ class ModelRunner:
             f"{self.model_state[model_path].model_output_dir}/run/program_0/memory_results.json"
         )
         if not os.path.exists(mem_file):
-            raise FileNotFoundError(f"Memory file {mem_file} not found. Memory file may not have been created. Try running command: ttrt run out.ttnn --memory --save-artifacts")
+            raise FileNotFoundError(f"Memory file {mem_file} not found. Memory file may not have been created.")
 
         with open(mem_file, "r") as file:
             memory_trace = json.load(file)

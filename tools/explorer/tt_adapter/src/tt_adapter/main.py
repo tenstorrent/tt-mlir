@@ -106,9 +106,6 @@ class TTAdapter(model_explorer.Adapter):
                 # TODO(odjuricic) We should replace the perf_data with overlays once this is fixed on FE.
                 graph = utils.add_to_dataclass(graph, "perf_data", perf_data.graphsData)
 
-            #if memory_data:
-            #    graph = utils.add_to_dataclass(graph, "memory", memory_data)
-
             if overrides := self.model_runner.get_overrides(model_path):
                 graph = utils.add_to_dataclass(graph, "overrides", overrides)
         else:
