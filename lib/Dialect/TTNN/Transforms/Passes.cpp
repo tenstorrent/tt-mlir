@@ -318,6 +318,23 @@ public:
 
   void runOnOperation() final {
     ModuleOp module = getOperation();
+
+    // If we have a nested module structure, we want to use nested module inside
+    // DeviceModule.
+    tt::DeviceModuleOp deviceModule;
+    for (auto &op : module.getBody()->getOperations()) {
+      deviceModule = llvm::dyn_cast<tt::DeviceModuleOp>(op);
+      if (deviceModule) {
+        break;
+      }
+    }
+    if (deviceModule) {
+      module = dyn_cast_if_present<mlir::ModuleOp>(
+          deviceModule.getBodyRegion().front().front());
+      assert(module &&
+             "Found tt::DeviceModuleOp but it didn't contain a single "
+             "mlir::ModuleOp!");
+    }
     IRRewriter rewriter(&getContext());
 
     // Ensure that the module has a single region and a single block within that

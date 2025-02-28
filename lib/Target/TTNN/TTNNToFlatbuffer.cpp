@@ -1769,7 +1769,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
   // Always get debug info for top-level module.
-  auto mlir = toDebugInfo(fbb, "ttnn", module);
+  auto mlir = toDebugInfo(fbb, "ttnn", rootModule);
 
   std::string cpp;
   llvm::raw_string_ostream os(cpp);
