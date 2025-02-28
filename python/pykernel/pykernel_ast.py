@@ -92,7 +92,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         "tile_regs_wait": ttkernel.tile_regs_wait,
         "pack_tile": ttkernel.pack_tile,
         "copy_tile": ttkernel.copy_tile,
-        "add": ttkernel.add,
         "add_tiles": ttkernel.add_tiles,
         "get_compile_time_arg_val": ttkernel.get_compile_time_arg_val,
         "get_write_ptr": ttkernel.get_write_ptr,
@@ -359,10 +358,13 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         # load variable if needed
         if isinstance(lhs.type, memref.MemRefType):
-            lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+            lhs = memref.LoadOp(
+                lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
         if isinstance(rhs.type, memref.MemRefType):
-            rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
-
+            rhs = memref.LoadOp(
+                rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
         match (node.op):
             case ast.Add():
                 return arith.addi(lhs, rhs)
@@ -458,7 +460,7 @@ def ttkernel_compile(kernel_type=None):
         def _wrapper(*args, **kwargs):
             m = ast.parse(inspect.getsource(f))
             b = TTKernelCompiler(f.__name__, args)
-            # print(ast.dump(m, indent=4) + "\n")
+            print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
             # Check if generated IR is valid
