@@ -17,10 +17,8 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &lhs = tensorPool.at(op->a()->global_id());
   const ::ttnn::Tensor &rhs = tensorPool.at(op->b()->global_id());
-  const ::ttnn::Tensor &out = tensorPool.at(op->out()->global_id());
   DEBUG_ASSERT(lhs.is_allocated());
   DEBUG_ASSERT(rhs.is_allocated());
-  DEBUG_ASSERT(out.is_allocated());
 
   auto outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -35,7 +33,8 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
       lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, /*program_config=*/std::nullopt,
       /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt, out);
+      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+      /* optional_output_tensor=*/std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), output);
 }
@@ -48,11 +47,9 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   std::optional<::ttnn::Tensor> bias =
       op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
                  : std::nullopt;
-  const ::ttnn::Tensor &out = tensorPool.at(op->out()->global_id());
   DEBUG_ASSERT(lhs.is_allocated());
   DEBUG_ASSERT(rhs.is_allocated());
   DEBUG_ASSERT(!bias || bias->is_allocated());
-  DEBUG_ASSERT(out.is_allocated());
 
   auto outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -67,7 +64,8 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
       lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, /*program_config=*/std::nullopt,
       /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt, out);
+      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+      /* optional_output_tensor=*/std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), output);
 }

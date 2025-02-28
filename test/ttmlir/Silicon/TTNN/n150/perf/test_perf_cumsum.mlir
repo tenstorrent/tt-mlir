@@ -9,7 +9,6 @@ module @moreh_cumsum attributes {} {
     // CHECK: ttnn.moreh_cumsum
     // CHECK-SAME: dim = 0 : i64
     // CHECK-SAME: tensor<1x32x128x128xf32,
-    // CHECK-SAME: tensor<1x32x128x128xf32,
     // CHECK-SAME: -> tensor<1x32x128x128xf32,
     %1 = "ttir.cumsum"(%arg0, %0) <{dim = 0 : i64}> : (tensor<1x32x128x128xf32>, tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32>
     return %1 : tensor<1x32x128x128xf32>

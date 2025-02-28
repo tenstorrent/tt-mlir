@@ -36,10 +36,11 @@ public:
   std::vector<TTNNLayoutAttr> getInputLayouts(Operation *op) {
     std::vector<TTNNLayoutAttr> inputs;
 
-    // TODO(odjuricic): check for DPS explicitly.
-    auto numOperand = op->getNumOperands();
-    // some ops have multiple operands
-    auto limit = (numOperand > 1) ? numOperand - 1 : numOperand;
+    auto limit = op->getNumOperands();
+    if (isa<DestinationStyleOpInterface>(op)) {
+      limit--;
+    }
+
     for (size_t i = 0; i < limit; i++) {
       auto operand = op->getOperand(i);
       auto inputShape =
@@ -74,10 +75,15 @@ public:
     return DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0});
   }
 
-  mlir::Value createEmptyTensor(llvm::ArrayRef<int64_t> tensorShape) {
+  mlir::RankedTensorType createRankedTensorType(llvm::ArrayRef<int64_t> shape) {
     Type elementType = builder.getBF16Type();
     RankedTensorType rankedTensorType =
-        RankedTensorType::get(tensorShape, elementType);
+        RankedTensorType::get(shape, elementType);
+    return rankedTensorType;
+  }
+
+  mlir::Value createEmptyTensor(llvm::ArrayRef<int64_t> tensorShape) {
+    RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
     return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
                                   ShapeAttr::get(&context, tensorShape),
                                   nullptr, nullptr, nullptr, nullptr);
@@ -89,10 +95,10 @@ TEST_F(OpModelBase, ReluInterface) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
 
   auto input = createEmptyTensor(tensorShape);
-  auto output = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
 
-  auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), output.getType(),
-                                     ::mlir::ValueRange{input, output});
+  auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), outputType,
+                                     ::mlir::ValueRange{input});
   relu->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test ReluOp interface
@@ -120,10 +126,10 @@ TEST_F(OpModelBase, SoftmaxInterface) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
 
   auto input = createEmptyTensor(tensorShape);
-  auto output = createEmptyTensor(tensorShape);
+  auto output = createRankedTensorType(tensorShape);
 
-  auto softmax = builder.create<SoftmaxOp>(builder.getUnknownLoc(),
-                                           output.getType(), input, -1);
+  auto softmax =
+      builder.create<SoftmaxOp>(builder.getUnknownLoc(), output, input, -1);
   softmax->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test SoftmaxOp interface
@@ -153,10 +159,10 @@ TEST_F(OpModelBase, AddInterface) {
 
   auto input1 = createEmptyTensor(tensorShape);
   auto input2 = createEmptyTensor(tensorShape);
-  auto output = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
 
-  auto add = builder.create<AddOp>(builder.getUnknownLoc(), output.getType(),
-                                   ::mlir::ValueRange{input1, input2, output});
+  auto add = builder.create<AddOp>(builder.getUnknownLoc(), outputType,
+                                   ::mlir::ValueRange{input1, input2});
   add->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test AddOp interface
@@ -188,11 +194,10 @@ TEST_F(OpModelBase, MatmulInterface) {
 
   auto inputA = createEmptyTensor(tensorShapeA);
   auto inputB = createEmptyTensor(tensorShapeB);
-  auto output = createEmptyTensor(tensorShapeO);
+  auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto matmul =
-      builder.create<MatmulOp>(builder.getUnknownLoc(), output.getType(),
-                               ::mlir::ValueRange{inputA, inputB, output});
+  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
+                                         ::mlir::ValueRange{inputA, inputB});
   matmul->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test MatmulOp interface
