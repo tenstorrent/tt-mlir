@@ -186,6 +186,12 @@ TEST_F(EmitCConversionTest, ConvertDenseI32ArrayAttrToStdVector) {
   std::string converted =
       EmitCTypeConverter<std::vector<int32_t>>::convert(denseArrayAttr);
   EXPECT_EQ(converted, "::std::vector<int32_t>{1, 2, 3}");
+
+  mlir::Attribute denseArrayAsAttribute = denseArrayAttr;
+  std::optional<std::string> maybeConverted =
+      EmitCTypeConverter<std::vector<int32_t>>::convert(denseArrayAsAttribute);
+  ASSERT_TRUE(maybeConverted);
+  EXPECT_EQ(*maybeConverted, "::std::vector<int32_t>{1, 2, 3}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseF32ArrayAttrToStdVector) {
@@ -194,6 +200,13 @@ TEST_F(EmitCConversionTest, ConvertDenseF32ArrayAttrToStdVector) {
   std::string converted =
       EmitCTypeConverter<std::vector<float>>::convert(denseArrayAttr);
   EXPECT_EQ(converted, "::std::vector<float>{1.000000, 2.000000, 3.000000}");
+
+  mlir::Attribute denseArrayAsAttribute = denseArrayAttr;
+  std::optional<std::string> maybeConverted =
+      EmitCTypeConverter<std::vector<float>>::convert(denseArrayAsAttribute);
+  ASSERT_TRUE(maybeConverted);
+  EXPECT_EQ(*maybeConverted,
+            "::std::vector<float>{1.000000, 2.000000, 3.000000}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseIntElementsAttrToStdVector) {
@@ -296,6 +309,12 @@ TEST_F(EmitCConversionTest, ConvertDenseBoolArrayAttrToStdArray) {
       EmitCTypeConverter<std::array<bool, 3>>::convert(denseArrayAttr);
   ASSERT_TRUE(converted);
   EXPECT_EQ(*converted, "::std::array<bool, 3>{true, false, true}");
+
+  mlir::Attribute denseArrayAsAttribute = denseArrayAttr;
+  std::optional<std::string> maybeConverted =
+      EmitCTypeConverter<std::array<bool, 3>>::convert(denseArrayAsAttribute);
+  ASSERT_TRUE(maybeConverted);
+  EXPECT_EQ(*maybeConverted, "::std::array<bool, 3>{true, false, true}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseI32ArrayAttrToStdArray) {
@@ -314,6 +333,13 @@ TEST_F(EmitCConversionTest, ConvertDenseF32ArrayAttrToStdArray) {
       EmitCTypeConverter<std::array<float, 3>>::convert(denseArrayAttr);
   ASSERT_TRUE(converted);
   EXPECT_EQ(*converted, "::std::array<float, 3>{1.000000, 2.000000, 3.000000}");
+
+  mlir::Attribute denseArrayAsAttribute = denseArrayAttr;
+  std::optional<std::string> maybeConverted =
+      EmitCTypeConverter<std::array<float, 3>>::convert(denseArrayAsAttribute);
+  ASSERT_TRUE(maybeConverted);
+  EXPECT_EQ(*maybeConverted,
+            "::std::array<float, 3>{1.000000, 2.000000, 3.000000}");
 }
 
 TEST_F(EmitCConversionTest, ConvertDenseIntElementsAttrToStdArray) {
@@ -392,9 +418,9 @@ TEST_F(EmitCConversionTest, ConvertStdVariantMultiLevelCompoundTypes) {
             "::std::vector<::std::array<int32_t, 3>>{::std::array<int32_t, "
             "3>{1, 2, 3}, ::std::array<int32_t, 3>{4, 5, 6}}");
 
-  // mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
-  // converted = EmitCTypeConverter<TargetTy>::convert(floatAttr);
-  // EXPECT_EQ(converted, "42.000000");
+  mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
+  converted = EmitCTypeConverter<TargetTy>::convert(floatAttr);
+  EXPECT_EQ(converted, "42.000000");
 
   mlir::IntegerAttr int32Attr = builder.getI32IntegerAttr(42);
   converted = EmitCTypeConverter<TargetTy>::convert(int32Attr);
