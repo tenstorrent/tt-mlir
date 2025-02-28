@@ -1,20 +1,20 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-
-#include <numeric>
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
-#include <mlir/Dialect/Affine/IR/AffineOps.h>
-#include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Linalg/IR/Linalg.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include <numeric>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICLINEARIZEMEMREF
@@ -31,7 +31,7 @@ public:
       return true;
     }
 
-    return std::all_of(arg.user_begin(), arg.user_end(), [](Operation *user) {
+    return llvm::all_of(arg.getUsers(), [](Operation *user) {
       return mlir::isa<memref::CollapseShapeOp>(user);
     });
   }
@@ -43,6 +43,7 @@ public:
     mlir::AffineExpr indexing = getAffineConstantExpr(0, context);
     mlir::AffineExpr volumeExpr = getAffineConstantExpr(1, context);
 
+    assert(map.getNumResults() > 0);
     for (int i = map.getNumResults() - 1; i >= 0; i--) {
       mlir::AffineExpr linearIdx = getAffineDimExpr(i, context);
       mlir::AffineExpr dim = getAffineConstantExpr(evaledShape[i], context);
