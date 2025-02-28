@@ -240,7 +240,7 @@ struct EmitCContainerTypeConverter {
   }
 
   static std::string convert(mlir::ArrayAttr attr) {
-    std::vector<std::string> result;
+    llvm::SmallVector<std::string> result;
     for (auto element : attr) {
       result.push_back(*EmitCTypeConverter<value_type>::convert(element));
     }
@@ -251,7 +251,7 @@ struct EmitCContainerTypeConverter {
   static std::enable_if_t<
       std::is_constructible_v<mlir::detail::DenseArrayAttrImpl<U>>, std::string>
   convert(mlir::detail::DenseArrayAttrImpl<U> attr) {
-    std::vector<std::string> result;
+    llvm::SmallVector<std::string> result;
     for (auto element : attr.asArrayRef()) {
       result.push_back(EmitCTypeConverter<value_type>::convert(element));
     }
@@ -259,7 +259,7 @@ struct EmitCContainerTypeConverter {
   }
 
   static std::string convert(mlir::DenseIntElementsAttr attr) {
-    std::vector<std::string> result;
+    llvm::SmallVector<std::string> result;
     for (auto element : attr) {
       result.push_back(EmitCTypeConverter<value_type>::convert(element));
     }
@@ -267,7 +267,7 @@ struct EmitCContainerTypeConverter {
   }
 
   static std::string convert(mlir::DenseFPElementsAttr attr) {
-    std::vector<std::string> result;
+    llvm::SmallVector<std::string> result;
     for (auto element : attr) {
       result.push_back(EmitCTypeConverter<value_type>::convert(element));
     }
@@ -276,7 +276,7 @@ struct EmitCContainerTypeConverter {
 
   template <typename U>
   static std::string convert(llvm::ArrayRef<U> attr) {
-    std::vector<std::string> result;
+    llvm::SmallVector<std::string> result;
     for (auto element : attr) {
       result.push_back(EmitCTypeConverter<value_type>::convert(element));
     }
@@ -284,7 +284,7 @@ struct EmitCContainerTypeConverter {
   }
 
 private:
-  static std::string convert(const std::vector<std::string> &values) {
+  static std::string convert(const llvm::SmallVector<std::string> &values) {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
     rso << TypeNameV<T> << "{";
@@ -443,8 +443,15 @@ private:
 template <typename First, typename... Rest>
 struct EmitCTypeConverter<std::variant<First, Rest...>> {
   static std::string convert(mlir::Attribute attr) {
-    if (auto tryFirst = EmitCTypeConverter<First>::convert(attr)) {
-      return *tryFirst;
+    auto tryFirst = EmitCTypeConverter<First>::convert(attr);
+    if constexpr (std::is_same_v<decltype(tryFirst), std::string>) {
+      return tryFirst;
+    } else {
+      static_assert(
+          std::is_same_v<decltype(tryFirst), std::optional<std::string>>);
+      if (tryFirst) {
+        return *tryFirst;
+      }
     }
 
     if constexpr (sizeof...(Rest) > 0) {
