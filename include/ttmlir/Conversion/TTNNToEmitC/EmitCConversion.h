@@ -13,6 +13,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
@@ -196,44 +197,27 @@ struct EmitCContainerTypeConverter {
     }
 
     if constexpr (std::is_integral_v<value_type>) {
-      if (auto denseBoolArrayAttr =
-              mlir::dyn_cast<mlir::DenseBoolArrayAttr>(attr)) {
-        return convert(denseBoolArrayAttr);
-      }
-      if (auto denseI8ArrayAttr =
-              mlir::dyn_cast<mlir::DenseI8ArrayAttr>(attr)) {
-        return convert(denseI8ArrayAttr);
-      }
-      if (auto denseI16ArrayAttr =
-              mlir::dyn_cast<mlir::DenseI16ArrayAttr>(attr)) {
-        return convert(denseI16ArrayAttr);
-      }
-      if (auto denseI32ArrayAttr =
-              mlir::dyn_cast<mlir::DenseI32ArrayAttr>(attr)) {
-        return convert(denseI32ArrayAttr);
-      }
-      if (auto denseI64ArrayAttr =
-              mlir::dyn_cast<mlir::DenseI64ArrayAttr>(attr)) {
-        return convert(denseI64ArrayAttr);
-      }
-      if (auto denseIntAttr =
-              mlir::dyn_cast<mlir::DenseIntElementsAttr>(attr)) {
-        return convert(denseIntAttr);
-      }
+      return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
+          .Case<mlir::DenseBoolArrayAttr, mlir::DenseI8ArrayAttr,
+                mlir::DenseI16ArrayAttr, mlir::DenseI32ArrayAttr,
+                mlir::DenseI64ArrayAttr>(
+              [](auto denseArrayAttr) { return convert(denseArrayAttr); })
+          .template Case<mlir::DenseIntElementsAttr>(
+              [](mlir::DenseIntElementsAttr denseElementsAttr) {
+                return convert(denseElementsAttr);
+              })
+          .Default([](auto) { return std::optional<std::string>{}; });
     }
 
     if constexpr (std::is_floating_point_v<value_type>) {
-      if (auto denseF32ArrayAttr =
-              mlir::dyn_cast<mlir::DenseF32ArrayAttr>(attr)) {
-        return convert(denseF32ArrayAttr);
-      }
-      if (auto denseF64ArrayAttr =
-              mlir::dyn_cast<mlir::DenseF64ArrayAttr>(attr)) {
-        return convert(denseF64ArrayAttr);
-      }
-      if (auto denseFPAttr = mlir::dyn_cast<mlir::DenseFPElementsAttr>(attr)) {
-        return convert(denseFPAttr);
-      }
+      return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
+          .Case<mlir::DenseF32ArrayAttr, mlir::DenseF64ArrayAttr>(
+              [](auto denseArrayAttr) { return convert(denseArrayAttr); })
+          .template Case<mlir::DenseFPElementsAttr>(
+              [](mlir::DenseFPElementsAttr denseElementsAttr) {
+                return convert(denseElementsAttr);
+              })
+          .Default([](auto) { return std::optional<std::string>{}; });
     }
 
     return {};
@@ -304,6 +288,7 @@ struct EmitCTypeConverter<::ttnn::SmallVector<T>>
 
 template <typename T, size_t k>
 struct EmitCTypeConverter<std::array<T, k>> {
+
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (!attr) {
       return {};
@@ -317,43 +302,27 @@ struct EmitCTypeConverter<std::array<T, k>> {
     }
 
     if constexpr (std::is_integral_v<T>) {
-      if (auto denseBoolArrayAttr =
-              mlir::dyn_cast<mlir::DenseBoolArrayAttr>(attr)) {
-        return convert(denseBoolArrayAttr);
-      }
-      if (auto denseI8ArrayAttr =
-              mlir::dyn_cast<mlir::DenseI8ArrayAttr>(attr)) {
-        return convert(denseI8ArrayAttr);
-      }
-      if (auto denseI16ArrayAttr =
-              mlir::dyn_cast<mlir::DenseI16ArrayAttr>(attr)) {
-        return convert(denseI16ArrayAttr);
-      }
-      if (auto denseI32ArrayAttr =
-              mlir::dyn_cast<mlir::DenseI32ArrayAttr>(attr)) {
-        return convert(denseI32ArrayAttr);
-      }
-      if (auto denseI64ArrayAttr =
-              mlir::dyn_cast<mlir::DenseI64ArrayAttr>(attr)) {
-        return convert(denseI64ArrayAttr);
-      }
-      if (auto denseIntAttr =
-              mlir::dyn_cast<mlir::DenseIntElementsAttr>(attr)) {
-        return convert(denseIntAttr);
-      }
+      return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
+          .Case<mlir::DenseBoolArrayAttr, mlir::DenseI8ArrayAttr,
+                mlir::DenseI16ArrayAttr, mlir::DenseI32ArrayAttr,
+                mlir::DenseI64ArrayAttr>(
+              [](auto denseArrayAttr) { return convert(denseArrayAttr); })
+          .template Case<mlir::DenseIntElementsAttr>(
+              [](mlir::DenseIntElementsAttr denseElementsAttr) {
+                return convert(denseElementsAttr);
+              })
+          .Default([](auto) { return std::optional<std::string>{}; });
     }
+
     if constexpr (std::is_floating_point_v<T>) {
-      if (auto denseF32ArrayAttr =
-              mlir::dyn_cast<mlir::DenseF32ArrayAttr>(attr)) {
-        return convert(denseF32ArrayAttr);
-      }
-      if (auto denseF64ArrayAttr =
-              mlir::dyn_cast<mlir::DenseF64ArrayAttr>(attr)) {
-        return convert(denseF64ArrayAttr);
-      }
-      if (auto denseFPAttr = mlir::dyn_cast<mlir::DenseFPElementsAttr>(attr)) {
-        return convert(denseFPAttr);
-      }
+      return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
+          .Case<mlir::DenseF32ArrayAttr, mlir::DenseF64ArrayAttr>(
+              [](auto denseArrayAttr) { return convert(denseArrayAttr); })
+          .template Case<mlir::DenseFPElementsAttr>(
+              [](mlir::DenseFPElementsAttr denseElementsAttr) {
+                return convert(denseElementsAttr);
+              })
+          .Default([](auto) { return std::optional<std::string>{}; });
     }
 
     return {};
@@ -365,7 +334,6 @@ struct EmitCTypeConverter<std::array<T, k>> {
     }
 
     std::array<std::string, k> result;
-    ;
     for (size_t i = 0; i < attr.size(); ++i) {
       auto element = EmitCTypeConverter<T>::convert(attr[i]);
       if (!element) {
