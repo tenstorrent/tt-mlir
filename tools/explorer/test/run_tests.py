@@ -114,7 +114,6 @@ def execute_command(model_path, settings):
         print(result.json())
         assert False
 
-
 def wait_for_execution_to_finish(timeout):
     for _ in range(timeout):
         try:
@@ -211,6 +210,16 @@ def test_execute_and_check_perf_data_exists():
     assert "perf_data" in result["graphs"][0]
 
 
+def test_execute_and_check_memory_data_exists():
+    execute_command_and_wait(
+        MNIST_SHARDING_PATH,
+        {"optimizationPolicy": "DF Sharding"},
+        timeout=300,
+    )
+    result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    assert "display_type" in str(result["graphs"])
+
+
 def test_execute_model_invalid_policy():
     with pytest.raises(AssertionError):
         execute_command_and_wait(
@@ -218,3 +227,4 @@ def test_execute_model_invalid_policy():
             {"optimizationPolicy": "Invalid Policy"},
             timeout=300,
         )
+
