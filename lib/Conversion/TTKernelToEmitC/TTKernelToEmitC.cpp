@@ -490,10 +490,10 @@ public:
       // Create an lvalue for all struct field accesses
       auto lvalueBankBaseAddr = rewriter.create<emitc::MemberOp>(
           op->getLoc(),
-          emitc::LValueType::get(op.getBankBaseAddress().getType()),
+          emitc::LValueType::get(adaptor.getBankBaseAddress().getType()),
           "bank_base_address", varOp);
       auto lvaluePageSize = rewriter.create<emitc::MemberOp>(
-          op->getLoc(), emitc::LValueType::get(op.getPageSize().getType()),
+          op->getLoc(), emitc::LValueType::get(adaptor.getPageSize().getType()),
           "page_size", varOp);
       auto lvalueDataFormat = rewriter.create<emitc::MemberOp>(
           op->getLoc(),
@@ -502,10 +502,10 @@ public:
 
       // Assign corresponding values to the struct members
       rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueBankBaseAddr,
-                                       op.getBankBaseAddress());
+                                       adaptor.getBankBaseAddress());
       rewriter.create<emitc::AssignOp>(op->getLoc(), lvaluePageSize,
-                                       op.getPageSize());
-      rewriter.create<emitc::AssignOp>(op.getLoc(), lvalueDataFormat,
+                                       adaptor.getPageSize());
+      rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueDataFormat,
                                        adaptor.getDataFormat());
 
       // Load the value from the lvalue variable
@@ -513,7 +513,6 @@ public:
           rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
 
       // Replace the original operation with the loaded value so it can be used.
-      op.replaceAllUsesWith(loadOp.getResult());
       rewriter.replaceOp(op, loadOp.getResult());
     }
     return success();
@@ -624,7 +623,6 @@ public:
         return op.getNumArguments() == 0;
       });
       target.addLegalOp<func::ReturnOp>();
-      target.addIllegalOp<ttkernel::GetInterleavedAddrGenFastOp>();
       target.addIllegalDialect<ttkernel::TTKernelDialect>();
 
       patterns.add<

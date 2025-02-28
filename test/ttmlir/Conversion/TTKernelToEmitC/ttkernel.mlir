@@ -573,25 +573,29 @@ module {
 
     // CHECK-LABEL: func @interleaved_addr_gen_fast_funcs
     func.func @interleaved_addr_gen_fast_funcs(%cb: !cb0_tiles) -> () {
-      // CHECK: = emitc.call_opaque "get_dataformat"{{.*}}
+      // CHECK: %[[DATA_FORMAT:.*]]= emitc.call_opaque "get_dataformat"{{.*}}
       %data_format = "ttkernel.get_dataformat"(%cb) : (!cb0_tiles) -> !ttkernel.DataFormat
+      // CHECK: = "emitc.constant"() <{value = true}>
+      // CHECK: %[[TEMP_ADDR:.*]] = "emitc.constant"()
+      // CHECK: %[[TILE_SIZE:.*]] = "emitc.constant"()
+      // CHECK: %[[TILE:.*]] = "emitc.constant"()
+      %is_dram = arith.constant 1 : i1
+      %temp_addr = arith.constant 262400 : i32
+      %tile_size = arith.constant 8 : i32
+      %tile = arith.constant 1 : i32
       // CHECK: %[[VAR:.*]] = "emitc.variable"() <{value = #emitc.opaque<"">}> : () -> !emitc.lvalue<!emitc.opaque<"InterleavedAddrGenFast<true>">>
       // CHECK: "emitc.member"(%[[VAR]]) <{member = "bank_base_address"}>{{.*}}
       // CHECK: "emitc.member"(%[[VAR]]) <{member = "page_size"}>{{.*}}
       // CHECK: "emitc.member"(%[[VAR]]) <{member = "data_format"}>{{.*}}
-      // CHECK: emitc.assign {{.*}}
-      // CHECK: emitc.assign {{.*}}
-      // CHECK: emitc.assign {{.*}}
-      // CHECK: = emitc.load %[[VAR]] : <!emitc.opaque<"InterleavedAddrGenFast<true>">>
-      %is_dram = arith.constant 1 : i1
-      %temp1 = arith.constant 262400 : i32
-      %temp2 = arith.constant 32 : i32
-      %s = "ttkernel.get_interleaved_addr_gen_fast"(%is_dram, %temp1, %temp2, %data_format) : (i1, i32, i32, !ttkernel.DataFormat) -> !ttkernel.interleaved_addr_gen_fast
-      // CHECK: emitc.call_opaque "noc_async_write_tile"{{.*}}
-      "ttkernel.noc_async_write_tile"(%temp2, %s, %temp1) : (i32, !ttkernel.interleaved_addr_gen_fast, i32) -> ()
-      // CHECK: emitc.call_opaque "noc_async_read_tile"{{.*}}
-      "ttkernel.noc_async_read_tile"(%temp2, %s, %temp1) : (i32, !ttkernel.interleaved_addr_gen_fast, i32) -> ()
-      // CHECK-NEXT: return
+      // CHECK: emitc.assign %[[TEMP_ADDR]]
+      // CHECK: emitc.assign %[[TILE_SIZE]]
+      // CHECK: emitc.assign %[[DATA_FORMAT]]
+      // CHECK: %[[ADDR_GEN:.*]] = emitc.load %[[VAR]] : <!emitc.opaque<"InterleavedAddrGenFast<true>">>
+      %s = "ttkernel.get_interleaved_addr_gen_fast"(%is_dram, %temp_addr, %tile_size, %data_format) : (i1, i32, i32, !ttkernel.DataFormat) -> !ttkernel.interleaved_addr_gen_fast
+      // CHECK: emitc.call_opaque "noc_async_write_tile"(%[[TILE]], %[[ADDR_GEN]], %[[TEMP_ADDR]])
+      "ttkernel.noc_async_write_tile"(%tile, %s, %temp_addr) : (i32, !ttkernel.interleaved_addr_gen_fast, i32) -> ()
+      // CHECK: emitc.call_opaque "noc_async_read_tile"(%[[TILE]], %[[ADDR_GEN]], %[[TEMP_ADDR]])
+      "ttkernel.noc_async_read_tile"(%tile, %s, %temp_addr) : (i32, !ttkernel.interleaved_addr_gen_fast, i32) -> ()
       return
     }
 
