@@ -2258,6 +2258,35 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// ReduceScatterOp
+//===----------------------------------------------------------------------===//
+
+// ReduceScatterOp verification
+::mlir::LogicalResult mlir::tt::ttir::ReduceScatterOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::tt::ReduceType reduceType = getReduceType();
+  int32_t scatterDim = getScatterDim();
+
+  // Currently TTIR only supports the following reduce types.
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min) {
+    return emitOpError("Invalid reduction op for reduce scatter op.");
+  }
+
+  if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid dimension for reduce scatter op. Scatter dimension "
+               "must be "
+               ">= to "
+               "input tensor rank or < -input tensor rank, got scatter_dim = ")
+           << scatterDim;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
 

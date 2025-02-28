@@ -2016,6 +2016,24 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
+    let summary = "Reduce scatter operation.";
+    let description = [{
+      Reduce scatter op.
+    }];
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$scatter_dim,
+                         UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+    let hasVerifier = 1;
+}
+
 def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
     let summary = "Mesh shard operation.";
     let description = [{
