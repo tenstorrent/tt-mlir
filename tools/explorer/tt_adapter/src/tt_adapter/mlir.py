@@ -60,7 +60,9 @@ class AttrHandler:
         def decorator(handler):
             AttrHandler.ATTR_HANDLERS[attr_name] = handler
             return handler
+
         return decorator
+
 
 @AttrHandler.register_handler("tt.device")
 def parse_tt_device(attr):
@@ -528,7 +530,7 @@ class OpHandler:
                         key="rank", value=str(output_tensor.type.rank)
                     ),
                 ]
-            
+
             if hasattr(output_tensor.type, "encoding") and output_tensor.type.encoding:
                 if "ttnn_layout" in str(output_tensor.type.encoding):
                     output_attrs.extend(
@@ -544,7 +546,6 @@ class OpHandler:
                         )
                     )
             result.extend(output_attrs)
-
 
         # Add schedule as an attribute
         result.append(
@@ -606,8 +607,14 @@ def build_graph(module, perf_trace=None, memory_trace=None):
     if memory_trace is not None:
         for node in memory_trace:
             memory_data[node] = {}
-            memory_data[node]["dram"] = memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]/memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"]
-            memory_data[node]["l1"] = memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]/memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"]
+            memory_data[node]["dram"] = (
+                memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"]
+            )
+            memory_data[node]["l1"] = (
+                memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"]
+            )
 
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
@@ -629,10 +636,12 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                                 utils.add_to_dataclass(
                                     graph_builder.KeyValue(
                                         key="dram_memory",
-                                        value=str(memory_data[str(operand_index)]["dram"]),
+                                        value=str(
+                                            memory_data[str(operand_index)]["dram"]
+                                        ),
                                     ),
-                                    'display_type', 
-                                    'memory'
+                                    "display_type",
+                                    "memory",
                                 )
                             )
                         if memory_data:
@@ -640,10 +649,12 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                                 utils.add_to_dataclass(
                                     graph_builder.KeyValue(
                                         key="l1_memory",
-                                        value=str(memory_data[str(operand_index)]["l1"]),
+                                        value=str(
+                                            memory_data[str(operand_index)]["l1"]
+                                        ),
                                     ),
-                                    'display_type', 
-                                    'memory'
+                                    "display_type",
+                                    "memory",
                                 )
                             )
 
@@ -718,26 +729,30 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                                     key="rank", value=str(operand.type.rank)
                                 ),
                             ]
-                        
+
                         if memory_data:
                             output_attrs.append(
                                 utils.add_to_dataclass(
                                     graph_builder.KeyValue(
                                         key="dram_memory",
-                                        value=str(memory_data[str(operand_index)]["dram"]),
+                                        value=str(
+                                            memory_data[str(operand_index)]["dram"]
+                                        ),
                                     ),
-                                    'display_type', 
-                                    'memory'
+                                    "display_type",
+                                    "memory",
                                 )
                             )
                             output_attrs.append(
                                 utils.add_to_dataclass(
                                     graph_builder.KeyValue(
                                         key="l1_memory",
-                                        value=str(memory_data[str(operand_index)]["l1"]),
+                                        value=str(
+                                            memory_data[str(operand_index)]["l1"]
+                                        ),
                                     ),
-                                    'display_type', 
-                                    'memory'
+                                    "display_type",
+                                    "memory",
                                 )
                             )
 

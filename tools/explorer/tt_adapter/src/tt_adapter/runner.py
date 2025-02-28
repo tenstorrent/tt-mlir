@@ -140,14 +140,14 @@ class ModelRunner:
             raise FileNotFoundError(f"Performance file {op_perf_file} not found.")
 
         return pd.read_csv(op_perf_file)
-    
+
     def get_memory_usage(self, model_path):
 
-        mem_file = (
-            f"{self.model_state[model_path].model_output_dir}/run/program_0/memory_results.json"
-        )
+        mem_file = f"{self.model_state[model_path].model_output_dir}/run/program_0/memory_results.json"
         if not os.path.exists(mem_file):
-            raise FileNotFoundError(f"Memory file {mem_file} not found. Memory file may not have been created.")
+            raise FileNotFoundError(
+                f"Memory file {mem_file} not found. Memory file may not have been created."
+            )
 
         with open(mem_file, "r") as file:
             memory_trace = json.load(file)
@@ -313,7 +313,7 @@ class ModelRunner:
             "perf",
             flatbuffer_file,
             f"--artifact-dir={self._explorer_artifacts_dir}",
-            "--memory"
+            "--memory",
         ]
 
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)

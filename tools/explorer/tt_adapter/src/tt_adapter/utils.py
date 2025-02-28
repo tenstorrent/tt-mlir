@@ -115,6 +115,3 @@ def make_editable_kv(kv, editable):
     obj = asdict(kv)
     obj["editable"] = editable
     return to_dataclass(obj, "KeyValue")
-
-
-

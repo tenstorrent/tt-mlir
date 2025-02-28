@@ -114,6 +114,7 @@ def execute_command(model_path, settings):
         print(result.json())
         assert False
 
+
 def wait_for_execution_to_finish(timeout):
     for _ in range(timeout):
         try:
@@ -227,4 +228,3 @@ def test_execute_model_invalid_policy():
             {"optimizationPolicy": "Invalid Policy"},
             timeout=300,
         )
-
