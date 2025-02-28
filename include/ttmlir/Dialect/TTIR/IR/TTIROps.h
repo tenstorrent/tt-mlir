@@ -34,16 +34,15 @@ inline void getDpsEffects(
     DestinationStyleOpInterface op,
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  for (OpOperand *operand : op.getDpsInputOperands()) {
-    if (llvm::isa<MemRefType>(operand->get().getType())) {
-      effects.emplace_back(MemoryEffects::Read::get(), operand, 0 /*stage*/,
+  for (OpOperand &operand : op->getOpOperands()) {
+    if (!llvm::isa<MemRefType>(operand.get().getType())) {
+      continue;
+    }
+    if (op.isDpsInput(&operand)) {
+      effects.emplace_back(MemoryEffects::Read::get(), &operand, 0 /*stage*/,
                            true /*effectOnFullRegion*/,
                            SideEffects::DefaultResource::get());
-    }
-  }
-
-  for (OpOperand &operand : op.getDpsInitsMutable()) {
-    if (llvm::isa<MemRefType>(operand.get().getType())) {
+    } else {
       effects.emplace_back(MemoryEffects::Write::get(), &operand, 0 /*stage*/,
                            true /*effectOnFullRegion*/,
                            SideEffects::DefaultResource::get());

@@ -41,6 +41,40 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
                                                            ]>
       , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
       ], traits)> {
+
+    let extraClassDefinition = [{
+      bool $cppClass::bufferizesToMemoryRead(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        // If the operand is an input, it is a bufferized to a memory read.
+        return isDpsInput(&operand);
+      }
+
+      bool $cppClass::bufferizesToMemoryWrite(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        // If the operand is an output, it is a bufferized to a memory write.
+        return isDpsInit(&operand);
+      }
+
+      bufferization::AliasingValueList $cppClass::getAliasingValues(
+          OpOperand &operand, const bufferization::AnalysisState &) {
+        bufferization::AliasingValueList result;
+        return result;
+      }
+
+      FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+          Value value, const bufferization::BufferizationOptions &,
+          SmallVector<mlir::Value> &) {
+        auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+        return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+            .getMemref();
+      }
+
+      void $cppClass::getEffects(
+          SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+              &effects) {
+        getDpsEffects(*this, effects);
+      }
+    }];
 }
 
 def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, NoTerminator]> {
@@ -135,6 +169,23 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasVerifier = 1;
 
     let hasCanonicalizeMethod = 1;
+}
+
+def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout"> {
+    let summary = "Stream Layout op.";
+    let description = [{
+      TODO
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
