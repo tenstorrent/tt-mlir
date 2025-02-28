@@ -169,161 +169,23 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
-  mlir::RankedTensorType inputType = getInput().getType();
-  mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getOutput().getType();
-  std::optional<mlir::RankedTensorType> bias =
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  std::optional<::mlir::RankedTensorType> biasType =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
 
-  if (inputType.getRank() != 4) {
-    return emitOpError("Input must be a 4D tensor");
+  if (inputType.getRank() < 3) {
+    return emitOpError("Input must be at least a 3D tensor");
   }
-
-  if (outputType.getRank() != 4) {
-    return emitOpError("Output must be a 4D tensor");
-  }
-
   if (weightType.getRank() != 4) {
     return emitOpError("Weight must be a 4D tensor");
   }
-
-  if (bias.has_value()) {
-    if (bias->getRank() != 4) {
+  if (biasType.has_value()) {
+    if (biasType->getRank() != 4) {
       return emitOpError("Bias must be a 4D tensor");
     }
-    auto biasShape = bias->getShape();
-    if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
-      return emitOpError("Bias must only have data on the final dimenstion");
-    }
   }
-
-  uint32_t batchSize = inputType.getDimSize(0);
-  if (batchSize != outputType.getDimSize(0)) {
-    return emitOpError(
-        "First dimension of the input tensor must match the first dimension of "
-        "the output tensor, got: " +
-        std::to_string(batchSize) + " and " +
-        std::to_string(outputType.getDimSize(0)));
-  }
-
-  uint32_t inputHeight = inputType.getDimSize(1);
-  uint32_t inputWidth = inputType.getDimSize(2);
-  uint32_t inChannels = inputType.getDimSize(3);
-  uint32_t outChannels = outputType.getDimSize(3);
-
-  auto stride = ttmlir::utils::getPairOfInteger<int32_t>(getStride());
-  if (auto error = stride.takeError()) {
-    return emitOpError() << llvm::toString(std::move(error)) << " for stride";
-  }
-  if (stride->first < 1 || stride->second < 1) {
-    return emitOpError("Stride values must be greater than 0");
-  }
-
-  auto padding = ttmlir::utils::getQuadrupleOfInteger<int32_t>(getPadding());
-  if (auto error = padding.takeError()) {
-    return emitOpError() << llvm::toString(std::move(error)) << " for padding";
-  }
-
-  auto [paddingTop, paddingLeft, paddingBottom, paddingRight] = *padding;
-  if (paddingTop < 0 || paddingBottom < 0 || paddingLeft < 0 ||
-      paddingRight < 0) {
-    return emitOpError("Padding values must be greater or equal than 0");
-  }
-  int32_t verticalPadding = paddingTop + paddingBottom;
-  int32_t horizontalPadding = paddingLeft + paddingRight;
-
-  auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(getDilation());
-  if (auto error = dilation.takeError()) {
-    return emitOpError() << llvm::toString(std::move(error)) << " for dilation";
-  }
-  if (dilation->first < 1 || dilation->second < 1) {
-    return emitOpError("Dilation values must be greater than 0");
-  }
-
-  llvm::SmallVector<int32_t, 2> kernelSize = {
-      static_cast<int32_t>(weightType.getDimSize(2)),
-      static_cast<int32_t>(weightType.getDimSize(3))};
-
-  llvm::SmallVector<uint32_t, 2> paddedInputSize = {
-      inputHeight + verticalPadding, inputWidth + horizontalPadding};
-  llvm::SmallVector<uint32_t, 2> effectiveKernelSize = {
-      static_cast<uint32_t>(kernelSize[0] +
-                            (kernelSize[0] - 1) * (dilation->first - 1)),
-      static_cast<uint32_t>(kernelSize[1] +
-                            (kernelSize[1] - 1) * (dilation->second - 1))};
-  if (paddedInputSize[0] < effectiveKernelSize[0] ||
-      paddedInputSize[1] < effectiveKernelSize[1]) {
-    return emitOpError(
-        "Calculated padded input size per channel: (" +
-        std::to_string(paddedInputSize[0]) + " x " +
-        std::to_string(paddedInputSize[1]) + "). Kernel size: (" +
-        std::to_string(effectiveKernelSize[0]) + " x " +
-        std::to_string(effectiveKernelSize[1]) +
-        "). Kernel size can't be greater than actual input size");
-  }
-
-  uint32_t groups = getGroups();
-  if (inChannels % groups != 0) {
-    return emitOpError() << "Number of input channels from input tensor must "
-                            "be divisible by the number of groups. "
-                         << "Got " << inChannels << " input channels and "
-                         << groups << " groups";
-  }
-
-  if (outChannels % groups != 0) {
-    return emitOpError() << "Number of output channels from output tensor must "
-                            "be divisible by the number of groups. "
-                         << "Got " << outChannels << " output channels and "
-                         << groups << " groups";
-  }
-
-  llvm::ArrayRef<std::int64_t> kernelShape = weightType.getShape();
-  if (outChannels != kernelShape[0]) {
-    return emitOpError() << "Number of output channels from output tensor must "
-                            "match the first dimension of the weight tensor. "
-                         << "Got " << outChannels << " output channels and "
-                         << kernelShape[0] << " in the weight tensor";
-  }
-
-  if (inChannels / groups != kernelShape[1]) {
-    return emitOpError() << "Number of input channels per group must match "
-                            "the second dimension of the weight tensor. "
-                         << "Got " << (inChannels / groups)
-                         << " input channels per group and " << kernelShape[1]
-                         << " in the weight tensor";
-  }
-
-  if (bias) {
-    if (bias->getDimSize(bias->getRank() - 1) != outChannels) {
-      return emitOpError() << "Mismatch in bias tensor dimensions. "
-                           << "Bias tensor has "
-                           << bias->getDimSize(bias->getRank() - 1)
-                           << " channels, "
-                           << "but the output tensor has " << outChannels
-                           << " channels";
-    }
-  }
-
-  int32_t calculatedHOut = (inputHeight + verticalPadding -
-                            dilation->first * (kernelSize[0] - 1) - 1) /
-                               stride->first +
-                           1;
-  int32_t calculatedWOut = (inputWidth + horizontalPadding -
-                            dilation->second * (kernelSize[1] - 1) - 1) /
-                               stride->second +
-                           1;
-  if (calculatedHOut != outputType.getDimSize(1) ||
-      calculatedWOut != outputType.getDimSize(2)) {
-    return emitOpError()
-           << "Mismatch between calculated and got output height and width. "
-           << "Calculated: (" << calculatedHOut << " x " << calculatedWOut
-           << "). "
-           << "Got output tensor height and width: ("
-           << outputType.getDimSize(1) << " x " << outputType.getDimSize(2)
-           << ")";
-  }
-
   return success();
 }
 
