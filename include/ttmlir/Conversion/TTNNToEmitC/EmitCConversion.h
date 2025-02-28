@@ -417,14 +417,14 @@ struct EmitCTypeConverter<std::array<T, k>> {
   }
 
   template <typename U>
-  static std::string convert(llvm::ArrayRef<U> attr) {
+  static std::optional<std::string> convert(llvm::ArrayRef<U> attr) {
     if (attr.size() != k) {
       return {};
     }
 
     std::array<std::string, k> result;
-    for (auto element : attr) {
-      result.push_back(EmitCTypeConverter<T>::convert(element));
+    for (size_t i = 0; i < attr.size(); ++i) {
+      result[i] = EmitCTypeConverter<T>::convert(attr[i]);
     }
     return convert(result);
   }
@@ -487,11 +487,8 @@ inline std::string convert(tt::DataType attr) {
     return "::ttnn::DataType::UINT8";
   case tt::DataType::UInt16:
     return "::ttnn::DataType::UINT16";
-  // TODO(svuckovic):
-  // Add support for INT32
-  //
-  // case tt::DataType::Int32:
-  //   return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::INT32");
+  case tt::DataType::Int32:
+    return "::ttnn::DataType::INT32";
   case tt::DataType::Float16:
   case tt::DataType::BFP_Float2:
   case tt::DataType::BFP_Float4:
@@ -662,7 +659,8 @@ public:
 
   // Handles the case when source type is convertible to mlir::Attribute type
   // and source and target types are in many-to-many relationship (i.e.
-  // mlir::DenseI32ArrayAttr to ttnn::SmallVector<int32_t>).
+  // {mlir::ArrayAttr, mlir::DenseI32ArrayAttr} to {std::vector<uint32_t>,
+  // ttnn::SmallVector<int32_t>}).
   template <typename TargetTy>
   mlir::Attribute emit(mlir::Attribute attr) {
     // It's assumed that the conversion might fail, in which case the result

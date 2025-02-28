@@ -271,6 +271,68 @@ TEST_F(EmitCConversionTest, ConvertArrayRefToTtnnSmallVector) {
   EXPECT_EQ(converted, "::ttnn::SmallVector<int32_t>{1, 2, 3}");
 }
 
+TEST_F(EmitCConversionTest, ConvertArrayAttrToStdArray) {
+  mlir::ArrayAttr arrayAttr = builder.getArrayAttr({
+      builder.getI32IntegerAttr(1),
+      builder.getI32IntegerAttr(2),
+      builder.getI32IntegerAttr(3),
+  });
+  std::optional<std::string> converted =
+      EmitCTypeConverter<std::array<int32_t, 3>>::convert(arrayAttr);
+  ASSERT_TRUE(converted);
+  EXPECT_EQ(*converted, "::std::array<int32_t, 3>{1, 2, 3}");
+
+  mlir::Attribute arrayAsAttribute = arrayAttr;
+  std::optional<std::string> maybeConverted =
+      EmitCTypeConverter<std::array<int32_t, 3>>::convert(arrayAsAttribute);
+  ASSERT_TRUE(maybeConverted);
+  EXPECT_EQ(*maybeConverted, "::std::array<int32_t, 3>{1, 2, 3}");
+}
+
+TEST_F(EmitCConversionTest, ConvertDenseBoolArrayAttrToStdArray) {
+  mlir::DenseBoolArrayAttr denseArrayAttr =
+      builder.getDenseBoolArrayAttr({true, false, true});
+  std::optional<std::string> converted =
+      EmitCTypeConverter<std::array<bool, 3>>::convert(denseArrayAttr);
+  ASSERT_TRUE(converted);
+  EXPECT_EQ(*converted, "::std::array<bool, 3>{true, false, true}");
+}
+
+TEST_F(EmitCConversionTest, ConvertDenseI32ArrayAttrToStdArray) {
+  mlir::DenseI32ArrayAttr denseArrayAttr =
+      builder.getDenseI32ArrayAttr({1, 2, 3});
+  std::optional<std::string> converted =
+      EmitCTypeConverter<std::array<int32_t, 3>>::convert(denseArrayAttr);
+  ASSERT_TRUE(converted);
+  EXPECT_EQ(*converted, "::std::array<int32_t, 3>{1, 2, 3}");
+}
+
+TEST_F(EmitCConversionTest, ConvertDenseF32ArrayAttrToStdArray) {
+  mlir::DenseF32ArrayAttr denseArrayAttr =
+      builder.getDenseF32ArrayAttr({1.0, 2.0, 3.0});
+  std::optional<std::string> converted =
+      EmitCTypeConverter<std::array<float, 3>>::convert(denseArrayAttr);
+  ASSERT_TRUE(converted);
+  EXPECT_EQ(*converted, "::std::array<float, 3>{1.000000, 2.000000, 3.000000}");
+}
+
+TEST_F(EmitCConversionTest, ConvertDenseIntElementsAttrToStdArray) {
+  mlir::DenseIntElementsAttr denseElementsAttr =
+      builder.getI32TensorAttr({1, 2, 3});
+  std::optional<std::string> converted =
+      EmitCTypeConverter<std::array<int32_t, 3>>::convert(denseElementsAttr);
+  ASSERT_TRUE(converted);
+  EXPECT_EQ(*converted, "::std::array<int32_t, 3>{1, 2, 3}");
+}
+
+TEST_F(EmitCConversionTest, ConvertArrayRefToStdArray) {
+  std::vector<uint32_t> vec = {1, 2, 3};
+  std::optional<std::string> converted =
+      EmitCTypeConverter<std::array<int32_t, 3>>::convert(llvm::ArrayRef(vec));
+  ASSERT_TRUE(converted);
+  EXPECT_EQ(*converted, "::std::array<int32_t, 3>{1, 2, 3}");
+}
+
 } // namespace ttnn_to_emitc
 } // namespace tt
 } // namespace mlir
