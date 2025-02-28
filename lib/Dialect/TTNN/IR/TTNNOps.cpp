@@ -57,7 +57,7 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
   mlir::RankedTensorType inputType = getInput().getType();
   mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getOutput().getType();
+  mlir::RankedTensorType outputType = getResult().getType();
   std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
@@ -256,7 +256,7 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::ConvTranspose2dOp::verify() {
   mlir::RankedTensorType inputType = getInput().getType();
   mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getOutput().getType();
+  mlir::RankedTensorType outputType = getResult().getType();
   std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
@@ -749,7 +749,7 @@ namespace mlir::tt::ttnn {
   ::mlir::ArrayAttr begins = getBeginsAttr();
   ::mlir::ArrayAttr ends = getEndsAttr();
   ::mlir::ArrayAttr stepAttr = getStepAttr();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // Verify that the input is at least 1D tensor
   if (inputType.getRank() < 1) {
@@ -936,7 +936,7 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType inputGradType = getInGradient().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // inputType checks:
   // 1. Last dimension must be divisible by TILE_WIDTH.
@@ -1149,7 +1149,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType inputBType = getB().getType();
   std::optional<::mlir::RankedTensorType> biasType =
       getBias() ? std::make_optional(getBias().getType()) : std::nullopt;
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
@@ -1298,7 +1298,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 ::mlir::LogicalResult mlir::tt::ttnn::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());

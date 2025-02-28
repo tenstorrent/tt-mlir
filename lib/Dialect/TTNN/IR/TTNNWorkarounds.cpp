@@ -102,7 +102,6 @@ TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds() {
   rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
@@ -127,7 +126,6 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
       TTNNOperandWorkarounds(DataType::BFloat16);
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
       .addInputOperandWorkaround(inputRowMajorInt32Workaround)
-      .addInputOperandWorkaround(bf16Workaround)
       .addInputOperandWorkaround(bf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
 }
@@ -154,7 +152,6 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds() {
       TTNNOperandWorkarounds(DataType::BFloat16);
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
       .addInputOperandWorkaround(inputRowMajorInt32Workaround)
-      .addInputOperandWorkaround(bf16Workaround)
       .addInputOperandWorkaround(bf16Workaround)
       .addInputOperandWorkaround(bf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
@@ -190,7 +187,6 @@ TTNNOperandsWorkaroundsFactory::createCumSumOpOperandsWorkarounds(
           ? TTNNOperandWorkarounds(DataType::Float32)
           : TTNNOperandWorkarounds();
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(typeWorkaround)
       .addInputOperandWorkaround(typeWorkaround)
       .addOutputOperandWorkaround(typeWorkaround);
 }
@@ -324,7 +320,6 @@ TTNNOperandsWorkaroundsFactory::createSliceOpOperandsWorkarounds(
     rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
