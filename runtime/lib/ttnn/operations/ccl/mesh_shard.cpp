@@ -98,10 +98,11 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   // pre-sharded by frontend. Thus, no sharding is required, but need to makes
   // sure if the tensor is multi-device host tensor.
   if (shardType == ::tt::target::ttnn::MeshShardType::Manual) {
-    LOG_ASSERT(
-        input.storage_type() == ::tt::tt_metal::StorageType::MULTI_DEVICE,
-        "Input of mesh_shard with manual sharding must be MULTIDEVICE. id:",
-        op->in()->global_id());
+    LOG_ASSERT(input.storage_type() ==
+                   ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST,
+               "Input of mesh_shard with manual sharding must be MULTI DEVICE "
+               "HOST Storage. id:",
+               op->in()->global_id());
     tensorPool.insert_or_assign(op->out()->global_id(), input);
     return;
   }
