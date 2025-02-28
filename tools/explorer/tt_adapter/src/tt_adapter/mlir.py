@@ -394,6 +394,7 @@ def parse_ttnn_ttnn_layout(attr):
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
     memory_layout = layout.tensor_memory_layout_as_int
+
     if memory_layout is not None:
         result.append(
             utils.make_editable_kv(
@@ -462,6 +463,7 @@ def parse_ttnn_ttnn_layout(attr):
             },
         )
     )
+
     return result
 
 
@@ -528,6 +530,7 @@ class OpHandler:
                         key="rank", value=str(output_tensor.type.rank)
                     ),
                 ]
+
             if hasattr(output_tensor.type, "encoding") and output_tensor.type.encoding:
                 if "ttnn_layout" in str(output_tensor.type.encoding):
                     output_attrs.extend(
@@ -549,15 +552,17 @@ class OpHandler:
             graph_builder.KeyValue(key="schedule", value=str(OpHandler.schedule))
         )
         OpHandler.schedule += 1
-
         return result
 
-    def make_graph_node(self):
+    def make_graph_node(self, extra_attrs=None):
+        attrs = self.get_attributes()
+        if extra_attrs is not None:
+            attrs.extend(extra_attrs)
         return graph_builder.GraphNode(
             id=self.id,
             label=str(self.op.name),
             namespace=self.get_namespace(),
-            attrs=self.get_attributes(),
+            attrs=attrs,
         )
 
     def make_constant_node(self, constant_name):
@@ -580,7 +585,7 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(module, perf_trace=None):
+def build_graph(module, perf_trace=None, memory_trace=None):
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id="tt-graph")
 
@@ -598,9 +603,23 @@ def build_graph(module, perf_trace=None):
             if loc:
                 loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
 
+    memory_data = {}
+    if memory_trace is not None:
+        for node in memory_trace:
+            memory_data[node] = {}
+            memory_data[node]["dram"] = (
+                memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"]
+            )
+            memory_data[node]["l1"] = (
+                memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"]
+            )
+
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
     module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+
     # Add module attributes to the graph as "namespace attributes"
     group_node_attrs = {}
     group_node_attrs[module_op.get_namespace()] = module_attrs
@@ -610,9 +629,38 @@ def build_graph(module, perf_trace=None):
         for region in op.regions:
             for block in region.blocks:
                 for op in block.operations:
+                    extra_attrs = []
+                    for operand_index, operand in enumerate(op.operands):
+                        if memory_data:
+                            extra_attrs.append(
+                                utils.add_to_dataclass(
+                                    graph_builder.KeyValue(
+                                        key="dram_memory",
+                                        value=str(
+                                            memory_data[str(operand_index)]["dram"]
+                                        ),
+                                    ),
+                                    "display_type",
+                                    "memory",
+                                )
+                            )
+                        if memory_data:
+                            extra_attrs.append(
+                                utils.add_to_dataclass(
+                                    graph_builder.KeyValue(
+                                        key="l1_memory",
+                                        value=str(
+                                            memory_data[str(operand_index)]["l1"]
+                                        ),
+                                    ),
+                                    "display_type",
+                                    "memory",
+                                )
+                            )
+
                     # Create all the nodes and constants in the first pass.
                     operation = OpHandler(op)
-                    graph_node = operation.make_graph_node()
+                    graph_node = operation.make_graph_node(extra_attrs)
 
                     if (
                         operation.named_location in loc_to_perf
@@ -681,6 +729,33 @@ def build_graph(module, perf_trace=None):
                                     key="rank", value=str(operand.type.rank)
                                 ),
                             ]
+
+                        if memory_data:
+                            output_attrs.append(
+                                utils.add_to_dataclass(
+                                    graph_builder.KeyValue(
+                                        key="dram_memory",
+                                        value=str(
+                                            memory_data[str(operand_index)]["dram"]
+                                        ),
+                                    ),
+                                    "display_type",
+                                    "memory",
+                                )
+                            )
+                            output_attrs.append(
+                                utils.add_to_dataclass(
+                                    graph_builder.KeyValue(
+                                        key="l1_memory",
+                                        value=str(
+                                            memory_data[str(operand_index)]["l1"]
+                                        ),
+                                    ),
+                                    "display_type",
+                                    "memory",
+                                )
+                            )
+
                         if hasattr(operand.type, "encoding") and operand.type.encoding:
                             if "ttnn_layout" in str(operand.type.encoding):
                                 output_attrs.extend(
@@ -695,6 +770,7 @@ def build_graph(module, perf_trace=None):
                                         operand.type.encoding.get_named("tt.layout")
                                     )
                                 )
+
                         source_node.outputsMetadata.append(
                             graph_builder.MetadataItem(
                                 id=str(output_connections[source_node.id]),
