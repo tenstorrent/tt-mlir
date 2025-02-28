@@ -579,6 +579,9 @@ public:
                    mlir::ConversionPatternRewriter &rewriter)
       : op{op}, adaptor{adaptor}, rewriter{rewriter} {}
 
+  EmitCTTNNEmitter(const EmitCTTNNEmitter &) = delete;
+  EmitCTTNNEmitter &operator=(const EmitCTTNNEmitter &) = delete;
+
   mlir::Attribute emit(tt::ttnn::ShapeAttr attr) {
     return rewriter.getAttr<emitc::OpaqueAttr>(convert(attr));
   }
