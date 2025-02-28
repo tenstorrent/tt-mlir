@@ -8,6 +8,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "gtest/gtest.h"
+#include <cstdint>
 
 namespace mlir {
 namespace tt {
@@ -331,6 +332,74 @@ TEST_F(EmitCConversionTest, ConvertArrayRefToStdArray) {
       EmitCTypeConverter<std::array<int32_t, 3>>::convert(llvm::ArrayRef(vec));
   ASSERT_TRUE(converted);
   EXPECT_EQ(*converted, "::std::array<int32_t, 3>{1, 2, 3}");
+}
+
+TEST_F(EmitCConversionTest, ConvertStdVariantPrimitiveTypes) {
+  using TargetTy = std::variant<int32_t, float>;
+
+  mlir::IntegerAttr int32Attr = builder.getI32IntegerAttr(42);
+  std::string converted = EmitCTypeConverter<TargetTy>::convert(int32Attr);
+  EXPECT_EQ(converted, "42");
+
+  mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
+  converted = EmitCTypeConverter<TargetTy>::convert(floatAttr);
+  EXPECT_EQ(converted, "42.000000");
+
+  mlir::Attribute int32AsAttribute = int32Attr;
+  std::optional<std::string> maybeConverted =
+      EmitCTypeConverter<TargetTy>::convert(int32AsAttribute);
+  ASSERT_TRUE(maybeConverted);
+  EXPECT_EQ(*maybeConverted, "42");
+
+  mlir::Attribute floatAsAttribute = floatAttr;
+  maybeConverted = EmitCTypeConverter<TargetTy>::convert(floatAsAttribute);
+  ASSERT_TRUE(maybeConverted);
+  EXPECT_EQ(*maybeConverted, "42.000000");
+}
+
+TEST_F(EmitCConversionTest, ConvertStdVariantCompoundTypes) {
+  using TargetTy = std::variant<std::vector<int32_t>, float>;
+
+  mlir::ArrayAttr arrayAttr = builder.getArrayAttr({
+      builder.getI32IntegerAttr(1),
+      builder.getI32IntegerAttr(2),
+      builder.getI32IntegerAttr(3),
+  });
+  std::string converted = EmitCTypeConverter<TargetTy>::convert(arrayAttr);
+  EXPECT_EQ(converted, "::std::vector<int32_t>{1, 2, 3}");
+
+  mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
+  converted = EmitCTypeConverter<TargetTy>::convert(floatAttr);
+  EXPECT_EQ(converted, "42.000000");
+}
+
+TEST_F(EmitCConversionTest, ConvertStdVariantMultiLevelCompoundTypes) {
+  using TargetTy = std::variant<std::vector<std::array<int32_t, 3>>,
+                                std::variant<int32_t, float>>;
+  mlir::ArrayAttr arrayAttr = builder.getArrayAttr({
+      builder.getArrayAttr({
+          builder.getI32IntegerAttr(1),
+          builder.getI32IntegerAttr(2),
+          builder.getI32IntegerAttr(3),
+      }),
+      builder.getArrayAttr({
+          builder.getI32IntegerAttr(4),
+          builder.getI32IntegerAttr(5),
+          builder.getI32IntegerAttr(6),
+      }),
+  });
+  std::string converted = EmitCTypeConverter<TargetTy>::convert(arrayAttr);
+  EXPECT_EQ(converted,
+            "::std::vector<::std::array<int32_t, 3>>{::std::array<int32_t, "
+            "3>{1, 2, 3}, ::std::array<int32_t, 3>{4, 5, 6}}");
+
+  // mlir::FloatAttr floatAttr = builder.getF32FloatAttr(42.0);
+  // converted = EmitCTypeConverter<TargetTy>::convert(floatAttr);
+  // EXPECT_EQ(converted, "42.000000");
+
+  mlir::IntegerAttr int32Attr = builder.getI32IntegerAttr(42);
+  converted = EmitCTypeConverter<TargetTy>::convert(int32Attr);
+  EXPECT_EQ(converted, "42");
 }
 
 } // namespace ttnn_to_emitc
