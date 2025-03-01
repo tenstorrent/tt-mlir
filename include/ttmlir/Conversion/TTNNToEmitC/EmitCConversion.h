@@ -30,6 +30,8 @@ template <typename T>
 struct SmallVector {
   using value_type = T;
 };
+
+struct IDevice;
 } // namespace ttnn
 
 namespace mlir {
@@ -104,6 +106,11 @@ template <typename T>
 struct TypeName<::ttnn::SmallVector<T>> {
   inline static const std::string value =
       "::ttnn::SmallVector<" + TypeNameV<T> + ">";
+};
+
+template <>
+struct TypeName<::ttnn::IDevice> {
+  inline static const std::string value = "::ttnn::IDevice";
 };
 
 template <typename T, typename Enable = void>
@@ -640,6 +647,16 @@ public:
     return rewriter.getIndexAttr(operand->getOperandNumber());
   }
 
+  template <typename TargetTy = void>
+  mlir::Attribute emit(std::nullptr_t) {
+    if constexpr (std::is_void_v<TargetTy>) {
+      return rewriter.getType<emitc::OpaqueAttr>("nullptr");
+    } else {
+      return rewriter.getType<emitc::OpaqueAttr>(
+          "static_cast<" + TypeNameV<TargetTy> + " *>(nullptr)");
+    }
+  }
+
   // Handles the case when source type is convertible to mlir::Attribute type
   // and source and target types are in many-to-many relationship (i.e.
   // {mlir::ArrayAttr, mlir::DenseI32ArrayAttr} to {std::vector<uint32_t>,
@@ -661,7 +678,8 @@ public:
   // appropriate C++ type.
   // TODO (azecevic): See if we can simplify the condition for this overload
   // instantiation.
-  template <typename SourceTy, typename TargetTy = SourceTy>
+  template <typename SourceTy, typename TargetTy = std::remove_reference_t<
+                                   std::remove_cv_t<SourceTy>>>
   std::enable_if_t<!std::is_convertible_v<SourceTy, mlir::Attribute> &&
                        !std::is_convertible_v<SourceTy, mlir::Value>,
                    mlir::Attribute>
@@ -695,21 +713,22 @@ private:
   ConversionPatternRewriter &rewriter;
 };
 
+} // namespace ttnn_to_emitc
+} // namespace tt
+
 // Helper function that serves as an alternative to the
 // `emit<std::variant<...>>` member function of the `EmitCTTNNEmitter` class.
 // For example, instead of calling `emit<std::variant<int32_t, float>>(attr)`,
 // one can call `emit<int32_t>(attr) | emit<float>(attr)`.
 inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {
-  static const mlir::Attribute nulloptAttr =
-      emitc::OpaqueAttr::get(lhs.getContext(), TypeNameV<std::nullopt_t>);
+  static const mlir::Attribute nulloptAttr = emitc::OpaqueAttr::get(
+      lhs.getContext(), tt::ttnn_to_emitc::TypeNameV<std::nullopt_t>);
   if (!lhs || lhs == nulloptAttr) {
     return rhs;
   }
   return lhs;
 }
 
-} // namespace ttnn_to_emitc
-} // namespace tt
 } // namespace mlir
 
 #endif // TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
