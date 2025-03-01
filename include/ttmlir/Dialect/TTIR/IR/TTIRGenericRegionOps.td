@@ -289,26 +289,31 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
 // TTIR Generic Region Indexing Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_IterIndexOp : TTIR_GenericRegionOp<"iter_index", [Pure]> {
-    let summary = "Iter Index op.";
-    let description = [{
-      Return the index of the current element in the iteration for the given generic op dimension.
-    }];
-
+class TTIR_IndexOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic, [Pure]> {
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
 }
 
-def TTIR_GridIndexOp : TTIR_GenericRegionOp<"grid_index", [Pure]> {
+def TTIR_IterIndexOp : TTIR_IndexOp<"iter_index"> {
+    let summary = "Iter Index op.";
+    let description = [{
+      Return the index of the current element in the iteration for the given generic op dimension.
+    }];
+}
+
+def TTIR_GridIndexOp : TTIR_IndexOp<"grid_index"> {
     let summary = "Grid Index op.";
     let description = [{
       Return the index of the this core's coordinate for the given grid dimension.
     }];
+}
 
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
-    let results = (outs Index:$result);
-    let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+def TTIR_AbsIndexOp : TTIR_IndexOp<"abs_index"> {
+    let summary = "Absolute Index op.";
+    let description = [{
+      Return the index of (grid_index * shard_size + iter_index) for the given generic op dimension.
+    }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD
