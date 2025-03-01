@@ -984,18 +984,18 @@ public:
 
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto paddingAttr =
         attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
     if (auto error = paddingAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[1] ||
-        paddingArrayRef[2] != paddingArrayRef[3]) {
+    if (paddingArrayRef[0] != paddingArrayRef[2] ||
+        paddingArrayRef[1] != paddingArrayRef[3]) {
       return rewriter.notifyMatchFailure(
           op,
           "TTNN only supports padding height/width attributes. Thus, "
@@ -1010,10 +1010,14 @@ public:
     auto dilationAttr =
         attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
     if (auto error = dilationAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
+        rewriter);
 
     // Convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C)
@@ -1028,7 +1032,7 @@ public:
                                            outputTy.getEncoding());
 
     ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
+        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
