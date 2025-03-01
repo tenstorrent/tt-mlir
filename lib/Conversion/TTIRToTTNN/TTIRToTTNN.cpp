@@ -1015,6 +1015,10 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
+    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
+      mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
+      rewriter);
+
     // Convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C)
     llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
@@ -1028,7 +1032,7 @@ public:
                                            outputTy.getEncoding());
 
     ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
+        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
