@@ -178,11 +178,11 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout"> {
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                         AnyRankedTensorOrMemRef:$output);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
+                         AnyRankedTensorOrMemRef:$storage);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      MutableOperandRange getDpsInitsMutable() { return getStorageMutable(); }
     }];
 
     let hasVerifier = 1;

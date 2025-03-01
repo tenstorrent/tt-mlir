@@ -1576,20 +1576,14 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
 
 // StreamLayoutOp verification
 mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
-  return verifyLayoutOp(*this, getInput().getType(), getOutput().getType(),
+  return verifyLayoutOp(*this, getInput().getType(), getStorage().getType(),
                         false /*allowFormatChange*/);
 }
 
 mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options) {
-  if (getNumResults() == 0) {
-    return failure();
-  }
-
-  assert(getNumResults() == 1 && "StreamLayoutOp should have exactly one result");
-
-  if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
+  if (!mlir::isa<::mlir::RankedTensorType>(getResult().getType())) {
     return failure();
   }
 
@@ -1599,16 +1593,17 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
     return maybeInput;
   }
 
-  auto maybeOutput =
-      mlir::bufferization::getBuffer(rewriter, getOutput(), options);
-  if (failed(maybeOutput)) {
-    return maybeOutput;
+  auto maybeStorage =
+      mlir::bufferization::getBuffer(rewriter, getStorage(), options);
+  if (failed(maybeStorage)) {
+    return maybeStorage;
   }
 
-  rewriter.create<::mlir::tt::ttir::StreamLayoutOp>(getLoc(), TypeRange(),
-                                                *maybeInput, *maybeOutput);
-  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
-                                                     *maybeOutput);
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  Value result = rewriter.create<::mlir::tt::ttir::StreamLayoutOp>(
+      getLoc(), *getBufferType(getResult(), options, invocationStack),
+      *maybeInput, *maybeStorage);
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, result);
   return success();
 }
 
