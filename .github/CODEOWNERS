@@ -1,37 +1,129 @@
-*.cmake @nsmithtt @sdjordjevicTT
-*.fbs @tapspatel @nsmithtt
-*.txt @nsmithtt @sdjordjevicTT
+# Misc
+/env/ @nsmithtt
+*.fbs @jnie-TT @nsmithtt
+/.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
+
+# CI
+/.github/ @vmilosevic @jmcgrathTT
+
+# Build
+*.cmake @nsmithtt @sdjordjevicTT @vwellsTT
+*.txt @nsmithtt @sdjordjevicTT @vwellsTT
+
+# Docs
 *.md @nsmithtt
 /docs/ @nsmithtt
-/env/ @nsmithtt
-/.github/ @vmilosevic @tapspatel
-/.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
+
+# tt-mlir Bindings
+/include/ttmlir/Bindings/ @ctodTT @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
+/include/ttmlir-c/ @ctodTT @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
+/lib/CAPI/ @ctodTT @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
+/python/ @ctodTT @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
+
+# StableHLO Conversion
+/include/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT
+/include/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT
+/lib/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT
+/test/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT
+/test/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT
+
+# Linalg Conversion
+/include/ttmlir/Conversion/TTIRToLinalg/ @mrakitaTT @ctodTT @nsmithTT
+/lib/Conversion/TTIRToLinalg/ @mrakitaTT @ctodTT @nsmithTT
+/test/ttmlir/Conversion/TTIRToLinalg/ @mrakitaTT @ctodTT @nsmithTT
+
+# Tosa Conversion
+/include/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT
+/lib/Conversion/TosaToTTIR/ @mrakitaTT
+/test/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT
+
+# TTNN Conversions
+/include/ttmlir/Conversion/TTIRToTTIRDecomposition/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 /include/ttmlir/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
 /include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/lib/Conversion/TTIRToTTIRDecomposition/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/lib/Conversion/TTIRToTTNN/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/lib/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/test/ttmlir/Conversion/TTIRToTTIRDecomposition/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/test/ttmlir/Conversion/TTIRToTTNN/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/test/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+
+# Metal Conversions
+/include/ttmlir/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
+/include/ttmlir/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
+/lib/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
+/lib/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
+/test/ttmlir/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
+
+# LLVM Dialect
+/include/ttmlir/Dialect/LLVM/ @vwellsTT
+/lib/Dialect/LLVM/ @vwellsTT
+/test/ttmlir/Dialect/LLVM/ @vwellsTT
+
+# TT Dialect
 /include/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
-/include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/test/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+
+# TTIR Dialect
+/include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/lib/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/test/ttmlir/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+
+# Metal Dialects
+/include/ttmlir/Dialect/TTIR/IR/TTIRGeneric* @nsmithtt @vroubtsovTT
 /include/ttmlir/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
 /include/ttmlir/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
-/include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/include/ttmlir/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/lib/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/lib/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
-/lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
-/lib/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+/lib/Dialect/TTIR/Transforms/ @nsmithtt @vroubtsovTT
 /lib/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
 /lib/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
+/test/ttmlir/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
+/test/ttmlir/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
+
+# TTNN Dialects
+/include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 /lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @jnie-TT @azecevicTT
+/test/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+
+# TTNN Optimizer
+/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
+/include/ttmlir/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
+/include/ttmlir/Scheduler/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /lib/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /lib/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/python/ @nsmithtt @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
-/python/test_infra/ @nsmithtt @tapspatel @vprajapati-tt
-/runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
-/runtime/tools/ @tapspatel @nsmithtt
+/lib/Scheduler/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /test/ttmlir/Dialect/TTNN/optimizer/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /test/ttmlir/Silicon/TTNN/optimizer/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 /test/unittests/Optimizer @odjuricicTT @tt-mpantic @sdjordjevicTT
 /test/unittests/OpModel @odjuricicTT @tt-mpantic @sdjordjevicTT
-/tools/ @svuckovicTT @mtopalovicTT
+/test/unittests/TestScheduler/ @odjuricicTT @tt-mpantic @sdjordjevicTT
+
+# LLVM Target
+/include/ttmlir/Target/LLVM/ @vwellsTT
+/lib/Target/LLVM/ @vwellsTT
+
+# Metal Target
+/include/ttmlir/Target/TTKernel/ @nsmithtt @vroubtsovTT
+/include/ttmlir/Target/TTMetal/ @nsmithtt @vroubtsovTT
+/lib/Target/TTKernel/ @nsmithtt @vroubtsovTT
+/lib/Target/TTMetal/ @nsmithtt @vroubtsovTT
+
+# TTNN Target
+/include/ttmlir/Target/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/lib/Target/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+
+# Runtime
+/runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
+/runtime/tools/ @tapspatel @ctodTT
+
+# TTIRBuilder
+/python/test_infra @ctodTT
+
+# tt-explorer
 /tools/explorer/ @odjuricicTT @tt-mpantic @sdjordjevicTT @vprajapati-tt @vcanicTT
+
+# ttnn-standalone
 /tools/ttnn-standalone @svuckovicTT @mtopalovicTT @sdjordjevicTT @azecevicTT @jserbedzijaTT
+
+# Scripts
+/tools/scripts/ @nsmithtt @ddilbazTT
