@@ -11,6 +11,7 @@ include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
+include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 
 class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRegionOpTrait, TTIR_GenericParent]> :
@@ -178,6 +179,7 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionOp<"tile_untilize_block",
 def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   ]> {
     let summary = "TTIR DMA Op";
     let description = [{

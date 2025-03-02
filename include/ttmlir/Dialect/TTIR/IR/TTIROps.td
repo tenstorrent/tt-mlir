@@ -171,14 +171,33 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasCanonicalizeMethod = 1;
 }
 
-def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout"> {
+def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
+  [DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
     let summary = "Stream Layout op.";
     let description = [{
-      TODO
+      StreamLayout operation, similar to the ToLayout operation, but with the difference that this op is not
+      eagerly evaluated and is instead used as a means for defining a stream. The primary usecases include,
+      to enable streaming a large tensor out of dram via a small L1 buffer and also as a means for forming
+      reduce or gather multicast operations. A stream definition includes:
+
+      - The tensor to be streamed.
+      - The storage buffer to be used for streaming.
+      - Backing memory for a list of DMA transactions to be filled in by the backend.
+      - A result, which is also able to take a view over the input, i.e. same semantics as the ViewLayout op.
+
+      Additional constraints:
+      - It is not capable of changing the data type nor the memory space of the tensor.
+
+      ```llvm
+      %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
+      %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
+      %stream = "ttir.stream_layout"(%arg0, %alloc_0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3)
+      ```
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                         AnyRankedTensorOrMemRef:$storage);
+                         AnyRankedTensorOrMemRef:$storage,
+                         Optional<AnyNon0RankedMemRef>:$dmaList);
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let extraClassDeclaration = [{
@@ -191,6 +210,7 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout"> {
 def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
   [ Pure
   , TTIROpInterface
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
                                                        , "bufferizesToMemoryWrite"
                                                        , "bufferize"
@@ -201,13 +221,12 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
     let summary = "View Layout op.";
     let description = [{
       ViewLayout operation, nearly identical to ToLayout operation, but with the difference that this op is not
-      eagerly evaluated.  It is also not capable of changing the data type / tile type of the tensor.
+      eagerly evaluated. Its primary usecase is to allow reinterpreting the layout of a tensor without actually
+      moving the data.
 
-      It's primary usecase is to allow generic ops to take a view of some remote memory as a means of forming a
-      stream.  This is useful for streaming data in small chunks, when a tensor is too large to wholly fit in L1
-      memory space.
-
-      All ViewLayout ops can trivially be converted to ToLayout ops.
+      Additional notes/constraints:
+      - It is not capable of changing the data type nor the memory space of the tensor.
+      - All ViewLayout ops can trivially be converted to ToLayout ops.
 
       ```llvm
       #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>

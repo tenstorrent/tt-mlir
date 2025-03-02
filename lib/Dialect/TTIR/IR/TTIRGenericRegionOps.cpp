@@ -84,6 +84,11 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
   return success();
 }
 
+void mlir::tt::ttir::DMAOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "tx");
+}
+
 void mlir::tt::ttir::DMAOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
