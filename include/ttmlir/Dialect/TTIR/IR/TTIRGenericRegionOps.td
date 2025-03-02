@@ -119,6 +119,15 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileMatmulOp : TTIR_GenericRegionOp<"tile_matmul">{
+    let summary = "TTIR Tile Matmul Op";
+    let description = [{
+    }];
+
+    let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$accum);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
   [DestinationStyleOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "TTIR Tile Matmul Block Op";
