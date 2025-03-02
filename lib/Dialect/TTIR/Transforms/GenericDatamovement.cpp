@@ -86,7 +86,13 @@ public:
       IteratorType iteratorType =
           mlir::cast<IteratorTypeAttr>(iteratorTypes[dimPosition]).getValue();
       mcastIterators.push_back(iteratorType);
-      allParallel &= iteratorType == IteratorType::Parallel;
+
+      // If the grid dimension is 1, we can special case it and always safely
+      // fallback to mode parallel.  Reduction implies multicast, and while
+      // it'll be functionally correct, a multicast with a single core to itself
+      // is a redundant copy and more complicated than necessary.
+      bool singleCore = grid.getShape()[dim] == 1;
+      allParallel &= (iteratorType == IteratorType::Parallel) || singleCore;
     }
 
     return allParallel ? SmallVector<IteratorType>() : mcastIterators;
