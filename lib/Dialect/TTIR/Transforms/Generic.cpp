@@ -94,24 +94,39 @@ std::pair<ttir::GenericOp, Block *> buildGenericOp(GenericRegionOp op,
 
 template <typename TileOpTy>
 void buildLinalgGeneric(::mlir::Location loc, ::mlir::Block *block,
-                        mlir::OpBuilder &opBuilder) {
+                        mlir::OpBuilder &opBuilder,
+                        mlir::SmallVector<mlir::AffineMap> indexingMaps = {}) {
   auto lhs = block->getArgument(0);
   auto rhs = block->getArgument(1);
   auto out = block->getArgument(2);
 
   using IteratorType = mlir::utils::IteratorType;
   auto parallel = IteratorType::parallel;
+  auto reduction = IteratorType::reduction;
   auto parMap =
       mlir::AffineMap::getMultiDimIdentityMap(2, opBuilder.getContext());
   mlir::SmallVector<IteratorType> genericIterators = {parallel, parallel};
   mlir::SmallVector<mlir::AffineMap> parMaps = {parMap, parMap, parMap};
+  ArrayRef<mlir::AffineMap> indexingMapsAttr = parMaps;
+
+  if constexpr (std::is_same_v<TileOpTy, TileMatmulOp>) {
+    genericIterators = {parallel, parallel, reduction};
+    indexingMapsAttr = indexingMaps;
+  }
+
   opBuilder.create<mlir::linalg::GenericOp>(
-      loc, mlir::ValueRange({lhs, rhs}), mlir::ValueRange({out}), parMaps,
-      genericIterators,
+      loc, mlir::ValueRange({lhs, rhs}), mlir::ValueRange({out}),
+      indexingMapsAttr, genericIterators,
       [&](mlir::OpBuilder &nestedBuilder, mlir::Location nestedLoc,
           mlir::ValueRange args) {
-        mlir::Value result = nestedBuilder.create<TileOpTy>(
-            loc, args[0].getType(), args[0], args[1]);
+        mlir::Value result;
+        if constexpr (std::is_same_v<TileOpTy, TileMatmulOp>) {
+          result = nestedBuilder.create<TileOpTy>(loc, args[0].getType(),
+                                                  args[0], args[1], args[2]);
+        } else {
+          result = nestedBuilder.create<TileOpTy>(loc, args[0].getType(),
+                                                  args[0], args[1]);
+        }
         nestedBuilder.create<mlir::linalg::YieldOp>(nestedLoc, result);
       });
 }
@@ -148,9 +163,13 @@ public:
 
     auto [genericOp, block] = buildGenericOp(op, rewriter);
     OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
-    blockBuilder.create<ttir::TileMatmulBlockOp>(
-        op->getLoc(), block->getArgument(0), block->getArgument(1),
-        block->getArgument(2));
+    // blockBuilder.create<ttir::TileMatmulBlockOp>(
+    //     op->getLoc(), block->getArgument(0), block->getArgument(1),
+    //     block->getArgument(2));
+    buildLinalgGeneric<TileMatmulOp>(
+        op->getLoc(), block, blockBuilder,
+        llvm::to_vector(genericOp.getIndexingMaps()
+                            .template getAsValueRange<AffineMapAttr>()));
     rewriter.replaceOp(op, genericOp);
     return success();
   }
