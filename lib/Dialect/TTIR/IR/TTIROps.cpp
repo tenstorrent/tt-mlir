@@ -2779,6 +2779,16 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
                            "shape of the corresponding operand");
       }
     }
+
+    auto additionalArguments =
+        region.getArguments().drop_front(operandTypes.size());
+    for (BlockArgument arg : additionalArguments) {
+      bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
+      if (!supportedType) {
+        return emitOpError(
+            "Additional GenericOp region arguments must be of SemaphoreType");
+      }
+    }
   }
 
   return success();
@@ -3091,4 +3101,43 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// YieldOp / AwaitOp
+//===----------------------------------------------------------------------===//
+
+static bool valueInBlockArguments(mlir::Value value, mlir::Block *block) {
+  return llvm::any_of(block->getArguments(),
+                      [&](const mlir::BlockArgument &blockArgument) {
+                        return blockArgument == value;
+                      });
+}
+
+static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
+  while (auto memrefCastOp =
+             value.getDefiningOp<::mlir::memref::CollapseShapeOp>()) {
+    value = memrefCastOp.getOperand();
+  }
+  return value;
+}
+
+static ::mlir::LogicalResult operandsInBlockArguments(mlir::Operation *op,
+                                                      mlir::Block *block) {
+  for (mlir::OpOperand &operand : op->getOpOperands()) {
+    mlir::Value value = recurseThroughMemrefCollapse(operand.get());
+    if (!valueInBlockArguments(value, block)) {
+      return op->emitOpError() << "operand[" << operand.getOperandNumber()
+                               << "] not in block arguments";
+    }
+  }
+  return ::mlir::success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
+  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
+}
+
+::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
+  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
 }
