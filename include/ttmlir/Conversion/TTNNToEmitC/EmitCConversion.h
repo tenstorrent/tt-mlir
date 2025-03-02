@@ -699,12 +699,13 @@ public:
   template <typename OpConversionPatternTy>
   emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
                                 llvm::ArrayRef<mlir::Attribute> args) {
+    auto resultTypes = llvm::to_vector(
+        llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
+          return opConversionPattern.getTypeConverter()->convertType(type);
+        }));
     return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op,
-        opConversionPattern.getTypeConverter()->convertType(
-            op->getResult(0).getType()),
-        opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
-        nullptr, adaptor.getOperands());
+        op, resultTypes, opConversionPattern.convertOpName(op),
+        rewriter.getArrayAttr(args), nullptr, adaptor.getOperands());
   }
 
 private:
