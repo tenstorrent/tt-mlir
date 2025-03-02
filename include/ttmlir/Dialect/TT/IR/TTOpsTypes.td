@@ -373,6 +373,7 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
+      MemRefType getBufferType() const;
   }];
 }
 

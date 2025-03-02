@@ -819,6 +819,16 @@ MetalLayoutAttr::projectOnto(mlir::AffineMap linearMap,
       .compose(linearMap);
 }
 
+mlir::MemRefType MetalLayoutAttr::getBufferType() const {
+  SmallVector<int64_t> fullMemrefShape;
+  auto gridShape = getGrid().getShape();
+  auto shardShape = getShardShape(true /*convertTileToScalar*/);
+  fullMemrefShape.append(gridShape.begin(), gridShape.end());
+  fullMemrefShape.append(shardShape.begin(), shardShape.end());
+  return buildMemRef<MemorySpace, MemorySpaceAttr>(
+      getContext(), fullMemrefShape, getElementType(), getMemorySpace());
+}
+
 //
 // This function creates an affine map that represents mapping the tensor's
 // linear layout onto the 2d physical device grid. A typical example will look
