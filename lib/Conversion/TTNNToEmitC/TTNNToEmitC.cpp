@@ -519,7 +519,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit<std::vector<int32_t>>(srcOp.getShape()),
-    };
+        emitter.emit(srcOp.getMemoryConfig())};
 
     emitter.replaceOp(*this, args);
 
@@ -585,14 +585,29 @@ public:
         tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr, nullptr,
         adaptor.getInputs());
 
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-        {mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
-         srcOp.getDimAttr()});
+    // Create operands vector
+    //
+    llvm::SmallVector<Value, 2> operands{
+        vectorOp->getResult(0), // Input vector of tensors
+    };
+
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        mlir::IntegerAttr::get(rewriter.getIndexType(),
+                               0), // Input vector of tensors
+        srcOp.getDimAttr(),        // Concat dimension
+        srcOp.getMemoryConfig()
+            ? (operands.append(
+                   1, ttnn_to_emitc::utils::createMemoryConfigOp(
+                          rewriter, srcOp.getMemoryConfigAttr(), srcOp.getLoc())
+                          ->getResult(0)),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(1)))
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter) // ttnn::MemoryConfig
+    });
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttrs, nullptr,
-        ValueRange(vectorOp->getResults()));
+        this->convertOpName(srcOp), arrayAttrs, nullptr, operands);
 
     return success();
   }
