@@ -12,7 +12,7 @@
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h> 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/Rewrite/FrozenRewritePatternSet.h>
@@ -116,8 +116,7 @@ void buildLinalgGeneric(::mlir::Location loc, ::mlir::Block *block,
       });
 }
 
-class TTIRGenericMaximumRewriter
-    : public OpRewritePattern<MaximumOp> {
+class TTIRGenericMaximumRewriter : public OpRewritePattern<MaximumOp> {
 public:
   using OpRewritePattern<MaximumOp>::OpRewritePattern;
 
@@ -135,8 +134,7 @@ public:
   }
 };
 
-class TTIRGenericMatmulRewriter
-    : public OpRewritePattern<MatmulOp> {
+class TTIRGenericMatmulRewriter : public OpRewritePattern<MatmulOp> {
 public:
   using OpRewritePattern<MatmulOp>::OpRewritePattern;
 
@@ -177,8 +175,7 @@ public:
 };
 
 namespace {
-class TTIRGenericLinearizeMemrefRewriter
-    : public OpRewritePattern<GenericOp> {
+class TTIRGenericLinearizeMemrefRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
@@ -198,8 +195,8 @@ public:
   }
 
   static mlir::AffineMap linearizeAffineMap(::mlir::MLIRContext *context,
-                                             mlir::AffineMap map,
-                                             ArrayRef<int64_t> shape) {
+                                            mlir::AffineMap map,
+                                            ArrayRef<int64_t> shape) {
     auto evaledShape = ttmlir::utils::evalShape(map, shape);
     mlir::AffineExpr indexing = getAffineConstantExpr(0, context);
     mlir::AffineExpr volumeExpr = getAffineConstantExpr(1, context);
@@ -287,7 +284,9 @@ public:
 
   static StreamMode getStreamMode(Type ty) {
     auto memref = mlir::cast<MemRefType>(ty);
-    if (auto streamLayout = mlir::dyn_cast<StreamLayoutAttr>(memref.getLayout()); streamLayout) {
+    if (auto streamLayout =
+            mlir::dyn_cast<StreamLayoutAttr>(memref.getLayout());
+        streamLayout) {
       return streamLayout.getStreamMode();
     }
     return StreamMode::Alias;
@@ -376,8 +375,8 @@ public:
                          SmallVector<Value> mcastOffset = {},
                          SmallVector<Value> mcastShape = {}) {
     MemRefType memrefType = mlir::cast<MemRefType>(dst.getType());
-    auto zero = builder.create<arith::ConstantOp>(
-        loc, builder.getIndexType(), builder.getIndexAttr(0));
+    auto zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                  builder.getIndexAttr(0));
     SmallVector<Value> zeros(memrefType.getShape().size(), zero);
     auto numElements = builder.create<arith::ConstantOp>(
         loc, builder.getIndexType(),
@@ -513,9 +512,11 @@ public:
 } // namespace
 
 namespace {
-class TTIRGenericDatamovement : public impl::TTIRGenericDatamovementBase<TTIRGenericDatamovement> {
+class TTIRGenericDatamovement
+    : public impl::TTIRGenericDatamovementBase<TTIRGenericDatamovement> {
 public:
-  using impl::TTIRGenericDatamovementBase<TTIRGenericDatamovement>::TTIRGenericDatamovementBase;
+  using impl::TTIRGenericDatamovementBase<
+      TTIRGenericDatamovement>::TTIRGenericDatamovementBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());

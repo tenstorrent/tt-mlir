@@ -138,7 +138,7 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
     let hasVerifier = 1;
 }
 
-def TTIR_DMAOp : TTIR_GenericRegionOp<"dma", 
+def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]> // Custom memory effects??
   ]> {

@@ -2382,8 +2382,7 @@ bool mlir::tt::ttir::GenericOp::bufferizesToMemoryWrite(
     return ::mlir::failure();
   }
 
-  assert(getNumResults() == 1 &&
-         "GenericOp should have exactly one result");
+  assert(getNumResults() == 1 && "GenericOp should have exactly one result");
   assert(getOutputs().size() == 1 &&
          "GenericOp should have exactly one output");
   assert(getCbs().size() == 0 &&
@@ -2433,8 +2432,7 @@ mlir::tt::ttir::GenericOp::getAliasingValues(
 mlir::tt::ttir::GenericOp::getBufferType(
     ::mlir::Value value, const ::mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<::mlir::Value> &) {
-  auto rankedTensorType =
-      mlir::cast<::mlir::RankedTensorType>(value.getType());
+  auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(value.getType());
   mlir::Type memrefResultType =
       mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getMemref();
@@ -2728,8 +2726,9 @@ static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
   return value;
 }
 
-static ::mlir::LogicalResult operandsInBlockArguments(mlir::Operation* op, mlir::Block *block) {
-  for (mlir::OpOperand& operand : op->getOpOperands()) {
+static ::mlir::LogicalResult operandsInBlockArguments(mlir::Operation *op,
+                                                      mlir::Block *block) {
+  for (mlir::OpOperand &operand : op->getOpOperands()) {
     mlir::Value value = recurseThroughMemrefCollapse(operand.get());
     if (!valueInBlockArguments(value, block)) {
       return op->emitOpError() << "operand[" << operand.getOperandNumber()

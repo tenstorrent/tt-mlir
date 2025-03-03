@@ -122,7 +122,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
       the reserved section of the circular buffer to the consumer.
     }];
 
-    let arguments = (ins I32:$dst_index, TTKernel_CB:$out_cb, I32:$out_index);
+    let arguments = (ins I32:$dst_index, I32:$out_cb, I32:$out_index);
 }
 
 def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
@@ -366,7 +366,7 @@ def TTKernel_MaxTilesOp : TTKernel_Op<"max_tile"> {
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins I32:$dst0_index, I32:$dst1_index);
+    let arguments = (ins Index:$dst0_index, Index:$dst1_index);
 }
 
 //===----------------------------------------------------------------------===//
@@ -379,7 +379,7 @@ def TTKernel_CBPushBackOp : TTKernel_Op<"cb_push_back"> {
       CBPushBack operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
+    let arguments = (ins I32:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -390,7 +390,7 @@ def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
       CBPopFront operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
+    let arguments = (ins I32:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -401,7 +401,7 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
       CBReserveBack operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
+    let arguments = (ins I32:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -412,7 +412,7 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
       CBWaitFront operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
+    let arguments = (ins I32:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }

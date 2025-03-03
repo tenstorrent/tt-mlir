@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
+#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -15,7 +15,9 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -64,7 +66,8 @@ struct ConvertTTIRToTTMetal
   }
 };
 
-struct ConvertTTIRToTTKernel : public ttir::impl::ConvertTTIRToTTKernelBase<ConvertTTIRToTTKernel> {
+struct ConvertTTIRToTTKernel
+    : public ttir::impl::ConvertTTIRToTTKernelBase<ConvertTTIRToTTKernel> {
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
@@ -76,8 +79,14 @@ struct ConvertTTIRToTTKernel : public ttir::impl::ConvertTTIRToTTKernelBase<Conv
     target.addLegalDialect<arith::ArithDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addLegalDialect<scf::SCFDialect>();
-    // target.addIllegalOp<memref::StoreOp>();
-    // target.addIllegalOp<memref::LoadOp>();
+    // target.addDynamicallyLegalOp<ttir::GenericOp>([](Operation *op) {
+    //   return mlir::isa<ttkernel::CBType>(op->getRegion(0).getBlocks().front().getArgument(0).getType());
+    // });
+    target.addIllegalOp<memref::StoreOp>();
+    target.addIllegalOp<memref::LoadOp>();
+    target.addIllegalOp<ttir::AwaitOp>();
+    target.addIllegalOp<ttir::YieldOp>();
+    target.addIllegalOp<ttir::TileMaximumOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.
@@ -85,12 +94,9 @@ struct ConvertTTIRToTTKernel : public ttir::impl::ConvertTTIRToTTKernelBase<Conv
 
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter);
-
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    GreedyRewriteConfig config = GreedyRewriteConfig();
-    config.maxNumRewrites = 1;
-    config.maxIterations = 1;
-    if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
+    
+    if (failed(applyFullConversion(getOperation(), target,
+                                      std::move(patterns)))) {
       signalPassFailure();
       return;
     }
