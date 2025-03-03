@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 
-module attributes {} {
+module {
   func.func @forward(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x32x32x64xbf16> {
     %0 = tensor.empty() : tensor<1x32x32x64xbf16>
     // CHECK: %[[C:.*]] = "ttnn.conv2d"[[C:.*]]
