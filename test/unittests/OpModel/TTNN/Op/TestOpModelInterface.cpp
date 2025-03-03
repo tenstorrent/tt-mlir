@@ -90,7 +90,7 @@ public:
   }
 };
 
-TEST_F(OpModelBase, ReluInterface) {
+TEST_F(OpModelBase, ReluOpInterface) {
   // create ReluOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
 
@@ -121,7 +121,7 @@ TEST_F(OpModelBase, ReluInterface) {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
-TEST_F(OpModelBase, SoftmaxInterface) {
+TEST_F(OpModelBase, SoftmaxOpInterface) {
   // create SoftmaxOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
 
@@ -153,7 +153,7 @@ TEST_F(OpModelBase, SoftmaxInterface) {
   }
 }
 
-TEST_F(OpModelBase, AddInterface) {
+TEST_F(OpModelBase, AddOpInterface) {
   // create AddOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
 
@@ -186,7 +186,41 @@ TEST_F(OpModelBase, AddInterface) {
   }
 }
 
-TEST_F(OpModelBase, MatmulInterface) {
+TEST_F(OpModelBase, MultiplyOpInterface) {
+  // create MultiplyOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto output = createEmptyTensor(tensorShape);
+
+  auto multiply =
+      builder.create<MultiplyOp>(builder.getUnknownLoc(), output.getType(),
+                                 ::mlir::ValueRange{input1, input2, output});
+  multiply->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  // test MultiplyOp interface
+  auto constraintsExp = getOpConstraints(multiply.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 12288);
+    EXPECT_EQ(peak_size, 2048);
+    EXPECT_EQ(output_size, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(multiply.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, MatmulOpInterface) {
   // create MatmulOp
   llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
   llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
@@ -221,7 +255,7 @@ TEST_F(OpModelBase, MatmulInterface) {
   }
 }
 
-TEST_F(OpModelBase, MeanInterface) {
+TEST_F(OpModelBase, MeanOpInterface) {
   // create MeanOp
   llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
   llvm::SmallVector<int64_t> tensorShapeO = {2048, 1024};
@@ -257,7 +291,7 @@ TEST_F(OpModelBase, MeanInterface) {
   }
 }
 
-TEST_F(OpModelBase, reshapeOp) {
+TEST_F(OpModelBase, ReshapeOpInterface) {
   // create ReshapeOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};
   llvm::SmallVector<int64_t> tensorShapeO = {64 * 4, 1024 / 4};
