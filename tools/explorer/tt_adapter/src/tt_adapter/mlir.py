@@ -606,14 +606,21 @@ def build_graph(module, perf_trace=None, memory_trace=None):
     memory_data = {}
     if memory_trace is not None:
         for node in memory_trace:
-            memory_data[node] = {}
-            memory_data[node]["dram"] = (
+            loc = parse_loc_string(memory_trace[node]["loc"])
+            memory_data[loc] = {}
+            memory_data[loc]["dram"] = (
                 memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
                 / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"]
             )
-            memory_data[node]["l1"] = (
+            memory_data[loc]["l1"] = (
                 memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
                 / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"]
+            )
+            memory_data[loc]["l1_small"] = (
+                memory_trace[node]["l1_small"]["device_0"][
+                    "total_bytes_allocated_per_bank"
+                ]
+                / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"]
             )
 
     module_op = OpHandler(module.operation)
@@ -630,36 +637,48 @@ def build_graph(module, perf_trace=None, memory_trace=None):
             for block in region.blocks:
                 for op in block.operations:
                     extra_attrs = []
-                    for operand_index, operand in enumerate(op.operands):
-                        if memory_data:
-                            extra_attrs.append(
-                                utils.add_to_dataclass(
-                                    graph_builder.KeyValue(
-                                        key="dram_memory",
-                                        value=str(
-                                            memory_data[str(operand_index)]["dram"]
-                                        ),
+                    operation = OpHandler(op)
+                    if memory_data and operation.named_location in memory_data:
+                        extra_attrs.append(
+                            utils.add_to_dataclass(
+                                graph_builder.KeyValue(
+                                    key="dram_memory",
+                                    value=str(
+                                        memory_data[operation.named_location]["dram"]
                                     ),
-                                    "display_type",
-                                    "memory",
-                                )
+                                ),
+                                "display_type",
+                                "memory",
                             )
-                        if memory_data:
-                            extra_attrs.append(
-                                utils.add_to_dataclass(
-                                    graph_builder.KeyValue(
-                                        key="l1_memory",
-                                        value=str(
-                                            memory_data[str(operand_index)]["l1"]
-                                        ),
+                        )
+                        extra_attrs.append(
+                            utils.add_to_dataclass(
+                                graph_builder.KeyValue(
+                                    key="l1_memory",
+                                    value=str(
+                                        memory_data[operation.named_location]["l1"]
                                     ),
-                                    "display_type",
-                                    "memory",
-                                )
+                                ),
+                                "display_type",
+                                "memory",
                             )
+                        )
+                        extra_attrs.append(
+                            utils.add_to_dataclass(
+                                graph_builder.KeyValue(
+                                    key="l1_small_memory",
+                                    value=str(
+                                        memory_data[operation.named_location][
+                                            "l1_small"
+                                        ]
+                                    ),
+                                ),
+                                "display_type",
+                                "memory",
+                            )
+                        )
 
                     # Create all the nodes and constants in the first pass.
-                    operation = OpHandler(op)
                     graph_node = operation.make_graph_node(extra_attrs)
 
                     if (
@@ -729,32 +748,6 @@ def build_graph(module, perf_trace=None, memory_trace=None):
                                     key="rank", value=str(operand.type.rank)
                                 ),
                             ]
-
-                        if memory_data:
-                            output_attrs.append(
-                                utils.add_to_dataclass(
-                                    graph_builder.KeyValue(
-                                        key="dram_memory",
-                                        value=str(
-                                            memory_data[str(operand_index)]["dram"]
-                                        ),
-                                    ),
-                                    "display_type",
-                                    "memory",
-                                )
-                            )
-                            output_attrs.append(
-                                utils.add_to_dataclass(
-                                    graph_builder.KeyValue(
-                                        key="l1_memory",
-                                        value=str(
-                                            memory_data[str(operand_index)]["l1"]
-                                        ),
-                                    ),
-                                    "display_type",
-                                    "memory",
-                                )
-                            )
 
                         if hasattr(operand.type, "encoding") and operand.type.encoding:
                             if "ttnn_layout" in str(operand.type.encoding):
