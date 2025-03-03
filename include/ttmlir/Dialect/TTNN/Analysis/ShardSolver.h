@@ -286,8 +286,8 @@ public:
               const llvm::DenseSet<Operation *> &shardedOps,
               const unsigned usableL1CacheSize,
               const std::unordered_set<Edge> &overrideReshardEdges,
-              std::function<bool(mlir::Value, TTNNLayoutAttr const &,
-                                 mlir::Operation *, TTNNLayoutAttr const &)>
+              std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *,
+                                 TTNNLayoutAttr)>
                   customCheckShardCompatible = nullptr);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, TTNNLayoutAttr const &layout);
@@ -296,8 +296,7 @@ public:
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
   ShardSolverSolution finish() const;
   bool resolve();
-  void setEarlyExit(bool exit) { earlyExit = exit; }
-  bool shouldEarlyExit() const { return earlyExit; }
+  bool earlyExit = false;
 
 private:
   const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> *legalLayouts;
@@ -305,7 +304,6 @@ private:
   const llvm::DenseSet<Operation *> *shardedOps;
   unsigned usableL1CacheSize;
   DeviceAttr deviceAttr;
-  bool earlyExit = false;
 
   llvm::DenseMap<Operation *, std::vector<Edge>> operandOpEdges;
   llvm::DenseMap<Operation *, std::vector<Edge>> userOpEdges;
@@ -316,8 +314,8 @@ private:
 
   llvm::DenseMap<Operation *, TTNNLayoutAttr> selectedOpLayout;
   std::unordered_set<Edge> memReconfigEdges;
-  std::function<bool(mlir::Value, TTNNLayoutAttr const &, mlir::Operation *,
-                     TTNNLayoutAttr const &)>
+  std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *,
+                     TTNNLayoutAttr)>
       customCheckShardCompatible;
 };
 

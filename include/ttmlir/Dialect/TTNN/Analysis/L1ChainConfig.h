@@ -7,8 +7,8 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include <llvm/Support/Casting.h>
-#include <llvm/Support/raw_ostream.h>
+
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 
@@ -43,7 +43,6 @@ private:
   llvm::DenseSet<Operation *> l1ChainedOps;
   std::unordered_set<Edge> memReconfigEdges;
   L1ChainState state = L1ChainState::InBuild;
-  bool spillEndToDRAM = false;
 
 public:
   L1ChainConfig() : opL1MemSpecs(), state() {}
@@ -82,8 +81,7 @@ public:
     return opL1MemSpecs.back().op;
   }
 
-  void setSpillEndToDRAM(bool spill) { spillEndToDRAM = spill; }
-  bool shouldSpillEndToDRAM() const { return spillEndToDRAM; }
+  bool spillEndToDRAM = false;
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
@@ -91,7 +89,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   os << "L1ChainConfig(size=" << config.size() << ")";
   for (const auto &opL1MemSpec : config.getOpL1MemSpecs()) {
 
-    os << "\n\t" << opL1MemSpec.op->getName().getStringRef().str() << "\t"
+    os << "\n\t" << opL1MemSpec.op->getName().getStringRef() << "\t"
        << utils::getOpLocName(opL1MemSpec.op);
   }
   return os;

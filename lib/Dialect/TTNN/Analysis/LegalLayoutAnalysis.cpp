@@ -33,9 +33,10 @@ bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
   if (layout.isTiled()) {
     RankedTensorType tensorType =
         mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    llvm::SmallVector<int64_t, 4> tensorShape(tensorType.getShape().begin(),
-                                              tensorType.getShape().end());
-    llvm::SmallVector<int64_t> tiledShape = layout.getTiledShape(tensorShape);
+
+    llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+    llvm::SmallVector<int64_t, 2> tiledShape =
+        layout.getTiledShape(tensorShape);
     llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
 
     assert(tiledShape.size() == gridShape.size() &&
@@ -48,10 +49,6 @@ bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
       if (tiledShape[i] < gridShape[i]) {
         return false;
       }
-
-      // if (tiledShape[i] % gridShape[i] != 0) {
-      //   return false;
-      // }
     }
     return true;
   }

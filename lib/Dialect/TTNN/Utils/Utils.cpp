@@ -5,9 +5,10 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include <llvm/Support/Casting.h>
-#include <mlir/IR/Location.h>
-#include <mlir/IR/Value.h>
+
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Value.h"
+#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn::utils {
 // Map TT::MemorySpace to TTNN::BufferType

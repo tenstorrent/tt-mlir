@@ -3,16 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
+
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include <llvm/Support/Casting.h>
-#include <llvm/Support/Error.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/Location.h>
-#include <mlir/Interfaces/DestinationStyleOpInterface.h>
-#include <mlir/Support/LLVM.h>
+
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/raw_ostream.h"
+
 #include <unordered_set>
 
 namespace mlir::tt::ttnn {
@@ -27,8 +30,7 @@ ShardSolver::ShardSolver(
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize,
     const std::unordered_set<Edge> &overrideReshardEdges,
-    std::function<bool(Value, TTNNLayoutAttr const &, Operation *,
-                       TTNNLayoutAttr const &)>
+    std::function<bool(Value, TTNNLayoutAttr, Operation *, TTNNLayoutAttr)>
         customCheckShardCompatible)
     : legalLayouts(&legalLayouts), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
@@ -156,9 +158,6 @@ bool ShardSolver::resolveStep() {
             std::string error = llvm::toString(shardCompatible.takeError());
             if (DEBUG) {
               llvm::errs() << "Error: " << error << "\n";
-              if (!errorCount.count(error)) {
-                errorCount.insert({error, 0});
-              }
               errorCount[error]++;
             }
           }
@@ -367,7 +366,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
       }
     }
 
-    setEarlyExit(true);
+    earlyExit = true;
     return false;
   }
 
@@ -389,7 +388,7 @@ bool ShardSolver::resolve() {
     // Try to resolve shard chain. Retry if not resolved(resharding).
     //
     resolved = resolveStep();
-    if (shouldEarlyExit()) {
+    if (earlyExit) {
       assert(!resolved);
       return false;
     }

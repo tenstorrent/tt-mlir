@@ -108,7 +108,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
         l1ChainConfig.getMemReconfigEdges().begin(),
         l1ChainConfig.getMemReconfigEdges().end());
 
-    if (l1ChainConfig.shouldSpillEndToDRAM()) {
+    if (l1ChainConfig.spillEndToDRAM) {
       analysisResult.spillToDramOps.push_back(l1ChainConfig.getLastOp());
     }
   }

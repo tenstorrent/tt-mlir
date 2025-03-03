@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
+
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Scheduler/Scheduler.h"
-#include <mlir/IR/Diagnostics.h>
+
+#include "mlir/IR/Diagnostics.h"
 
 namespace mlir::tt::ttnn {
 
@@ -223,8 +225,8 @@ void DFShardingPolicy::run() {
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
       mlir::emitWarning(l1ChainConfig.getOpL1MemSpecs().front().op->getLoc(),
                         "Failed to resolve L1 chain config");
-      constexpr bool debug = false;
-      if (debug) {
+      // Debug print.
+      if (false) {
         llvm::errs() << l1ChainConfig;
       }
       continue;
@@ -239,7 +241,7 @@ void DFShardingPolicy::run() {
     // TODO(odjuricic): Add constraint check if op can write to dram.
     if (not resolvedShardSolution.selectedOpLayout[l1ChainConfig.getLastOp()]
                 .hasDRAMBufferType()) {
-      l1ChainConfig.setSpillEndToDRAM(true);
+      l1ChainConfig.spillEndToDRAM = true;
     }
   }
 }
