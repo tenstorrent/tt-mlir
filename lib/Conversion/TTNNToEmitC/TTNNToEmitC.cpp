@@ -311,7 +311,7 @@ public:
                   tt::ttnn::MatmulOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // ANCHOR: adding_an_op_matmul_tt::ttnn_to_emitc_array_attrs
+    // ANCHOR: adding_an_op_matmul_ttnn_to_emitc_array_attrs
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this.
     //
