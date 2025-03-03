@@ -46,6 +46,7 @@ class ModuleSplitter(ABC):
 
     def get_sub_modules(self) -> List[Module]:
         """Returns list of constituent ops each wrapped in a MLIR module."""
+
         return [op.as_module() for op in self._sub_ops]
 
     # ----- Protected methods -----

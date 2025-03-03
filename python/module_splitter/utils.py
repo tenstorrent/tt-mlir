@@ -37,6 +37,9 @@ class OpWrapper:
     def __str__(self) -> str:
         return str(self._op)
 
+    def __repr__(self) -> str:
+        return str(self)
+
     def as_module(self) -> Module:
         """Returns self wrapped in a MLIR module."""
         module_str = wrap_in_module_str(self._op, self._operands, self._result)
@@ -55,7 +58,10 @@ def parse_module_str(
     TODO not all dialects have `register_dialect` method, but stablehlo, ttir and ttnn
     do. Check why and what to do with the ones that don't support it.
     """
+    from mlir.dialects import stablehlo
+
     with Context() as ctx:
+        stablehlo.register_dialect(ctx)  # TODO not like this
         if required_dialects is not None:
             for dialect in required_dialects:
                 dialect.register_dialect(ctx)

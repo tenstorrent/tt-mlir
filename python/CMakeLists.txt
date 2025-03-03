@@ -4,12 +4,14 @@ set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
 set(TTMLIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ttmlir")
 set(TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra")
+set(TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/module_splitter")
 
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 
 declare_mlir_python_sources(TTMLIRPythonSources)
 declare_mlir_python_sources(TTMLIRPythonExtensions)
 declare_mlir_python_sources(TTMLIRPythonTestInfra)
+declare_mlir_python_sources(TTMLIRPythonModuleSplitter)
 
 declare_mlir_python_sources(TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
@@ -84,6 +86,16 @@ declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
     test_utils.py
 )
 
+declare_mlir_python_sources(TTMLIRPythonModuleSplitter.ModuleSplitter
+  ROOT_DIR "${TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonModuleSplitter
+  SOURCES
+    __init__.py
+    module_splitter.py
+    stablehlo_module_splitter.py
+    utils.py
+)
+
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   MODULE_NAME _ttmlir
   ADD_TO_PARENT TTMLIRPythonExtensions
@@ -133,6 +145,7 @@ set(TTMLIR_PYTHON_SOURCES
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonTestInfra
+  TTMLIRPythonModuleSplitter
 )
 
 add_mlir_python_common_capi_library(TTMLIRPythonCAPI
