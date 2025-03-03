@@ -1,5 +1,5 @@
 # Misc
-/env/ @nsmithtt
+/env/ @nsmithtt @vwellsTT
 *.fbs @jnie-TT @nsmithtt
 /.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 
@@ -28,9 +28,9 @@
 /test/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT
 
 # Linalg Conversion
-/include/ttmlir/Conversion/TTIRToLinalg/ @mrakitaTT @ctodTT @nsmithTT
-/lib/Conversion/TTIRToLinalg/ @mrakitaTT @ctodTT @nsmithTT
-/test/ttmlir/Conversion/TTIRToLinalg/ @mrakitaTT @ctodTT @nsmithTT
+/include/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
+/lib/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
+/test/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
 
 # Tosa Conversion
 /include/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT
