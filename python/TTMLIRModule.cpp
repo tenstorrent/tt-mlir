@@ -10,19 +10,24 @@ PYBIND11_MODULE(_ttmlir, m) {
   m.def(
       "register_dialect",
       [](MlirContext context, bool load) {
-        MlirDialectHandle tt_handle = mlirGetDialectHandle__tt__();
-        MlirDialectHandle ttir_handle = mlirGetDialectHandle__ttir__();
-        MlirDialectHandle ttkernel_handle = mlirGetDialectHandle__ttkernel__();
-        MlirDialectHandle ttnn_handle = mlirGetDialectHandle__ttnn__();
-        mlirDialectHandleRegisterDialect(tt_handle, context);
-        mlirDialectHandleRegisterDialect(ttir_handle, context);
-        mlirDialectHandleRegisterDialect(ttkernel_handle, context);
-        mlirDialectHandleRegisterDialect(ttnn_handle, context);
+        // Create a dialect registry
+        mlir::DialectRegistry registry;
+
+        // Register all dialects including LLVM dialect
+        mlir::tt::registerAllDialects(registry);
+
+        // Register all extensions (interfaces, etc.)
+        mlir::tt::registerAllExtensions(registry);
+
+        // Get the MLIRContext from MlirContext
+        mlir::MLIRContext *mlirContext = unwrap(context);
+
+        // Append the registry to the context
+        mlirContext->appendDialectRegistry(registry);
+
+        // If load is true, load all available dialects
         if (load) {
-          mlirDialectHandleLoadDialect(tt_handle, context);
-          mlirDialectHandleLoadDialect(ttir_handle, context);
-          mlirDialectHandleLoadDialect(ttkernel_handle, context);
-          mlirDialectHandleLoadDialect(ttnn_handle, context);
+          mlirContext->loadAllAvailableDialects();
         }
       },
       py::arg("context"), py::arg("load") = true);

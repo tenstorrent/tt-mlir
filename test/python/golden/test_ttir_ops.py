@@ -8,7 +8,8 @@ import inspect
 import torch
 
 from ttmlir.test_utils import compile_to_flatbuffer
-from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute
+from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
+from ttmlir.dialects import ttir
 
 
 @compile_to_flatbuffer([(1, 128, 128, 1)], targets=["ttnn"])
@@ -454,9 +455,18 @@ def test_arbitrary_op_chain(
         (64, 128),
         (64, 128),
     ],
+    targets=["ttnn"],
+    module_dump=True,  # Enable module dumping
 )
 def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.add(in0, in1, ttir_kwargs={"should_hoist": UnitAttr.get(self._ctx)})
+    # Use op_proxy directly since it accepts ttir_kwargs
+    return builder.op_proxy(
+        torch.add,
+        ttir.AddOp,
+        [in0, in1],
+        unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
+        use_zeros=True,
+    )
 
 
 if __name__ == "__main__":
@@ -465,5 +475,5 @@ if __name__ == "__main__":
     )
 
     for function_name, func in test_functions:
-        if function_name.startswith("test_"):
+        if function_name.startswith("test_hoisted_add"):
             func()

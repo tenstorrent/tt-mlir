@@ -345,6 +345,45 @@ class TTIRBuilder:
 
             return op
 
+    def zeros(
+        self,
+        shape: Shape,
+        data_type: Optional[Type] = None,
+    ) -> OpView:
+        """Convenience wrapper constructing `ttir.ZerosOp`."""
+        dtype = data_type if data_type is not None else self._default_dtype
+        with self._ctx, self._loc:
+            # Create the result type
+            result_type = self.ranked_tensor_type(shape, dtype)
+
+            # Convert shape to a list if it's a tuple
+            shape_list = list(shape) if isinstance(shape, tuple) else shape
+
+            # Create the shape attribute
+            from ttmlir.ir import DenseI32ArrayAttr
+
+            shape_attr = DenseI32ArrayAttr.get(shape_list, context=self._ctx)
+
+            # Create the operation
+            from ttmlir.ir import Operation
+
+            # Create the operation directly using the low-level API to ensure it matches the IR format
+            op = Operation.create(
+                "ttir.zeros",  # Operation name
+                results=[result_type],  # Result types
+                operands=[],  # No operands
+                attributes={"shape": shape_attr},  # Shape attribute
+                loc=self._loc,  # Location
+            )
+
+            # Wrap in the appropriate OpView
+            # op = ttir.ZerosOp(operation)
+
+            # Generate and store random golden tensor
+            self.generate_and_store_random_golden(op)
+
+            return op
+
     # ----- TTIR op factories -----
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output: OpView, output_shape: Optional[Shape]
@@ -365,6 +404,7 @@ class TTIRBuilder:
         output_shape: Optional[Shape] = None,
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
+        use_zeros: bool = False,
     ) -> Any:
         """
         Provides a general interface for proxy-ing OPs and creating them.
@@ -423,7 +463,10 @@ class TTIRBuilder:
 
             # Use the golden output to determine proper output shape unless otherwise specified
             output_shape = golden.tensor.shape if not output_shape else output_shape
-            output = self.empty(output_shape)
+            if use_zeros:
+                output = self.zeros(output_shape)
+            else:
+                output = self.empty(output_shape)
 
             id = self.get_next_global_id()
             loc = get_loc_of_extra_file_callee(id=id)
@@ -433,6 +476,13 @@ class TTIRBuilder:
                 loc=loc,
                 **ttir_kwargs,
             )
+
+            # Add unit attributes if specified
+            if unit_attrs:
+                from ttmlir.ir import UnitAttr
+
+                for attr_name in unit_attrs:
+                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)

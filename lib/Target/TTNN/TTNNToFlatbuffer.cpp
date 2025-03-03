@@ -1742,6 +1742,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, constantOp), debugString,
                            locInfo);
   }
+  if (auto callOp = dyn_cast<func::CallOp>(op); callOp) {
+    // static uint32_t dylib_id = 0;
+    return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
+                           locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
