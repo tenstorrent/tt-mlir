@@ -602,15 +602,21 @@ def build_graph(module, perf_trace=None, golden_results=None):
                 loc_to_perf[loc] = 0
             loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
 
-    accuracy_node_data = {}
-    loc_to_accuracy = {}
-    if golden_results is not None:
-        for loc, res in golden_results.items():
-            loc = parse_loc_string(loc)
-            assert loc not in loc_to_accuracy
-            if loc:
-                # Store the full result here, just need to parse the loc accordingly
-                loc_to_accuracy[loc] = res
+    module_op = OpHandler(module.operation)
+    module_attrs = module_op.get_attributes()
+    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+
+    # Add module attributes to the graph as "namespace attributes"
+    if not graph.groupNodeAttributes:
+        graph.groupNodeAttributes = {}
+
+    # Add this module's namespace attributes
+    namespace = module_op.get_namespace()
+    if namespace not in graph.groupNodeAttributes:
+        graph.groupNodeAttributes[namespace] = module_attrs
+    else:
+        # Merge with existing attributes if namespace already exists
+        graph.groupNodeAttributes[namespace].update(module_attrs)
 
     # Process the module hierarchy recursively
     process_operations(
