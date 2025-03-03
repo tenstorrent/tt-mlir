@@ -1,9 +1,9 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-new file mode 100644
-index 0000000..5e3e97c
+new file mode 100755
+index 0000000..a2d940d
 --- /dev/null
 +++ b/CMakeLists.txt
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,55 @@
 +# Custom embedded build for Shardy, targgeting minimal build as a part of
 +# tt-mlir MLIR project. This CMakeLists.txt file is mainly from StableHLO.
 +
@@ -53,15 +53,40 @@ index 0000000..5e3e97c
 +set(SHARDY_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 +set(SHARDY_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 +
-+add_compile_options(-Wno-deprecated-declarations -Wno-unused-but-set-variable -Wno-sign-compare)
++add_compile_options(-Wno-deprecated-declarations -Wno-unused-but-set-variable -Wno-sign-compare -Wno-defaulted-function-deleted)
 +
++add_subdirectory(shardy/common)
 +add_subdirectory(shardy/dialect/sdy/ir)
-diff --git a/shardy/dialect/sdy/ir/CMakeLists.txt b/shardy/dialect/sdy/ir/CMakeLists.txt
++add_subdirectory(shardy/dialect/sdy/transforms)
++add_subdirectory(shardy/round_trip_import)
+diff --git a/shardy/common/CMakeLists.txt b/shardy/common/CMakeLists.txt
 new file mode 100644
-index 0000000..ae91353
+index 0000000..8f29e99
+--- /dev/null
++++ b/shardy/common/CMakeLists.txt
+@@ -0,0 +1,16 @@
++# Shardy MLIR Common
++
++add_mlir_library(SdyCommonFileUtils
++  file_utils.cc
++  save_module_op.cc
++
++  DEPENDS
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRPass
++  MLIRSupport
++)
+diff --git a/shardy/dialect/sdy/ir/CMakeLists.txt b/shardy/dialect/sdy/ir/CMakeLists.txt
+new file mode 100755
+index 0000000..dd44e0f
 --- /dev/null
 +++ b/shardy/dialect/sdy/ir/CMakeLists.txt
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,99 @@
 +# Shardy MLIR dialect.
 +
 +set(LLVM_TARGET_DEFINITIONS dialect.td)
@@ -100,10 +125,10 @@ index 0000000..ae91353
 +add_public_tablegen_target(SdyCanonicalizationIncGen)
 +add_dependencies(mlir-headers SdyCanonicalizationIncGen)
 +
-+add_mlir_library(SdyDialect
++add_mlir_dialect_library(SdyDialect
 +  canonicalization.cc
-+  data_flow_utils.cc
 +  dialect.cc
++  extensions/stablehlo_extensions.cc
 +  parsers.cc
 +  printers.cc
 +  utils.cc
@@ -121,9 +146,9 @@ index 0000000..ae91353
 +  LLVMSupport
 +  MLIRBytecodeOpInterface
 +  MLIRFuncDialect
-+  MLIRFuncAllExtensions
 +  MLIRIR
 +  MLIRInferTypeOpInterface
++  MLIRTransformUtils
 +  MLIRShapeDialect
 +  MLIRSideEffectInterfaces
 +  MLIRSupport
@@ -149,6 +174,495 @@ index 0000000..ae91353
 +)
 +
 +target_include_directories(SdyRegister INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)
++
++add_mlir_dialect_library(SdyAxisListRef
++  axis_list_ref.cc
++
++  LINK_LIBS PUBLIC
++  SdyDialect
++  LLVMSupport
++  MLIRSupport
++)
+diff --git a/shardy/dialect/sdy/transforms/CMakeLists.txt b/shardy/dialect/sdy/transforms/CMakeLists.txt
+new file mode 100755
+index 0000000..e9ec387
+--- /dev/null
++++ b/shardy/dialect/sdy/transforms/CMakeLists.txt
+@@ -0,0 +1,23 @@
++# Shardy MLIR Transforms Passes
++
++add_subdirectory(common)
++add_subdirectory(export)
++add_subdirectory(import)
++add_subdirectory(propagation)
++
++add_mlir_library(SdyTransformsPasses
++  passes.cc
++
++  DEPENDS
++  SdyTransformsExportPasses
++  SdyTransformsImportPasses
++  SdyTransformsPropagationPasses
++
++  LINK_LIBS PUBLIC
++  MLIRPass
++)
++
++target_include_directories(SdyTransformsPasses INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)
+diff --git a/shardy/dialect/sdy/transforms/common/CMakeLists.txt b/shardy/dialect/sdy/transforms/common/CMakeLists.txt
+new file mode 100755
+index 0000000..9a67afc
+--- /dev/null
++++ b/shardy/dialect/sdy/transforms/common/CMakeLists.txt
+@@ -0,0 +1,27 @@
++# Shardy MLIR Transforms Common
++
++add_mlir_library(SdyTransformsCommonOpProperties
++  op_properties.cc
++
++  DEPENDS
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  MLIRIR
++  MLIRSupport
++  StablehloBase
++  StablehloOps
++)
++
++add_mlir_library(SdyTransformsCommonShardingWalker
++  sharding_walker.cc
++
++  DEPENDS
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRSupport
++)
+diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
+new file mode 100755
+index 0000000..79b71df
+--- /dev/null
++++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
+@@ -0,0 +1,47 @@
++# Shardy MLIR Transform Export Passes and Pipeline
++
++set(LLVM_TARGET_DEFINITIONS passes.td)
++mlir_tablegen(passes.h.inc -gen-pass-decls -name=SdyExport)
++add_public_tablegen_target(SdyExportPassesIncGen)
++add_dependencies(mlir-headers SdyExportPassesIncGen)
++add_mlir_doc(Passes SdyTransformsExportPasses ./ -gen-pass-doc)
++
++add_mlir_library(SdyTransformsExportPasses
++  close_shardings.cc
++  drop_sharding_rules.cc
++  export_pipeline.cc
++  insert_explicit_reshards.cc
++  remove_sharding_groups.cc
++  reshard_to_collectives.cc
++  sharding_constraint_to_reshard.cc
++  sink_data_flow_edges.cc
++  update_non_divisible_input_output_shardings.cc
++
++  DEPENDS
++  SdyExportPassesIncGen
++  SdyCommonFileUtils
++  SdyAxisListRef
++  SdyDialect
++  SdyTransformsCommonOpProperties
++  SdyTransformsCommonShardingWalker
++  SdyTransformsPropagationOpShardingRuleRegistry
++  SdyTransformsPropagationShardingProjection
++  SdyTransformsPropagationUtils
++  SdyTransformsPropagationDebuggingSourceSharding
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRPass
++  MLIRRewrite
++  MLIRSideEffectInterfaces
++  MLIRSupport
++  MLIRTransformUtils
++  StablehloOps
++)
++
++target_include_directories(SdyTransformsExportPasses INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)
+diff --git a/shardy/dialect/sdy/transforms/import/CMakeLists.txt b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
+new file mode 100755
+index 0000000..c609ff5
+--- /dev/null
++++ b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
+@@ -0,0 +1,41 @@
++# Shardy MLIR Transforms Import Passes and Pipeline
++
++set(LLVM_TARGET_DEFINITIONS passes.td)
++mlir_tablegen(passes.h.inc -gen-pass-decls -name=SdyImport)
++add_public_tablegen_target(SdyTransformsImportPassesIncGen)
++add_dependencies(mlir-headers SdyTransformsImportPassesIncGen)
++add_mlir_doc(Passes SdyTransformsImportPasses ./ -gen-pass-doc)
++
++add_mlir_library(SdyTransformsImportPasses
++  add_data_flow_edges.cc
++  apply_sharding_constraints.cc
++  constant_splitter.cc
++  import_pipeline.cc
++  lift_inlined_meshes.cc
++  manual_axes_cleanup.cc
++  sharding_group_import.cc
++
++  DEPENDS
++  SdyTransformsImportPassesIncGen
++  SdyCommonFileUtils
++  SdyDialect
++  SdyTransformsCommonOpProperties
++  SdyTransformsCommonShardingWalker
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRPass
++  MLIRRewrite
++  MLIRSideEffectInterfaces
++  MLIRSupport
++  MLIRTransformUtils
++  MLIRTransforms
++  StablehloOps
++)
++
++target_include_directories(SdyTransformsImportPasses INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)
+diff --git a/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt b/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
+new file mode 100755
+index 0000000..c149531
+--- /dev/null
++++ b/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
+@@ -0,0 +1,157 @@
++# Shardy MLIR Transform Propagation System
++
++add_subdirectory(debugging)
++
++set(LLVM_TARGET_DEFINITIONS passes.td)
++mlir_tablegen(passes.h.inc -gen-pass-decls -name=SdyPropagation)
++add_public_tablegen_target(SdyTransformsPropagationPassesIncGen)
++add_dependencies(mlir-headers SdyTransformsPropagationPassesIncGen)
++add_mlir_doc(Passes SdyTransformsPropagationPasses ./ -gen-pass-doc)
++
++add_mlir_library(SdyTransformsPropagationPasses
++  aggressive_propagation.cc
++  basic_propagation.cc
++  op_priority_propagation.cc
++  populate_op_sharding_rules.cc
++  propagation_pipeline.cc
++  user_priority_propagation.cc
++
++  DEPENDS
++  SdyTransformsPropagationAggressiveFactorPropagation
++  SdyTransformsPropagationAutoPartitionerRegistry
++  SdyTransformsPropagationBasicFactorPropagation
++  SdyTransformsPropagationOpShardingRuleBuilder
++  SdyTransformsPropagationOpShardingRuleRegistry
++  SdyTransformsPropagationPassesIncGen
++  SdyTransformsPropagationShardingGroupMap
++  SdyTransformsPropagationShardingProjection
++  SdyTransformsPropagationUtils
++  SdyCommonFileUtils
++  SdyDialect
++  SdyTransformsCommonOpProperties
++  SdyTransformsCommonShardingWalker
++  SdyTransformsExportPasses
++  SdyTransformsImportPasses
++  SdyTransformsPropagationDebuggingSourceSharding
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRBufferizationDialect
++  MLIRFuncDialect
++  MLIRIR
++  MLIRPass
++  MLIRRewrite
++  MLIRSideEffectInterfaces
++  MLIRSupport
++  MLIRTransformUtils
++  StablehloOps
++)
++
++target_include_directories(SdyTransformsPropagationPasses INTERFACE
++  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
++  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++)
++
++add_mlir_library(SdyTransformsPropagationOpShardingRuleBuilder
++  op_sharding_rule_builder.cc
++
++  DEPENDS
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRIR
++  MLIRSupport
++  StablehloOps
++)
++
++add_mlir_library(SdyTransformsPropagationOpShardingRuleRegistry
++  op_sharding_rule_registry.cc
++
++  DEPENDS
++  SdyTransformsPropagationOpShardingRuleBuilder
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRSupport
++  StablehloOps
++)
++
++add_mlir_library(SdyTransformsPropagationShardingGroupMap
++  sharding_group_map.cc
++
++  DEPENDS
++  SdyTransformsPropagationUtils
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRIR
++  MLIRSupport
++)
++
++add_mlir_library(SdyTransformsPropagationShardingProjection
++  sharding_projection.cc
++
++  DEPENDS
++  SdyTransformsPropagationUtils
++  SdyAxisListRef
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRIR
++  MLIRSupport
++)
++
++add_mlir_library(SdyTransformsPropagationAutoPartitionerRegistry
++  auto_partitioner_registry.cc
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRIR
++  MLIRPass
++)
++
++add_mlir_library(SdyTransformsPropagationUtils
++  utils.cc
++
++  DEPENDS
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRSupport
++)
++
++add_mlir_library(SdyTransformsPropagationBasicFactorPropagation
++  basic_factor_propagation.cc
++
++  DEPENDS
++  SdyTransformsPropagationShardingProjection
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRIR
++  MLIRSupport
++)
++
++add_mlir_library(SdyTransformsPropagationAggressiveFactorPropagation
++  aggressive_factor_propagation.cc
++
++  DEPENDS
++  SdyTransformsPropagationBasicFactorPropagation
++  SdyTransformsPropagationShardingProjection
++  SdyTransformsPropagationUtils
++  SdyDialect
++  SdyTransformsCommonOpProperties
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRIR
++  MLIRSupport
++)
+diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/CMakeLists.txt b/shardy/dialect/sdy/transforms/propagation/debugging/CMakeLists.txt
+new file mode 100644
+index 0000000..1ae03c6
+--- /dev/null
++++ b/shardy/dialect/sdy/transforms/propagation/debugging/CMakeLists.txt
+@@ -0,0 +1,15 @@
++# Shardy MLIR Transforms Propagation Debugging System
++
++add_mlir_library(SdyTransformsPropagationDebuggingSourceSharding
++  source_sharding.cc
++
++  DEPENDS
++  SdyDialect
++  SdyTransformsPropagationShardingProjection
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRSupport
++)
+diff --git a/shardy/round_trip_import/CMakeLists.txt b/shardy/round_trip_import/CMakeLists.txt
+new file mode 100644
+index 0000000..e7972a5
+--- /dev/null
++++ b/shardy/round_trip_import/CMakeLists.txt
+@@ -0,0 +1,128 @@
++# Shardy MLIR Roundtrip Import Passes
++
++add_mlir_translation_library(SdyRoundtripUtils
++  utils.cc
++
++  DEPENDS
++  SdyDialect
++  SdyRegister
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRAsmParser
++  MLIRFuncDialect
++  MLIRFuncAllExtensions
++  MLIRIR
++  MLIRSupport
++  StablehloOps
++)
++
++add_mlir_translation_library(SdyRoundtripImportSdyCustomCalls
++  import_sdy_custom_calls.cc
++
++  DEPENDS
++  SdyRoundtripUtils
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRIR
++  MLIRPass
++  MLIRSupport
++  MLIRTransformUtils
++  StablehloOps
++)
++
++add_mlir_translation_library(SdyRoundtripImportBackendFuncCalls
++  import_backend_func_calls.cc
++
++  DEPENDS
++  SdyRoundtripUtils
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRPass
++  MLIRSupport
++  MLIRTransformUtils
++  MLIRTransforms
++  StablehloOps
++)
++
++add_mlir_translation_library(SdyRoundtripImportShardyAttrs
++  import_shardy_attrs.cc
++
++  DEPENDS
++  SdyRoundtripUtils
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRAsmParser
++  MLIRFuncDialect
++  MLIRIR
++  MLIRParser
++  MLIRPass
++  MLIRSupport
++  MLIRTransformUtils
++  StablehloOps
++)
++
++add_mlir_translation_library(SdyRoundtripImportCallbackCustomCalls
++  import_callback_custom_calls.cc
++
++  DEPENDS
++  SdyRoundtripUtils
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRIR
++  MLIRPass
++  MLIRSupport
++  MLIRTransformUtils
++  StablehloOps
++)
++
++add_mlir_translation_library(SdyRoundtripShardMapImport
++  shard_map_import.cc
++
++  DEPENDS
++  SdyRoundtripUtils
++  SdyDialect
++
++  LINK_LIBS PUBLIC
++  LLVMSupport
++  MLIRFuncDialect
++  MLIRIR
++  MLIRPass
++  MLIRSupport
++  MLIRTransformUtils
++  StablehloOps
++)
++
++add_mlir_translation_library(SdyRoundtripPipelines
++  pipelines.cc
++
++  DEPENDS
++  SdyRoundtripImportBackendFuncCalls
++  SdyRoundtripImportCallbackCustomCalls
++  SdyRoundtripImportSdyCustomCalls
++  SdyRoundtripImportShardyAttrs
++  SdyRoundtripShardMapImport
++
++  LINK_LIBS PUBLIC
++  MLIRFuncDialect
++  MLIRPass
++  MLIRSupport
++  MLIRTransformUtils
++  MLIRTransforms
++  StablehloPasses
++)
++
++target_include_directories(SdyRoundtripPipelines INTERFACE
 +  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
 +  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
 +)

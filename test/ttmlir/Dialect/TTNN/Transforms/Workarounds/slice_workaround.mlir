@@ -8,30 +8,21 @@
 module attributes {tt.device = #device, tt.system_desc = #system_desc} {
   func.func @test_strided_slice_workaround(%arg0: tensor<4x32x32xf32, #ttnn_layout>) -> tensor<2x16x8xf32, #ttnn_layout1> {
     // CHECK-LABEL: @test_strided_slice_workaround(
-    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
-    // CHECK: %[[EMPTY:[0-9]+]] = "ttnn.empty"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
-    %1 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>, shape = #ttnn.shape<2x16x8>}> : (!tt.device<#device>) -> tensor<2x16x8xf32, #ttnn_layout1>
     // CHECK: %[[ARG0:[0-9]+]] = "ttnn.to_layout"(%arg0,
     // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>
     // CHECK-SAME: tensor<4x32x32xf32
     // CHECK-SAME: -> tensor<4x32x32xbf16
-    // CHECK: %[[ARG1:[0-9]+]] = "ttnn.to_layout"(%[[EMPTY]],
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<bf16>
-    // CHECK-SAME: tensor<2x16x8xf32
-    // CHECK-SAME: -> tensor<2x16x8xbf16
-    // CHECK: %[[SLICE:[0-9]+]] = "ttnn.slice"(%[[ARG0]], %[[ARG1]])
+    // CHECK: %[[SLICE:[0-9]+]] = "ttnn.slice"(%[[ARG0]])
     // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32]
     // CHECK-SAME: ends = [2 : i32, 16 : i32, 16 : i32]
     // CHECK-SAME: step = [1 : i32, 1 : i32, 2 : i32]}
     // CHECK-SAME: tensor<4x32x32xbf16
-    // CHECK-SAME: tensor<2x16x8xbf16
     // CHECK-SAME: -> tensor<2x16x8xbf16
-    %2 = "ttnn.slice"(%arg0, %1) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 16 : i32, 16 : i32], step = [1 : i32, 1 : i32, 2 : i32]}> : (tensor<4x32x32xf32, #ttnn_layout>, tensor<2x16x8xf32, #ttnn_layout1>) -> tensor<2x16x8xf32, #ttnn_layout1>
+    %1 = "ttnn.slice"(%arg0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 16 : i32, 16 : i32], step = [1 : i32, 1 : i32, 2 : i32]}> : (tensor<4x32x32xf32, #ttnn_layout>) -> tensor<2x16x8xf32, #ttnn_layout1>
     // CHECK: "ttnn.to_layout"(%[[SLICE]]
     // CHECK-SAME: dtype = #tt.supportedDataTypes<f32>
     // CHECK-SAME: tensor<2x16x8xbf16
     // CHECK-SAME: -> tensor<2x16x8xf32
-    return %2 : tensor<2x16x8xf32, #ttnn_layout1>
+    return %1 : tensor<2x16x8xf32, #ttnn_layout1>
   }
 }

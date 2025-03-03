@@ -4,6 +4,9 @@
 
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/PassManager.h"
 
 #include "ttmlir/Conversion/Passes.h"
@@ -13,6 +16,44 @@ namespace mlir::tt::ttmetal {
 //===----------------------------------------------------------------------===//
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
+
+void createTTIRBufferizationPipeline(OpPassManager &pm) {
+  mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
+  {
+    bufferizationOptions.bufferizeFunctionBoundaries = true;
+    bufferizationOptions.functionArgTypeConverterFn =
+        [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
+           func::FuncOp funcOp,
+           const bufferization::BufferizationOptions &bufferizationOptions)
+        -> ::mlir::BaseMemRefType {
+      auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
+      if (!rankedTensorType.getEncoding()) {
+        return bufferization::getMemRefTypeWithStaticIdentityLayout(
+            tensorType, memorySpace);
+      }
+      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+          .getMemref();
+    };
+    bufferizationOptions.defaultMemorySpaceFn =
+        [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
+      auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
+      if (!rankedTensorType.getEncoding()) {
+        return mlir::tt::MemorySpaceAttr::get(tensorType.getContext(),
+                                              mlir::tt::MemorySpace::DeviceL1);
+      }
+      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+          .getMemref()
+          .getMemorySpace();
+    };
+  }
+  pm.addPass(
+      mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
+  // TODO(#2246)
+  // bufferization::BufferDeallocationPipelineOptions
+  // bufferDeallocationOptions;
+  // mlir::bufferization::buildBufferDeallocationPipeline(
+  //    pm, bufferDeallocationOptions);
+}
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
@@ -37,7 +78,7 @@ void createTTIRToTTMetalBackendPipeline(
   // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
   // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   if (options.version > 0) {
-
+    createTTIRBufferizationPipeline(pm);
   } else {
     mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
     {
@@ -60,5 +101,9 @@ void registerTTMetalPipelines() {
       "ttir-to-ttmetal-backend-pipeline",
       "Pipeline lowering ttir to ttmetal backend.",
       mlir::tt::ttmetal::createTTIRToTTMetalBackendPipeline);
+  mlir::PassPipelineRegistration<>(
+      "ttir-bufferization-pipeline",
+      "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",
+      mlir::tt::ttmetal::createTTIRBufferizationPipeline);
 }
 } // namespace mlir::tt::ttmetal

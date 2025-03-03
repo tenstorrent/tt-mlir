@@ -10,6 +10,7 @@ add_mlir_conversion_library(TTMLIRTTNNToEmitC
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
+  MLIRTTTransforms
   MLIRIR
   MLIRPass
   MLIRSCFToEmitC

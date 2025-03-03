@@ -48,6 +48,25 @@ bool isSharded(
              ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
 
+::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType) {
+  switch (reduceType) {
+  case 0:
+    return ::ttnn::operations::reduction::ReduceType::Sum;
+  case 1:
+    return ::ttnn::operations::reduction::ReduceType::Mean;
+  case 2:
+    return ::ttnn::operations::reduction::ReduceType::Max;
+  case 3:
+    return ::ttnn::operations::reduction::ReduceType::Min;
+  case 4:
+    return ::ttnn::operations::reduction::ReduceType::Std;
+  case 5:
+    return ::ttnn::operations::reduction::ReduceType::Var;
+  default:
+    LOG_FATAL("Unsupported reduce type");
+  }
+}
+
 ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:
@@ -64,6 +83,8 @@ bool isSharded(
     return ::ttnn::DataType::UINT16;
   case ::tt::target::DataType::UInt8:
     return ::ttnn::DataType::UINT8;
+  case ::tt::target::DataType::Int32:
+    return ::ttnn::DataType::INT32;
 
   default:
     LOG_FATAL("Unsupported data type");
@@ -86,6 +107,8 @@ bool isSharded(
     return ::tt::target::DataType::UInt16;
   case ::ttnn::DataType::UINT8:
     return ::tt::target::DataType::UInt8;
+  case ::ttnn::DataType::INT32:
+    return ::tt::target::DataType::Int32;
 
   default:
     LOG_FATAL("Unsupported data type");

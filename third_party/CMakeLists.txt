@@ -1,6 +1,8 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "57ba436ec4366d9129df6a53b2d9e1e828ef0356")
+set(TT_METAL_VERSION "9b3d8557734bba9b5c7e91e178b85e4e019022cf")
+
+set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
 if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
   set(ARCH_NAME "grayskull")

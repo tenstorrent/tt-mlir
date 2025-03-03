@@ -38,13 +38,13 @@ module {
     // CHECK: [[VAL0:%[0-9]+]] = "ttnn.repeat"
     // CHECK-SAME: repeat_dims = #ttnn.shape<1x16x1>
     // CHECK: %{{[0-9]+}} = "ttnn.multiply"(%arg0, %{{[0-9]+}})
-    // CHECK: %{{[0-9]+}} = "ttnn.bitwise_and"([[VAL0]], %{{[0-9]+}})
+    // CHECK: %{{[0-9]+}} = "ttnn.maximum"([[VAL0]], %{{[0-9]+}})
     %0 = tensor.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %2 = tensor.empty() : tensor<1x16x32xf32>
     %3 = "ttir.multiply"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     %4 = tensor.empty() : tensor<1x16x32xf32>
-    %5 = "ttir.bitwise_and"(%1, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %5 = "ttir.maximum"(%1, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     return %5 : tensor<1x16x32xf32>
   }
 }
