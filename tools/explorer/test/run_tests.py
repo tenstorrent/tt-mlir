@@ -214,7 +214,7 @@ def test_execute_and_check_perf_data_exists():
 def test_execute_and_check_memory_data_exists():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
-        {"optimizationPolicy": "DF Sharding"},
+        {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
