@@ -17,7 +17,7 @@
 
 namespace mlir::tt::sharding_utils {
 
-#if defined(TTMLIR_ENABLE_STABLEHLO) && (TTMLIR_ENABLE_STABLEHLO != 0)
+#ifdef TTMLIR_ENABLE_STABLEHLO
 
 class MeshSharding {
 public:
