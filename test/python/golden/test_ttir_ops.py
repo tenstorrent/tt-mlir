@@ -456,7 +456,6 @@ def test_arbitrary_op_chain(
         (64, 128),
     ],
     targets=["ttnn"],
-    module_dump=True,  # Enable module dumping
 )
 def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     # Use op_proxy directly since it accepts ttir_kwargs
@@ -475,5 +474,5 @@ if __name__ == "__main__":
     )
 
     for function_name, func in test_functions:
-        if function_name.startswith("test_hoisted_add"):
+        if function_name.startswith("test_"):
             func()
