@@ -738,7 +738,7 @@ def process_operations(
     # Second pass: create all edges
     for op in operations:
         # Skip module + func operations as they've been processed recursively
-        if is_module_op(op) or op.operation.name == "func.func":
+        if is_module_op(op):
             continue
 
         # Process regions in the operation
