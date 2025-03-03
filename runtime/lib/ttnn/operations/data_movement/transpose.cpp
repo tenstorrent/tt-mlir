@@ -5,14 +5,15 @@
 #include "operations/data_movement/transpose.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(in.is_allocated());
+  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
+
   int32_t dim0 = op->dim0();
   int32_t dim1 = op->dim1();
 
@@ -24,6 +25,7 @@ void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ::ttnn::transpose(in, dim0, dim1, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

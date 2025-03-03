@@ -5,6 +5,7 @@
 #include "operations/creation/constant.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -80,7 +81,7 @@ void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
   ::ttnn::Tensor out(::tt::tt_metal::OwnedStorage(ownedBuffer), shape, dtype,
                      ::ttnn::Layout::ROW_MAJOR);
 
-  context.getTensorPool().insert_or_assign(op->out()->global_id(), out);
+  context.getTensorPool().insertAndValidate(op->out(), out);
 }
 
 } // namespace tt::runtime::ttnn::operations::creation

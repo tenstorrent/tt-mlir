@@ -5,6 +5,7 @@
 #include "operations/creation/zeros.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -46,6 +47,6 @@ void run(const ::tt::target::ttnn::ZerosOp *op, ProgramContext &context) {
   ::ttnn::Tensor out =
       ::ttnn::zeros(shape, dtype, layout, device, memoryConfig);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation

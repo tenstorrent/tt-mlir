@@ -4,13 +4,13 @@
 #include "operations/deletion/deallocate.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 
 namespace tt::runtime::ttnn::operations::deletion {
 void run(const ::tt::target::ttnn::DeallocateOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  ::ttnn::Tensor &tensor = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(tensor.is_allocated());
+  ::ttnn::Tensor &tensor = tensorPool.getAndValidate(op->in());
   ::ttnn::deallocate(tensor, op->force());
-  tensorPool.erase(op->in()->global_id());
+  tensorPool.erase(op->in());
 }
 } // namespace tt::runtime::ttnn::operations::deletion

@@ -5,6 +5,7 @@
 #include "operations/data_movement/repeat_interleave.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -13,8 +14,7 @@ void run(const ::tt::target::ttnn::RepeatInterleaveOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
-  DEBUG_ASSERT(input.is_allocated());
+  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->input());
 
   uint32_t repeats = op->repeats();
   int32_t dim = op->dim();
@@ -24,6 +24,7 @@ void run(const ::tt::target::ttnn::RepeatInterleaveOp *op,
 
   ::ttnn::Tensor out =
       ::ttnn::repeat_interleave(input, repeats, dim, memoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

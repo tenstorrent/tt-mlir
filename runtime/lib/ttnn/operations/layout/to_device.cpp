@@ -5,16 +5,17 @@
 #include "operations/layout/to_device.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
+
 void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   LOG_ASSERT(op->device(), "ToDeviceOp must have a device");
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(inputTensor.is_allocated());
-  DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(inputTensor.storage_type()),
+  const ::ttnn::Tensor &inputTensor = tensorPool.getAndValidate(op->in());
+  DEBUG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->in()),
                "Calling ttnn::to_device on a device tensor");
 
   std::optional<::ttnn::MemoryConfig> memoryConfig =
@@ -28,6 +29,7 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
                                  memoryConfig);
       },
       targetDevice);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::layout

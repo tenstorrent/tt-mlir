@@ -1,3 +1,14 @@
+if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTMETAL)
+  set(TTMETAL_RUNTIME_ENABLED ON)
+else()
+  set(TTMETAL_RUNTIME_ENABLED OFF)
+endif()
+
+if (NOT TTMETAL_RUNTIME_ENABLED)
+  add_library(TTRuntimeTTMetal INTERFACE)
+  return()
+endif()
+
 add_library(TTRuntimeTTMetal
   STATIC
   runtime.cpp
