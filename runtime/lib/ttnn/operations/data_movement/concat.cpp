@@ -19,8 +19,11 @@ void run(const ::tt::target::ttnn::ConcatOp *op, ProgramContext &context) {
   }
   int32_t dim = op->dim();
   std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+      op->memory_config() == 0
+          ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()))
+          : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                op->memory_config());
   ::ttnn::Tensor out = ::ttnn::concat(inputs, dim, memoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

@@ -953,8 +953,8 @@ def TTNN_ConcatOp : TTNN_Op<"concat", [HasMemoryConfigTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_ReshapeOp : TTNN_Op<"reshape",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+def TTNN_ReshapeOp : TTNN_Op<"reshape", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Reshape op.";
     let description = [{
@@ -962,7 +962,8 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape",
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$shape);
+                         I32ArrayAttr:$shape,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
