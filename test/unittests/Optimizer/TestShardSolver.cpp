@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -42,7 +43,13 @@ public:
   }
 
   mlir::RankedTensorType getTensorRankedType() {
-    return mlir::RankedTensorType::get(getTensorShape(), builder.getF32Type());
+    return mlir::RankedTensorType::get(
+        getTensorShape(), builder.getF32Type(),
+        TTNNLayoutAttr::get(&context, getTensorShape(), builder.getF32Type(),
+                            BufferType::DRAM,
+                            mlir::tt::GridAttr::get(&context, {1, 1}),
+                            mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                &context, TensorMemoryLayout::Interleaved)));
   }
 
   mlir::Value createEmptyTensor() {
@@ -63,6 +70,10 @@ public:
         mlir::TypeRange(input), mlir::TypeRange(output));
     func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), "test",
                                               funcType);
+    func->setAttr(
+        mlir::tt::DeviceAttr::name,
+        mlir::tt::DeviceAttr::get(
+            &context, mlir::tt::SystemDescAttr::getDefault(&context)));
 
     mlir::Block *block = func.addEntryBlock();
     block->addArgument(getTensorRankedType(), builder.getUnknownLoc());
@@ -213,12 +224,18 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
 
   // Create custom checkShardCompatible function.
   //
-  std::function<bool(mlir::Operation *, TTNNLayoutAttr const &,
-                     mlir::Operation *, TTNNLayoutAttr const &)>
-      checkShardCompatible = [](mlir::Operation *producerOp,
+  std::function<bool(mlir::Value, TTNNLayoutAttr const &, mlir::Operation *,
+                     TTNNLayoutAttr const &)>
+      checkShardCompatible = [](mlir::Value producerOperand,
                                 TTNNLayoutAttr const &producerLayout,
                                 mlir::Operation *consumerOp,
                                 TTNNLayoutAttr const &consumerLayout) {
+        // Interleaved to sharded is always supported.
+        //
+        if (producerLayout.hasInterleavedDRAMTensorMemoryLayout()) {
+          return true;
+        }
+
         // Simple shard compat assumption. Try to keep same shard layout.
         //
         if (producerLayout.getMemLayout() != consumerLayout.getMemLayout()) {
@@ -231,6 +248,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   ShardSolver shardSolver(legalLayouts, opL1MemSpecs, l1ChainedOps,
                           usableL1CacheSize, overrideReshardEdges,
                           checkShardCompatible);
+
+  ASSERT_TRUE(shardSolver.resolve());
 
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<float, 64>>
       accMaxCoreUsage = shardSolver.produceMaxCoreUsage();
