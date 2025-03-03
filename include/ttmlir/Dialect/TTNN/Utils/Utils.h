@@ -57,6 +57,13 @@ TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType);
 // Helper method to get the element type for the given tensor layout and data.
 Type getElementType(MLIRContext *context, Layout tensorLayout,
                     DataType dataType);
+
+// Helper method to get op location name if it exists. Else return empty string.
+std::string getOpLocName(Operation *op);
+
+// Save the IR to a file for debugging.
+void irToFile(mlir::Operation *op, std::string filename);
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
