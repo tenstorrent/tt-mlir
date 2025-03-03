@@ -601,6 +601,8 @@ def build_graph(module, perf_trace=None, golden_results=None):
             if loc not in loc_to_perf:
                 loc_to_perf[loc] = 0
             loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
+    else:
+        print("No Perf Information Found")
 
     accuracy_node_data = {}
     loc_to_accuracy = {}
@@ -762,7 +764,9 @@ def process_operations(
                 operands_in_graph,
                 output_connections,
                 loc_to_perf,
+                loc_to_accuracy,
                 perf_node_data,
+                accuracy_node_data,
             )
             continue
 
@@ -777,7 +781,9 @@ def process_operations(
                     operands_in_graph,
                     output_connections,
                     loc_to_perf,
+                    loc_to_accuracy,
                     perf_node_data,
+                    accuracy_node_data,
                 )
 
         # Create graph node for this operation
