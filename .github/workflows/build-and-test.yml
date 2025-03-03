@@ -764,7 +764,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: tt-explorer-artifacts
-        path: ${{ steps.strings.outputs.work-dir }}/artifact.tar
+        path: ${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/artifact.tar
 
   build-ttmlir-opmodelinterface:
     needs: build-image
