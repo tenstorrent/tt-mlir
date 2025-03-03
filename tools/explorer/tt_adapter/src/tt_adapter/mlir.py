@@ -731,7 +731,6 @@ def process_operations(
 
         # Create graph node for this operation
         operation = OpHandler(op)
-        graph_node = operation.make_graph_node()
 
         if (
             operation.named_location in loc_to_perf
@@ -740,13 +739,15 @@ def process_operations(
             perf_node_data[operation.id] = node_data_builder.NodeDataResult(
                 loc_to_perf[operation.named_location]
             )
+        if not op.name == "func.func":
+            graph_node = operation.make_graph_node()
 
-        if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
-            append_later.append(graph_node)
-        elif op.name not in FILTERED_OPS:
-            graph.nodes.append(graph_node)
+            if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
+                append_later.append(graph_node)
+            elif op.name not in FILTERED_OPS:
+                graph.nodes.append(graph_node)
 
-        op_to_graph_node[op] = graph_node
+            op_to_graph_node[op] = graph_node
 
         # Process operands
         for operand in op.operands:
@@ -767,8 +768,8 @@ def process_operations(
 
     # Second pass: create all edges
     for op in operations:
-        # Skip module operations as they've been processed recursively
-        if is_module_op(op):
+        # Skip module + func operations as they've been processed recursively
+        if is_module_op(op) or op.name == "func.func" :
             continue
 
         # Process regions in the operation
