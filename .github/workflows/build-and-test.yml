@@ -665,6 +665,8 @@ jobs:
       - build-image
       - build-ttmlir
     timeout-minutes: 60
+    # Force upload of artifacts
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -752,11 +754,13 @@ jobs:
         # collect results
 
     - name: Archive tt-explorer artifacts
+      if: ${{ failure() }}
       shell: bash
       working-directory: ${{ steps.strings.outputs.work-dir }}/ttrt-artifacts
       run: tar cvf artifact.tar .
 
     - name: Upload tt-explorer artifacts
+      if: ${{ failure() }}
       uses: actions/upload-artifact@v4
       with:
         name: tt-explorer-artifacts
