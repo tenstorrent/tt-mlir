@@ -9,9 +9,7 @@
 module @jit_eltwise_abs attributes {} {
   func.func public @test_abs(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_abs
-    // CHECK: ttnn.empty
     // CHECK: ttnn.abs
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
     %0 = stablehlo.abs %arg0 : tensor<64x128xf32>

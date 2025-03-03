@@ -19,6 +19,7 @@ def TT_BFP_BFloat2 : I32EnumAttrCase<"BFP_BFloat2", 8, "bfp_bf2">;
 def TT_UInt32 : I32EnumAttrCase<"UInt32", 9, "u32">;
 def TT_UInt16 : I32EnumAttrCase<"UInt16", 10, "u16">;
 def TT_UInt8 : I32EnumAttrCase<"UInt8", 11, "u8">;
+def TT_Int32: I32EnumAttrCase<"Int32", 12, "si32">;
 
 def TT_DataType : I32EnumAttr<"DataType", "TT DataTypes",
                            [
@@ -33,7 +34,8 @@ def TT_DataType : I32EnumAttr<"DataType", "TT DataTypes",
                             TT_BFP_BFloat2,
                             TT_UInt32,
                             TT_UInt16,
-                            TT_UInt8
+                            TT_UInt8,
+                            TT_Int32
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
@@ -67,26 +69,6 @@ def TT_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
                             TT_SystemMMIO,
                             TT_DeviceDRAM,
                             TT_DeviceL1,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
-}
-
-def TT_TensorMemoryLayoutNone : I32EnumAttrCase<"None", 0, "none">;
-def TT_TensorMemoryLayoutInterleaved : I32EnumAttrCase<"Interleaved", 1, "interleaved">;
-def TT_TensorMemoryLayoutSingleBank : I32EnumAttrCase<"SingleBank", 2, "single_bank">;
-def TT_TensorMemoryLayoutHeightSharded : I32EnumAttrCase<"HeightSharded", 3, "height_sharded">;
-def TT_TensorMemoryLayoutWidthSharded : I32EnumAttrCase<"WidthSharded", 4, "width_sharded">;
-def TT_TensorMemoryLayoutBlockSharded : I32EnumAttrCase<"BlockSharded", 5, "block_sharded">;
-
-def TT_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TT TensorMemoryLayout",
-                           [
-                            TT_TensorMemoryLayoutNone,
-                            TT_TensorMemoryLayoutInterleaved,
-                            TT_TensorMemoryLayoutSingleBank,
-                            TT_TensorMemoryLayoutHeightSharded,
-                            TT_TensorMemoryLayoutWidthSharded,
-                            TT_TensorMemoryLayoutBlockSharded,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";

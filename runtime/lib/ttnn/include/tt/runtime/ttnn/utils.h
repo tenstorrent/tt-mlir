@@ -23,6 +23,8 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 bool isSharded(
     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
+::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType);
+
 ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType);
 
 ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType);
@@ -76,6 +78,11 @@ struct NativeDType<::tt::target::DataType::UInt16> {
 template <>
 struct NativeDType<::tt::target::DataType::UInt8> {
   using type = uint8_t;
+};
+
+template <>
+struct NativeDType<::tt::target::DataType::Int32> {
+  using type = int32_t;
 };
 
 template <::tt::target::DataType DataType>

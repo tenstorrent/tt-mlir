@@ -70,6 +70,8 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       tt::DataTypeAttr::get(context, tt::DataType::UInt16));
   supported_data_types.push_back(
       tt::DataTypeAttr::get(context, tt::DataType::UInt8));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::Int32));
 
   // populate a placeholder for supported tile sizes
   SmallVector<tt::TileSizeAttr> supported_tile_sizes;
@@ -262,6 +264,10 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
       case ::tt::target::DataType::UInt8:
         supported_data_types_attr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::UInt8));
+        break;
+      case ::tt::target::DataType::Int32:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::Int32));
         break;
       }
     }
@@ -486,7 +492,7 @@ MetalLayoutAttr MetalLayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, MemorySpace memorySpace, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
-    OOBVal oobVal, TensorMemoryLayout memLayout) {
+    OOBVal oobVal) {
   if (not grid) {
     grid = GridAttr::get(context, tensorShape.size());
   }
@@ -496,28 +502,32 @@ MetalLayoutAttr MetalLayoutAttr::get(
   auto shardShape = calculateLogicalShardShape(tensorShape, linear, grid);
   auto memref = buildMemRef<MemorySpace, MemorySpaceAttr>(
       context, shardShape, elementType, memorySpace);
-  return get(context, linear, oobVal, grid, memref, memLayout);
+  return get(context, linear, oobVal, grid, memref);
 }
 
 MetalLayoutAttr MetalLayoutAttr::get(
     ::mlir::MLIRContext *context, RankedTensorType ty, MemorySpace memorySpace,
     GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
-    OOBVal oobVal, TensorMemoryLayout memLayout) {
+    OOBVal oobVal) {
   assert(ty);
-  return get(context, ty.getShape(), ty.getElementType(), memorySpace, grid,
-             collapseIntervals, oobVal, memLayout);
+  SmallVector<int64_t> tensorShape(ty.getShape());
+  if (mlir::isa<TileType>(ty.getElementType())) {
+    tensorShape =
+        mlir::cast<TileType>(ty.getElementType()).getScalarShape(tensorShape);
+  }
+  return get(context, tensorShape, ty.getElementType(), memorySpace, grid,
+             collapseIntervals, oobVal);
 }
 
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      RankedTensorType ty,
                                      MemorySpace memorySpace, GridAttr grid,
-                                     Type elementType,
-                                     TensorMemoryLayout memLayout) {
+                                     Type elementType) {
   assert(ty);
   assert(grid);
   return get(context, ty.getShape(), elementType, memorySpace, grid, {{0, -1}},
-             OOBVal::Undef, memLayout);
+             OOBVal::Undef);
 }
 
 // From the logical shape of the tensor and the affine map of the layout,
@@ -620,28 +630,6 @@ mlir::Type MetalLayoutAttr::getScalarElementType() const {
   return elementType;
 }
 
-bool MetalLayoutAttr::hasShardedTensorMemoryLayout() const {
-  return (getMemLayout() == TensorMemoryLayout::HeightSharded or
-          getMemLayout() == TensorMemoryLayout::WidthSharded or
-          getMemLayout() == TensorMemoryLayout::BlockSharded);
-}
-
-bool MetalLayoutAttr::hasInterleavedTensorMemoryLayout() const {
-  return (getMemLayout() == TensorMemoryLayout::Interleaved);
-}
-
-bool MetalLayoutAttr::hasShardedL1TensorMemoryLayout() const {
-  return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
-         (getMemLayout() == TensorMemoryLayout::HeightSharded or
-          getMemLayout() == TensorMemoryLayout::WidthSharded or
-          getMemLayout() == TensorMemoryLayout::BlockSharded);
-}
-
-bool MetalLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
-  return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
-         (getMemLayout() == TensorMemoryLayout::Interleaved);
-}
-
 bool MetalLayoutAttr::isTiled() const {
   return ::mlir::isa<::mlir::tt::TileType>(getElementType());
 }
@@ -667,7 +655,7 @@ MetalLayoutAttr MetalLayoutAttr::withGrid(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return get(context, tensorShape, getElementType(), getMemorySpace(), grid,
-             collapseIntervals, getOobVal(), getMemLayout());
+             collapseIntervals, getOobVal());
 }
 
 MetalLayoutAttr MetalLayoutAttr::withGrid(
@@ -682,28 +670,16 @@ MetalLayoutAttr MetalLayoutAttr::withElementType(::mlir::MLIRContext *context,
                                                  Type elementType) {
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
-                                                elementType, getMemorySpace()),
-      getMemLayout());
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
+                                                elementType, getMemorySpace()));
 }
 
 MetalLayoutAttr MetalLayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
                                                  MemorySpace memorySpace) {
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
-                                                getElementType(), memorySpace),
-      getMemLayout());
-}
-
-MetalLayoutAttr
-MetalLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
-                                  TensorMemoryLayout memLayout) {
-  return MetalLayoutAttr::get(
-      context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(
-          context, getShardShape(), getElementType(), getMemorySpace()),
-      memLayout);
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(true),
+                                                getElementType(), memorySpace));
 }
 
 MetalLayoutAttr
@@ -712,18 +688,26 @@ MetalLayoutAttr::withShardShape(::mlir::MLIRContext *context,
   return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
       buildMemRef<MemorySpace, MemorySpaceAttr>(
-          context, shardShape, getElementType(), getMemorySpace()),
-      getMemLayout());
+          context, shardShape, getElementType(), getMemorySpace()));
 }
 
 // TODO(vroubtsovTT): remove this, it's difficult/unsafe to use
 MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
                                                   StreamLayoutAttr layout) {
-  return MetalLayoutAttr::get(
-      context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef<MemorySpace, MemorySpaceAttr>(
-          context, getShardShape(), getElementType(), getMemorySpace(), layout),
-      getMemLayout());
+  return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
+                              buildMemRef<MemorySpace, MemorySpaceAttr>(
+                                  context, getShardShape(true),
+                                  getElementType(), getMemorySpace(), layout));
+}
+
+MetalLayoutAttr MetalLayoutAttr::withStreamMode(::mlir::MLIRContext *context,
+                                                StreamMode streamMode,
+                                                std::uint32_t numBuffers) {
+  return withStreamLayout(
+      context, StreamLayoutAttr::get(context,
+                                     mlir::AffineMap::getMultiDimIdentityMap(
+                                         getShardShape().size(), context),
+                                     streamMode, numBuffers));
 }
 
 MetalLayoutAttr MetalLayoutAttr::withOuterScale(
@@ -747,7 +731,7 @@ MetalLayoutAttr MetalLayoutAttr::withOuterScale(
       context, fullShape, getElementType(), getMemorySpace(), fullLayout);
 
   return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
-                              fullMemRef, getMemLayout());
+                              fullMemRef);
 }
 
 MemorySpace MetalLayoutAttr::getMemorySpace() const {
@@ -1196,6 +1180,7 @@ uint64_t TileType::getSizeBytes() const {
     assert(getHeight() == 32 && getWidth() == 32);
     return 256;
   case DataType::UInt32:
+  case DataType::Int32:
     return getHeight() * getWidth() * 4;
   case DataType::UInt16:
     return getHeight() * getWidth() * 2;

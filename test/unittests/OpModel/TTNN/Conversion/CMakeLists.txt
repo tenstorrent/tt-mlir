@@ -7,6 +7,11 @@ add_executable(TestConversion
     TestConversion.cpp
 )
 
+target_compile_options(TestConversion
+    PRIVATE
+    -fno-rtti
+)
+
 target_include_directories(TestConversion
     PUBLIC
     ${PROJECT_SOURCE_DIR}/lib/OpModel/TTNN/

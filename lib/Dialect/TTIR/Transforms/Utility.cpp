@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/Dialect/TT/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace mlir::tt::ttir {
@@ -20,14 +22,18 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
 
-    if (not module->hasAttr(tt::DeviceAttr::name)) {
+    if (not module->hasAttr(tt::DeviceAttr::name) || forceReload) {
       assert(module->hasAttr(tt::SystemDescAttr::name));
       auto systemDesc = module->getAttr(tt::SystemDescAttr::name);
+      auto finalMeshShape = tt::utils::determineMeshShape(module, *meshShape);
+      if (auto err = finalMeshShape.takeError()) {
+        return;
+      }
       module->setAttr(
           tt::DeviceAttr::name,
           tt::DeviceAttr::get(&getContext(),
                               mlir::cast<tt::SystemDescAttr>(systemDesc),
-                              meshShape));
+                              *finalMeshShape));
     }
   }
 

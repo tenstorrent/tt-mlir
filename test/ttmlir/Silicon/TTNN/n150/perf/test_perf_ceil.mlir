@@ -3,8 +3,9 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 func.func @ceil(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = tensor.empty() : tensor<64x128xf32>
-  // CHECK: [[VAL0:%[0-9]+]] = "ttnn.empty"(%{{[0-9]+}})
-  // CHECK: %{{[0-9]+}} = "ttnn.ceil"(%arg0, [[VAL0]])
   %1 = "ttir.ceil"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  // CHECK: "ttnn.ceil"
+  // CHECK-SAME: tensor<64x128xf32
+  // CHECK-SAME: -> tensor<64x128xf32
   return %1 : tensor<64x128xf32>
 }

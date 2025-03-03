@@ -65,6 +65,34 @@ bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
          (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
 }
 
+// Checks:
+// 1. If memory layout is present then:
+//   - System memory buffer type is not allowed
+//   - DRAM buffer type must have Interleaved memory layout
+// 2. If memory layout is not present then:
+//   - Buffer type must be SystemMemory
+llvm::LogicalResult verifyBufferAndMemoryLayout(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    BufferType bufferType, TensorMemoryLayoutAttr memLayoutAttr) {
+  if (memLayoutAttr) {
+    if (bufferType == BufferType::SystemMemory) {
+      return emitError()
+             << "Memory layout is not allowed for SystemMemory buffer type.";
+    }
+
+    if (bufferType == BufferType::DRAM &&
+        memLayoutAttr.getValue() != TensorMemoryLayout::Interleaved) {
+      return emitError()
+             << "DRAM buffer type must have Interleaved memory layout.";
+    }
+  } else if (bufferType != BufferType::SystemMemory) {
+    return emitError()
+           << "Memory layout is required for non-SystemMemory buffer type.";
+  }
+
+  return ::llvm::success();
+}
+
 // Calculate the logical shape of the shard.
 //
 // Shard is defined as a piece of the tensor that is mapped to a single grid
@@ -439,10 +467,26 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
   TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
   tt::GridAttr grid = getGrid();
 
-  // For SystemMemory we need to clear memory layout attribute
+  // For SystemMemory we need to clear memory layout and set grid to 1x1.
   if (memorySpace == BufferType::SystemMemory) {
     memLayoutAttr = TensorMemoryLayoutAttr{};
     grid = tt::GridAttr::get(context, grid.getShape().size());
+  }
+
+  // For DRAM we need to set memory layout to interleaved and set grid to 1x1.
+  if (memorySpace == BufferType::DRAM) {
+    memLayoutAttr =
+        TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::Interleaved);
+    grid = tt::GridAttr::get(context, grid.getShape().size());
+  }
+
+  // For L1 we will inherit the memory layout if its set.
+  // Otherwise we will set it to interleaved.
+  if (memorySpace == BufferType::L1) {
+    memLayoutAttr = getMemLayout()
+                        ? getMemLayout()
+                        : TensorMemoryLayoutAttr::get(
+                              context, TensorMemoryLayout::Interleaved);
   }
 
   return TTNNLayoutAttr::get(
@@ -539,12 +583,6 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     Type elementType, BufferType bufferType, GridAttr grid,
     TensorMemoryLayoutAttr memLayoutAttr,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
-
-  // TensorMemoryLayout for SystemMemory is always null
-  if (bufferType == BufferType::SystemMemory) {
-    memLayoutAttr = nullptr;
-  }
-
   // Construct a new affine map which will be used to map from logical
   // space to physical space.
   AffineMap linear = collapsedLinearAffineMap(
@@ -565,6 +603,14 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
       context, shardShape, elementType, bufferType);
   return get(context, linear, grid, memRefType, memLayoutAttr);
+}
+
+::llvm::LogicalResult TTNNLayoutAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
+    GridAttr, MemRefType memref, TensorMemoryLayoutAttr memLayout) {
+  BufferType bufferType =
+      mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
+  return verifyBufferAndMemoryLayout(emitError, bufferType, memLayout);
 }
 
 // Construct a new MemoryConfig
@@ -602,15 +648,9 @@ MemoryConfigAttr::withMemoryLayout(::mlir::MLIRContext *context,
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     BufferTypeAttr bufferType, ShardSpecAttr shardSpec,
     TensorMemoryLayoutAttr tensorMemoryLayout) {
-  // Verify that we don't have tensorMemoryLayout for BufferType::SystemMemory
-  if (bufferType.getValue() == BufferType::SystemMemory && tensorMemoryLayout) {
-    emitError() << "MemoryConfig with SystemMemory buffer type cannot have "
-                   "tensor memory layout.";
-    return ::llvm::failure();
-  }
+  return verifyBufferAndMemoryLayout(emitError, bufferType.getValue(),
+                                     tensorMemoryLayout);
 
   // TODO(#2140): Once we complete #1628, we should add a verifier for
   // ShardSpecAttr. ShardSpecAttr is only valid if the buffer type is L1.
-
-  return ::llvm::success();
 }

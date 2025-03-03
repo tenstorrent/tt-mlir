@@ -9,9 +9,7 @@
 module @jit_eltwise_isfinite attributes {} {
   func.func public @test_isfinite(%arg0: tensor<64x128xbf16>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @test_isfinite
-    // CHECK: ttnn.empty
     // CHECK: ttnn.isfinite
-    // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: -> tensor<64x128xbf16,
     %0 = stablehlo.is_finite %arg0 : (tensor<64x128xbf16>) -> tensor<64x128xi1>

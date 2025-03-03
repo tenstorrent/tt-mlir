@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -42,7 +43,13 @@ public:
   }
 
   mlir::RankedTensorType getTensorRankedType() {
-    return mlir::RankedTensorType::get(getTensorShape(), builder.getF32Type());
+    return mlir::RankedTensorType::get(
+        getTensorShape(), builder.getF32Type(),
+        TTNNLayoutAttr::get(&context, getTensorShape(), builder.getF32Type(),
+                            BufferType::DRAM,
+                            mlir::tt::GridAttr::get(&context, {1, 1}),
+                            mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                &context, TensorMemoryLayout::Interleaved)));
   }
 
   mlir::Value createEmptyTensor() {
@@ -63,6 +70,10 @@ public:
         mlir::TypeRange(input), mlir::TypeRange(output));
     func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), "test",
                                               funcType);
+    func->setAttr(
+        mlir::tt::DeviceAttr::name,
+        mlir::tt::DeviceAttr::get(
+            &context, mlir::tt::SystemDescAttr::getDefault(&context)));
 
     mlir::Block *block = func.addEntryBlock();
     block->addArgument(getTensorRankedType(), builder.getUnknownLoc());
@@ -145,11 +156,10 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   constexpr unsigned usableL1CacheSize = 1024 * 1024;
   std::unordered_set<Edge> overrideReshardEdges;
 
-  mlir::Value dest = createEmptyTensor();
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
   mlir::Operation *op =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, dest);
+      builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
   mlir::Operation *firstOp = op;
 
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
@@ -161,8 +171,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
                  TensorMemoryLayout::BlockSharded, 2, 2);
 
   rhs = op->getResult(0);
-  dest = createEmptyTensor();
-  op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs, dest);
+  op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addLayoutForOp(op, legalLayouts, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 8);
@@ -174,8 +183,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = op->getResult(0);
 
-  dest = createEmptyTensor();
-  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, dest);
+  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addLayoutForOp(op, legalLayouts, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 4);
@@ -184,8 +192,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   addLayoutForOp(op, legalLayouts, BufferType::L1,
                  TensorMemoryLayout::BlockSharded, 1, 1);
 
-  dest = createEmptyTensor();
-  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, dest);
+  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addLayoutForOp(op, legalLayouts, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 4);
@@ -196,8 +203,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
 
   lhs = opL1MemSpecs[opL1MemSpecs.size() - 2].op->getResult(0);
   rhs = opL1MemSpecs[opL1MemSpecs.size() - 1].op->getResult(0);
-  dest = createEmptyTensor();
-  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, dest);
+  op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addLayoutForOp(op, legalLayouts, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 2);
@@ -207,8 +213,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
                  TensorMemoryLayout::BlockSharded, 1, 1);
 
   rhs = op->getResult(0);
-  dest = createEmptyTensor();
-  op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs, dest);
+  op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
   addLayoutForOp(op, legalLayouts, BufferType::L1,
                  TensorMemoryLayout::WidthSharded, 1, 2);
@@ -219,12 +224,18 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
 
   // Create custom checkShardCompatible function.
   //
-  std::function<bool(mlir::Operation *, TTNNLayoutAttr const &,
-                     mlir::Operation *, TTNNLayoutAttr const &)>
-      checkShardCompatible = [](mlir::Operation *producerOp,
+  std::function<bool(mlir::Value, TTNNLayoutAttr const &, mlir::Operation *,
+                     TTNNLayoutAttr const &)>
+      checkShardCompatible = [](mlir::Value producerOperand,
                                 TTNNLayoutAttr const &producerLayout,
                                 mlir::Operation *consumerOp,
                                 TTNNLayoutAttr const &consumerLayout) {
+        // Interleaved to sharded is always supported.
+        //
+        if (producerLayout.hasInterleavedDRAMTensorMemoryLayout()) {
+          return true;
+        }
+
         // Simple shard compat assumption. Try to keep same shard layout.
         //
         if (producerLayout.getMemLayout() != consumerLayout.getMemLayout()) {
@@ -237,6 +248,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   ShardSolver shardSolver(legalLayouts, opL1MemSpecs, l1ChainedOps,
                           usableL1CacheSize, overrideReshardEdges,
                           checkShardCompatible);
+
+  ASSERT_TRUE(shardSolver.resolve());
 
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<float, 64>>
       accMaxCoreUsage = shardSolver.produceMaxCoreUsage();

@@ -12,7 +12,6 @@
 
 #include "mlir/Dialect/Traits.h"
 
-#include <llvm/ADT/ArrayRef.h>
 #include <numeric>
 #include <optional>
 
@@ -56,27 +55,35 @@ namespace mlir::tt::ttnn {
 
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType weightType = getWeight().getType();
-  std::optional<::mlir::RankedTensorType> biasType =
+  mlir::RankedTensorType inputType = getInput().getType();
+  mlir::RankedTensorType weightType = getWeight().getType();
+  mlir::RankedTensorType outputType = getResult().getType();
+  std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
 
-  if (inputType.getRank() < 3) {
-    return emitOpError("Input must be at least a 3D tensor");
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input must be a 4D tensor");
   }
+
+  if (outputType.getRank() != 4) {
+    return emitOpError("Output must be a 4D tensor");
+  }
+
   if (weightType.getRank() != 4) {
     return emitOpError("Weight must be a 4D tensor");
   }
-  if (biasType.has_value()) {
-    if (biasType->getRank() != 4) {
+
+  if (bias.has_value()) {
+    if (bias->getRank() != 4) {
       return emitOpError("Bias must be a 4D tensor");
     }
-    auto biasShape = biasType->getShape();
+    auto biasShape = bias->getShape();
     if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
       return emitOpError("Bias must only have data on the final dimenstion");
     }
   }
+
   return success();
 }
 
@@ -88,7 +95,7 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::ConvTranspose2dOp::verify() {
   mlir::RankedTensorType inputType = getInput().getType();
   mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getOutput().getType();
+  mlir::RankedTensorType outputType = getResult().getType();
   std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
@@ -144,13 +151,13 @@ namespace mlir::tt::ttnn {
 
   uint32_t inputHeight = getInputHeight();
   if (inputHeight != inputType.getDimSize(inputType.getRank() - 3)) {
-    return emitOpError("Input height attribute must match the third "
+    return emitOpError("Input height attribute must match the second "
                        "dimension of the input tensor");
   }
 
   uint32_t inputWidth = getInputWidth();
   if (inputWidth != inputType.getDimSize(inputType.getRank() - 2)) {
-    return emitOpError("Input width attribute must match the second "
+    return emitOpError("Input width attribute must match the third "
                        "dimension of the input tensor");
   }
 
@@ -581,7 +588,7 @@ namespace mlir::tt::ttnn {
   ::mlir::ArrayAttr begins = getBeginsAttr();
   ::mlir::ArrayAttr ends = getEndsAttr();
   ::mlir::ArrayAttr stepAttr = getStepAttr();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // Verify that the input is at least 1D tensor
   if (inputType.getRank() < 1) {
@@ -768,7 +775,7 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType inputGradType = getInGradient().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // inputType checks:
   // 1. Last dimension must be divisible by TILE_WIDTH.
@@ -834,9 +841,9 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getResult().getType();
   auto inputLayout =
-      mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputTy.getEncoding());
+      mlir::dyn_cast_if_present<TTNNLayoutAttr>(inputTy.getEncoding());
   auto outputLayout =
-      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputTy.getEncoding());
+      mlir::dyn_cast_if_present<TTNNLayoutAttr>(outputTy.getEncoding());
   if (not inputLayout) {
     return emitOpError("Input tensor type missing layout attribute");
   }
@@ -867,13 +874,6 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
     }
-    if (outputMemoryLayout.getValue() == TensorMemoryLayout::BlockSharded) {
-      // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
-      if (shardShape[0] % TILE_HEIGHT != 0 or shardShape[1] % TILE_WIDTH != 0) {
-        return emitOpError(
-            "Shard shape must divide tile shape (32, 32) evenly");
-      }
-    }
   }
   return success();
 }
@@ -883,60 +883,92 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 //===----------------------------------------------------------------------===//
 
 // ToLayoutOp canonicalization
-// ToLayoutOp can be canonicalized if the previous op is also a ToLayoutOp. The
-// previous op can be merged with the current ToLayoutOp op if the previous op
-// has only one use. df - data format, l - layout, ms - memory space, tml -
-// tensor memory layout
-//
-//                |
-//      -----------------------
-//      |     ToLayoutOp      |                     |
-//      | df1, l1, ms1, tml1  |          -----------------------
-//      -----------------------          |     ToLayoutOp      |
-//                |                 -->  | df2, l1, ms2, tml1  |
-//                |                      -----------------------
-//      -----------------------                     |
-//      |     ToLayoutOp      |
-//      |      df2, ms2       |
-//      -----------------------
-//                |
-//
-::mlir::LogicalResult
-mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
-                                         PatternRewriter &rewriter) {
-  // Get the input operand and verify that the previous op is toLayoutOp
-  ToLayoutOp previousToLayoutOp =
-      toLayoutOp.getOperand(0).getDefiningOp<ToLayoutOp>();
+void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // ToLayoutOp can be folded if its input has the same layout as the output of
+  // toLayoutOp.
+  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+                   mlir::PatternRewriter &rewriter) {
+    RankedTensorType previousType = toLayoutOp.getInput().getType();
+    TTNNLayoutAttr previousLayout =
+        mlir::dyn_cast<TTNNLayoutAttr>(previousType.getEncoding());
+    // Verify if input tensor has layout attribute.
+    if (!previousLayout) {
+      return mlir::failure();
+    }
 
-  // NOLINTNEXTLINE
-  if (!previousToLayoutOp) {
-    return mlir::failure();
-  }
+    RankedTensorType currentType = toLayoutOp.getType();
+    TTNNLayoutAttr currentLayout =
+        mlir::dyn_cast<TTNNLayoutAttr>(currentType.getEncoding());
+    // Verify if the output tensor has layout attribute.
+    if (!currentLayout) {
+      return mlir::failure();
+    }
 
-  // Check if the previous op has only one use. We can only merge if the
-  // previous op has single use.
-  if (!previousToLayoutOp->hasOneUse()) {
-    return mlir::failure();
-  }
+    // Verify that the layouts are the same.
+    if (previousLayout != currentLayout) {
+      return mlir::failure();
+    }
 
-  // Replace the previous op with the merged ToLayoutOp
-  Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
-      previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
-      toLayoutOp.getLayoutAttr(),
-      toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
-                                : previousToLayoutOp.getDtypeAttr(),
-      toLayoutOp.getMemoryConfigAttr()
-          ? toLayoutOp.getMemoryConfigAttr()
-          : previousToLayoutOp.getMemoryConfigAttr(),
-      toLayoutOp.getDevice());
+    rewriter.replaceAllUsesWith(toLayoutOp, toLayoutOp->getOperand(0));
+    rewriter.eraseOp(toLayoutOp);
+    return mlir::success();
+  });
 
-  // Replace all uses of the current op with the merged ToLayoutOp
-  rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+  // Two consecutive ToLayoutOps can be merged if the previous op has only one
+  // use.
+  // df - data format, l - layout, ms - memory
+  // space, tml - tensor memory layout
+  //
+  //                |
+  //      -----------------------
+  //      |     ToLayoutOp      |                     |
+  //      | df1, l1, ms1, tml1  |          -----------------------
+  //      -----------------------          |     ToLayoutOp      |
+  //                |                 -->  | df2, l1, ms2, tml1  |
+  //                |                      -----------------------
+  //      -----------------------                     |
+  //      |     ToLayoutOp      |
+  //      |      df2, ms2       |
+  //      -----------------------
+  //                |
+  //
+  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+                   mlir::PatternRewriter &rewriter) {
+    // Get the input operand and verify that the previous op is toLayoutOp.
+    ToLayoutOp previousToLayoutOp =
+        toLayoutOp.getInput().getDefiningOp<ToLayoutOp>();
 
-  // Erase the current op
-  rewriter.eraseOp(toLayoutOp);
+    // NOLINTNEXTLINE
+    if (!previousToLayoutOp) {
+      return mlir::failure();
+    }
 
-  return mlir::success();
+    // Check if the previous op has only one use. We can only merge if the
+    // previous op has single use.
+    if (!previousToLayoutOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Replace the previous op with the merged ToLayoutOp.
+    Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
+        previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
+        toLayoutOp.getLayoutAttr(),
+        toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
+                                  : previousToLayoutOp.getDtypeAttr(),
+        toLayoutOp.getMemoryConfigAttr()
+            ? toLayoutOp.getMemoryConfigAttr()
+            : previousToLayoutOp.getMemoryConfigAttr(),
+        toLayoutOp.getDevice());
+
+    // Replace all uses of the current op with the merged ToLayoutOp.
+    rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+
+    // Erase the current op.
+    rewriter.eraseOp(toLayoutOp);
+
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -949,7 +981,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   ::mlir::RankedTensorType inputBType = getB().getType();
   std::optional<::mlir::RankedTensorType> biasType =
       getBias() ? std::make_optional(getBias().getType()) : std::nullopt;
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
@@ -965,43 +997,45 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
-  // purpose of the matrix multiplication. After the matrix multiplication, the
-  // prepended dimension is removed.
+  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
+  // the purpose of the matrix multiplication. After the matrix multiplication,
+  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
+  // transposed.
   if (inputAType.getRank() == 1) {
     inputAShape.insert(inputAShape.begin(), 1);
+  } else if (getTransposeA()) {
+    std::swap(inputAShape[inputAShape.size() - 1],
+              inputAShape[inputAShape.size() - 2]);
   }
 
-  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
-  // the purpose of the matrix-vector product and removed afterwards.
+  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
+  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
+  // check if the RHS needs to be transposed.
   if (inputBType.getRank() == 1) {
     inputBShape.push_back(1);
+  } else if (getTransposeB()) {
+    std::swap(inputBShape[inputBShape.size() - 1],
+              inputBShape[inputBShape.size() - 2]);
   }
 
   // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
       inputBShape[inputBShape.size() - 2]) {
-    return emitOpError(
-        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
-        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
-        ") must have matching inner dimensions");
+    return emitOpError("Input A[-1](")
+           << inputAShape[inputAShape.size() - 1] << ") and B[-2]("
+           << inputBShape[inputBShape.size() - 2]
+           << ") must have matching inner dimensions";
   }
 
   llvm::SmallVector<int64_t> expectedOutputShape;
   // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape.
+  // expected output shape. If either of input A or input B is at most 2D
+  // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
-    llvm::SmallVector<int64_t> inputABatchDims, inputBBatchDims;
-
-    if (inputAShape.size() > 2) {
-      inputABatchDims.insert(inputABatchDims.begin(), inputAShape.begin(),
-                             inputAShape.end() - 2);
-    }
-
-    if (inputBShape.size() > 2) {
-      inputBBatchDims.insert(inputBBatchDims.begin(), inputBShape.begin(),
-                             inputBShape.end() - 2);
-    }
+    llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
+                                               inputAShape.end() - 2);
+    llvm::SmallVector<int64_t> inputBBatchDims(inputBShape.begin(),
+                                               inputBShape.end() - 2);
 
     // Verify that the batch dimensions of input A and B are broadcast
     // compatible.
@@ -1016,12 +1050,10 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
     }
 
     // Insert the broadcasted batch dimensions in the expected output shape.
-    expectedOutputShape.insert(expectedOutputShape.begin(),
-                               broadcastedShape.begin(),
-                               broadcastedShape.end());
+    expectedOutputShape = std::move(broadcastedShape);
   }
 
-  // Insert the input A and B inner dimensions in expected output shape.
+  // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
   // the dimension 1 is ommited from the output shape.
   if (inputAType.getRank() > 1) {
@@ -1034,21 +1066,21 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
   if (biasType) {
     // Verify that the input bias is at least 1D tensor.
-    if (biasType.value().getRank() < 1) {
+    if (biasType->getRank() < 1) {
       return emitOpError("Bias must be at least a 1D tensor");
     }
 
-    llvm::SmallVector<int64_t> biasShape(biasType.value().getShape());
+    llvm::SmallVector<int64_t> biasShape(biasType->getShape());
 
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
     llvm::SmallVector<int64_t> matmulShape = expectedOutputShape;
     if (!OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
                                             expectedOutputShape)) {
-      return emitOpError("Bias shape(" + ttmlir::utils::join(biasShape, ",") +
-                         ") is not broadcast compatible with the matmul output "
-                         "shape(" +
-                         ttmlir::utils::join(matmulShape, ",") + ")");
+      return emitOpError("Bias shape(")
+             << ttmlir::utils::join(biasShape, ",")
+             << ") is not broadcast compatible with the matmul output shape("
+             << ttmlir::utils::join(matmulShape, ",") << ")";
     }
   }
 
@@ -1067,23 +1099,22 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
     return success();
   }
 
-  // Verify that the output shape dimension count is correct.
+  // Verify that the output shape is correct.
   if (outputShape.size() != expectedOutputShape.size()) {
-    return emitOpError("Output shape rank(" +
-                       std::to_string(outputShape.size()) +
-                       ") must match the expected output shape rank(" +
-                       std::to_string(expectedOutputShape.size()) + ")");
+    return emitOpError("Output shape rank(")
+           << outputShape.size()
+           << ") must match the expected output shape rank("
+           << expectedOutputShape.size() << ")";
   }
 
   // Verify each dim of the output shape.
-  for (size_t i = 0; i < outputShape.size(); i++) {
-    if (outputShape[i] != expectedOutputShape[i]) {
-      return emitOpError(
-          "Output shape dimension[" + std::to_string(i) + "](" +
-          std::to_string(outputShape[i]) +
-          ") doesn't match the expected output shape dimension[" +
-          std::to_string(i) + "](" + std::to_string(expectedOutputShape[i]) +
-          ")");
+  for (auto [index, outputDim, expectedDim] : llvm::zip(
+           llvm::seq(outputShape.size()), outputShape, expectedOutputShape)) {
+    if (outputDim != expectedDim) {
+      return emitOpError("Output shape dimension[")
+             << index << "](" << outputDim
+             << ") doesn't match the expected output shape dimension[" << index
+             << "](" << expectedDim << ")";
     }
   }
 
@@ -1099,62 +1130,64 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 ::mlir::LogicalResult mlir::tt::ttnn::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
   llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
 
-  // Verify that the input A is at least 1D tensor
+  // Verify that the input A is at least 1D tensor.
   if (inputAType.getRank() < 1) {
     return emitOpError("Input A must be at least a 1D tensor");
   }
 
-  // Verify that the input B is at least 1D tensor
+  // Verify that the input B is at least 1D tensor.
   if (inputBType.getRank() < 1) {
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
-  // purpose of the matrix multiply. After the matrix multiply, the prepended
-  // dimension is removed.
+  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
+  // the purpose of the matrix multiplication. After the matrix multiplication,
+  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
+  // transposed.
   if (inputAType.getRank() == 1) {
     inputAShape.insert(inputAShape.begin(), 1);
+  } else if (getTransposeA()) {
+    std::swap(inputAShape[inputAShape.size() - 1],
+              inputAShape[inputAShape.size() - 2]);
   }
 
-  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
-  // the purpose of the matrix-vector product and removed after.
+  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
+  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
+  // check if the RHS needs to be transposed.
   if (inputBType.getRank() == 1) {
     inputBShape.push_back(1);
+  } else if (getTransposeB()) {
+    std::swap(inputBShape[inputBShape.size() - 1],
+              inputBShape[inputBShape.size() - 2]);
   }
 
-  // Verify that the input A and input B has matching inner dimensions
+  // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
       inputBShape[inputBShape.size() - 2]) {
-    return emitOpError(
-        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
-        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
-        ") must have matching inner dimensions");
+    return emitOpError("Input A[-1](")
+           << inputAShape[inputAShape.size() - 1] << ") and B[-2]("
+           << inputBShape[inputBShape.size() - 2]
+           << ") must have matching inner dimensions";
   }
 
   llvm::SmallVector<int64_t> expectedOutputShape;
   // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape
+  // expected output shape. If either of input A or input B is at most 2D
+  // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
-    llvm::SmallVector<int64_t> inputABatchDims, inputBBatchDims;
-
-    if (inputAShape.size() > 2) {
-      inputABatchDims.insert(inputABatchDims.begin(), inputAShape.begin(),
-                             inputAShape.end() - 2);
-    }
-
-    if (inputBShape.size() > 2) {
-      inputBBatchDims.insert(inputBBatchDims.begin(), inputBShape.begin(),
-                             inputBShape.end() - 2);
-    }
+    llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
+                                               inputAShape.end() - 2);
+    llvm::SmallVector<int64_t> inputBBatchDims(inputBShape.begin(),
+                                               inputBShape.end() - 2);
 
     // Verify that the batch dimensions of input A and B are broadcast
-    // compatible
+    // compatible.
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
                                             broadcastedShape)) {
@@ -1166,10 +1199,8 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
                          ") are not broadcast compatible");
     }
 
-    // Insert the broadcasted batch dimensions in the expected output shape
-    expectedOutputShape.insert(expectedOutputShape.begin(),
-                               broadcastedShape.begin(),
-                               broadcastedShape.end());
+    // Insert the broadcasted batch dimensions in the expected output shape.
+    expectedOutputShape = std::move(broadcastedShape);
   }
 
   // Insert the input A and B inner dimensions in expected output shape
@@ -1195,26 +1226,25 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
       return emitOpError("Scalar output must be a 1D tensor of size 1");
     }
 
-    return llvm::success();
+    return success();
   }
 
-  // Verify that the output shape is correct
+  // Verify that the output shape is correct.
   if (outputShape.size() != expectedOutputShape.size()) {
-    return emitOpError("Output shape rank(" +
-                       std::to_string(outputShape.size()) +
-                       ") must match the expected output shape rank(" +
-                       std::to_string(expectedOutputShape.size()) + ")");
+    return emitOpError("Output shape rank(")
+           << outputShape.size()
+           << ") must match the expected output shape rank("
+           << expectedOutputShape.size() << ")";
   }
 
-  // Verify each dim of the output shape
-  for (size_t i = 0; i < outputShape.size(); i++) {
-    if (outputShape[i] != expectedOutputShape[i]) {
-      return emitOpError(
-          "Output shape dimension[" + std::to_string(i) + "](" +
-          std::to_string(outputShape[i]) +
-          ") doesn't match the expected output shape dimension[" +
-          std::to_string(i) + "](" + std::to_string(expectedOutputShape[i]) +
-          ")");
+  // Verify each dim of the output shape.
+  for (auto [index, outputDim, expectedDim] : llvm::zip(
+           llvm::seq(outputShape.size()), outputShape, expectedOutputShape)) {
+    if (outputDim != expectedDim) {
+      return emitOpError("Output shape dimension[")
+             << index << "](" << outputDim
+             << ") doesn't match the expected output shape dimension[" << index
+             << "](" << expectedDim << ")";
     }
   }
 
@@ -1228,7 +1258,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 // AllocOp verification
 ::mlir::LogicalResult AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+  auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");
@@ -1340,7 +1370,10 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   int32_t gatherDim = getAllGatherDim();
 
   if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for all gather op.");
+    return emitOpError("Invalid gather dimension for all reduce op. Gather "
+                       "dimension must be >= to input tensor rank or < -input "
+                       "tensor rank, got gather_dim = ")
+           << gatherDim;
   }
 
   return success();
@@ -1352,19 +1385,23 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 ::mlir::LogicalResult ReduceScatterOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t scatterSplitDim = getScatterSplitDim();
-  auto mathOp = getMathOp();
+  int32_t scatterDim = getScatterDim();
+  ::mlir::tt::ReduceType reduceType = getReduceType();
 
-  if (scatterSplitDim >= inputType.getRank() ||
-      scatterSplitDim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for reduce scatter op.");
+  if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
+    return emitOpError("Invalid scatter dimension for all reduce op. Scatter "
+                       "dimension must be >= to input tensor rank or < -input "
+                       "tensor rank, got scatter_dim = ")
+           << scatterDim;
   }
 
-  // Check reduction op that we currently support in tt_nn
-  if (mathOp != ::mlir::tt::ReduceType::Sum &&
-      mathOp != ::mlir::tt::ReduceType::Max &&
-      mathOp != ::mlir::tt::ReduceType::Min) {
-    return emitOpError("Invalid reduction op for reduce scatter op.");
+  // Currently TTNN only supports the following reduce types. Compiler is able
+  // to model the full ReduceType list but only the following can be lowered
+  // into TTNN.
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min) {
+    return emitOpError("Invalid reduction op for all reduce op.");
   }
 
   return success();
@@ -1375,18 +1412,12 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult AllReduceOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  int32_t dim = getScatterDim();
-  auto mathOp = getMathOp();
+  ::mlir::tt::ReduceType reduceType = getReduceType();
 
-  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
-    return emitOpError("Invalid dimension for all reduce op.");
-  }
-
-  // Check reduction op that we currently support in tt_nn
-  if (mathOp != ::mlir::tt::ReduceType::Sum &&
-      mathOp != ::mlir::tt::ReduceType::Max &&
-      mathOp != ::mlir::tt::ReduceType::Min) {
+  // Currently TTNN only supports the following reduce types.
+  if (reduceType != ::mlir::tt::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ReduceType::Max &&
+      reduceType != ::mlir::tt::ReduceType::Min) {
     return emitOpError("Invalid reduction op for all reduce op.");
   }
 
@@ -1402,10 +1433,9 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   llvm::ArrayRef<int64_t> shardShape = getShardShape();
   ::mlir::tt::MeshShardType shardType = getShardType();
 
-  // Check sharding is one of replicate or devices.
-  if (shardType != ::mlir::tt::MeshShardType::Replicate &&
-      shardType != ::mlir::tt::MeshShardType::Devices) {
-    return emitOpError("Invalid shard_type for mesh_shard op.");
+  // Check shard_type is not maximal.
+  if (shardType == ::mlir::tt::MeshShardType::Maximal) {
+    return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
   }
 
   if (shardType == ::mlir::tt::MeshShardType::Devices) {

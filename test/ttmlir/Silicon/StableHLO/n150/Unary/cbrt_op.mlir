@@ -9,9 +9,7 @@
 module @jit_eltwise_rsqrt attributes {} {
   func.func public @test_cbrt(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_cbrt
-    // CHECK: ttnn.empty
     // CHECK: ttnn.cbrt
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
     %0 = stablehlo.cbrt %arg0 : tensor<64x128xf32>

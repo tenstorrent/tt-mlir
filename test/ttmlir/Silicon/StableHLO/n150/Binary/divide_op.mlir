@@ -9,9 +9,7 @@
 module @jit_eltwise_divice attributes {} {
   func.func public @test_divide(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_divide
-    // CHECK: ttnn.empty
     // CHECK: ttnn.div
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,

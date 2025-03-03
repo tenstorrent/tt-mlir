@@ -9,9 +9,7 @@
 module @jit_eltwise_compare attributes {} {
   func.func public @logical_not(%arg0: tensor<64x128xi1>) -> tensor<64x128xi1> {
     // CHECK-LABEL: func.func public @logical_not
-    // CHECK: ttnn.empty
     // CHECK: ttnn.logical_not
-    // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: tensor<64x128xbf16,
     // CHECK-SAME: -> tensor<64x128xbf16,
     %0 = stablehlo.not  %arg0 : tensor<64x128xi1>

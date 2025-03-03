@@ -12,17 +12,20 @@
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
 #include <llvm/ADT/APFloat.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -96,6 +99,10 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
           srcOp, adaptor, rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::OrOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceOrOp>(srcOp, adaptor,
+                                                                 rewriter);
+    }
     if (isArgMax(srcOp, adaptor, rewriter)) {
       return matchAndRewriteInternalArgMax(srcOp, adaptor, rewriter);
     }
@@ -126,16 +133,23 @@ private:
     }
 
     mlir::Operation &innerOp = srcOp.getBody().front().front();
-    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp) ||
+        mlir::isa<mlir::stablehlo::OrOp>(innerOp)) {
       bool allOperandsAreBoolean = std::all_of(
           srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
             return mlir::cast<RankedTensorType>(operand.getType())
                        .getElementTypeBitWidth() == 1;
           });
+      // Stablehlo (unlike other dialects) has single op for both logical and
+      // bitwise operation. Data type is used to distinguish between logical and
+      // bitwise operation. If the datatype is boolean then it is a logical
+      // operation; otherwise it is bitwise operation. This check ensure that
+      // the inputs are boolean as tt-metal only supports logical operations.
       if (!allOperandsAreBoolean) {
         return rewriter.notifyMatchFailure(
-            srcOp, "stablehlo.reduce for stablehlo.and operator is only "
-                   "supported for logical and.");
+            srcOp,
+            "stablehlo.reduce for stablehlo.and/stablehlo.or operator is only "
+            "supported for logical operator.");
       }
     }
 
@@ -606,7 +620,13 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    mlir::ElementsAttr valueAttr = getValueAttr(srcOp.getValue());
+    mlir::ElementsAttr valueAttr;
+    LogicalResult valueAttrLegalityResult =
+        getValueAttr(srcOp, rewriter, valueAttr);
+
+    if (!valueAttrLegalityResult.succeeded()) {
+      return valueAttrLegalityResult;
+    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
                                                             valueAttr);
@@ -630,103 +650,81 @@ private:
   // 2. Boolean tensor: TTNN does not support boolean data. So they are
   //    converted to bfloat16 tensors.
   // 3. Integer tensor: TTNN does not support 64 bit integer. So they are
-  //    converted to 32 bit tensor.
+  //    converted to 32 bit tensor (with signed saturation).
   // 4. Float tensor: TTNN does not support 64 bit float. So they are converted
   //    to 32 bit tensor.
-  mlir::ElementsAttr getValueAttr(mlir::ElementsAttr valueAttr) const {
+  LogicalResult getValueAttr(mlir::stablehlo::ConstantOp &srcOp,
+                             ConversionPatternRewriter &rewriter,
+                             mlir::ElementsAttr &newValueAttr) const {
+    mlir::ElementsAttr valueAttr = srcOp.getValue();
     Type elementType = valueAttr.getElementType();
     size_t bitWidth = elementType.getIntOrFloatBitWidth();
-    bool isTensor = !valueAttr.getShapedType().getShape().empty();
-    bool isIntTensor = isTensor && isa<IntegerType>(elementType) &&
-                       bitWidth != 1 && bitWidth != 64;
-    bool isFloatTensor = isTensor && isa<FloatType>(elementType) &&
-                         bitWidth != 1 && bitWidth != 64;
-
-    if (isTensor && (isIntTensor || isFloatTensor)) {
-      return valueAttr;
+    bool isScalar = valueAttr.getShapedType().getShape().empty();
+    bool isElementTypeSupported =
+        (isa<IntegerType>(elementType) || isa<FloatType>(elementType)) &&
+        bitWidth != 1 && bitWidth != 64;
+    if (!isScalar && isElementTypeSupported) {
+      newValueAttr = valueAttr;
+      return success();
     }
 
     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
         getTypeConverter()->convertType(valueAttr.getShapedType()));
     if (isa<IntegerType>(elementType)) {
-      switch (bitWidth) {
-      case 1: {
-        return rebuildValueAttr<bool>(valueAttr, 1);
-      }
-      case 8: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint8_t>(valueAttr, 8)
-                   : rebuildValueAttr<int8_t>(valueAttr, 8);
-      }
-      case 16: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint16_t>(valueAttr, 16)
-                   : rebuildValueAttr<int16_t>(valueAttr, 16);
-      }
-      case 32: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint32_t>(valueAttr, 32)
-                   : rebuildValueAttr<int32_t>(valueAttr, 32);
-      }
-      case 64: {
-        return elementType.isUnsignedInteger()
-                   ? rebuildValueAttr<uint64_t>(valueAttr, 32)
-                   : rebuildValueAttr<int64_t>(valueAttr, 32);
-      }
-      default: {
-        assert(false && "Unsupported integer type.");
-      }
-      }
+      newValueAttr = rebuildIntValueAttr(valueAttr, valueType, bitWidth);
+      return success();
     }
     if (isa<FloatType>(elementType)) {
-      // Convert 64 bit floating point numbers to 32 bit floating point numbers.
-      if (bitWidth == 64) {
-        std::vector<mlir::APFloat> floatValues;
-        for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
-          float fl = static_cast<float>(value.convertToDouble());
-          mlir::APFloat input = mlir::APFloat(fl);
-          floatValues.emplace_back(input);
-        }
-        return mlir::DenseElementsAttr::get(valueType, floatValues);
-      }
-      // In case of float values llvm has a bug where not all float types are
-      // supported for iterating in DenseElementsAttr, so we have to use a
-      // different constructor.
-      std::vector<mlir::APFloat> floatValues(
-          valueAttr.getValues<mlir::APFloat>().begin(),
-          valueAttr.getValues<mlir::APFloat>().end());
-      return mlir::DenseElementsAttr::get(valueType, floatValues);
+      newValueAttr = rebuildFloatValueAttr(valueAttr, valueType, bitWidth);
+      return success();
     }
-    assert(false && "Unsupported data type.");
+    return rewriter.notifyMatchFailure(srcOp, "Unsupported data type.");
   }
 
-  // Extract the values (using the given ElementType) and create new data
-  // structure. This is used to convert scalars (of type boolean, int8, int16,
-  // int32, int64, uint8, uint16, uint32, uint64) and tensors (of type boolean
-  // and int64).
-  template <typename ElementType>
-  mlir::ElementsAttr rebuildValueAttr(mlir::ElementsAttr valueAttr,
-                                      size_t bitWidth) const {
-    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
-        getTypeConverter()->convertType(valueAttr.getShapedType()));
-
+  // Extract the values and create new ElementsAttr data structure. This is used
+  // to convert scalars boolean to bfloat16 and 64 bit integer to 32 bit integer
+  // by truncating with signed saturation.
+  mlir::ElementsAttr rebuildIntValueAttr(mlir::ElementsAttr valueAttr,
+                                         mlir::ShapedType valueType,
+                                         size_t bitWidth) const {
     // Create data structure for boolean type with bfloat16.
     if (bitWidth == 1) {
       std::vector<mlir::APFloat> booleanValue = {};
-      for (ElementType value : valueAttr.getValues<ElementType>()) {
-        mlir::APFloat input(mlir::APFloat::BFloat(), value);
-        booleanValue.emplace_back(input);
+      for (bool value : valueAttr.getValues<bool>()) {
+        booleanValue.emplace_back(mlir::APFloat::BFloat(), value);
       }
       return mlir::DenseElementsAttr::get(valueType, booleanValue);
     }
 
     // Create data structure for other types.
     std::vector<mlir::APInt> IntegerValue = {};
-    for (ElementType value : valueAttr.getValues<ElementType>()) {
-      mlir::APInt input(bitWidth, value);
-      IntegerValue.emplace_back(input);
+    for (mlir::APInt value : valueAttr.getValues<mlir::APInt>()) {
+      // Truncate to 32 bits with signed saturation in case of 64 bit integers.
+      IntegerValue.emplace_back(bitWidth == 64 ? value.truncSSat(32) : value);
     }
     return mlir::DenseElementsAttr::get(valueType, IntegerValue);
+  }
+
+  mlir::ElementsAttr rebuildFloatValueAttr(mlir::ElementsAttr valueAttr,
+                                           mlir::ShapedType valueType,
+                                           size_t bitWidth) const {
+    // Convert 64 bit floating point numbers to 32 bit floating point numbers.
+    if (bitWidth == 64) {
+      std::vector<mlir::APFloat> floatValues;
+      for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
+        float fl = static_cast<float>(value.convertToDouble());
+        mlir::APFloat input = mlir::APFloat(fl);
+        floatValues.emplace_back(input);
+      }
+      return mlir::DenseElementsAttr::get(valueType, floatValues);
+    }
+    // In case of float values llvm has a bug where not all float types are
+    // supported for iterating in DenseElementsAttr, so we have to use a
+    // different constructor.
+    std::vector<mlir::APFloat> floatValues(
+        valueAttr.getValues<mlir::APFloat>().begin(),
+        valueAttr.getValues<mlir::APFloat>().end());
+    return mlir::DenseElementsAttr::get(valueType, floatValues);
   }
 };
 } // namespace
@@ -1492,6 +1490,60 @@ LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
   return failure();
 }
 
+static LogicalResult
+determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
+                     uint32_t &clusterAxis) {
+  /*
+  We need to figure out what the cluster axis is based on replica_groups.
+  Replica groups define which device axis we are performing the collective
+  communication operation on. It is a 2D vector. Each element in replica_groups
+  contains a list of devices that will perform the collective communication
+  operation with each other. Currently we only support 2D meshes, but this
+  algorithm can be expanded for ND.
+
+  ex.
+  mesh = [2, 4]
+  replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
+  0 1 2 3
+  4 5 6 7
+
+  collective communication operation happens on (0, 1, 2, 3) and (4, 5, 6, 7) so
+  cluster_axis = 1 (mesh[1])
+
+  mesh = [2, 4]
+  replica_groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
+  0 1 2 3
+  4 5 6 7
+
+  collective communication operation happens on (0, 4), (1, 5), (2, 6), (3, 7)
+  so cluster_axis = 0 (mesh[0])
+
+  */
+  auto replicaGroupsShape = replicaGroups.getType().getShape();
+
+  if (replicaGroupsShape.size() == 0) {
+    // Cannot have replicas of size 0, this means we are not performing the
+    // collective communication operation across any device.
+    return failure();
+  }
+
+  // Case where we have single devices in each replica_group (ie perform
+  // collective communication operation against itself which should be optimized
+  // away). We also assume we are only using our constrained mesh types (ie 1x8,
+  // 1x32 etc) and cannot have (32x1, 8x1).
+  if (replicaGroupsShape[1] != 1) {
+    auto firstElementIt = replicaGroups.begin();
+    auto secondElementIt = firstElementIt + 1;
+
+    clusterAxis = (((*firstElementIt) + 1) == *secondElementIt);
+    return success();
+  }
+
+  // Default to cluster axis 0
+  clusterAxis = 0;
+  return success();
+}
+
 // StalbeHLO spec.md defines following channel type for ccl ops
 enum StableHLOChannelType {
   // CHANNEL_TYPE_INVALID = 0 : Invalid primitive type to serve as
@@ -1526,84 +1578,47 @@ public:
       return err;
     }
 
-    // Create the output tensor type based on inputs
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-
-    // Create an empty output tensor with the computed shape
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-    SmallVector<Type> ttirTypes;
-    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
-                                                      ttirTypes))) {
-      return failure();
-    }
-
-    auto ttirOperands = srcOp.getOperandsMutable();
-    ttirOperands.append(ValueRange(outputTensor));
-
-    SmallVector<NamedAttribute> srcAttrs = to_vector(srcOp->getAttrs());
-    SmallVector<NamedAttribute> ttirAttrs;
-    for (auto srcAttr : srcAttrs) {
-      StringAttr srcName = srcAttr.getName();
-      if (srcName == "channel_handle") {
-        auto channelHandle = srcOp.getChannelHandle().value();
-
-        // channelType is supposed to be DEVICE_TO_DEVICE for CCL ops.
-        // Currently, we ensure if it is DEVICE_TO_DEVICE communication.
-        // Consider preserving this information in the future if the attribute
-        // is non-DEVICE_TO_DEVICE values.
-        auto channelType = static_cast<int32_t>(channelHandle.getType());
-        if (channelType != kChannelTypeDeviceToDevice) {
-          return failure();
-        }
-
-        IntegerAttr channelHandleAttr = rewriter.getSI32IntegerAttr(
-            static_cast<int32_t>(channelHandle.getHandle()));
-        if (!channelHandleAttr) {
-          return failure();
-        }
-        ttirAttrs.push_back({srcName, channelHandleAttr});
-      } else {
-        ttirAttrs.push_back(srcAttr);
+    if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
+      // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Consider preserving this information in the future if the attribute
+      // is non-DEVICE_TO_DEVICE values.
+      auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
+      if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
+          channelType != StableHLOChannelType::kChannelTypeInvalid) {
+        return failure();
       }
     }
 
-    // Algorithm: search for first non-one working dimension from back
-    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    size_t dim = replicaGroupsShape.size() - 1;
-    for (auto s = replicaGroupsShape.rbegin(); s != replicaGroupsShape.rend();
-         ++s, --dim) {
-      if (*s != 1) {
-        break;
-      }
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllReduceOp cannot specify cluster axis.");
     }
-    if (dim < 0) {
-      // all one shape, then select the fastest dim
-      dim = replicaGroupsShape.size();
-    }
-    StringAttr dimName = StringAttr::get(this->getContext(), "dim");
-    IntegerAttr dimAttr =
-        rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-    ttirAttrs.push_back({dimName, dimAttr});
 
-    // Parse computation in region and add it to ttirAttrs
+    // Convert reduceType shlo attribute into ttir attribute
     ReduceType reduceType;
     if (failed(getReduceType(srcOp, reduceType))) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp cannot specify reduce type.");
     }
-    StringAttr reduceTypeAttrName =
-        StringAttr::get(this->getContext(), "reduce_type");
-    Attribute reduceTypeAttr = rewriter.getAttr<ReduceTypeAttr>(reduceType);
-    ttirAttrs.push_back({reduceTypeAttrName, reduceTypeAttr});
 
-    auto ttirAllReduceOp = rewriter.create<mlir::tt::ttir::AllReduceOp>(
-        srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
-        ttirAttrs);
+    // Handle variadic input/output pairs by creating mulitple AllReduceOps.
+    llvm::SmallVector<mlir::Value> allReduceOpResults;
+    for (auto [inputOperand, resultOperand] :
+         llvm::zip_equal(adaptor.getOperands(), srcOp->getResults())) {
+      auto outputType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(resultOperand.getType()));
 
-    rewriter.replaceOp(srcOp, ttirAllReduceOp);
+      auto allReduceOp =
+          ttmlir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
+              rewriter, srcOp.getLoc(), outputType, inputOperand, reduceType,
+              clusterAxis);
+
+      allReduceOpResults.push_back(allReduceOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, allReduceOpResults);
 
     return success();
   }
@@ -1613,9 +1628,9 @@ private:
   checkBasicLegality(mlir::stablehlo::AllReduceOp &srcOp,
                      mlir::stablehlo::AllReduceOp::Adaptor adaptor,
                      ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
+    if (srcOp.getOperands().empty()) {
       return rewriter.notifyMatchFailure(
-          srcOp, "AllReduceOp must have one input/output for now.");
+          srcOp, "AllReduceOp must have at least one input/output.");
     }
 
     return success();
@@ -1647,60 +1662,11 @@ public:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    SmallVector<Type> ttirTypes;
-    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
-                                                      ttirTypes))) {
-      return failure();
-    }
-
-    auto ttirOperands = srcOp.getOperandsMutable();
-    ttirOperands.append(ValueRange(outputTensor));
-
-    /*
-    We need to figure out what the cluster axis is based on replica_groups.
-    Replica groups define which device axis we are performing all_gather on.
-    It is a 2D vector. Each element in replica_groups contains a list of devices
-    that will perform all_gather with each other. Currently we only support 2D
-    meshes, but this algorithm can be expanded for ND.
-
-    ex.
-    mesh = [2, 4]
-    replica_groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
-    0 1 2 3
-    4 5 6 7
-
-    all_gather happens on (0, 1, 2, 3) and (4, 5, 6, 7) so cluster_axis = 1
-    (mesh[1])
-
-    mesh = [2, 4]
-    replica_groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
-    0 1 2 3
-    4 5 6 7
-
-    all_gather happens on (0, 4), (1, 5), (2, 6), (3, 7) so cluster_axis = 0
-    (mesh[0])
-
-    */
-
-    uint32_t clusterAxis = 0;
-    auto replicaGroups = adaptor.getReplicaGroups();
-    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-
-    if (replicaGroupsShape.size() == 0) {
-      // Cannot have replicas of size 0, this means we are not performing the
-      // all_gather across any device.
-      return failure();
-    }
-
-    // Case where we have single devices in each replica_group (ie perform
-    // all_gather against itself which should be optimized away).
-    // We also assume we are only using our constrained mesh types (ie 1x8, 1x32
-    // etc) and cannot have (32x1, 8x1).
-    if (replicaGroupsShape[1] != 1) {
-      auto firstElementIt = replicaGroups.begin();
-      auto secondElementIt = firstElementIt + 1;
-
-      clusterAxis = (((*firstElementIt) + 1) == *secondElementIt);
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllGather cannot specify cluster axis.");
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::AllGatherOp>(
@@ -1743,101 +1709,126 @@ public:
       return err;
     }
 
-    const std::string kShardingTarget = "Sharding";
-    const std::string kSPMDFullToShardShapeTarget = "SPMDFullToShardShape";
-    const std::string kSPMDShardToFullShapeTarget = "SPMDShardToFullShape";
-
     auto callTargetName = adaptor.getCallTargetNameAttr();
 
     // Currently stablehlo.custom_call with following functions from
     // jax/openxla are supported
-    if (callTargetName != kShardingTarget &&
-        callTargetName != kSPMDFullToShardShapeTarget &&
-        callTargetName != kSPMDShardToFullShapeTarget) {
+    if (callTargetName !=
+            mlir::tt::sharding_utils::kShardingCustomCallTargetName &&
+        callTargetName !=
+            mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName &&
+        callTargetName !=
+            mlir::tt::sharding_utils::kSPMDShardToFullShapeCallTargetName) {
       return failure();
     }
 
-    auto shardingAttr = dyn_cast_or_null<StringAttr>(
-        adaptor.getAttributes().get("mhlo.sharding"));
+    auto shardingAttr =
+        dyn_cast_if_present<StringAttr>(adaptor.getAttributes().get(
+            mlir::tt::sharding_utils::kXlaShardingAttr));
     if (!shardingAttr) {
       return failure();
     }
 
     mlir::tt::sharding_utils::MeshSharding meshSharding;
-    if (failed(mlir::tt::sharding_utils::parseGSPMDShardingAttr(
-            shardingAttr.getValue(), meshSharding))) {
-      return failure();
+    auto error = meshSharding.convertGSPMDShardingToMeshSharding(
+        shardingAttr.getValue());
+    if (auto e = error.takeError()) {
+      return rewriter.notifyMatchFailure(srcOp, llvm::toString(std::move(e)));
     }
 
-    if (callTargetName == kSPMDFullToShardShapeTarget) {
+    // For GSPMD, meshShape is extracted by the parser. Then, add it as module
+    // attribute such that the information is used by later pipeline stage.
+    auto meshShape = meshSharding.getMeshShape();
+    if (meshShape.size() > 1) {
+      auto module = srcOp->getParentOfType<ModuleOp>();
+      if (!module) {
+        llvm_unreachable("Require module as one of parent ops.");
+      }
+      mlir::tt::utils::addMeshToModuleAttribute(
+          rewriter, module, StringAttr::get(getContext(), "mesh_gspmd"),
+          meshShape);
+    }
+
+    auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
+    if (callTargetName ==
+        mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName) {
+      // @Sharding => @SPMDFullToShardShape pattern
       Operation *shardingOp = srcOp->getOperand(0).getDefiningOp();
       if (!shardingOp) {
         return rewriter.notifyMatchFailure(
-            srcOp, "requires operand to be defined by an op");
+            srcOp, "Requires operand to be defined by prior Sharding op.");
       }
-
-      // TODO(wooseoklee): a bit rough approach here to match output dim
-      shardingOp->getResult(0).setType(srcOp->getResult(0).getType());
-      srcOp.getResult(0).replaceAllUsesWith(shardingOp->getResult(0));
-      rewriter.eraseOp(srcOp);
-    } else if (callTargetName == kSPMDShardToFullShapeTarget) {
+      rewriter.replaceOp(srcOp, shardingOp->getResult(0));
+    } else if (callTargetName ==
+               mlir::tt::sharding_utils::kSPMDShardToFullShapeCallTargetName) {
+      // @Sharding => @SPMDShardToFullShape pattern
       Operation *shardingOp = srcOp->getOperand(0).getDefiningOp();
       if (!shardingOp) {
         return rewriter.notifyMatchFailure(
-            srcOp, "requires operand to be defined by an op");
+            srcOp, "Requires operand to be defined by prior Sharding op.");
       }
 
-      // Create the output tensor type based on inputs
+      // JAX automatic sharding may expect pre-sharded output tensors. Thus,
+      // mesh sharding operations should not concat the tensors twice if
+      // frontent expects pre-sharded tensor.
+      if (auto *funcReturnOp = funcOp.getBody().front().getTerminator()) {
+        auto returnOperands = funcReturnOp->getOperands();
+        auto returnOperandIt =
+            llvm::find_if(returnOperands, [&](Value operand) {
+              return operand == srcOp->getResult(0);
+            });
+        if (returnOperandIt != returnOperands.end()) {
+          auto retNum = std::distance(returnOperands.begin(), returnOperandIt);
+          meshSharding.checkAndUpdateFuncReturnSharding<mlir::StringAttr>(
+              rewriter, funcOp, retNum, shardingAttr,
+              mlir::tt::sharding_utils::kXlaShardingAttr);
+        }
+      }
+
       auto outputType = mlir::cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp->getResult(0).getType()));
 
-      // Create an empty output tensor with the computed shape
-      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+          rewriter, srcOp, outputType, adaptor.getInputs().front(),
+          meshSharding.getShardType(),
+          mlir::tt::MeshShardDirection::ShardToFull,
+          meshSharding.getShardShape(), meshSharding.getShardDims());
 
-      SmallVector<Type> outputTypes;
-      if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
-                                                        outputTypes))) {
-        return failure();
-      }
-
-      meshSharding.shardDirection = mlir::tt::MeshShardDirection::ShardToFull;
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
-          srcOp, outputTypes, srcOp.getInputs().front(), outputTensor,
-          meshSharding.shardType, meshSharding.shardDirection,
-          meshSharding.shardShape, meshSharding.shardDims);
-    } else if (callTargetName == kShardingTarget) {
-      if (meshSharding.shardType == mlir::tt::MeshShardType::Manual) {
-        // "manual" sharding indicates match between input/output tensor shape
-        // and no sharding is required.
-        srcOp.getResult(0).replaceAllUsesWith(srcOp->getOperand(0));
-        rewriter.eraseOp(srcOp);
+    } else if (callTargetName ==
+               mlir::tt::sharding_utils::kShardingCustomCallTargetName) {
+      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Manual) {
+        // @Sharding => @SPMDShardToFullShape pattern
+        // "manual" sharding indicates no sharding is required.
+        rewriter.replaceOp(srcOp, srcOp->getOperand(0));
       } else {
-        auto *user = *srcOp.getResult(0).user_begin();
-        auto userOp = dyn_cast_or_null<mlir::stablehlo::CustomCallOp>(user);
-        if (!userOp) {
+        // @Sharding => @SPMDFullToShardShape pattern
+        auto fullToShardCustomCall =
+            mlir::dyn_cast_if_present<mlir::stablehlo::CustomCallOp>(
+                *srcOp->user_begin());
+        if (!fullToShardCustomCall || !fullToShardCustomCall->hasOneUse()) {
           return failure();
         }
 
-        // Create the output tensor type based on inputs
-        auto outputType = mlir::cast<RankedTensorType>(
-            getTypeConverter()->convertType(userOp->getResult(0).getType()));
-
-        // Create an empty output tensor with the computed shape
-        tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-            srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-        SmallVector<Type> outputTypes;
-        if (failed(this->getTypeConverter()->convertTypes(
-                userOp->getResultTypes(), outputTypes))) {
-          return failure();
+        // JAX automatic sharding pre-shards input tensors and provides multiple
+        // buffers. Thus, mesh sharding operations should not shard the tensors
+        // twice if they are function arguments and pre-sharded by frontend.
+        auto inputOperand = adaptor.getInputs().front();
+        if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(inputOperand)) {
+          auto argNum = blockArg.getArgNumber();
+          meshSharding.checkAndUpdateFuncArgSharding<mlir::StringAttr>(
+              rewriter, funcOp, argNum, shardingAttr,
+              mlir::tt::sharding_utils::kXlaShardingAttr);
         }
 
-        meshSharding.shardDirection = mlir::tt::MeshShardDirection::FullToShard;
-        rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
-            srcOp, outputTypes, srcOp.getInputs().front(), outputTensor,
-            meshSharding.shardType, meshSharding.shardDirection,
-            meshSharding.shardShape, meshSharding.shardDims);
+        auto outputType =
+            mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+                fullToShardCustomCall->getResult(0).getType()));
+
+        ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+            rewriter, srcOp, outputType, inputOperand,
+            meshSharding.getShardType(),
+            mlir::tt::MeshShardDirection::FullToShard,
+            meshSharding.getShardShape(), meshSharding.getShardDims());
       }
     }
     return success();
@@ -1848,9 +1839,9 @@ private:
   checkBasicLegality(mlir::stablehlo::CustomCallOp &srcOp,
                      mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                      ConversionPatternRewriter &rewriter) const {
-
-    // Expect single input/output, otherwise do not convert
-    if (adaptor.getInputs().size() != 1 && srcOp->getResults().size() != 1) {
+    // Expect single input/output and at least one use of result.
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1 ||
+        srcOp->getResult(0).use_empty()) {
       return failure();
     }
 
@@ -2185,7 +2176,7 @@ private:
             valueDef)) {
       valueDef = valueDef->getOperand(0).getDefiningOp();
     }
-    return mlir::dyn_cast_or_null<ttir::ConstantOp>(valueDef);
+    return mlir::dyn_cast_if_present<ttir::ConstantOp>(valueDef);
   }
 
   LogicalResult checkBasicLegality(mlir::stablehlo::PadOp &srcOp,

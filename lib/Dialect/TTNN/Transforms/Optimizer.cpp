@@ -2,15 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/Analysis/Liveness.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+
+#include "mlir/Analysis/Liveness.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/Visitors.h"
 
 namespace mlir::tt::ttnn {
 
@@ -192,6 +197,7 @@ public:
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
     std::unordered_set<Edge> memReconfigEdges;
+    std::vector<Operation *> spillToDramOps;
     if (memoryLayoutAnalysisEnabled) {
       // Extract override resharding edges
       //
@@ -208,6 +214,7 @@ public:
       legalLayouts = memoryLayoutAnalysis.getResult().legalLayouts;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;
+      spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
     }
 
     // Pick optimal op configuration.
@@ -331,6 +338,8 @@ public:
         processMemReconfigEdges(memReconfigEdges);
       }
 
+      processSpillOps(spillToDramOps);
+
       // Update the function type to reflect the updated return operation's
       // result types.
       //
@@ -377,7 +386,7 @@ private:
   void extractReshardEdges(ModuleOp &moduleOp,
                            std::unordered_set<Edge> &overrideReshardEdges) {
     moduleOp->walk([&](Operation *op) {
-      if (!isa<DestinationStyleOpInterface>(op)) {
+      if (isa<ToLayoutOp>(op)) {
         return;
       }
 
@@ -409,16 +418,28 @@ private:
   }
 
   mlir::TypedValue<mlir::tt::DeviceType>
-  getDeviceOpValue(Operation *contextOp) {
+  getOrCreateDeviceOpValue(Operation *contextOp, OpBuilder &builder) {
     Block *block = contextOp->getBlock();
-    mlir::TypedValue<mlir::tt::DeviceType> deviceOpResult;
     for (auto &op : block->getOperations()) {
       if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
-        deviceOpResult = deviceOp.getResult();
-        break;
+        return deviceOp.getResult();
       }
     }
-    return deviceOpResult;
+
+    // Device op does not exist in the block, hence we need to create it.
+    DeviceAttr deviceAttr = getCurrentScopeDevice(contextOp);
+    auto currentInsertionPoint = builder.saveInsertionPoint();
+    builder.setInsertionPoint(block, block->begin());
+    llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
+    if (meshShape.empty()) {
+      meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
+    }
+    auto deviceOp = builder.create<ttnn::GetDeviceOp>(
+        contextOp->getLoc(), builder.getType<DeviceType>(deviceAttr),
+        ttnn::MeshShapeAttr::get(contextOp->getContext(), meshShape[0],
+                                 meshShape[1]));
+    builder.restoreInsertionPoint(currentInsertionPoint);
+    return deviceOp;
   }
 
   void
@@ -492,10 +513,54 @@ private:
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
             consumerOp->getLoc(), newTensorType, producerOp->getResult(0),
             outputLayout, outputDataType, outputMemConfigAttr,
-            getDeviceOpValue(consumerOp));
+            getOrCreateDeviceOpValue(consumerOp, builder));
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
+      }
+    }
+  }
+
+  void processSpillOps(const std::vector<Operation *> &spillToDramOps) {
+    for (Operation *op : spillToDramOps) {
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+      TTNNLayoutAttr layoutAttr =
+          mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+      // Create a new tensor type with DRAM layout.
+      TTNNLayoutAttr dramLayout =
+          layoutAttr.withBufferType(op->getContext(), BufferType::DRAM)
+              .withMemoryLayout(op->getContext(),
+                                TensorMemoryLayout::Interleaved);
+      RankedTensorType newTensorType = RankedTensorType::get(
+          tensorShape, tensorType.getElementType(), dramLayout);
+
+      // Create a ToLayoutOp with the new DRAM layout.
+      OpBuilder builder(op->getContext());
+      DataTypeAttr dataType =
+          DataTypeAttr::get(op->getContext(), dramLayout.getDataType());
+      LayoutAttr newLayout =
+          LayoutAttr::get(op->getContext(), dramLayout.getLayout());
+      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+          op->getContext(),
+          BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
+          ShardSpecAttr::get(
+              op->getContext(),
+              ShapeAttr::get(op->getContext(), dramLayout.getShardShape())),
+          dramLayout.getMemLayout());
+
+      builder.setInsertionPointAfter(op);
+      Operation *toLayoutOp = builder.create<ToLayoutOp>(
+          op->getLoc(), newTensorType, op->getResult(0), newLayout, dataType,
+          memConfigAttr, getOrCreateDeviceOpValue(op, builder));
+
+      for (auto &use : op->getResult(0).getUses()) {
+        if (use.getOwner() != toLayoutOp) {
+          use.getOwner()->setOperand(use.getOperandNumber(),
+                                     toLayoutOp->getResult(0));
+        }
       }
     }
   }

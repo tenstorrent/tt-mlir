@@ -21,15 +21,11 @@ module @jit_transpose attributes {} {
 
   func.func public @test_clamp_tensor(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>, %arg2: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_clamp_tensor
-    // CHECK: ttnn.empty
     // CHECK: %[[MAX:.*]] = "ttnn.maximum"
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
-    // CHECK: ttnn.empty
     // CHECK: "ttnn.minimum"(%[[MAX]]
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,

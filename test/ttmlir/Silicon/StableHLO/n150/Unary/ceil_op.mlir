@@ -9,9 +9,7 @@
 module @jit_eltwise_ceil attributes {} {
   func.func public @test_ceil(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_ceil
-    // CHECK: ttnn.empty
     // CHECK: ttnn.ceil
-    // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
     %0 = stablehlo.ceil %arg0 : tensor<64x128xf32>

@@ -36,6 +36,7 @@ static void runEltwiseBinaryOp(
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, std::nullopt, std::nullopt);
+
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 

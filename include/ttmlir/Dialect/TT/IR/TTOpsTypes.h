@@ -45,12 +45,6 @@ inline bool isL1MemorySpace(MemorySpace memorySpace) {
   return memorySpace == MemorySpace::DeviceL1;
 }
 
-inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
-  return layout == TensorMemoryLayout::HeightSharded ||
-         layout == TensorMemoryLayout::WidthSharded ||
-         layout == TensorMemoryLayout::BlockSharded;
-}
-
 inline void printDimensionList(::mlir::AsmPrinter &printer,
                                ::llvm::ArrayRef<int64_t> shape) {
   printer.printDimensionList(shape);
@@ -99,7 +93,10 @@ inline DataType elementTypeToDataType(Type elementType) {
   } else if (isa<IntegerType>(elementType)) {
     auto intType = mlir::cast<IntegerType>(elementType);
     if (intType.getWidth() == 32) {
-      dtype = DataType::UInt32;
+      // We interpret signed ints (si32) and signless ints (i32) as signed
+      // integers
+      dtype = (intType.isSigned() || intType.isSignless()) ? DataType::Int32
+                                                           : DataType::UInt32;
     } else if (intType.getWidth() == 16) {
       dtype = DataType::UInt16;
     } else if (intType.getWidth() == 8) {
@@ -115,23 +112,23 @@ inline Type dataTypeToElementType(::mlir::MLIRContext *context,
                                   DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
-    return FloatType::getF32(context);
+    return Float32Type::get(context);
   case DataType::Float16:
-    return FloatType::getF16(context);
+    return Float16Type::get(context);
   case DataType::BFloat16:
-    return FloatType::getBF16(context);
+    return BFloat16Type::get(context);
   case DataType::BFP_Float8:
-    return FloatType::getF16(context);
+    return Float16Type::get(context);
   case DataType::BFP_BFloat8:
-    return FloatType::getBF16(context);
+    return BFloat16Type::get(context);
   case DataType::BFP_Float4:
-    return FloatType::getF16(context);
+    return Float16Type::get(context);
   case DataType::BFP_BFloat4:
-    return FloatType::getBF16(context);
+    return BFloat16Type::get(context);
   case DataType::BFP_Float2:
-    return FloatType::getF16(context);
+    return Float16Type::get(context);
   case DataType::BFP_BFloat2:
-    return FloatType::getBF16(context);
+    return BFloat16Type::get(context);
   case DataType::UInt32:
     return IntegerType::get(context, 32,
                             IntegerType::SignednessSemantics::Unsigned);
@@ -141,6 +138,9 @@ inline Type dataTypeToElementType(::mlir::MLIRContext *context,
   case DataType::UInt8:
     return IntegerType::get(context, 8,
                             IntegerType::SignednessSemantics::Unsigned);
+  case DataType::Int32:
+    return IntegerType::get(context, 32,
+                            IntegerType::SignednessSemantics::Signed);
   }
 }
 } // namespace mlir::tt

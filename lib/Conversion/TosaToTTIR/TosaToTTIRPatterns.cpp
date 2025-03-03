@@ -130,29 +130,12 @@ public:
   LogicalResult
   matchAndRewrite(tosa::MatMulOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult legalityResult =
-        checkConversionLegality(srcOp, adaptor, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     ttmlir::utils::replaceOpWithNewDPSOp<ttir::MatmulOp>(
         rewriter, srcOp, outputType, adaptor.getA(), adaptor.getB());
 
-    return success();
-  }
-
-private:
-  LogicalResult
-  checkConversionLegality(tosa::MatMulOp srcOp, Adaptor adaptor,
-                          ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getQuantizationInfo().has_value()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR MatmulOp currently doesn't support quantization.");
-    }
     return success();
   }
 };

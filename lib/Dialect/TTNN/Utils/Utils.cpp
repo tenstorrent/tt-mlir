@@ -5,7 +5,10 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include <mlir/IR/Value.h>
+
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Value.h"
+#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn::utils {
 // Map TT::MemorySpace to TTNN::BufferType
@@ -23,46 +26,6 @@ toTTNNBufferType(const mlir::tt::MemorySpace memorySpace) {
   }
 
   llvm_unreachable("Unknown MemorySpace");
-}
-
-// Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
-//
-mlir::tt::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
-    const ::mlir::tt::TensorMemoryLayout ttTensorMemoryLayout) {
-
-  switch (ttTensorMemoryLayout) {
-  case ::mlir::tt::TensorMemoryLayout::HeightSharded:
-    return ttnn::TensorMemoryLayout::HeightSharded;
-  case ::mlir::tt::TensorMemoryLayout::Interleaved:
-    return ttnn::TensorMemoryLayout::Interleaved;
-  case ::mlir::tt::TensorMemoryLayout::WidthSharded:
-    return ttnn::TensorMemoryLayout::WidthSharded;
-  case ::mlir::tt::TensorMemoryLayout::BlockSharded:
-    return ttnn::TensorMemoryLayout::BlockSharded;
-  case ::mlir::tt::TensorMemoryLayout::SingleBank:
-    return ttnn::TensorMemoryLayout::SingleBank;
-  default:
-    llvm_unreachable("Unknown TensorMemoryLayout");
-  }
-}
-
-mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
-    const ::mlir::tt::ttnn::TensorMemoryLayout ttnnTensorMemoryLayout) {
-
-  switch (ttnnTensorMemoryLayout) {
-  case ttnn::TensorMemoryLayout::HeightSharded:
-    return ::mlir::tt::TensorMemoryLayout::HeightSharded;
-  case ttnn::TensorMemoryLayout::Interleaved:
-    return ::mlir::tt::TensorMemoryLayout::Interleaved;
-  case ttnn::TensorMemoryLayout::WidthSharded:
-    return ::mlir::tt::TensorMemoryLayout::WidthSharded;
-  case ttnn::TensorMemoryLayout::BlockSharded:
-    return ::mlir::tt::TensorMemoryLayout::BlockSharded;
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return ::mlir::tt::TensorMemoryLayout::SingleBank;
-  }
-
-  llvm_unreachable("Unknown TensorMemoryLayout");
 }
 
 mlir::tt::MemorySpace
@@ -151,6 +114,27 @@ Type getElementType(MLIRContext *context, Layout tensorLayout,
              ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
                              dataType)
              : mlir::tt::dataTypeToElementType(context, dataType);
+}
+
+// Save the IR to a file for debugging.
+void irToFile(mlir::Operation *op, std::string filename) {
+  OpPrintingFlags printFlags;
+  printFlags = printFlags.enableDebugInfo();
+
+  std::error_code ec;
+  llvm::raw_fd_ostream file(filename, ec);
+  if (ec) {
+    llvm::errs() << "Error opening file: " << ec.message() << "\n";
+    return;
+  }
+  op->print(file, printFlags);
+}
+
+std::string getOpLocName(Operation *op) {
+  if (NameLoc loc = llvm::dyn_cast<NameLoc>(op->getLoc())) {
+    return loc.getName().str();
+  }
+  return "";
 }
 
 } // namespace mlir::tt::ttnn::utils
