@@ -29,10 +29,6 @@ std::vector<wrapped_tensor> pack_tensors(
   std::vector<wrapped_tensor> packed_tensors;
   packed_tensors.reserve(ins->size());
   for (size_t i = 0; i < ins->size(); ++i) {
-    LOG_INFO("input has id: ", ins->Get(i)->global_id());
-  }
-  for (size_t i = 0; i < ins->size(); ++i) {
-    LOG_INFO("Trying to fetch tensor w id: ", ins->Get(i)->global_id());
     const size_t rank = ins->Get(i)->desc()->shape()->size();
     std::vector<int64_t> sizes(rank);
     const auto &tens = context.getTensorPool().at(ins->Get(i)->global_id());
@@ -45,8 +41,6 @@ std::vector<wrapped_tensor> pack_tensors(
     std::copy(strides.begin(), strides.end(), sizes_and_strides + rank);
 
     float *raw_data_ptr = static_cast<float *>(get_raw_host_data_ptr(tens));
-    LOG_INFO("raw_ptr for ", i, " is ", raw_data_ptr);
-    LOG_INFO("aligned_ptr for ", i, " is ", align_to_64(raw_data_ptr));
     packed_tensors.emplace_back(raw_data_ptr, raw_data_ptr, 0,
                                 sizes_and_strides);
   }
@@ -75,11 +69,7 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
       fbInputs->Get(fbInputs->size() - 1)->global_id());
 
   context.getTensorPool().insert_or_assign(op->out()->global_id(), out);
-  LOG_INFO("Raw ptr: ", dylibInputs.data());
-  // TODO: do we really not need to use return value?
   fn(dylibInputs.data());
-
-  LOG_INFO("ran func!");
 
   // We don't need to unpack any data from output, it should be written directly
   // to correct memory.
