@@ -5,6 +5,7 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 
+#include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
@@ -32,6 +33,8 @@ struct SmallVector {
 };
 
 struct IDevice;
+
+struct Tensor;
 } // namespace ttnn
 
 namespace mlir {
@@ -111,6 +114,11 @@ struct TypeName<::ttnn::SmallVector<T>> {
 template <>
 struct TypeName<::ttnn::IDevice> {
   inline static const std::string value = "::ttnn::IDevice";
+};
+
+template <>
+struct TypeName<::ttnn::Tensor> {
+  inline static const std::string value = "::ttnn::Tensor";
 };
 
 template <typename T, typename Enable = void>
@@ -584,7 +592,7 @@ public:
 
   EmitCTTNNEmitter(TTNNOp op, OpAdaptor adaptor,
                    mlir::ConversionPatternRewriter &rewriter)
-      : op{op}, adaptor{adaptor}, rewriter{rewriter} {}
+      : op{op}, adaptor{adaptor}, rewriter{rewriter}, operands{} {}
 
   EmitCTTNNEmitter(const EmitCTTNNEmitter &) = delete;
   EmitCTTNNEmitter &operator=(const EmitCTTNNEmitter &) = delete;
@@ -633,18 +641,34 @@ public:
 
   mlir::Attribute emit(Value val) {
     if (!val) {
-      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+      return emit(std::nullopt);
     }
 
-    auto operand =
-        llvm::find_if(op->getOpOperands(), [&](OpOperand &opOperand) {
-          return opOperand.get() == val;
-        });
-    if (operand == op->getOpOperands().end()) {
-      llvm_unreachable("Unknown operand");
-    }
+    auto opOperand =
+        std::find_if(std::next(op->getOpOperands().begin(), operands.size()),
+                     op->getOpOperands().end(),
+                     [&](OpOperand &operand) { return operand.get() == val; });
 
-    return rewriter.getIndexAttr(operand->getOperandNumber());
+    auto index = opOperand->getOperandNumber();
+    operands.push_back(adaptor.getOperands()[index]);
+    return rewriter.getIndexAttr(index);
+  }
+
+  mlir::Attribute emit(Operation::operand_range operands) {
+    for (auto &opOperand : op->getOpOperands()) {
+      auto begin =
+          std::next(op->getOperands().begin(), opOperand.getOperandNumber());
+      if (Operation::operand_range(begin, std::next(begin, operands.size())) ==
+          operands) {
+        auto index = opOperand.getOperandNumber();
+        llvm::SmallVector<mlir::Value> values(
+            adaptor.getOperands().begin() + index,
+            adaptor.getOperands().begin() + index + operands.size());
+        this->operands.push_back(createVector(values));
+        return rewriter.getIndexAttr(index);
+      }
+    }
+    llvm_unreachable("Invalid operand range");
   }
 
   template <typename TargetTy = void>
@@ -705,13 +729,27 @@ public:
         }));
     return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, opConversionPattern.convertOpName(op),
-        rewriter.getArrayAttr(args), nullptr, adaptor.getOperands());
+        rewriter.getArrayAttr(args), nullptr, operands);
   }
 
 private:
+  mlir::Value createVector(ValueRange operands) {
+    tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, op);
+
+    return rewriter
+        .create<emitc::CallOpaqueOp>(
+            op.getLoc(),
+            emitc::OpaqueType::get(rewriter.getContext(),
+                                   TypeNameV<std::vector<::ttnn::Tensor>>),
+            tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
+            nullptr, operands)
+        ->getResult(0);
+  }
+
   TTNNOp op;
   OpAdaptor adaptor;
   ConversionPatternRewriter &rewriter;
+  llvm::SmallVector<mlir::Value> operands;
 };
 
 } // namespace ttnn_to_emitc
