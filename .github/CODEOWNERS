@@ -4,28 +4,28 @@
 /.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 
 # CI
-/.github/ @vmilosevic @jmcgrathTT
+/.github/ @vmilosevic @jmcgrathTT @nsumrakTT
 
 # Build
-*.cmake @nsmithtt @sdjordjevicTT @vwellsTT
-*.txt @nsmithtt @sdjordjevicTT @vwellsTT
+*.cmake @nsmithtt @mtopalovicTT @vwellsTT
+*.txt @nsmithtt @mtopalovicTT  @vwellsTT
 
 # Docs
-*.md @nsmithtt
-/docs/ @nsmithtt
+*.md @nsmithtt @sdjordjevicTT
+/docs/ @nsmithtt @sdjordjevicTT
 
 # tt-mlir Bindings
-/include/ttmlir/Bindings/ @ctodTT @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
-/include/ttmlir-c/ @ctodTT @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
-/lib/CAPI/ @ctodTT @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
-/python/ @ctodTT @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
+/include/ttmlir/Bindings/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
+/include/ttmlir-c/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
+/lib/CAPI/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
+/python/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 
 # StableHLO Conversion
-/include/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT
-/include/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT
-/lib/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT
-/test/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT
-/test/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT
+/include/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
+/include/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
+/lib/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
+/test/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
+/test/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
 
 # Linalg Conversion
 /include/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
@@ -47,6 +47,7 @@
 /test/ttmlir/Conversion/TTIRToTTIRDecomposition/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 /test/ttmlir/Conversion/TTIRToTTNN/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 /test/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
+/test/ttmlir/EmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 
 # Metal Conversions
 /include/ttmlir/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
@@ -56,9 +57,9 @@
 /test/ttmlir/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
 
 # LLVM Dialect
-/include/ttmlir/Dialect/LLVM/ @vwellsTT
-/lib/Dialect/LLVM/ @vwellsTT
-/test/ttmlir/Dialect/LLVM/ @vwellsTT
+/include/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
+/lib/Dialect/LLVM/ @vwellsTT @mtopalovicTT
+/test/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
 
 # TT Dialect
 /include/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
@@ -99,8 +100,8 @@
 /test/unittests/TestScheduler/ @odjuricicTT @tt-mpantic @sdjordjevicTT
 
 # LLVM Target
-/include/ttmlir/Target/LLVM/ @vwellsTT
-/lib/Target/LLVM/ @vwellsTT
+/include/ttmlir/Target/LLVM/ @vwellsTT @mtopalovicTT
+/lib/Target/LLVM/ @vwellsTT @mtopalovicTT
 
 # Metal Target
 /include/ttmlir/Target/TTKernel/ @nsmithtt @vroubtsovTT
