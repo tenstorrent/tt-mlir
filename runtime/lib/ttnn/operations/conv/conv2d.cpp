@@ -35,12 +35,13 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   std::copy_n(op->padding()->begin(), 2, padding.begin());
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
-  std::optional<::ttnn::operations::conv::Conv2dConfig> conv2dConfig =
-      op->conv2d_config()
-          ? std::make_optional(
-                ::tt::runtime::ttnn::operations::utils::createConv2dConfig(
-                    op->conv2d_config()))
-          : std::nullopt;
+  ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
+  if (op->conv2d_config()) {
+    conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
+  } else {
+    conv2dConfig.dtype = utils::getDataType(op->input());
+    conv2dConfig.weights_dtype = utils::getDataType(op->weight());
+  }
 
   // Use defaults for now, until compiler drives this.
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;

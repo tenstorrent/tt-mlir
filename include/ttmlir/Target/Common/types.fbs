@@ -29,6 +29,7 @@ enum DataType: uint16 {
   UInt32,
   UInt16,
   UInt8,
+  Int32,
 }
 
 enum OOBVal: ushort {

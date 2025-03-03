@@ -330,3 +330,38 @@ module @jit_matmul_shardy_automatic attributes {mhlo.num_partitions = 8 : i32, m
 // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
 // CHECK-SAME: shard_type = #tt.shard_type<devices>
+
+// -----
+
+// jax/pjrt automatic input/output sharding tests
+module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+  sdy.mesh @mesh = <["x"=2, "y"=4]>
+  func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}, %arg1: tensor<784x16384xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {}]>}) -> (tensor<8192x16384xf32> {jax.result_info = "", sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {}]>}) {
+    %0 = sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"x"}, {"y"}]>, <@mesh, [{"y"}, {}]>] out_shardings=[<@mesh, [{"x"}, {}]>] manual_axes={"x", "y"} (%arg2: tensor<4096x196xf32>, %arg3: tensor<196x16384xf32>) {
+      %1 = stablehlo.dot_general %arg2, %arg3, contracting_dims = [1] x [0], precision = [DEFAULT, DEFAULT] : (tensor<4096x196xf32>, tensor<196x16384xf32>) -> tensor<4096x16384xf32>
+      %2 = "stablehlo.all_reduce"(%1) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 1>, replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, use_global_device_ids}> ({
+      ^bb0(%arg4: tensor<f32>, %arg5: tensor<f32>):
+        %3 = stablehlo.add %arg4, %arg5 : tensor<f32>
+        stablehlo.return %3 : tensor<f32>
+      }) : (tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
+      sdy.return %2 : tensor<4096x16384xf32>
+    } : (tensor<8192x784xf32>, tensor<784x16384xf32>) -> tensor<8192x16384xf32>
+    return %0 : tensor<8192x16384xf32>
+  }
+}
+// CHECK: "ttir.mesh_shard"
+// CHECK-SAME: shard_dims = array<i64: 0, 1>
+// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_shape = array<i64: 2, 4>
+// CHECK-SAME: shard_type = #tt.shard_type<manual>
+// CHECK: "ttir.mesh_shard"
+// CHECK-SAME: shard_dims = array<i64: -1, 0>
+// CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
+// CHECK-SAME: shard_shape = array<i64: 4, 1>
+// CHECK-SAME: shard_type = #tt.shard_type<manual>
+// CHECK: = "ttir.all_reduce"
+// CHECK: "ttir.mesh_shard"
+// CHECK-SAME: shard_dims = array<i64: 0, -1>
+// CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
+// CHECK-SAME: shard_shape = array<i64: 2, 1>
+// CHECK-SAME: shard_type = #tt.shard_type<manual>

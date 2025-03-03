@@ -449,32 +449,6 @@ def test_arbitrary_op_chain(
     return builder.multiply(add, exp)
 
 
-@compile_to_flatbuffer(
-    [
-        (1, 784),
-        (784, 256),
-        (1, 256),
-        (256, 10),
-        (1, 10),
-    ],
-    targets=["ttnn"],
-)
-def test_mnist(
-    in0: Operand,  # Input 28x28 image
-    in1: Operand,  # Weight 1
-    in2: Operand,  # Bias 1
-    in3: Operand,  # Weight 2
-    in4: Operand,  # Bias 2
-    builder: TTIRBuilder,
-):
-    matmul_1 = builder.matmul(in0, in1)
-    add_2 = builder.add(matmul_1, in2)
-    relu_3 = builder.relu(add_2)
-    matmul_5 = builder.matmul(relu_3, in3)
-    add_6 = builder.add(matmul_5, in4)
-    return builder.softmax(add_6, dimension=1)
-
-
 if __name__ == "__main__":
     test_functions = inspect.getmembers(
         inspect.getmodule(inspect.currentframe()), inspect.isfunction

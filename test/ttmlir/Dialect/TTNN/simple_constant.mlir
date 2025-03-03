@@ -56,6 +56,8 @@ module attributes {} {
     // CHECK: %{{[0-9]+}} = "ttnn.full"
     // CHECK-SAME: fillValue = 1.000000e+00 : f32
     // CHECK-SAME: tensor<64x128xui32
+    // CHECK: %{{[0-9]+}} = "ttnn.typecast"
+    // CHECK-SAME: tensor<64x128xsi32
     %0 = "ttir.constant"() <{value = dense<1> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
     return %0 : tensor<64x128xi32>
   }
@@ -126,5 +128,13 @@ module attributes {} {
     // CHECK-SAME: 3
     %0 = "ttir.constant"() <{value = dense<[[1], [2], [3]]> : tensor<3x1xui8>}> : () -> tensor<3x1xui8>
     return %0 : tensor<3x1xui8>
+  }
+
+  func.func @test_constant_i32_negative() -> tensor<1x1x3xi32> {
+    // CHECK: "ttnn.constant"
+    // CHECK-SAME: value = dense
+    // CHECK-SAME: -1, 2, 3
+    %0 = "ttir.constant"() <{value = dense<[[[-1, 2, 3]]]> : tensor<1x1x3xi32>}> : () -> tensor<1x1x3xi32>
+    return %0 : tensor<1x1x3xi32>
   }
 }
