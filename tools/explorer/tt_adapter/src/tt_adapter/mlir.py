@@ -602,6 +602,21 @@ def build_graph(module, perf_trace=None, golden_results=None):
                 loc_to_perf[loc] = 0
             loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
 
+    accuracy_node_data = {}
+    loc_to_accuracy = {}
+    if golden_results is not None:
+        for loc, res in golden_results.items():
+            print(f"FOUND LOCATION: {loc}")
+            loc = parse_loc_string(loc)
+            print(f"PARSED AS {loc}")
+            assert loc not in loc_to_accuracy
+            if loc:
+                # Store the full result here, just need to parse the loc accordingly=
+                loc_to_accuracy[loc] = res
+                print(f"ADDED {loc} to LOC_TO_ACCURACY")
+    else:
+        print("No Golden Information Found")
+
     # Process the module hierarchy recursively
     process_module(
         module,
@@ -610,11 +625,15 @@ def build_graph(module, perf_trace=None, golden_results=None):
         operands_in_graph,
         output_connections,
         loc_to_perf,
+        loc_to_accuracy,
         perf_node_data,
+        accuracy_node_data,
     )
 
+    # Add Overlay Data if it exists
+    overlays = {}
+
     # Add performance data to the graph color overlay, if it exists
-    overlay_data = None
     if perf_node_data:
         gradient = [
             node_data_builder.GradientItem(stop=0, bgColor="yellow"),
@@ -623,12 +642,30 @@ def build_graph(module, perf_trace=None, golden_results=None):
         graph_node_data = node_data_builder.GraphNodeData(
             results=perf_node_data, gradient=gradient
         )
-        overlay_data = node_data_builder.ModelNodeData(
+        overlays["perf_data"] = node_data_builder.ModelNodeData(
             graphsData={"tt-graph": graph_node_data}
+        ).graphsData
+
+    if accuracy_node_data:
+        thres = [
+            # Show Red if ActualPCC - ExpectedPCC is 0 and below (ActualPCC < ExpectedPCC)
+            node_data_builder.ThresholdItem(value=0, bgColor="red"),
+            # Show Green if ActualPCC - ExpectedPCC is 1 and below (Actual PCC >= ExpectedPCC)
+            node_data_builder.ThresholdItem(value=1, bgColor="green"),
+        ]
+        graph_node_data = node_data_builder.GraphNodeData(
+            results=accuracy_node_data, thresholds=thres
+        )
+        overlays["accuracy_data"] = node_data_builder.ModelNodeData(
+            graphsData={"tt-graph": graph_node_data}
+        ).graphsData
+    else:
+        print(
+            "ACCURACY_NODE_DATA NOT PRESENT", str(golden_results), str(loc_to_accuracy)
         )
 
     OpHandler.schedule = 0
-    return graph, overlay_data
+    return graph, overlays
 
 
 def process_module(
@@ -638,7 +675,9 @@ def process_module(
     operands_in_graph,
     output_connections,
     loc_to_perf,
+    loc_to_accuracy,
     perf_node_data,
+    accuracy_node_data,
 ):
     """
     Process a module's operations.  Only works on top-level module, any nested modules won't have a body so they need to directly call process_operations instead.
@@ -650,7 +689,9 @@ def process_module(
         operands_in_graph: Set of operands already added to graph
         output_connections: Tracking of output connections
         loc_to_perf: Mapping from locations to performance data
+        loc_to_accuracy: Locs to Golden Results
         perf_node_data: Performance data for nodes
+        accuracy_node_data: Acccuracy Node Data
     """
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
@@ -676,7 +717,9 @@ def process_module(
         operands_in_graph,
         output_connections,
         loc_to_perf,
+        loc_to_accuracy,
         perf_node_data,
+        accuracy_node_data,
     )
 
 
@@ -687,7 +730,9 @@ def process_operations(
     operands_in_graph,
     output_connections,
     loc_to_perf,
+    loc_to_accuracy,
     perf_node_data,
+    accuracy_node_data,
 ):
     """
     Recursively process a list of operations, including handling nested modules.
@@ -699,7 +744,9 @@ def process_operations(
         operands_in_graph: Set of operands already added to graph
         output_connections: Tracking of output connections
         loc_to_perf: Mapping from locations to performance data
+        loc_to_accuracy: Locs from Golden Result
         perf_node_data: Performance data for nodes
+        accuracy_node_data: Accuracy Node Data
     """
     append_later = []
 
@@ -743,6 +790,19 @@ def process_operations(
             perf_node_data[operation.id] = node_data_builder.NodeDataResult(
                 loc_to_perf[operation.named_location]
             )
+
+        if (
+            operation.named_location in loc_to_accuracy
+            and operation.op.name not in EMPTY_OPS
+        ):
+            print(f"{operation.id} NOW GETTING ACCURACY DATA ADDED")
+            accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
+                loc_to_accuracy[operation.named_location]["actual_pcc"]
+                - loc_to_accuracy[operation.named_location]["expected_pcc"]
+            )
+        elif operation.named_location not in loc_to_accuracy:
+            print(f"{operation.named_location} NOT IN ACCURACY DICT")
+
         if not op.name == "func.func":
             graph_node = operation.make_graph_node()
 
