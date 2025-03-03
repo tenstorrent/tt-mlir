@@ -26,6 +26,7 @@
 /lib/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
 /test/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
 /test/ttmlir/Conversion/StableHLOToTTIR/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
+/test/ttmlir/Silicon/StableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
 
 # Linalg Conversion
 /include/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
