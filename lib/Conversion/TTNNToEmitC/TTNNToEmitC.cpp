@@ -170,7 +170,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputs()[0]),
-        /*paramter=*/emitter.emit(false),
+        /*parameter=*/emitter.emit(false),
         /*memory_config=*/emitter.emit(std::nullopt),
     };
 
@@ -504,6 +504,7 @@ public:
 
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::TransposeOp> emitter(
         srcOp, adaptor, rewriter);
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim0()),
@@ -530,47 +531,16 @@ public:
   matchAndRewrite(tt::ttnn::ConcatOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // tt::ttnn::concat op requires a `std::vector<>` of `Tensor` objects, but
-    // we can't really create a `std::vector<>` with `Value` objects without
-    // introducing an EmitC op that takes in these `Value` objects. We do this
-    // by creating a utility function within the IR that converts a list of
-    // `Tensor` objects into a `std::vector<ttnn::Tensor>`.
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ConcatOp> emitter(srcOp, adaptor,
+                                                                rewriter);
 
-    tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, srcOp);
-
-    // TODO (azecevic): Investigate if this op is the special case that needs to
-    // use this fallback, or if it can be handled in a more general way with
-    // TTNNToEmitCEmitter.
-    mlir::emitc::CallOpaqueOp vectorOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(),
-                               "std::vector<ttnn::Tensor>"),
-        tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr, nullptr,
-        adaptor.getInputs());
-
-    // Create operands vector
-    //
-    llvm::SmallVector<Value, 2> operands{
-        vectorOp->getResult(0), // Input vector of tensors
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputs()),
+        emitter.emit(srcOp.getDim()),
+        /*memory_config=*/emitter.emit(std::nullopt),
     };
 
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
-        mlir::IntegerAttr::get(rewriter.getIndexType(),
-                               0), // Input vector of tensors
-        srcOp.getDimAttr(),        // Concat dimension
-        srcOp.getMemoryConfig()
-            ? (operands.append(
-                   1, ttnn_to_emitc::utils::createMemoryConfigOp(
-                          rewriter, srcOp.getMemoryConfigAttr(), srcOp.getLoc())
-                          ->getResult(0)),
-               mlir::cast<Attribute>(rewriter.getIndexAttr(1)))
-            : ttnn_to_emitc::utils::createStdNullopt(
-                  rewriter) // ttnn::MemoryConfig
-    });
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttrs, nullptr, operands);
+    emitter.replaceOp(*this, args);
 
     return success();
   }
@@ -595,7 +565,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRepeatDims()),
     };
-
+    srcOp->getNumOperands();
     emitter.replaceOp(*this, args);
 
     return success();
