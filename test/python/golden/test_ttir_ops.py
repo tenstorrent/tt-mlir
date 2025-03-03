@@ -449,7 +449,6 @@ def test_arbitrary_op_chain(
     return builder.multiply(add, exp)
 
 
-
 @compile_to_flatbuffer(
     [
         (64, 128),
@@ -458,7 +457,7 @@ def test_arbitrary_op_chain(
 )
 def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.add(in0, in1, ttir_kwargs={"should_hoist": UnitAttr.get(self._ctx)})
-  
+
 
 if __name__ == "__main__":
     test_functions = inspect.getmembers(
