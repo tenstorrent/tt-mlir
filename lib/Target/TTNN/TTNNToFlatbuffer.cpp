@@ -1743,7 +1743,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto callOp = dyn_cast<func::CallOp>(op); callOp) {
-    // static uint32_t dylib_id = 0;
+    // TODO (#2355): Here dylib_id is hardcoded to 0.  In the long run, we want
+    // to support multiple dylibs per flatbuffer, but the exact schema is not so
+    // clear.
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
   }
