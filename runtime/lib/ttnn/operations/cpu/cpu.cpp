@@ -36,7 +36,7 @@ std::vector<wrapped_tensor> pack_tensors(
       sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
     std::vector<int64_t> strides = common::calculateStride(sizes);
-    // NOLINT(cppcoreguidelines-owning-memory)
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     int64_t *sizes_and_strides = new int64_t[2 * rank];
     std::copy(sizes.begin(), sizes.end(), sizes_and_strides);
     std::copy(strides.begin(), strides.end(), sizes_and_strides + rank);
@@ -77,7 +77,7 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
 
   // Clean up everything we heap alloc'ed.
   for (auto &input_tensor : dylibInputs) {
-    // NOLINT(cppcoreguidelines-owning-memory)
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     delete[] input_tensor.sizes_and_strides;
   }
   // The ins vector itself will be cleared by going out of scope, and the output
