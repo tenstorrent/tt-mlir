@@ -778,9 +778,7 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="dram_memory",
-                        value=str(
-                            memory_data[operation.named_location]["dram"]
-                        ),
+                        value=str(memory_data[operation.named_location]["dram"]),
                     ),
                     "display_type",
                     "memory",
@@ -790,9 +788,7 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="l1_memory",
-                        value=str(
-                            memory_data[operation.named_location]["l1"]
-                        ),
+                        value=str(memory_data[operation.named_location]["l1"]),
                     ),
                     "display_type",
                     "memory",
@@ -802,11 +798,7 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="l1_small_memory",
-                        value=str(
-                            memory_data[operation.named_location][
-                                "l1_small"
-                            ]
-                        ),
+                        value=str(memory_data[operation.named_location]["l1_small"]),
                     ),
                     "display_type",
                     "memory",
