@@ -41,6 +41,14 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
   ];
 }
 
+def TTIRTensorLayout: Pass<"ttir-tensor-layout", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Analyze the graph and select optimal layouts, insert reinterpret_layout where needed.
+  }];
+}
+
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
