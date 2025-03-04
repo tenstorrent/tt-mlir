@@ -56,7 +56,7 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
       }
 
       bufferization::AliasingValueList $cppClass::getAliasingValues(
-          OpOperand &operand, const bufferization::AnalysisState &) {
+          OpOperand &, const bufferization::AnalysisState &) {
         bufferization::AliasingValueList result;
         return result;
       }
@@ -72,7 +72,7 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
       void $cppClass::getEffects(
           SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
               &effects) {
-        getDpsEffects(*this, effects);
+        ttir::getDpsEffects(*this, effects);
       }
     }];
 }
