@@ -1258,15 +1258,11 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
                          SI32Attr:$input_height,
                          SI32Attr:$input_width,
                          SI32Attr:$channels,
-                         SI32Attr:$kernel_height,
-                         SI32Attr:$kernel_width,
-                         SI32Attr:$stride_height,
-                         SI32Attr:$stride_width,
-                         SI32Attr:$dilation_height,
-                         SI32Attr:$dilation_width,
-                         BoolAttr:$ceil_mode,
-                         SI32Attr:$padding_height,
-                         SI32Attr:$padding_width);
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         BoolAttr:$ceil_mode);
 
     let results = (outs AnyRankedTensor:$result);
 

@@ -1333,14 +1333,21 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
 
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+
   auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateMaxPool2dOp(
       *cache.fbb, in, out, cache.at<::tt::target::DeviceRef>(device),
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), op.getKernelHeight(), op.getKernelWidth(),
-      op.getStrideHeight(), op.getStrideWidth(), op.getDilationHeight(),
-      op.getDilationWidth(), op.getCeilMode(), op.getPaddingHeight(),
-      op.getPaddingWidth());
+      op.getChannels(), kernelSize, stride, padding, dilation,
+      op.getCeilMode());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>

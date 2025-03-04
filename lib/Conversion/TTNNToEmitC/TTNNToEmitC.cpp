@@ -313,6 +313,44 @@ public:
 } // namespace
 // ANCHOR_END: adding_an_op_matmul_op_rewriter_emitc
 
+// MaxPool2d op conversion pattern
+//
+class MaxPool2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::MaxPool2dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::MaxPool2dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::MaxPool2dOp srcOp,
+                  tt::ttnn::MaxPool2dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::MaxPool2dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit(srcOp.getChannels()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        /*memory_config=*/emitter.emit(std::nullopt),
+        /*applied_shard_scheme=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getCeilMode()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+
 // Softmax op conversion pattern
 //
 class SoftmaxOpConversionPattern
@@ -1155,14 +1193,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            DefaultOpConversionPattern<tt::ttnn::ProdOp>,
            ArgMaxOpConversionPattern>(typeConverter, ctx);
 
-  // Conv ops
+  // Pooling ops
   //
   patterns.add<DefaultOpConversionPattern<tt::ttnn::Conv2dOp>>(typeConverter,
                                                                ctx);
   patterns.add<DefaultOpConversionPattern<tt::ttnn::ConvTranspose2dOp>>(
       typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<tt::ttnn::MaxPool2dOp>>(typeConverter,
-                                                                  ctx);
+  patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
 
   // Other ops
   //
