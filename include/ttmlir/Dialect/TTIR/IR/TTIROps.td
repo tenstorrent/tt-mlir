@@ -175,14 +175,13 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
   [DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
     let summary = "Stream Layout op.";
     let description = [{
-      StreamLayout operation, similar to the ToLayout operation, but with the difference that this op is not
-      eagerly evaluated and is instead used as a means for defining a stream. The primary use cases include,
-      to enable streaming a large tensor out of dram via a small L1 buffer and also as a means for forming
-      reduce or gather multicast operations. A stream definition includes:
+      StreamLayout operation used to form a stream between remote and local memory spaces. Note that this op has
+      no side-effects, it's purely representational. The primary use cases include, to enable streaming a large
+      tensor out of dram via a small L1 buffer and also as a means for forming reduce or gather multicast
+      operations. A stream definition includes:
 
       - The tensor to be streamed.
       - The storage buffer to be used for streaming.
-      - Backing memory for a list of DMA transactions to be filled in by the backend.
       - A result, which is also able to take a view over the input, i.e. same semantics as the ViewLayout op.
 
       Additional constraints:
@@ -219,9 +218,9 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
   ]> {
     let summary = "View Layout op.";
     let description = [{
-      ViewLayout operation, nearly identical to ToLayout operation, but with the difference that this op is not
-      eagerly evaluated. Its primary usecase is to allow reinterpreting the layout of a tensor without actually
-      moving the data.
+      ViewLayout operation, used to take a view of one layout into another.  Note that this op is purely representational
+      and doesn't have any side-effects. Its primary usecase is to allow reinterpreting the layout of a tensor without actually
+      moving the data. Consumers of this op are expected to compose the layout with the underlying backing layout.
 
       Additional notes/constraints:
       - It is not capable of changing the data type nor the memory space of the tensor.
