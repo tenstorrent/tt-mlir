@@ -665,11 +665,13 @@ jobs:
       - build-image
       - build-ttmlir
     timeout-minutes: 60
+    # Force upload of artifacts
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: ON, name: "perf"},
+          {runs-on: n150, enable_perf: ON, enable_runtime_debug: ON, name: "perf"},
         ]
 
     name: Build and test tt-explorer
@@ -723,6 +725,7 @@ jobs:
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=OFF \
         -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
+        -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build tt-explorer
@@ -746,10 +749,10 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        export TT_EXPLORER_GENERATED_TEST_DIR=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
+        export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
+        export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         pytest tools/explorer/test/run_tests.py
         # collect results
-
 
   build-ttmlir-opmodelinterface:
     needs: build-image
