@@ -79,8 +79,8 @@ getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
                           : ::tt::tt_metal::Layout::ROW_MAJOR;
 }
 
-::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::LayoutAttr layout) {
-  switch (layout.getValue()) {
+::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::Layout layout) {
+  switch (layout) {
   case ::mlir::tt::ttnn::Layout::RowMajor:
     return ::tt::tt_metal::Layout::ROW_MAJOR;
   case ::mlir::tt::ttnn::Layout::Tile:

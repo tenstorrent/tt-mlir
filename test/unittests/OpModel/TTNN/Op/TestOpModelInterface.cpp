@@ -326,6 +326,43 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, toLayoutOp) {
+  // create ReshapeOp
+  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+  RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
+  auto tensor = builder.create<OnesOp>(
+      builder.getUnknownLoc(), rankedTensorType,
+      ShapeAttr::get(&context, tensorShape), nullptr,
+      LayoutAttr::get(&context, Layout::RowMajor), nullptr, nullptr);
+  std::cout << "1\n";
+  auto toLayout = builder.create<ToLayoutOp>(
+      builder.getUnknownLoc(), tensor.getType(), tensor, Layout::Tile, nullptr,
+      nullptr, nullptr);
+  std::cout << "2\n";
+  toLayout->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+  std::cout << "3\n";
+  // test toLayout Op interface
+  auto constraintsExp = getOpConstraints(toLayout.getOperation());
+  std::cout << "4\n";
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 262144);
+    EXPECT_EQ(peak_size, 4096);
+    EXPECT_EQ(output_size, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(toLayout.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, transposeOp) {
   // create TransposeOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};

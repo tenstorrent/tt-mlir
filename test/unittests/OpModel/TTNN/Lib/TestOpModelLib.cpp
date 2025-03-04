@@ -326,6 +326,34 @@ TEST_F(OpModelTest, Reshape) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
+TEST_F(OpModelTest, ToLayout) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAMTiled =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAMRowMajor =
+      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = ToLayoutOpInterface::getOpConstraints(
+      tensorShape, layoutDRAMTiled, layoutDRAMRowMajor.getLayout(),
+      std::nullopt, layoutDRAMRowMajor, true);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  EXPECT_EQ(cb_size, 262144);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  auto runtimeExp = ToLayoutOpInterface::getOpRuntime(
+      tensorShape, layoutDRAMTiled, layoutDRAMRowMajor.getLayout(),
+      std::nullopt, layoutDRAMRowMajor, true);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
 TEST_F(OpModelTest, Transpose) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);

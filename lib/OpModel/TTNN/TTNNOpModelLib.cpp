@@ -673,13 +673,13 @@ llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ToLayoutOpInterface::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-    mlir::tt::ttnn::LayoutAttr outputPageLayout,
+    mlir::tt::ttnn::Layout outputPageLayout,
     std::optional<mlir::tt::DataTypeAttr> outputDtype,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto toLayoutOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                            mlir::tt::ttnn::LayoutAttr outputPageLayout,
+                            mlir::tt::ttnn::Layout outputPageLayout,
                             std::optional<mlir::tt::DataTypeAttr> outputDtype,
                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                             bool passDevicePtr) {
@@ -719,13 +719,13 @@ ToLayoutOpInterface::getOpConstraints(
 llvm::Expected<size_t> ToLayoutOpInterface::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-    mlir::tt::ttnn::LayoutAttr outputPageLayout,
+    mlir::tt::ttnn::Layout outputPageLayout,
     std::optional<mlir::tt::DataTypeAttr> outputDtype,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto toLayoutOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                            mlir::tt::ttnn::LayoutAttr outputPageLayout,
+                            mlir::tt::ttnn::Layout outputPageLayout,
                             std::optional<mlir::tt::DataTypeAttr> outputDtype,
                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                             bool passDevicePtr) {
