@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "operations/reduction/prod.h"
-
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
@@ -21,9 +19,9 @@ runReductionArgMaxOp(::tt::target::ttnn::ReductionArgMaxOp const *op,
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
-  ::ttnn::Tensor out =
-      ::ttnn::argmax(in, op->dim(), op->use_multicore(),
-                     outputMemoryConfig /* memory_config_arg */, std::nullopt);
+  ::ttnn::Tensor out = ::ttnn::argmax(in, op->dim(), op->use_multicore(),
+                                      /*memory_config_arg=*/outputMemoryConfig,
+                                      /*optional_output_tensor=*/std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

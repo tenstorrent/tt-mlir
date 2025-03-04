@@ -480,7 +480,6 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
   rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
-      .addInputOperandWorkaround(rowMajorLayoutWorkaround)
       .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
 }
 } // namespace mlir::tt::ttnn::wa
