@@ -50,6 +50,9 @@ public:
                                                 cbPort.value(), 0, memref));
       }
       for (uint32_t i = 0; i < block.getNumArguments(); i++) {
+        for (Operation *user : block.getArgument(i).getUsers()) {
+          rewriter.eraseOp(user);
+        }
         rewriter.modifyOpInPlace(
             op, [&]() { block.getArgument(i).setType(cbTypes[i]); });
       }
@@ -67,11 +70,42 @@ class MemrefLoadRewriter : public OpRewritePattern<memref::LoadOp> {
 public:
   using OpRewritePattern<memref::LoadOp>::OpRewritePattern;
 
+  static uint32_t getCbId(memref::LoadOp op) {
+    memref::CollapseShapeOp collapseOp =
+        llvm::cast<memref::CollapseShapeOp>(op.getMemref().getDefiningOp());
+    if (auto blockArg =
+            mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {
+      return blockArg.getArgNumber();
+    }
+    assert(false && "Could not match collapse op src to block argument, cannot "
+                    "determine CB id. Failing.");
+  }
+
   LogicalResult matchAndRewrite(memref::LoadOp op,
                                 PatternRewriter &rewriter) const final {
 
+    OpBuilder builder(op);
     // erase the load op for now? sfpu / fpu considerations
     assert(op.getIndices().size() == 1 && "Expected 1D memref load, failing.");
+
+    int sfpuOp = -1;
+    op->getBlock()->walk([&](Operation *op) {
+      if (op->hasTrait<OpTrait::TTKernelSFPUOpTrait>() && sfpuOp == -1) {
+        sfpuOp = 1;
+      } else if (op->hasTrait<OpTrait::TTKernelFPUOpTrait>() && sfpuOp == -1) {
+        sfpuOp = 0;
+      }
+    });
+
+    assert(sfpuOp != -1 && "Data Movement op only, unsupported, failing.");
+
+    auto cbId = i32(getCbId(op), builder);
+
+    if (sfpuOp == 1) {
+      rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
+      rewriter.create<ttkernel::CopyTileOp>(
+          op.getLoc(), cbId, op.getIndices().front(), cbId);
+    }
 
     rewriter.eraseOp(op);
     return success();
@@ -135,8 +169,8 @@ public:
 
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
       rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
-      rewriter.create<ttkernel::MaxTilesOp>(op->getLoc(), index(op->getOperand(0)),
-                                            index(op->getOperand(1)));
+      rewriter.create<ttkernel::MaxTilesOp>(op->getLoc(), i32(0, builder),
+                                            i32(1, builder));
     }
 
     rewriter.eraseOp(op);
@@ -200,11 +234,17 @@ public:
 
 // tile regs pass
 
+// memref.alloc -> ttmetal.create_buffer pass
+
+// memref.dealloc -> ttmetal.deallocate_buffer pass?
+
+// init cleanup pass? 
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
 
-void populateTTIRToTTKernelPatterns(MLIRContext *ctx,
+void populateTTIRToTTKernelPatternsPhase1(MLIRContext *ctx,
                                     RewritePatternSet &patterns,
                                     TypeConverter & /*typeConverter*/) {
   // patterns.add<ttkernel::MemrefLoadRewriter, ttkernel::MemrefStoreRewriter,
@@ -212,8 +252,21 @@ void populateTTIRToTTKernelPatterns(MLIRContext *ctx,
   //              ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>>(ctx);
 
   patterns.add<ttkernel::TTIRTileOpsRewriter, ttkernel::MemrefStoreRewriter,
-      ttkernel::MemrefLoadRewriter,
       ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>, ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>>(ctx);
+}
+
+void populateTTIRToTTKernelPatternsPhase2(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter & /*typeConverter*/) {
+  patterns.add<ttkernel::MemrefLoadRewriter>(ctx);
+
+}
+
+void populateTTIRToTTKernelPatternsPhase3(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter & /*typeConverter*/) {
+  patterns.add<ttkernel::TTIRGenericRewriter>(
+      ctx);
 }
 
 } // namespace mlir::tt

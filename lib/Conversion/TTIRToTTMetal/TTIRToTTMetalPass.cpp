@@ -79,11 +79,8 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<arith::ArithDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addLegalDialect<scf::SCFDialect>();
-    // target.addDynamicallyLegalOp<ttir::GenericOp>([](Operation *op) {
-    //   return mlir::isa<ttkernel::CBType>(op->getRegion(0).getBlocks().front().getArgument(0).getType());
-    // });
+    
     target.addIllegalOp<memref::StoreOp>();
-    target.addIllegalOp<memref::LoadOp>();
     target.addIllegalOp<ttir::AwaitOp>();
     target.addIllegalOp<ttir::YieldOp>();
     target.addIllegalOp<ttir::TileMaximumOp>();
@@ -93,10 +90,37 @@ struct ConvertTTIRToTTKernel
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter);
+    populateTTIRToTTKernelPatternsPhase1(&getContext(), patterns, typeConverter);
     
     if (failed(applyFullConversion(getOperation(), target,
                                       std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
+
+    target.addIllegalOp<memref::LoadOp>();
+
+    RewritePatternSet patterns2(&getContext());
+    populateTTIRToTTKernelPatternsPhase2(&getContext(), patterns2, typeConverter);
+
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns2)))) {
+      signalPassFailure();
+      return;
+    }
+
+    target.addDynamicallyLegalOp<ttir::GenericOp>([](Operation *op) {
+      return mlir::isa<ttkernel::CBType>(
+          op->getRegion(0).getBlocks().front().getArgument(0).getType());
+    });
+    target.addIllegalOp<memref::CollapseShapeOp>();
+
+    RewritePatternSet patterns3(&getContext());
+    populateTTIRToTTKernelPatternsPhase3(&getContext(), patterns3,
+                                         typeConverter);
+
+    if (failed(applyFullConversion(getOperation(), target,
+                                   std::move(patterns3)))) {
       signalPassFailure();
       return;
     }
