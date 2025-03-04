@@ -73,10 +73,14 @@ public:
         }
         auto memref = mlir::cast<MemRefType>(arg.getType());
         auto shape = memref.getShape();
-        auto linearMap = linearizeAffineMap(
-            rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
         SmallVector<ReassociationIndices, 4> collapsedDims = {
             llvm::to_vector(llvm::seq<int64_t>(0, shape.size()))};
+        assert(memref::CollapseShapeOp::isGuaranteedCollapsible(
+                   memref, collapsedDims) &&
+               "linearizeAffineMap assumes that the shape is collapsible aka "
+               "has contiguous memory layout");
+        auto linearMap = linearizeAffineMap(
+            rewriter.getContext(), memref.getLayout().getAffineMap(), shape);
         auto linearizedArg = rewriter.create<memref::CollapseShapeOp>(
             arg.getLoc(), arg, collapsedDims);
         rewriter.replaceAllUsesExcept(arg, linearizedArg->getResult(0),
