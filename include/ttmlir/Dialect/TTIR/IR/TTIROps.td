@@ -9,6 +9,7 @@ include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
+include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
@@ -27,10 +28,22 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 }
 
 //===----------------------------------------------------------------------===//
-// TTIR top level ops
+// TTIR top level, bufferizable, ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
+class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_DPSOp<mnemonic, !listconcat(
+      [ DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                           , "bufferizesToMemoryWrite"
+                                                           , "bufferize"
+                                                           , "getAliasingValues"
+                                                           , "getBufferType"
+                                                           ]>
+      , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+      ], traits)> {
+}
+
+def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, NoTerminator]> {
     let summary = "Generically dispatch work to a grid of cores.";
     let description = [{
       This generic op carries a region that represents the work each core does. The region is
@@ -57,9 +70,9 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$cbs,
-                         Variadic<AnyRankedTensor>:$outputs,
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                         Variadic<AnyRankedTensorOrMemRef>:$cbs,
+                         Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
                          TT_IteratorTypeArrayAttr:$iterator_types,
@@ -84,6 +97,50 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     }];
 }
 
+def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
+    let summary = "Layout op.";
+    let description = [{
+      ToLayout operation, transition tensors from one layout to another.  Some examples include:
+        - Transitioning between different memory spaces, e.g. DRAM to L1.
+        - Transitioning between different data types, e.g. f32 to f16.
+        - Transitioning between different tile sizes, e.g. 1x16 to 32x32
+        - Transitioning between different tensor sharding
+        - Some combination of the above
+
+      ```llvm
+      #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      struct CompoundComponents {
+        bool isLayoutChange = false;
+        bool isGridChange = false;
+        bool isFormatChange = false;
+        bool isMemorySpaceChange = false;
+      };
+
+      // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
+      CompoundComponents compoundComponents();
+    }];
+
+    let hasVerifier = 1;
+
+    let hasCanonicalizeMethod = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR top level ops
+//===----------------------------------------------------------------------===//
+
 def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
   let summary = "GetDimensionSize op.";
   let description = [{
@@ -102,46 +159,6 @@ def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
   let hasVerifier = 1;
 
   let hasFolder = 1;
-}
-
-def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
-    let summary = "Layout op.";
-    let description = [{
-      ToLayout operation, transition tensors from one layout to another.  Some examples include:
-        - Transitioning between different memory spaces, e.g. DRAM to L1.
-        - Transitioning between different data types, e.g. f32 to f16.
-        - Transitioning between different tile sizes, e.g. 1x16 to 32x32
-        - Transitioning between different tensor sharding
-        - Some combination of the above
-
-      ```llvm
-      #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-      %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-      ```
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-
-      struct CompoundComponents {
-        bool isLayoutChange;
-        bool isGridChange;
-        bool isFormatChange;
-        bool isMemorySpaceChange;
-      };
-
-      // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
-      CompoundComponents compoundComponents();
-    }];
-
-    let hasVerifier = 1;
-
-    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_AllocOp : TTIR_Op<"alloc"> {
@@ -189,8 +206,12 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 // TTIR top level named ops
 //===----------------------------------------------------------------------===//
 
+class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)> {
+}
+
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
+    TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -658,7 +679,7 @@ def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
+    TTIR_NamedOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let summary = "Reduction op.";
     let description = [{
@@ -806,6 +827,28 @@ def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
     }];
 }
 
+def TTIR_ReduceOrOp : TTIR_ReductionOp<"reduce_or"> {
+    let summary = "Or reduction op.";
+    let description = [{
+      Reduces a given tensor using logical or operator along the given dimension(s).
+
+      Example:
+        input: [[True,  False, False, False],
+                [True,  True,  False, True],
+                [False, False, False, True],
+                [False, False, False, False]]
+
+        // Reduction along dim 0
+        output: [True, True, False, True]
+
+        // Reduction along dim 1
+        output: [True, True, True, False]
+
+        // Reduction for both dimensions (entire tensor)
+        output: [True]
+    }];
+}
+
 def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
   let summary = "Product reduction op.";
   let description = [{
@@ -827,7 +870,7 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
   }];
 }
 
-def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
+def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
@@ -846,7 +889,7 @@ def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
     let hasVerifier = 1;
 }
 
-def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
+def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
     let summary = "Embedding backward op.";
     let description = [{
       Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
@@ -866,7 +909,7 @@ def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
     let hasVerifier = 1;
 }
 
-def TTIR_CumSumOp : TTIR_DPSOp<"cumsum"> {
+def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
   let summary = "Cummulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
@@ -897,7 +940,7 @@ def TTIR_CumSumOp : TTIR_DPSOp<"cumsum"> {
   let hasVerifier = 1;
 }
 
-def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
+def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let summary = "Softmax operation.";
     let description = [{
       Softmax operation.
@@ -916,7 +959,7 @@ def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let hasVerifier = 1;
 }
 
-def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
+def TTIR_TransposeOp : TTIR_NamedOp<"transpose"> {
     let summary = "Transpose op.";
     let description = [{
       Transpose tensor along two given dimensions.
@@ -938,7 +981,7 @@ def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
+def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
     let summary = "Concat op.";
     let description = [{
       Concat tensors along a given dimension.
@@ -957,7 +1000,7 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
-def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
+def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
   let summary = "Repeat operation.";
   let description = [{
     The `repeat` operation creates a new tensor by replicating the input tensor's elements
@@ -992,7 +1035,7 @@ def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
   let hasVerifier = 1;
 }
 
-def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
+def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
     let summary = "Repeat interleave op.";
     let description = [{
       Repeats elements of a tensor along a specified dimension.
@@ -1019,7 +1062,7 @@ def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
     let hasVerifier = 1;
 }
 
-def TTIR_UpdateCacheOp : TTIR_DPSOp<"update_cache"> {
+def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
   let summary = "Update static cache tensor.";
   let description = [{
       Updates the `cache` tensor in-place with values from `input` at `update_index` and `batch_offset`.
@@ -1039,7 +1082,7 @@ def TTIR_UpdateCacheOp : TTIR_DPSOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
+def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   let summary = "Fill static cache tensor.";
   let description = [{
       Fills the `cache` tensor in-place with values from `input` at `batch_offset`.
@@ -1058,7 +1101,7 @@ def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
   }];
 }
 
-def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
+def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
     let summary = "Broadcast operation.";
     let description = [{
       Broadcasts each dimension of the input tensor based on the broadcast dimensions.
@@ -1087,25 +1130,67 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     let hasFolder = 1;
 }
 
-def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
+def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
-     Applies a 2D convolution over an input image composed of several input planes.
+      Applies a 2D convolution over an input image composed of several input planes.
+
+      Inputs:
+      - `input` (AnyRankedTensor): expected in the following format (N, H_in, W_in, C) where:
+        - N is the batch size
+        - H_in is the height of the input planes
+        - W_in is the width of the input planes
+        - C is the number of channels
+      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K_H, K_W).
+      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O) where:
+        - C is the number of input channels
+        - O is the number of output channels
+        - G is the number of groups
+        - K_H is the height of the kernel
+        - K_W is the width of the kernel
+      - `output` AnyRankedTensor()): expected in the following format (N, H_out, W_out, O) where:
+        - `H_out = (H_in + pT + pB - dH * (K_H - 1) - 1) / sH + 1`
+        - `W_out = (W_in + pL + pR - dW * (K_W - 1) - 1) / sW + 1`
+
+      Attributes:
+      - `stride` (i32 | array<2xi32>):
+        - i32: Same stride for height and width dimensions (sH = sW = value).
+        - array<2xi32>: [sH, sW] where sH is stride for height and sW is stride for width.
+      - `padding` (i32 | array<2xi32> | array<4xi32>):
+        - i32: Same padding for all sides (pT = pL = pB = pR = value).
+        - array<2xi32>: [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
+        - array<4xi32>: [pT, pL, pB, pR] for top, left, bottom, and right padding respectively.
+      - `dilation` (i32 | array<2xi32>): Spacing between kernel elements.
+        - i32: Same dilation for height and width dimensions (dH = dW = value).
+        - array<2xi32>: [dH, dW] where dH is dilation for height and dW is dilation for width.
+      - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+
+      Example:
+        %0 = "ttir.conv2d"(%input, %weight, %bias, %output)
+          <{
+            stride = 1: i32,
+            padding = 0: i32,
+            dilation = 1: i32,
+            groups = 1: i32
+          > : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+        %1 = "ttir.conv2d"(%input, %weight, %bias, %output)
+          <{
+              stride = array<i32: 2, 1>,        // Height stride=2, width stride=1
+              padding = array<i32: 1, 1, 2, 0>, // Top=1, left=1, bottom=2, right=0
+              dilation = array<i32: 1, 2>,      // Height dilation=1, width dilation=2
+              groups = 2: i32                   // Group convolution with 2 groups
+          }> : (tensor<1x32x32x64xbf16>, tensor<64x32x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x16x28x64xbf16>) -> tensor<1x16x28x64xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
                          AnyRankedTensor:$output,
-                         SI32Attr:$stride_height,
-                         SI32Attr:$stride_width,
-                         SI32Attr:$dilation_height,
-                         SI32Attr:$dilation_width,
-                         SI32Attr:$groups,
-                         SI32Attr:$padding_left,
-                         SI32Attr:$padding_right,
-                         SI32Attr:$padding_top,
-                         SI32Attr:$padding_bottom);
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         I32Attr:$groups);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1116,7 +1201,7 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ConvTranspose2dOp : TTIR_DPSOp<"conv_transpose2d"> {
+def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
     let summary = "ConvTranspose2d operation.";
     let description = [{
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
@@ -1181,7 +1266,7 @@ def TTIR_ConvTranspose2dOp : TTIR_DPSOp<"conv_transpose2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
+def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
   let summary = "Generalized convolution op.";
   let description = [{
     Applies a convolution of the rhs with the lhs.
@@ -1214,7 +1299,7 @@ def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
   }];
 }
 
-def TTIR_GatherOp: TTIR_DPSOp<"gather"> {
+def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let summary = "Gather operation.";
     let description = [{
       Gathers slices from operand tensor from offsets specified in start_indices and produces a result tensor.
@@ -1237,7 +1322,7 @@ def TTIR_GatherOp: TTIR_DPSOp<"gather"> {
     }];
 }
 
-def TTIR_PoolingOp : TTIR_DPSOp<"pooling", [AttrSizedOperandSegments]> {
+def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
   let summary = "General pooling op";
   let description = [{
     General pooling op
@@ -1259,7 +1344,7 @@ def TTIR_PoolingOp : TTIR_DPSOp<"pooling", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
-def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
+def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.
@@ -1288,7 +1373,7 @@ def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
+def TTIR_ReshapeOp: TTIR_NamedOp<"reshape"> {
     let summary = "Reshape op.";
     let description = [{
       Reshape tensor.
@@ -1344,7 +1429,7 @@ def TTIR_PadOp: TTIR_Op<"pad"> {
     let hasVerifier = 1;
 }
 
-def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
+def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
       Extract a sub-tensor (slice) from the input tensor across one or more dimensions.
@@ -1367,7 +1452,7 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
-def TTIR_SelectOp: TTIR_DPSOp<"select"> {
+def TTIR_SelectOp: TTIR_NamedOp<"select"> {
     let summary = "Select op.";
     let description = [{
       Extracts a sub-tensor (slice) from the input tensor along a specified dimension in few steps defined by the
@@ -1394,7 +1479,7 @@ def TTIR_SelectOp: TTIR_DPSOp<"select"> {
 }
 
 // ANCHOR: decomposing_an_op_index_ttir
-def TTIR_IndexOp: TTIR_DPSOp<"index"> {
+def TTIR_IndexOp: TTIR_NamedOp<"index"> {
     let summary = "Index op.";
     let description = [{
       Extract a sub-tensor (slice) from the input tensor along a specified dimension.
@@ -1419,7 +1504,7 @@ def TTIR_IndexOp: TTIR_DPSOp<"index"> {
 }
 // ANCHOR_END: decomposing_an_op_index_ttir
 
-def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
+def TTIR_SqueezeOp : TTIR_NamedOp<"squeeze"> {
     let summary = "Squeeze op.";
     let description = [{
       Squeeze tensor.
@@ -1438,7 +1523,7 @@ def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
     let hasVerifier = 1;
 }
 
-def TTIR_UnsqueezeOp : TTIR_DPSOp<"unsqueeze"> {
+def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
     let summary = "Unsqueeze op.";
     let description = [{
       Unsqueeze tensor.
@@ -1457,7 +1542,7 @@ def TTIR_UnsqueezeOp : TTIR_DPSOp<"unsqueeze"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ClampOp : TTIR_DPSOp<"clamp"> {
+def TTIR_ClampOp : TTIR_NamedOp<"clamp"> {
     let summary = "Clamp op.";
     let description = [{
       Clamp tensor values to a specified range.
@@ -1561,7 +1646,7 @@ def TTIR_OnesOp : TTIR_Op<"ones"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_ReverseOp : TTIR_DPSOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
+def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
   let summary = "Reverse operation.";
 
   let description = [{
@@ -1617,7 +1702,7 @@ def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
     let hasFolder = 1;
 }
 
-def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
+def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
     let summary = "Fill operation.";
     let description = [{
       Produces tensor filled with given fill value.
@@ -1639,7 +1724,7 @@ def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
     }];
 }
 
-def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
+def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
     let summary = "Linear transformation of inputs.";
     let description = [{
       Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
@@ -1671,7 +1756,7 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.
@@ -1695,7 +1780,7 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
-def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
+def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
     let summary = "Permute operation.";
     let description = [{
       Permute input tensor dimensions.
@@ -1724,7 +1809,7 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
+def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let summary = "Upsample 2D operation.";
 
     let description = [{
@@ -1846,7 +1931,7 @@ def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
 
 //===----------------------------------------------------------------------===//
 
-def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
+def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation";
   let description = [{
     Produces a 'result' tensor which are equal to `input` tensor except that
@@ -1883,9 +1968,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
 //    DEPRECATED: Generic region ops are moving to TTIRGenericRegionOps.td
 //===----------------------------------------------------------------------===//
 
-def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
-
-def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
+def TTIR_KernelOp : TTIR_NamedOp<"kernel", [AttrSizedOperandSegments]> {
     let summary = "Kernel call.";
     let description = [{
       A generic kernel call operation. This operation is used to pattern match by some consuming backend.
@@ -1902,7 +1985,7 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
 // TTIR ccl ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
+def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
     let summary = "All gather operation.";
     let description = [{
       All gather op.
@@ -1922,7 +2005,7 @@ def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
+def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let summary = "AllReduce operation.";
     let description = [{
       AllReduce op.
@@ -1930,12 +2013,8 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I64ElementsAttr:$replica_groups,
-                         SI32Attr:$dim,
-                         OptionalAttr<SI32Attr>:$channel_handle,
-                         UnitAttr:$use_global_device_ids,
-                         TT_ReduceTypeAttr:$reduce_type
-    );
+                         TT_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1946,7 +2025,25 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
-def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
+def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
+    let summary = "Reduce scatter operation.";
+    let description = [{
+      Reduce scatter op.
+    }];
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$scatter_dim,
+                         UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+    let hasVerifier = 1;
+}
+
+def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
     let summary = "Mesh shard operation.";
     let description = [{
       MeshShard op shards the inputs (FullToShard) or concatnates the outputs (ShardToFull) for ccl ops.

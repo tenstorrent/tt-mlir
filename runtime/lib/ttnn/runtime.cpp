@@ -67,6 +67,8 @@ static StorageType createStorage(void *ptr, std::uint32_t numElements,
                                       numElements);
   case ::tt::target::DataType::UInt8:
     return createStorage<StorageType>(static_cast<uint8_t *>(ptr), numElements);
+  case ::tt::target::DataType::Int32:
+    return createStorage<StorageType>(static_cast<int32_t *>(ptr), numElements);
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -210,12 +212,12 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
 
   LOG_ASSERT(deviceIds.size(), "No devices specified");
-  ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
+  ::tt::tt_metal::distributed::MeshShape grid{
+      1, static_cast<uint32_t>(deviceIds.size())};
   size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
-      ::tt::tt_metal::distributed::MeshDeviceConfig{
-          .mesh_shape = ::tt::tt_metal::distributed::SimpleMeshShape(grid),
-          .offset = {}},
+      ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid,
+                                                    .offset = {}},
       l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
 
   CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();

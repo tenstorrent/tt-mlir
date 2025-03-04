@@ -195,7 +195,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         ::tt::target::DataType::BFP_BFloat8, ::tt::target::DataType::BFP_Float4,
         ::tt::target::DataType::BFP_BFloat4, ::tt::target::DataType::BFP_Float2,
         ::tt::target::DataType::BFP_BFloat2, ::tt::target::DataType::UInt32,
-        ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8};
+        ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8,
+        ::tt::target::DataType::Int32};
 
     auto supportedDataTypes = fbb.CreateVector(supportedDataTypesVector);
 
@@ -264,13 +265,12 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  ::tt::tt_metal::distributed::MeshShape meshShape = {1, numDevices};
+  ::tt::tt_metal::distributed::MeshShape meshShape{
+      1, static_cast<uint32_t>(numDevices)};
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          ::tt::tt_metal::distributed::MeshDeviceConfig{
-              .mesh_shape =
-                  ::tt::tt_metal::distributed::SimpleMeshShape(meshShape),
-              .offset = {}},
+          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = meshShape,
+                                                        .offset = {}},
           DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
   CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
   LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,

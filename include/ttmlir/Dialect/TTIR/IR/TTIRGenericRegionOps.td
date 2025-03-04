@@ -20,8 +20,6 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRe
 // TTIR Generic Region Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
-
 def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator, TTIR_GenericRegionOpTrait]> {
     let summary = "Yield op.";
     let description = [{
@@ -127,6 +125,40 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
 
     let arguments = (ins AnyNon0RankedMemRef:$a,
                          AnyNon0RankedMemRef:$b,
+                         AnyNon0RankedMemRef:$output);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_TileTilizeBlockOp : TTIR_GenericRegionOp<"tile_tilize_block",
+  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "TTIR Tile Tilize Block Op";
+    let description = [{
+        The `tile_tilize_block` operation tilizes the input row major memref block and outputs the memref containing the tilized data.
+    }];
+
+    let arguments = (ins AnyNon0RankedMemRef:$input,
+                         AnyNon0RankedMemRef:$output);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionOp<"tile_untilize_block",
+  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "TTIR Tile Untilize Block Op";
+    let description = [{
+        The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
+    }];
+
+    let arguments = (ins AnyNon0RankedMemRef:$input,
                          AnyNon0RankedMemRef:$output);
 
     let extraClassDeclaration = [{

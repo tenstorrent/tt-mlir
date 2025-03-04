@@ -8,7 +8,7 @@ module @mesh_shard_test attributes {tt.meshes = #tt.meshes<[<"mesh" = 1x1>]>} {
   }
 }
 
-// CHECK: [[DEVICE:%[0-9]+]] = "ttnn.get_device"() [[C:.*]]
+// CHECK: [[DEVICE:%[0-9]+]] = "ttnn.get_device"()
 // CHECK-NEXT: [[REG:.*]] = "ttnn.mesh_shard"([[ARG:.*]], [[DEVICE]])
 // CHECK-SAME: shard_dims = array<i64: 0, 1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>

@@ -19,6 +19,7 @@ def TT_BFP_BFloat2 : I32EnumAttrCase<"BFP_BFloat2", 8, "bfp_bf2">;
 def TT_UInt32 : I32EnumAttrCase<"UInt32", 9, "u32">;
 def TT_UInt16 : I32EnumAttrCase<"UInt16", 10, "u16">;
 def TT_UInt8 : I32EnumAttrCase<"UInt8", 11, "u8">;
+def TT_Int32: I32EnumAttrCase<"Int32", 12, "si32">;
 
 def TT_DataType : I32EnumAttr<"DataType", "TT DataTypes",
                            [
@@ -33,7 +34,8 @@ def TT_DataType : I32EnumAttr<"DataType", "TT DataTypes",
                             TT_BFP_BFloat2,
                             TT_UInt32,
                             TT_UInt16,
-                            TT_UInt8
+                            TT_UInt8,
+                            TT_Int32
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";

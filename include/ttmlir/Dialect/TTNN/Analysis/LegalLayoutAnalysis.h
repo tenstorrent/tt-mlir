@@ -16,7 +16,7 @@ struct LegalLayoutAnalysisInput {
   ChipDescAttr chipDesc;
   GridAttr maxGrid;
   RankedTensorType tensorType;
-  int64_t maxShardedGrids;
+  int64_t maxShardedLayouts;
   llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides;
   bool rowMajorEnabled;
 
@@ -26,11 +26,11 @@ struct LegalLayoutAnalysisInput {
 
   LegalLayoutAnalysisInput(
       ChipDescAttr chipDesc, GridAttr maxGrid, RankedTensorType tensorType,
-      int64_t maxShardedGrids,
+      int64_t maxShardedLayouts,
       llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides,
       bool rowMajorEnabled)
       : chipDesc(chipDesc), maxGrid(maxGrid), tensorType(tensorType),
-        maxShardedGrids(maxShardedGrids),
+        maxShardedLayouts(maxShardedLayouts),
         outputLayoutOverrides(outputLayoutOverrides),
         rowMajorEnabled(rowMajorEnabled) {}
 

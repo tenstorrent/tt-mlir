@@ -78,6 +78,7 @@ public:
   template <typename ConcreteType>
   class Impl
       : public mlir::OpTrait::TraitBase<ConcreteType, NOperandTTNN<N>::Impl> {
+  public:
     static LogicalResult verifyTrait(Operation *op) {
       if (op->getNumOperands() != N) {
         return op->emitOpError() << "Operation " << op->getName()
