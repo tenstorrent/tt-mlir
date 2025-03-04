@@ -20,6 +20,7 @@
 #include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/LogicalResult.h>
 #include <mlir/Analysis/Liveness.h>
+#include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Math/IR/Math.h>
@@ -584,6 +585,142 @@ public:
 };
 } // namespace
 
+namespace {
+class TTIRToTTMetalDMARewriter : public OpRewritePattern<ttir::DMAOp> {
+public:
+  using OpRewritePattern<ttir::DMAOp>::OpRewritePattern;
+
+  AffineMap createTrivialLinear(MemRefType memref) const {
+    assert(memref.getRank() % 2 == 0 && "Expected even number of dimensions");
+    mlir::MLIRContext *context = memref.getContext();
+    unsigned rank = memref.getRank() / 2;
+    SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
+    ArrayRef<int64_t> shardShape = memref.getShape().drop_front(rank);
+    mlir::AffineExpr shardVolume = getAffineConstantExpr(1, context);
+
+    for (int i = 0; i < (int)rank; i++) {
+      mapExprs[i] = getAffineDimExpr(i, context);
+    }
+
+    mapExprs[rank] = getAffineConstantExpr(0, context);
+    for (int i = rank - 1; i >= 0; i--) {
+      mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
+      mlir::AffineExpr shardSize = getAffineConstantExpr(shardShape[i], context);
+      mapExprs[rank] = shardDim * shardVolume + mapExprs[rank];
+      shardVolume = shardVolume * shardSize;
+    }
+
+    return mlir::AffineMap::get(memref.getRank(), 0, mapExprs, context);
+  }
+
+  std::tuple<AffineMap, AffineMap, AffineMap> getPhysicalMap(MemRefType memref, tt::DeviceAttr device,
+                           OpBuilder &builder) const {
+    ArrayRef<int64_t> shape = memref.getShape();
+    assert(shape.size() % 2 == 0 && "Expected even number of dimensions");
+    AffineMap memoryMapWithSymbols = device.getMemoryMap(memref, 8192, 0);
+    // mlir::cast<tt::MemorySpaceAttr>(memref.getMemorySpace())
+    //     .getValue());
+    AffineMap memoryMap =
+        ttmlir::utils::replaceAffineMapSymbols(memoryMapWithSymbols, shape);
+    auto physicalMap = memoryMap.compose(createTrivialLinear(memref))
+                           .dropResult(0); // drop the device index
+    assert(physicalMap.getNumResults() == 3);
+    auto gridY = physicalMap.dropResults({1, 2});
+    auto gridX = physicalMap.dropResults({0, 2});
+    auto offset = physicalMap.dropResults({0, 1});
+    return std::make_tuple(gridY, gridX, offset);
+  }
+
+  template <typename T = IndexType>
+  Value constant(OpBuilder &builder, Location loc, int64_t value) const {
+    if constexpr (std::is_same<T, IndexType>::value) {
+      return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                               builder.getIndexAttr(value));
+    }
+    if constexpr (std::is_same<T, IntegerType>::value) {
+      return builder.create<arith::ConstantOp>(
+          loc, builder.getI32Type(),
+          builder.getIntegerAttr(builder.getI32Type(), value));
+    }
+  }
+
+  std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+  getLoopBounds(OpBuilder &builder, Location loc, MemRefType memref) const {
+    Value zero = constant(builder, loc, 0);
+    Value one = constant(builder, loc, 1);
+    SmallVector<Value> lbs(memref.getRank(), zero);
+    SmallVector<Value> ubs(llvm::map_range(memref.getShape(), [&](int64_t dim) {
+      return constant(builder, loc, dim);
+    }));
+    SmallVector<Value> step(memref.getRank(), one);
+    return std::make_tuple(lbs, ubs, step);
+  }
+
+  LogicalResult matchAndRewrite(ttir::DMAOp op,
+                                PatternRewriter &rewriter) const final {
+#if 1
+    llvm::errs() << "DMAOp\n";
+    llvm::errs() << "  isSrcLocal: " << op.isSrcLocal() << "\n";
+    llvm::errs() << "  isDstLocal: " << op.isDstLocal() << "\n";
+    op.dump();
+    // assert(op.isSrcRemote() != op.isDstRemote() &&
+    //        "Expected exactly one remote operand");
+    bool isRead = op.isSrcRemote();
+    if (isRead) {
+      ValueRange srcOuterIndex = op.getSrcIndices();
+      AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
+      std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) = getPhysicalMap(
+          op.getSrcMemRefType(), getCurrentScopeDevice(op), rewriter);
+
+      auto [lbs, ubs, steps] =
+          getLoopBounds(rewriter, op.getLoc(), op.getDstMemRefType());
+
+      auto applyMap = [](OpBuilder &builder, Location loc, AffineMap map,
+                         ValueRange index) {
+        auto apply = builder.create<affine::AffineApplyOp>(loc, map, index);
+        return builder.create<arith::IndexCastOp>(loc, builder.getI32Type(),
+                                                  apply);
+      };
+
+      scf::LoopNest loopNest = scf::buildLoopNest(
+          rewriter, op.getLoc(), lbs, ubs, steps,
+          [&](OpBuilder &builder, Location loc, ValueRange iters) {
+            SmallVector<Value> srcIndex =
+                llvm::to_vector(llvm::concat<Value>(srcOuterIndex, iters));
+            auto srcGridY = applyMap(builder, loc, srcGridYMap, srcIndex);
+            auto srcGridX = applyMap(builder, loc, srcGridXMap, srcIndex);
+            auto srcOffset = applyMap(builder, loc, srcOffsetMap, srcIndex);
+            auto size = constant<IntegerType>(builder, loc, 1);
+            auto srcRemote = rewriter.create<ttkernel::GetNocAddrXYOp>(
+                loc, srcGridX, srcGridY, srcOffset);
+            builder.create<ttkernel::NocAsyncReadOp>(loc, srcRemote, size,
+                                                     size);
+          });
+    }
+    rewriter.eraseOp(op);
+    return success();
+#else
+    return failure();
+#endif
+  }
+};
+} // namespace
+
+namespace {
+class TTIRToTTMetalDMAWaitRewriter : public OpRewritePattern<ttir::DMAWaitOp> {
+public:
+  using OpRewritePattern<ttir::DMAWaitOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::DMAWaitOp op,
+                                PatternRewriter &rewriter) const final {
+    // TODO determine if read or write
+    rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -595,6 +732,13 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                ttmetal::TTIRToTTMetalAllocRewriter,
                ttmetal::TTIRToTTMetalDeallocRewriter,
                ttmetal::TTIRToTTMetalFillRewriter>(ctx);
+}
+
+void populateTTIRToTTMetalPatternsNew(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter & /*typeConverter*/) {
+  patterns.add<ttmetal::TTIRToTTMetalDMARewriter,
+               ttmetal::TTIRToTTMetalDMAWaitRewriter>(ctx);
 }
 
 } // namespace mlir::tt
