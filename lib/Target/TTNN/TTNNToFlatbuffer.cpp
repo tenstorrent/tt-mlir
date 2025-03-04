@@ -560,8 +560,7 @@ createOp(FlatbufferObjectCache &cache, ConstructTensorOp op) {
 
   return ::tt::target::ttnn::CreateConstructTensorOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
-                        kHostAllocatedSize));
+      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>

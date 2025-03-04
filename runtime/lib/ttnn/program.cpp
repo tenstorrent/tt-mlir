@@ -189,6 +189,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ZerosOp: {
     return operations::creation::run(op->type_as_ZerosOp(), context);
+  }
   case ::tt::target::ttnn::OpType::OnesOp: {
     return operations::creation::run(op->type_as_OnesOp(), context);
   }
@@ -293,35 +294,36 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     LOG_FATAL("Unsupported operation type");
   }
   }
-  }
+}
 
-  std::vector<Tensor> runProgram(
-      ::ttnn::MeshDevice & meshDevice, Binary executableHandle,
-      std::uint32_t programIndex, std::vector<::ttnn::Tensor *> const &inputs) {
-    ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
-    ::tt::target::ttnn::Program const *program =
-        fbb.programs()->Get(programIndex);
-    std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
-    std::vector<uint32_t> programInputs;
-    int inputIndex = 0;
-    LOG_ASSERT(program->inputs()->size() == inputs.size(),
-               "Program input size mismatch: ", program->inputs()->size(),
-               " != ", inputs.size());
-    for (::tt::target::ttnn::TensorRef const *input : *program->inputs()) {
-      auto [iter, inserted] =
-          liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
-      LOG_ASSERT(inserted, "Duplicate input tensor");
-      programInputs.push_back(input->global_id());
-    }
-    std::vector<uint32_t> programOutputs;
-    for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
-      programOutputs.push_back(output->global_id());
-    }
-    ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                             programOutputs, &meshDevice);
-    executor.execute(program);
-    std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
-    return outputTensors;
+std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+                               Binary executableHandle,
+                               std::uint32_t programIndex,
+                               std::vector<::ttnn::Tensor *> const &inputs) {
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
+  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+  std::vector<uint32_t> programInputs;
+  int inputIndex = 0;
+  LOG_ASSERT(program->inputs()->size() == inputs.size(),
+             "Program input size mismatch: ", program->inputs()->size(),
+             " != ", inputs.size());
+  for (::tt::target::ttnn::TensorRef const *input : *program->inputs()) {
+    auto [iter, inserted] =
+        liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
+    LOG_ASSERT(inserted, "Duplicate input tensor");
+    programInputs.push_back(input->global_id());
   }
+  std::vector<uint32_t> programOutputs;
+  for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
+    programOutputs.push_back(output->global_id());
+  }
+  ProgramExecutor executor(executableHandle, liveTensors, programInputs,
+                           programOutputs, &meshDevice);
+  executor.execute(program);
+  std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
+  return outputTensors;
+}
 
 } // namespace tt::runtime::ttnn

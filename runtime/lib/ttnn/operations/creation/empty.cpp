@@ -75,7 +75,8 @@ createEmptyOnSingleDevice(ProgramContext &context, EmptyTensorConfig &config,
   assert(deviceRef && "::ttnn::empty requires deviceRef!");
   ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
   LOG_ASSERT(subMesh.num_devices() == 1);
-  ::ttnn::IDevice *device = subMesh.get_device_index(0);
+  ::ttnn::IDevice *device =
+      subMesh.get_device(::tt::tt_metal::distributed::MeshCoordinate(0, 0));
   return ::ttnn::empty(config.shape, config.dtype, config.layout, device,
                        config.memoryConfig.value());
 }

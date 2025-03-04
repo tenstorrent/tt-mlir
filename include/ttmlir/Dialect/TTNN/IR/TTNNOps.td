@@ -1314,7 +1314,7 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConstructTensorOp : TTNN_Op<"host_empty"> {
+def TTNN_ConstructTensorOp : TTNN_Op<"construct_tensor"> {
     let summary = "Construct empty tensor on host op.";
     let description = [{
       Invoke tensor ctor to create an empty tensor on host.
