@@ -21,7 +21,8 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class TTIRGenericLinearizeMemrefRewriter : public OpRewritePattern<GenericOp> {
+struct TTIRGenericLinearizeMemrefRewriter final
+    : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
