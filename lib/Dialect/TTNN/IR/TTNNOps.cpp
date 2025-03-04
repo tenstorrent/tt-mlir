@@ -1414,9 +1414,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::tt::ReduceType reduceType = getReduceType();
 
   if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
-    return emitOpError("Invalid scatter dimension for all reduce op. Scatter "
-                       "dimension must be >= to input tensor rank or < -input "
-                       "tensor rank, got scatter_dim = ")
+    return emitOpError(
+               "Invalid scatter dimension for reduce scatter op. Scatter "
+               "dimension must be >= to input tensor rank or < -input "
+               "tensor rank, got scatter_dim = ")
            << scatterDim;
   }
 
@@ -1426,7 +1427,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   if (reduceType != ::mlir::tt::ReduceType::Sum &&
       reduceType != ::mlir::tt::ReduceType::Max &&
       reduceType != ::mlir::tt::ReduceType::Min) {
-    return emitOpError("Invalid reduction op for all reduce op.");
+    return emitOpError("Invalid reduction op for reduce scatter op.");
   }
 
   return success();

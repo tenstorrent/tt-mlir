@@ -1463,10 +1463,13 @@ private:
 };
 } // namespace
 
-template <typename SrcOpTy>
-LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
-  if constexpr (!std::is_same<SrcOpTy, mlir::stablehlo::AllReduceOp>::value) {
-    return failure();
+template <typename SrcOpT>
+static llvm::ErrorOr<ReduceType> getReduceType(SrcOpT srcOp) {
+  if constexpr (!std::is_same<SrcOpT, mlir::stablehlo::AllReduceOp>::value &&
+                !std::is_same<SrcOpT,
+                              mlir::stablehlo::ReduceScatterOp>::value) {
+    return llvm::ErrorOr<ReduceType>(
+        std::make_error_code(std::errc::operation_not_supported));
   }
   // Check operations in the first block and determine reduce type for now
   // TODO(wooseoklee): This pattern matching mechanism may need to be updated as
@@ -1474,20 +1477,18 @@ LogicalResult getReduceType(SrcOpTy &srcOp, ReduceType &reduceType) {
   auto &block = srcOp.getRegion().front();
   for (Operation &op : block) {
     if (isa<mlir::stablehlo::AddOp>(op)) {
-      reduceType = ReduceType::Sum;
-      return success();
+      return ReduceType::Sum;
     }
     if (isa<mlir::stablehlo::MaxOp>(op)) {
-      reduceType = ReduceType::Max;
-      return success();
+      return ReduceType::Max;
     }
     if (isa<mlir::stablehlo::MinOp>(op)) {
-      reduceType = ReduceType::Min;
-      return success();
+      return ReduceType::Min;
     }
   }
   // Other reduce types are currently not supported
-  return failure();
+  return llvm::ErrorOr<ReduceType>(
+      std::make_error_code(std::errc::operation_not_supported));
 }
 
 static LogicalResult
@@ -1583,7 +1584,8 @@ public:
       // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
       // Consider preserving this information in the future if the attribute
       // is non-DEVICE_TO_DEVICE values.
-      auto channelType = static_cast<int32_t>(srcChannelHandleAttr.getType());
+      auto channelType =
+          static_cast<StableHLOChannelType>(srcChannelHandleAttr.getType());
       if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
           channelType != StableHLOChannelType::kChannelTypeInvalid) {
         return failure();
@@ -1598,8 +1600,8 @@ public:
     }
 
     // Convert reduceType shlo attribute into ttir attribute
-    ReduceType reduceType;
-    if (failed(getReduceType(srcOp, reduceType))) {
+    llvm::ErrorOr<ReduceType> reduceType = getReduceType(srcOp);
+    if (!reduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp cannot specify reduce type.");
     }
@@ -1613,7 +1615,7 @@ public:
 
       auto allReduceOp =
           ttmlir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
-              rewriter, srcOp.getLoc(), outputType, inputOperand, reduceType,
+              rewriter, srcOp.getLoc(), outputType, inputOperand, *reduceType,
               clusterAxis);
 
       allReduceOpResults.push_back(allReduceOp.getResult());
@@ -1632,6 +1634,57 @@ private:
       return rewriter.notifyMatchFailure(
           srcOp, "AllReduceOp must have at least one input/output.");
     }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRReduceScatterOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ReduceScatterOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::ReduceScatterOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ReduceScatterOp srcOp,
+                  mlir::stablehlo::ReduceScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
+      // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Consider preserving this information in the future if the attribute
+      // is non-DEVICE_TO_DEVICE values.
+      auto channelType =
+          static_cast<StableHLOChannelType>(srcChannelHandleAttr.getType());
+      if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
+          channelType != StableHLOChannelType::kChannelTypeInvalid) {
+        return failure();
+      }
+    }
+
+    // Determine cluster axis based on replica groups
+    uint32_t clusterAxis;
+    if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ReduceScatterOp cannot specify cluster axis.");
+    }
+
+    // Convert reduceType shlo attribute into ttir attribute
+    llvm::ErrorOr<ReduceType> reduceType = getReduceType(srcOp);
+    if (!reduceType) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ReduceScatterOp cannot specify reduce type.");
+    }
+
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReduceScatterOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands()[0], *reduceType,
+        adaptor.getScatterDimension(), clusterAxis);
 
     return success();
   }
@@ -1658,10 +1711,6 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
-    // Create an empty output tensor with the computed shape
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
     // Determine cluster axis based on replica groups
     uint32_t clusterAxis;
     if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
@@ -1669,8 +1718,8 @@ public:
           srcOp, "AllGather cannot specify cluster axis.");
     }
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::AllGatherOp>(
-        srcOp, outputType, adaptor.getOperands()[0], outputTensor,
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllGatherOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands()[0],
         adaptor.getAllGatherDim(), clusterAxis);
 
     return success();
@@ -2362,6 +2411,8 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRAllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRAllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRReduceScatterOpConversionPattern>(typeConverter,
+                                                                ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }
