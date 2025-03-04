@@ -725,6 +725,7 @@ jobs:
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=OFF \
         -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
+        -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }}
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build tt-explorer
