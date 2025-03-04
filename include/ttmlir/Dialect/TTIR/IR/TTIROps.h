@@ -19,6 +19,30 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+namespace mlir::tt::ttir {
+
+inline void getDpsEffects(
+    DestinationStyleOpInterface op,
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  for (OpOperand &operand : op->getOpOperands()) {
+    if (!llvm::isa<MemRefType>(operand.get().getType())) {
+      continue;
+    }
+    if (op.isDpsInput(&operand)) {
+      effects.emplace_back(MemoryEffects::Read::get(), &operand, /*stage*/ 0,
+                           /*effectOnFullRegion*/ true,
+                           SideEffects::DefaultResource::get());
+    } else {
+      effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage*/ 0,
+                           /*effectOnFullRegion*/ true,
+                           SideEffects::DefaultResource::get());
+    }
+  }
+}
+
+} // namespace mlir::tt::ttir
+
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"
 
 #define GET_ATTRDEF_CLASSES
