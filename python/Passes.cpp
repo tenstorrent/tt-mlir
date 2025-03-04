@@ -2,9 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/Passes.h"
 #include "mlir/InitAllTranslations.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
+
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
@@ -182,6 +184,16 @@ void populatePassesModule(py::module &m) {
          const std::vector<std::pair<std::string, std::string>> &moduleCache =
              {}) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+        // Create a dialect registry and register all necessary dialects and
+        // translations
+        mlir::DialectRegistry registry;
+
+        // Register all LLVM IR translations
+        registerAllToLLVMIRTranslations(registry);
+
+        // Apply the registry to the module's context
+        moduleOp->getContext()->appendDialectRegistry(registry);
 
         std::error_code fileError;
         llvm::raw_fd_ostream file(filepath, fileError);

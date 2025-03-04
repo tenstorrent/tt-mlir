@@ -48,3 +48,10 @@ target_include_directories(TTRuntimeWorkarounds
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
 )
+
+add_library(TTRuntimeDylibs STATIC dylib.cpp)
+set_property(TARGET TTRuntimeDylibs PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeDylibs
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+)
