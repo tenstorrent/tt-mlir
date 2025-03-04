@@ -57,11 +57,6 @@ public:
     DataType dtype = layoutAttr.getDataType();
     DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
 
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
     // Due to API constraints, we need to use a host_empty op if tensor is in
     // system_memory.
     if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
@@ -69,14 +64,23 @@ public:
       //
       rewriter.replaceOpWithNewOp<ttnn::ConstructTensorOp>(
           op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-          dTypeAttr, tensorLayoutAttr);
+          dTypeAttr,
+          ttnn::LayoutAttr::get(op.getContext(), ttnn::Layout::RowMajor));
       // Otherwise, we use regular empty op, with device-specific fields.
     } else {
+      ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+
       if (layoutAttr.isTiled()) {
         ttnnLayoutEnum = ttnn::Layout::Tile;
       } else {
         ttnnLayoutEnum = ttnn::Layout::RowMajor;
       }
+      ttnn::LayoutAttr tensorLayoutAttr =
+          ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+      llvm::errs() << "Determined layout: " << static_cast<int>(ttnnLayoutEnum)
+                   << "\n";
+      llvm::errs() << "Encoding layout: "
+                   << static_cast<int>(layoutAttr.getLayout()) << "\n";
       // Device
       //
       auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
