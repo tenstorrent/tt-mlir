@@ -1716,7 +1716,6 @@ public:
           meshShape);
     }
 
-    auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
     if (callTargetName ==
         mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName) {
       // @Sharding => @SPMDFullToShardShape pattern
@@ -1735,37 +1734,33 @@ public:
             srcOp, "Requires operand to be defined by prior Sharding op.");
       }
 
-      // JAX automatic sharding may expect pre-sharded output tensors. Thus,
-      // mesh sharding operations should not concat the tensors twice if
-      // frontent expects pre-sharded tensor.
-      if (auto *funcReturnOp = funcOp.getBody().front().getTerminator()) {
-        auto returnOperands = funcReturnOp->getOperands();
-        auto returnOperandIt =
-            llvm::find_if(returnOperands, [&](Value operand) {
-              return operand == srcOp->getResult(0);
-            });
-        if (returnOperandIt != returnOperands.end()) {
-          auto retNum = std::distance(returnOperands.begin(), returnOperandIt);
-          meshSharding.checkAndUpdateFuncReturnSharding<mlir::StringAttr>(
-              rewriter, funcOp, retNum, shardingAttr,
-              mlir::tt::sharding_utils::kXlaShardingAttr);
-        }
+      // JAX automatic sharding may expect pre-sharded output tensors. We should
+      // check and update mesh shard op to match frontend's expectation. We may
+      // create dummy mesh shard op even though frontend expect sharded return
+      // in case input and output shapes of mesh shard op are different.
+      bool shouldCreateMeshShardOp =
+          meshSharding.checkAndUpdateGSPMDRetSharding(rewriter, srcOp,
+                                                      shardingAttr);
+      auto inputOperand = adaptor.getInputs().front();
+      if (shouldCreateMeshShardOp) {
+        auto outputType = mlir::cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp->getResult(0).getType()));
+
+        ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+            rewriter, srcOp, outputType, inputOperand,
+            meshSharding.getShardType(),
+            mlir::tt::MeshShardDirection::ShardToFull,
+            meshSharding.getShardShape(), meshSharding.getShardDims());
+      } else {
+        // Do not create mesh shard op if input and output shapes are identical:
+        // frontend expects sharded return and shard type is replicate.
+        rewriter.replaceOp(srcOp, inputOperand);
       }
-
-      auto outputType = mlir::cast<RankedTensorType>(
-          getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-
-      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-          rewriter, srcOp, outputType, adaptor.getInputs().front(),
-          meshSharding.getShardType(),
-          mlir::tt::MeshShardDirection::ShardToFull,
-          meshSharding.getShardShape(), meshSharding.getShardDims());
-
     } else if (callTargetName ==
                mlir::tt::sharding_utils::kShardingCustomCallTargetName) {
-      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Manual) {
+      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Identity) {
         // @Sharding => @SPMDShardToFullShape pattern
-        // "manual" sharding indicates no sharding is required.
+        // "identity" sharding indicates no sharding is required.
         rewriter.replaceOp(srcOp, srcOp->getOperand(0));
       } else {
         // @Sharding => @SPMDFullToShardShape pattern
@@ -1777,25 +1772,30 @@ public:
         }
 
         // JAX automatic sharding pre-shards input tensors and provides multiple
-        // buffers. Thus, mesh sharding operations should not shard the tensors
-        // twice if they are function arguments and pre-sharded by frontend.
+        // buffers. Thus, we have to check if mesh shard op is sharding the
+        // tensors twice. We create dummy mesh shard op if input and output
+        // shapes are different or not create mesh shard op if they are
+        // identical.
+        bool shouldCreateMeshShardOp =
+            meshSharding.checkAndUpdateGSPMDArgSharding(rewriter, srcOp,
+                                                        shardingAttr);
         auto inputOperand = adaptor.getInputs().front();
-        if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(inputOperand)) {
-          auto argNum = blockArg.getArgNumber();
-          meshSharding.checkAndUpdateFuncArgSharding<mlir::StringAttr>(
-              rewriter, funcOp, argNum, shardingAttr,
-              mlir::tt::sharding_utils::kXlaShardingAttr);
+        if (shouldCreateMeshShardOp) {
+          auto outputType =
+              mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+                  fullToShardCustomCall->getResult(0).getType()));
+
+          ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+              rewriter, srcOp, outputType, inputOperand,
+              meshSharding.getShardType(),
+              mlir::tt::MeshShardDirection::FullToShard,
+              meshSharding.getShardShape(), meshSharding.getShardDims());
+        } else {
+          // Do not create mesh shard op if input and output shapes are
+          // identical: frontend provides sharded input and shard type is
+          // replicate.
+          rewriter.replaceOp(srcOp, inputOperand);
         }
-
-        auto outputType =
-            mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-                fullToShardCustomCall->getResult(0).getType()));
-
-        ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-            rewriter, srcOp, outputType, inputOperand,
-            meshSharding.getShardType(),
-            mlir::tt::MeshShardDirection::FullToShard,
-            meshSharding.getShardShape(), meshSharding.getShardDims());
       }
     }
     return success();

@@ -1826,15 +1826,11 @@ module @jit_negative_basic attributes {mhlo.num_partitions = 2 : i32, mhlo.num_r
     // CHECK-SAME: shard_dims = array<i64: -1, 1>
     // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
     // CHECK-SAME: shard_shape = array<i64: 1, 2>
-    // CHECK-SAME: shard_type = #tt.shard_type<manual>
+    // CHECK-SAME: shard_type = #tt.shard_type<identity>
     %2 = call @shmap_body(%1) : (tensor<256x128xf32>) -> tensor<256x128xf32>
     %3 = stablehlo.custom_call @Sharding(%2) {mhlo.sharding = "{manual}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
     %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {mhlo.sharding = "{replicated}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
-    // CHECK: "ttir.mesh_shard"
-    // CHECK-SAME: shard_dims = array<i64: -1>
-    // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
-    // CHECK-SAME: shard_shape = array<i64: 1>
-    // CHECK-SAME: shard_type = #tt.shard_type<manual>
+    // CHECK-NOT: "ttir.mesh_shard"
     return %4 : tensor<256x128xf32>
   }
   func.func private @shmap_body(%arg0: tensor<256x128xf32>) -> (tensor<256x128xf32> {jax.result_info = "[None, None]"}) {
