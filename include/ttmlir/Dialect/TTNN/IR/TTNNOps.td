@@ -313,6 +313,25 @@ def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
     }];
 }
 
+def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
+    let summary = "Eltwise arctangent op.";
+    let description = [{
+      Performs an elementwise arctangent (`atan`) operation on the input tensor.
+      This operation computes the inverse tangent of each element, returning
+      values in the range [-π/2, π/2]. Supports floating-point tensor types.
+
+      Example:
+
+      ```mlir
+      %input = tensor<4xf32> {1.0, 0.5, 0.0, -1.0}
+      %result = "ttir.atan"(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      ```
+
+      Given the input `[1.0, 0.5, 0.0, -1.0]`, the result would be approximately:
+      `[0.785, 0.464, 0.0, -0.785]` (values in radians).
+    }];
+}
+
 def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
     let summary = "Eltwise tanh op.";
     let description = [{

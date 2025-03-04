@@ -157,7 +157,8 @@ enum EltwiseOpType: uint32 {
   Scatter,
   Tan,
   Tanh,
-  Power
+  Power,
+  Atan
 }
 
 table ClampOpParams {
