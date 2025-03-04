@@ -2274,9 +2274,8 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
     return emitOpError(
                "Invalid dimension for reduce scatter op. Scatter dimension "
-               "must be "
-               ">= to "
-               "input tensor rank or < -input tensor rank, got scatter_dim = ")
+               "must be >= to input tensor rank or < -input tensor rank, got "
+               "scatter_dim = ")
            << scatterDim;
   }
 

@@ -1,4 +1,4 @@
-// RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
+// RUN: not ttmlir-opt --split-input-file --ttir-load-system-desc="path=%system_desc_path%" --ttir-implicit-device="force-reload=true" %s 2>&1 | FileCheck %s
 // Unit tests for ttnn all_reduce op
 
 // -----
