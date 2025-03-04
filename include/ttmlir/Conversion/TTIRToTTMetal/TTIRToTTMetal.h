@@ -14,6 +14,10 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter &typeConverter);
 
+void populateTTIRToTTMetalPatternsNew(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter);
+
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTMetalPass();
 
 } // namespace mlir::tt
