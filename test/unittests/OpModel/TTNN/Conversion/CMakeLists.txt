@@ -9,7 +9,6 @@ add_executable(TestConversion
 
 target_compile_options(TestConversion
     PRIVATE
-    -fno-rtti
 )
 
 target_include_directories(TestConversion

@@ -65,6 +65,7 @@ set(INCLUDE_DIRS
 
     # Metalium
     $ENV{TT_METAL_HOME}
+    $ENV{TT_METAL_HOME}/tt_metal
     $ENV{TT_METAL_HOME}/tt_metal/api
     $ENV{TT_METAL_HOME}/tt_metal/hostdevcommon/api
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc
