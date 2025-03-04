@@ -220,9 +220,12 @@ TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds(
 // Factory method to create a set of workarounds for mesh shard op input
 // operand. ttnn::MeshShardOp supports host tensors only
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds() {
+TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
+    mlir::tt::MeshShardType shardType) {
   wa::TTNNOperandWorkarounds sysMemWorkaround;
-  sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  if (shardType != mlir::tt::MeshShardType::Identity) {
+    sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(sysMemWorkaround)
       .addOutputOperandWorkaround(sysMemWorkaround);

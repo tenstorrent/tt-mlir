@@ -1522,7 +1522,8 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds();
+        mlir::tt::ttnn::MeshShardOp op = mlir::cast<mlir::tt::ttnn::MeshShardOp>(this->getOperation());
+        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(op.getShardType());
       }
     }];
 
