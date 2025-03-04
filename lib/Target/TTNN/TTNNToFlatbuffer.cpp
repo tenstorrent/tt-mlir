@@ -1084,6 +1084,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Tan;
   } else if constexpr (std::is_same_v<EltwiseOp, TanhOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Tanh;
+  } else if constexpr (std::is_same_v<EltwiseOp, AtanOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Atan;
   } else if constexpr (std::is_same_v<EltwiseOp, PowerOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Power;
   } else {
@@ -1729,6 +1731,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
     return createOperation(cache, createEltwiseOp(cache, tanhOp), debugString,
+                           locInfo);
+  }
+  if (auto atanOp = dyn_cast<AtanOp>(op); atanOp) {
+    return createOperation(cache, createEltwiseOp(cache, atanOp), debugString,
                            locInfo);
   }
   if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {
