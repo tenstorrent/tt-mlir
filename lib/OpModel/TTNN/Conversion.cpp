@@ -45,6 +45,10 @@ getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
   }
 }
 
+::tt::tt_metal::DataType getDataType(mlir::tt::DataTypeAttr dtype) {
+  return getDataType(dtype.getValue());
+}
+
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
   ::tt::stl::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
@@ -73,6 +77,17 @@ getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return layout.isTiled() ? ::tt::tt_metal::Layout::TILE
                           : ::tt::tt_metal::Layout::ROW_MAJOR;
+}
+
+::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::LayoutAttr layout) {
+  switch (layout.getValue()) {
+  case ::mlir::tt::ttnn::Layout::RowMajor:
+    return ::tt::tt_metal::Layout::ROW_MAJOR;
+  case ::mlir::tt::ttnn::Layout::Tile:
+    return ::tt::tt_metal::Layout::TILE;
+  case ::mlir::tt::ttnn::Layout::Invalid:
+    return ::tt::tt_metal::Layout::INVALID;
+  }
 }
 
 ::tt::tt_metal::CoreRangeSet
