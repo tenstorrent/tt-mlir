@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DYLIB_H
-#define TT_RUNTIME_DYLIB_H
+#ifndef TT_RUNTIME_DETAIL_DYLIB_H
+#define TT_RUNTIME_DETAIL_DYLIB_H
 
 #include "tt/runtime/types.h"
 

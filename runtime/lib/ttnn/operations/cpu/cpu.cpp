@@ -17,9 +17,9 @@
 namespace tt::runtime::ttnn::operations::cpu {
 
 float *align_to_64(float const *ptr) {
-  uintptr_t ptr_val = (uintptr_t)ptr;
-  uintptr_t aligned_ptr = (ptr_val + 63) & ~((uintptr_t)63);
-  return (float *)aligned_ptr;
+  uintptr_t ptr_val = reinterpret_cast<uintptr_t>(ptr);
+  uintptr_t aligned_ptr = (ptr_val + 63) & ~(static_cast<uintptr_t>(63));
+  return reinterpret_cast<float *>(aligned_ptr);
 }
 
 std::vector<wrapped_tensor> pack_tensors(
@@ -36,6 +36,7 @@ std::vector<wrapped_tensor> pack_tensors(
       sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
     std::vector<int64_t> strides = common::calculateStride(sizes);
+    // NOLINT(cppcoreguidelines-owning-memory)
     int64_t *sizes_and_strides = new int64_t[2 * rank];
     std::copy(sizes.begin(), sizes.end(), sizes_and_strides);
     std::copy(strides.begin(), strides.end(), sizes_and_strides + rank);
@@ -54,8 +55,8 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
                              std::to_string(op->dylib_id()));
   }
 
-  WrappedFunc fn =
-      (WrappedFunc)dlsym(dylib_handle, op->func_name()->str().c_str());
+  WrappedFunc fn = static_cast<WrappedFunc>(
+      dlsym(dylib_handle, op->func_name()->str().c_str()));
   if (!fn) {
     throw std::runtime_error(
         "could not find requested op: \"" + op->func_name()->str() +
@@ -76,6 +77,7 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
 
   // Clean up everything we heap alloc'ed.
   for (auto &input_tensor : dylibInputs) {
+    // NOLINT(cppcoreguidelines-owning-memory)
     delete[] input_tensor.sizes_and_strides;
   }
   // The ins vector itself will be cleared by going out of scope, and the output
