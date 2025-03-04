@@ -12,6 +12,7 @@
 
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/IR/Dominance.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -103,8 +104,8 @@ public:
 
     if (sfpuOp == 1) {
       rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
-      rewriter.create<ttkernel::CopyTileOp>(
-          op.getLoc(), cbId, op.getIndices().front(), cbId);
+      rewriter.create<ttkernel::CopyTileOp>(op.getLoc(), cbId,
+                                            op.getIndices().front(), cbId);
     }
 
     rewriter.eraseOp(op);
@@ -151,14 +152,16 @@ public:
 // tile ops rewriter
 namespace {
 
-class TTIRTileOpsRewriter : public OpRewritePattern<ttir::TileMaximumOp> { // this needs to match all generic region ops, for now, match max specifically 
+class TTIRTileOpsRewriter
+    : public OpRewritePattern<
+          ttir::TileMaximumOp> { // this needs to match all generic region ops,
+                                 // for now, match max specifically
 public:
   using OpRewritePattern<ttir::TileMaximumOp>::OpRewritePattern;
 
   static Value index(Value tile) {
     Operation *loadOp = tile.getDefiningOp();
-    assert(mlir::isa<memref::LoadOp>(loadOp) &&
-           "Expected load op, failing.");
+    assert(mlir::isa<memref::LoadOp>(loadOp) && "Expected load op, failing.");
     return mlir::cast<memref::LoadOp>(loadOp).getIndices().front();
   }
 
@@ -176,10 +179,8 @@ public:
     rewriter.eraseOp(op);
     return success();
   };
-
 };
 } // namespace
-
 
 // ttir await/yield rewriter
 
@@ -214,10 +215,12 @@ public:
       Block *block = op->getBlock();
       if (mlir::isa<ttir::AwaitOp>(op)) {
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), cbId, numPages);
-        auto popFront = rewriter.create<ttkernel::CBPopFrontOp>(op.getLoc(), cbId, numPages);
+        auto popFront = rewriter.create<ttkernel::CBPopFrontOp>(op.getLoc(),
+                                                                cbId, numPages);
         rewriter.moveOpBefore(popFront, block, block->end());
       } else if (mlir::isa<ttir::YieldOp>(op)) {
-        auto reserveBack = rewriter.create<ttkernel::CBReserveBackOp>(op.getLoc(), cbId, numPages);
+        auto reserveBack = rewriter.create<ttkernel::CBReserveBackOp>(
+            op.getLoc(), cbId, numPages);
         rewriter.moveOpAfter(reserveBack, block, block->begin());
         rewriter.create<ttkernel::CBPushBackOp>(op.getLoc(), cbId, numPages);
         rewriter.moveOpBefore(cbId.getDefiningOp(), reserveBack);
@@ -234,38 +237,64 @@ public:
 
 // tile regs pass
 
+// reconfig data formats
+
+namespace {
+
+class TTIRTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
+public:
+  using OpRewritePattern<ttkernel::PackTileOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
+                                PatternRewriter &rewriter) const final {
+    llvm::errs() << "tile regs rewriter\n";
+
+    rewriter.moveOpAfter(
+        rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc()), op);
+    auto regsWait = rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+    rewriter.moveOpBefore(regsWait, op);
+    rewriter.moveOpBefore(
+        rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc()), regsWait);
+
+    rewriter.moveOpAfter(
+        rewriter.create<ttkernel::TileRegsAcquireOp>(op->getLoc()),
+        op->getBlock(), op->getBlock()->begin());
+
+    return success();
+  };
+};
+
+} // namespace
+
 // memref.alloc -> ttmetal.create_buffer pass
 
 // memref.dealloc -> ttmetal.deallocate_buffer pass?
 
-// init cleanup pass? 
+// init cleanup pass ?
 
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
 
 void populateTTIRToTTKernelPatternsPhase1(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter & /*typeConverter*/) {
-  // patterns.add<ttkernel::MemrefLoadRewriter, ttkernel::MemrefStoreRewriter,
-  //              ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
-  //              ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>>(ctx);
+                                          RewritePatternSet &patterns,
+                                          TypeConverter & /*typeConverter*/) {
 
   patterns.add<ttkernel::TTIRTileOpsRewriter, ttkernel::MemrefStoreRewriter,
-      ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>, ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>>(ctx);
+               ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
+               ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>>(ctx);
 }
 
 void populateTTIRToTTKernelPatternsPhase2(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter & /*typeConverter*/) {
+                                          RewritePatternSet &patterns,
+                                          TypeConverter & /*typeConverter*/) {
   patterns.add<ttkernel::MemrefLoadRewriter>(ctx);
-
 }
 
 void populateTTIRToTTKernelPatternsPhase3(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
                                           TypeConverter & /*typeConverter*/) {
-  patterns.add<ttkernel::TTIRGenericRewriter>(
+  patterns.add<ttkernel::TTIRGenericRewriter, ttkernel::TTIRTileRegsRewriter>(
       ctx);
 }
 

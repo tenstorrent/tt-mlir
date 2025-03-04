@@ -19,8 +19,10 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
+#include <llvm/IR/Dominators.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/IR/Dominance.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 using namespace mlir;
@@ -90,10 +92,11 @@ struct ConvertTTIRToTTKernel
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    populateTTIRToTTKernelPatternsPhase1(&getContext(), patterns, typeConverter);
-    
-    if (failed(applyFullConversion(getOperation(), target,
-                                      std::move(patterns)))) {
+    populateTTIRToTTKernelPatternsPhase1(&getContext(), patterns,
+                                         typeConverter);
+
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }
@@ -101,10 +104,11 @@ struct ConvertTTIRToTTKernel
     target.addIllegalOp<memref::LoadOp>();
 
     RewritePatternSet patterns2(&getContext());
-    populateTTIRToTTKernelPatternsPhase2(&getContext(), patterns2, typeConverter);
+    populateTTIRToTTKernelPatternsPhase2(&getContext(), patterns2,
+                                         typeConverter);
 
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns2)))) {
+    if (failed(applyFullConversion(getOperation(), target,
+                                   std::move(patterns2)))) {
       signalPassFailure();
       return;
     }
@@ -119,12 +123,17 @@ struct ConvertTTIRToTTKernel
     populateTTIRToTTKernelPatternsPhase3(&getContext(), patterns3,
                                          typeConverter);
 
-    if (failed(applyFullConversion(getOperation(), target,
-                                   std::move(patterns3)))) {
+    GreedyRewriteConfig config = GreedyRewriteConfig();
+    config.maxNumRewrites = 1;
+    config.maxIterations = 1;
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns3),
+                                     config))) {
       signalPassFailure();
       return;
     }
-  }
+
+    
+  };
 };
 
 } // namespace

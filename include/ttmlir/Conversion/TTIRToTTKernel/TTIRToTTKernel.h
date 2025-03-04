@@ -11,12 +11,12 @@
 namespace mlir::tt {
 
 void populateTTIRToTTKernelPatternsPhase1(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter);
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter);
 
 void populateTTIRToTTKernelPatternsPhase2(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           TypeConverter &typeConverter);
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter);
 
 void populateTTIRToTTKernelPatternsPhase3(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
