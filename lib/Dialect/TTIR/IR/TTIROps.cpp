@@ -1426,11 +1426,13 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
-static ::mlir::LogicalResult verifyLayoutOp(mlir::Operation *op,
-                                            mlir::Type inputTensorOrMemrefTy,
-                                            mlir::Type outputTensorOrMemrefTy,
-                                            bool allowFormatChange,
-                                            bool allowMemorySpaceChange) {
+static ::mlir::LogicalResult
+verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
+               mlir::Type outputTensorOrMemrefTy, bool allowFormatChange,
+               bool allowMemorySpaceChange, bool checkMemrefRank = false,
+               bool checkMemrefGridShardForm = false,
+               bool checkMemrefGridShape = false,
+               bool checkMemrefShardShape = false) {
   if (mlir::isa<mlir::RankedTensorType>(inputTensorOrMemrefTy)) {
     if (!mlir::isa<mlir::RankedTensorType>(outputTensorOrMemrefTy)) {
       return op->emitOpError("Input and output types must be the same");
@@ -1491,6 +1493,35 @@ static ::mlir::LogicalResult verifyLayoutOp(mlir::Operation *op,
       return op->emitOpError(
           "Input and output memref memory spaces must be the same");
     }
+
+    bool sameRank = inputTy.getRank() == outputTy.getRank();
+    if (checkMemrefRank && !sameRank) {
+      return op->emitOpError("Input and output memref ranks must be the same");
+    }
+
+    bool inputGridShardForm = inputTy.getShape().size() % 2 == 0;
+    if (checkMemrefGridShardForm && !inputGridShardForm) {
+      return op->emitOpError(
+          "Input memref must be in grid-shard form, i.e. have even rank, grid "
+          "shape followed by shard shape of equal rank, e.g. GxGxSxS");
+    }
+
+    bool outputGridShardForm = outputTy.getShape().size() % 2 == 0;
+    if (checkMemrefGridShardForm && !outputGridShardForm) {
+      return op->emitOpError(
+          "Output memref must be in grid-shard form, i.e. have even rank, grid "
+          "shape followed by shard shape of equal rank, e.g. GxGxSxS");
+    }
+
+    llvm::ArrayRef<int64_t> inputGridShape =
+        inputTy.getShape().take_front(inputTy.getShape().size() / 2);
+    llvm::ArrayRef<int64_t> outputGridShape =
+        outputTy.getShape().take_front(outputTy.getShape().size() / 2);
+    if (checkMemrefGridShape && inputGridShape != outputGridShape) {
+      return op->emitOpError(
+          "Input and output memref grid shapes must be the same");
+    }
+
     return mlir::success();
   }
 
@@ -1500,8 +1531,8 @@ static ::mlir::LogicalResult verifyLayoutOp(mlir::Operation *op,
 // ToLayoutOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::verify() {
   return verifyLayoutOp(*this, getInput().getType(), getOutput().getType(),
-                        true /*allowFormatChange*/,
-                        true /*allowMemorySpaceChange*/);
+                        /*allowFormatChange*/ true,
+                        /*allowMemorySpaceChange*/ true);
 }
 
 // ToLayoutOp utility methods
@@ -1595,8 +1626,11 @@ void mlir::tt::ttir::StreamLayoutOp::getAsmResultNames(
 // StreamLayoutOp verification
 mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
   return verifyLayoutOp(*this, getInput().getType(), getStorage().getType(),
-                        false /*allowFormatChange*/,
-                        false /*allowMemorySpaceChange*/);
+                        /*allowFormatChange*/ false,
+                        /*allowMemorySpaceChange*/ false,
+                        /*checkMemrefRank*/ true,
+                        /*checkMemrefGridShapeForm*/ true,
+                        /*checkMemrefGridShape*/ true);
 }
 
 mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
@@ -1621,7 +1655,7 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
   ::llvm::SmallVector<mlir::Value> invocationStack;
   Value result = rewriter.create<::mlir::tt::ttir::StreamLayoutOp>(
       getLoc(), *getBufferType(getResult(), options, invocationStack),
-      *maybeInput, *maybeStorage, Value());
+      *maybeInput, *maybeStorage);
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, result);
   return success();
 }
@@ -1633,8 +1667,8 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
 // ViewLayoutOp verification
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   return verifyLayoutOp(*this, getInput().getType(), getResult().getType(),
-                        false /*allowFormatChange*/,
-                        false /*allowMemorySpaceChange*/);
+                        /*allowFormatChange*/ false,
+                        /*allowMemorySpaceChange*/ false);
 }
 
 void mlir::tt::ttir::ViewLayoutOp::getAsmResultNames(

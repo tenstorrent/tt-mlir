@@ -176,7 +176,7 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
     let summary = "Stream Layout op.";
     let description = [{
       StreamLayout operation, similar to the ToLayout operation, but with the difference that this op is not
-      eagerly evaluated and is instead used as a means for defining a stream. The primary usecases include,
+      eagerly evaluated and is instead used as a means for defining a stream. The primary use cases include,
       to enable streaming a large tensor out of dram via a small L1 buffer and also as a means for forming
       reduce or gather multicast operations. A stream definition includes:
 
@@ -189,15 +189,14 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
       - It is not capable of changing the data type nor the memory space of the tensor.
 
       ```llvm
-      %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
-      %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%arg0, %alloc_0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3)
+      %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
+      %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3), stream>, #l1_>
       ```
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                         AnyRankedTensorOrMemRef:$storage,
-                         Optional<AnyNon0RankedMemRef>:$dmaList);
+                         AnyRankedTensorOrMemRef:$storage);
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let extraClassDeclaration = [{

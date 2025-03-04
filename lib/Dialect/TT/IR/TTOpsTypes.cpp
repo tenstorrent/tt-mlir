@@ -822,7 +822,7 @@ MetalLayoutAttr::projectOnto(mlir::AffineMap linearMap,
 mlir::MemRefType MetalLayoutAttr::getBufferType() const {
   SmallVector<int64_t> fullMemrefShape;
   auto gridShape = getGrid().getShape();
-  auto shardShape = getShardShape(true /*convertTileToScalar*/);
+  auto shardShape = getShardShape(/*convertTileToScalar*/ true);
   fullMemrefShape.append(gridShape.begin(), gridShape.end());
   fullMemrefShape.append(shardShape.begin(), shardShape.end());
   return buildMemRef<MemorySpace, MemorySpaceAttr>(

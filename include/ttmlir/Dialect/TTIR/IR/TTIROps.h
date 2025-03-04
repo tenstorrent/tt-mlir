@@ -38,12 +38,12 @@ inline void getDpsEffects(
       continue;
     }
     if (op.isDpsInput(&operand)) {
-      effects.emplace_back(MemoryEffects::Read::get(), &operand, 0 /*stage*/,
-                           true /*effectOnFullRegion*/,
+      effects.emplace_back(MemoryEffects::Read::get(), &operand, /*stage*/ 0,
+                           /*effectOnFullRegion*/ true,
                            SideEffects::DefaultResource::get());
     } else {
-      effects.emplace_back(MemoryEffects::Write::get(), &operand, 0 /*stage*/,
-                           true /*effectOnFullRegion*/,
+      effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage*/ 0,
+                           /*effectOnFullRegion*/ true,
                            SideEffects::DefaultResource::get());
     }
   }
