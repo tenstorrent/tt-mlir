@@ -1262,7 +1262,16 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
 
-  return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  auto tileShape = getTensorValueTileShape(op.getResult());
+  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
+
+  return ::tt::target::ttnn::CreateReshapeOp(
+      *cache.fbb, in, out, shape,
+      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
+                                              tileShape, coreRangeSet)
+                   : 0);
 }
 
 template <typename RepeatOp>

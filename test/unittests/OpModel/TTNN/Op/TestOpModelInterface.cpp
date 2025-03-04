@@ -271,7 +271,7 @@ TEST_F(OpModelBase, reshapeOp) {
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
       builder.getI64IntegerAttr(64 * 4), builder.getI64IntegerAttr(1024 / 4)}));
 
-  // test mean Op interface
+  // test reshape Op interface
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
@@ -285,6 +285,39 @@ TEST_F(OpModelBase, reshapeOp) {
   }
 
   auto runtimeExp = getOpRuntime(reshape.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, transposeOp) {
+  // create TransposeOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};
+  llvm::SmallVector<int64_t> tensorShapeO = {1024, 64};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  auto transpose = builder.create<TransposeOp>(builder.getUnknownLoc(),
+                                               output.getType(), input, 0, 1);
+  transpose->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  // test transpose Op interface
+  auto constraintsExp = getOpConstraints(transpose.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 8192);
+    EXPECT_EQ(peak_size, 2048);
+    EXPECT_EQ(output_size, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(transpose.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

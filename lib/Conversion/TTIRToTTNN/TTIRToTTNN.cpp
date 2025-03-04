@@ -671,7 +671,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getShape());
+        adaptor.getInput(), adaptor.getShape(), /* memory_config */ nullptr);
     return success();
   }
 };
@@ -731,7 +731,7 @@ public:
     // Replace the SqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
 
     return success();
   }
@@ -854,7 +854,7 @@ public:
     // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
 
     return success();
   }

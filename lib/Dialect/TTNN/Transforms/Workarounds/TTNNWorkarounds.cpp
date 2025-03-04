@@ -386,7 +386,8 @@ public:
 
       // Create a new reshape op.
       ttnn::ReshapeOp preReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr);
+          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
+          /* memory_config */ nullptr);
 
       // Determine new dimension since entire tensor shape got shifted.
       dimension = dimension + requiredOnesInput;
@@ -424,9 +425,9 @@ public:
           loc, Type(reshapedOutputType), reduceScatterOp.getResult(),
           deviceValue, dimension, clusterAxis);
 
-      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(op, Type(outputType),
-                                                   allGatherOp.getResult(),
-                                                   reshapedOutputShapeAttr);
+      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+          op, Type(outputType), allGatherOp.getResult(),
+          reshapedOutputShapeAttr, /* memory_config */ nullptr);
     } else {
       // TODO(wooseoklee): Once ttnn supports all_reduce op
       // (https://github.com/tenstorrent/tt-metal/issues/13835), we can convert
