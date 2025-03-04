@@ -133,6 +133,9 @@ def wait_for_execution_to_finish(timeout):
                 "isDone"
             ):
                 return response.json()
+            else:
+                # Print out Logs in the Interim
+                print(response.json())
         except requests.RequestException as e:
             print(f"Request failed: {e}")
             raise Exception("Status check request failed")
