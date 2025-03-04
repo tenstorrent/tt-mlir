@@ -114,7 +114,7 @@ createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
   for (unsigned i = 0; i < shardRank - 1; ++i) {
     shardShape[0] *= layout->memory_desc()->shape()->Get(i);
   }
-  ShardSpec shardSpec(coreRangeSet, shardShape);
+  ::tt::tt_metal::ShardSpec shardSpec(coreRangeSet, shardShape);
   std::array<uint32_t, 2> pageShape = {static_cast<uint32_t>(tile_shape->y()),
                                        shardShape[1]};
 
@@ -135,25 +135,26 @@ createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
       innerDim / pageShape[1],
   };
 
-  ShardSpecBuffer shardSpecBuffer(shardSpec, pageShape, tensorShape);
+  ::tt::tt_metal::ShardSpecBuffer shardSpecBuffer(shardSpec, pageShape,
+                                                  tensorShape);
   assert(memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM ||
          memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceL1);
-  BufferType bufferType =
+  ::tt::tt_metal::BufferType bufferType =
       memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM
-          ? BufferType::DRAM
-          : BufferType::L1;
+          ? ::tt::tt_metal::BufferType::DRAM
+          : ::tt::tt_metal::BufferType::L1;
 
   tt::target::DataType dataType = memoryDesc->data_type();
   uint64_t itemSize = ::tt::runtime::utils::dataTypeElementSize(dataType);
   uint64_t pageSize = pageShape[0] * pageShape[1] * itemSize;
   uint64_t size = tensorShape[0] * tensorShape[1] * pageSize;
-  auto shardedBufferConfig =
-      ShardedBufferConfig{.device = device,
-                          .size = size,
-                          .page_size = pageSize,
-                          .buffer_type = bufferType,
-                          .buffer_layout = TensorMemoryLayout::BLOCK_SHARDED,
-                          .shard_parameters = shardSpecBuffer};
+  auto shardedBufferConfig = ::tt::tt_metal::ShardedBufferConfig{
+      .device = device,
+      .size = size,
+      .page_size = pageSize,
+      .buffer_type = bufferType,
+      .buffer_layout = ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
+      .shard_parameters = shardSpecBuffer};
 
   assert(tensorRef->address());
   std::shared_ptr<::tt::tt_metal::Buffer> buffer =

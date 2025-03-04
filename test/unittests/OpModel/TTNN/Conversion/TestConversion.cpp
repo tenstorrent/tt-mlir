@@ -295,8 +295,9 @@ TEST_P(ShardSpecFixture, ShardSpec) {
   // side, we are setting them to default values.
   // Purpose of testing them is to update the test
   // if the compiler side changes.
-  EXPECT_EQ(shardSpec->orientation, ShardOrientation::ROW_MAJOR);
-  EXPECT_EQ(shardSpec->mode, ShardMode::PHYSICAL);
+  EXPECT_EQ(shardSpec->orientation,
+            ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
+  EXPECT_EQ(shardSpec->mode, ::tt::tt_metal::ShardMode::PHYSICAL);
   EXPECT_EQ(shardSpec->physical_shard_shape.has_value(), false);
 }
 

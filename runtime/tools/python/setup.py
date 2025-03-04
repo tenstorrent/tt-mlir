@@ -194,6 +194,13 @@ if enable_runtime:
         dirs_exist_ok=True,
     )
 
+    # copy test kernels (some TTNN ops use)
+    shutil.copytree(
+        f"{ttmetalhome}/tests/tt_metal/tt_metal/test_kernels",
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/tests/tt_metal/tt_metal/test_kernels",
+        dirs_exist_ok=True,
+    )
+
     import os
 
     def package_files(directory):
