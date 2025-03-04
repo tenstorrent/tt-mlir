@@ -380,11 +380,11 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
-// HostEmptyOp
+// ConstructTensorOp
 //===----------------------------------------------------------------------===//
 
-// HostEmptyOp verification
-::mlir::LogicalResult mlir::tt::ttnn::HostEmptyOp::verify() {
+// ConstructTensorOp verification
+::mlir::LogicalResult mlir::tt::ttnn::ConstructTensorOp::verify() {
   // Check that the attributes of the op match the attributes of the output
   // tensor type.
   //

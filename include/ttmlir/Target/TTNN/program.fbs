@@ -82,7 +82,7 @@ table ZerosOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table HostEmptyOp {
+table ConstructTensorOp {
   shape: [int64];
   dtype: DataType;
   layout: TensorLayout;
@@ -460,8 +460,8 @@ union OpType {
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
+  ConstructTensorOp,
   ZerosOp,
-  HostEmptyOp,
   OnesOp,
   FullOp,
   EltwiseOp,

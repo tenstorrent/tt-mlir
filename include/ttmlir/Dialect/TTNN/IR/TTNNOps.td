@@ -1314,14 +1314,15 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let hasVerifier = 1;
 }
 
-def TTNN_HostEmptyOp : TTNN_Op<"host_empty"> {
-    let summary = "Host empty op.";
+def TTNN_ConstructTensorOp : TTNN_Op<"host_empty"> {
+    let summary = "Construct empty tensor on host op.";
     let description = [{
-      Tensor empty operation for on host
+      Invoke tensor ctor to create an empty tensor on host.
     }];
 
     let arguments = (ins TTNN_ShapeAttr:$shape,
-                         TT_DataTypeAttr:$dtype,                        TTNN_LayoutAttr:$layout);
+                         TT_DataTypeAttr:$dtype,
+                         TTNN_LayoutAttr:$layout);
 
     let results = (outs AnyRankedTensor:$result);
 

@@ -67,7 +67,7 @@ public:
     if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
       // Replace op
       //
-      rewriter.replaceOpWithNewOp<ttnn::HostEmptyOp>(
+      rewriter.replaceOpWithNewOp<ttnn::ConstructTensor>(
           op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
           dTypeAttr, tensorLayoutAttr);
       // Otherwise, we use regular empty op, with device-specific fields.
