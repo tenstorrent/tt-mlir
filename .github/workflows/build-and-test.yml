@@ -671,7 +671,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: ON, name: "perf"},
+          {runs-on: n150, enable_perf: ON, enable_runtime_debug: ON, name: "explorer"},
         ]
 
     name: Build and test tt-explorer
