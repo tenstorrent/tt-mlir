@@ -659,8 +659,8 @@ createOp(FlatbufferObjectCache &cache, LinearOp op) {
                   ? cache.at<::tt::target::ttnn::TensorRef>(
                         getOperandThroughDPSOps(op.getBias()))
                   : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
-  auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getOutput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
   return ::tt::target::ttnn::CreateLinearOp(
       *cache.fbb, a, b, bias, output, op.getTransposeA(), op.getTransposeB());
 }
@@ -672,8 +672,8 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
       getOperandThroughDPSOps(op.getA()));
   auto b = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getB()));
-  auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getOutput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
   return ::tt::target::ttnn::CreateMatmulOp(
       *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
 }
@@ -683,11 +683,12 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
 createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  auto dpsOutput = getOperandThroughDPSOps(op.getResult());
-  auto output = cache.at<::tt::target::ttnn::TensorRef>(dpsOutput);
+  auto outputType = op.getResult();
+  auto output = cache.getOrCreate(outputType, tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
 
-  auto tileShape = getTensorValueTileShape(dpsOutput);
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, dpsOutput);
+  auto tileShape = getTensorValueTileShape(outputType);
+  auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   auto memoryConfig =
       op.getMemoryConfig()
           ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
@@ -708,8 +709,8 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
                   ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
                   : cache.at<::tt::target::ttnn::TensorRef>(
                         getOperandThroughDPSOps(op.getBias()));
-  auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
 
   auto device = getOperandThroughDPSOps(op.getDevice());
 
@@ -746,8 +747,8 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
                  ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
                  : cache.at<::tt::target::ttnn::TensorRef>(
                        getOperandThroughDPSOps(op.getBias()));
-  auto output = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
 
   auto device = getOperandThroughDPSOps(op.getDevice());
 
@@ -823,6 +824,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Replicate;
   } else if (shardType == mlir::tt::MeshShardType::Devices) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Devices;
+  } else if (shardType == mlir::tt::MeshShardType::Manual) {
+    meshShardType = ::tt::target::ttnn::MeshShardType::Manual;
   } else {
     llvm_unreachable("unhandled mesh_shard type");
   }
@@ -1190,15 +1193,16 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
         getOperandThroughDPSOps(input)));
   }
 
-  auto dpsOutput = getOperandThroughDPSOps(op.getResult());
-  auto out = cache.at<::tt::target::ttnn::TensorRef>(dpsOutput);
+  auto outputType = op.getResult();
+  auto out = cache.getOrCreate(outputType, tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
   int32_t dim = op.getDim();
 
   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
 
-  auto tileShape = getTensorValueTileShape(dpsOutput);
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, dpsOutput);
+  auto tileShape = getTensorValueTileShape(outputType);
+  auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   return ::tt::target::ttnn::CreateConcatOpDirect(
       *cache.fbb, &ins, out, dim,
       memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
@@ -1212,8 +1216,8 @@ createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto in1 = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getWeight()));
-  auto out = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
   return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, out);
 }
 
@@ -1231,11 +1235,12 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
 
-  auto dpsOutput = getOperandThroughDPSOps(op.getResult());
-  auto out = cache.at<::tt::target::ttnn::TensorRef>(dpsOutput);
+  auto outputType = op.getResult();
+  auto out = cache.getOrCreate(outputType, tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
 
-  auto tileShape = getTensorValueTileShape(dpsOutput);
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, dpsOutput);
+  auto tileShape = getTensorValueTileShape(outputType);
+  auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   return ::tt::target::ttnn::CreateEmbeddingBackwardOp(
       *cache.fbb, in0, in1, in2,
       dtype.has_value()
@@ -1257,7 +1262,16 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
 
-  return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  auto tileShape = getTensorValueTileShape(op.getResult());
+  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
+
+  return ::tt::target::ttnn::CreateReshapeOp(
+      *cache.fbb, in, out, shape,
+      memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
+                                              tileShape, coreRangeSet)
+                   : 0);
 }
 
 template <typename RepeatOp>
@@ -1299,8 +1313,8 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  auto out = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
   auto begins =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int64_t>(cache, op.getBegins());
   auto ends =
@@ -1316,8 +1330,8 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
 createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  auto out = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedSize);
 
   auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateMaxPool2dOp(
@@ -1769,7 +1783,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
   // Always get debug info for top-level module.
-  auto mlir = toDebugInfo(fbb, "ttnn", module);
+  auto mlir = toDebugInfo(fbb, "ttnn", rootModule);
 
   std::string cpp;
   llvm::raw_string_ostream os(cpp);

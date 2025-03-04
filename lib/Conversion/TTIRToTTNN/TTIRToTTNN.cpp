@@ -399,7 +399,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight(), adaptor.getOutput());
+        adaptor.getInput(), adaptor.getWeight());
 
     return success();
   }
@@ -455,7 +455,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), reshapedGrad, dTypeAttr,
-        memoryConfigAttr, adaptor.getOutput());
+        memoryConfigAttr);
     return success();
   }
 };
@@ -471,7 +471,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::MorehCumSumOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDim(), adaptor.getOutput(), nullptr);
+        adaptor.getInput(), adaptor.getDim(), nullptr);
     return success();
   }
 };
@@ -654,7 +654,7 @@ public:
     }
     rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInputs(), adaptor.getOutput(), dim,
+        adaptor.getInputs(), dim,
         /* memory_config */ nullptr);
     return success();
   }
@@ -671,7 +671,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getShape());
+        adaptor.getInput(), adaptor.getShape(), /* memory_config */ nullptr);
     return success();
   }
 };
@@ -687,8 +687,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::SliceOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getBegins(),
-        adaptor.getEnds(), adaptor.getStep());
+        adaptor.getInput(), adaptor.getBegins(), adaptor.getEnds(),
+        adaptor.getStep());
     return success();
   }
 };
@@ -731,7 +731,7 @@ public:
     // Replace the SqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
 
     return success();
   }
@@ -854,7 +854,7 @@ public:
     // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
 
     return success();
   }
@@ -932,8 +932,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getBias(), adaptor.getOutput(),
-        adaptor.getTransposeA(), adaptor.getTransposeB());
+        adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
+        adaptor.getTransposeB());
     return success();
   }
 };
@@ -950,8 +950,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getOutput(), adaptor.getTransposeA(),
-        adaptor.getTransposeB());
+        adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB());
     return success();
   }
 };
@@ -971,7 +970,7 @@ public:
 
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    auto outputTy = op.getResult().getType();
 
     auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
     auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
@@ -985,18 +984,18 @@ public:
 
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto paddingAttr =
         attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
     if (auto error = paddingAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[1] ||
-        paddingArrayRef[2] != paddingArrayRef[3]) {
+    if (paddingArrayRef[0] != paddingArrayRef[2] ||
+        paddingArrayRef[1] != paddingArrayRef[3]) {
       return rewriter.notifyMatchFailure(
           op,
           "TTNN only supports padding height/width attributes. Thus, "
@@ -1011,10 +1010,14 @@ public:
     auto dilationAttr =
         attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
     if (auto error = dilationAttr.takeError()) {
-      return LogicalResult::failure();
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
+        rewriter);
 
     // Convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C)
@@ -1028,12 +1031,11 @@ public:
                                            outputTy.getElementType(),
                                            outputTy.getEncoding());
 
-    ttnn::Conv2dOp newConv = ttmlir::utils::createDPSOp<ttnn::Conv2dOp>(
-        rewriter, op.getLoc(), outputTy, adaptor.getInput(),
-        adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
-        outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
-        kernelSizeAttr, *strideAttr, reducedPaddingAttr, *dilationAttr,
-        groupsAttr, nullptr);
+    ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
+        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
+        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
+        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
+        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(newConv, outputShape, rewriter);
@@ -1091,7 +1093,7 @@ public:
 
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    auto outputTy = op.getResult().getType();
 
     auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
     auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
@@ -1151,21 +1153,12 @@ public:
     outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
         outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
-    // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
-    // attribute determination
-    auto convDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
-        adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
-        outputTy.getElementType());
-
-    // Must set the type to the output type to maintain the layout attributes
-    convDPSOutput.getResult().setType(outputTy);
-
     ttnn::ConvTranspose2dOp new_conv = rewriter.create<ttnn::ConvTranspose2dOp>(
         op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
-        adaptor.getBias(), convDPSOutput, device, inChannelsAttr,
-        outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
-        kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
-        *dilationAttr, groupsAttr);
+        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
+        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
+        *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
+        groupsAttr);
 
     // Restore the normal shape (N x H x W x C)
     Value output =
@@ -1239,8 +1232,7 @@ public:
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
         rewriter);
 
-    auto outputType =
-        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    auto outputType = op.getResult().getType();
     llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
 
     llvm::SmallVector<int64_t> flattenedOutputShape{
@@ -1250,8 +1242,9 @@ public:
                                              outputType.getElementType(),
                                              outputType.getEncoding());
 
-    auto newPool = ttmlir::utils::createDPSOp<ttnn::MaxPool2dOp>(
-        rewriter, op.getLoc(), outputType, flattenedInput, device, batchSize,
+    auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
+        op.getLoc(), this->getTypeConverter()->convertType(outputType),
+        flattenedInput, device, batchSize,
         static_cast<int32_t>(inputShape[inputShape.size() - 3]),
         static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
         adaptor.getKernelHeight(), adaptor.getKernelWidth(),

@@ -22,7 +22,11 @@ if (TTMLIR_ENABLE_OPMODEL)
 
     # Link to tt-metal libs and include directories
     target_include_directories(${LIB_NAME} PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-    target_link_libraries(${LIB_NAME} PUBLIC TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
+    set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY)
+    if (TT_RUNTIME_ENABLE_PERF_TRACE)
+        list(APPEND TTNN_LIBS TRACY_LIBRARY)
+    endif()
+    target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS})
     target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
 else()
     # link stubs implementation when op model library is disabled

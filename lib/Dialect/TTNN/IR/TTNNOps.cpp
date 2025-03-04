@@ -57,12 +57,12 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
   mlir::RankedTensorType inputType = getInput().getType();
   mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getOutput().getType();
+  mlir::RankedTensorType outputType = getResult().getType();
   std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
 
-  if (inputType.getRank() < 3) {
+  if (inputType.getRank() != 4) {
     return emitOpError("Input must be a 4D tensor");
   }
 
@@ -84,167 +84,6 @@ namespace mlir::tt::ttnn {
     }
   }
 
-  uint32_t inChannels = getInChannels();
-  if (inChannels != inputType.getDimSize(inputType.getRank() - 1)) {
-    return emitOpError(
-        "Input channels attribute must match the last dimension of the input "
-        "tensor, got: " +
-        std::to_string(inChannels) + " and " +
-        std::to_string(inputType.getDimSize(inputType.getRank() - 1)));
-  }
-
-  uint32_t outChannels = getOutChannels();
-  if (outChannels != outputType.getDimSize(outputType.getRank() - 1)) {
-    return emitOpError(
-        "Output channels attribute must match the last dimension of the output "
-        "tensor, got: " +
-        std::to_string(outChannels) + " and " +
-        std::to_string(outputType.getDimSize(outputType.getRank() - 1)));
-  }
-
-  uint32_t batchSize = getBatchSize();
-  if (batchSize != inputType.getDimSize(0)) {
-    return emitOpError("Batch size attribute must match the first dimension of "
-                       "the input tensor, got: " +
-                       std::to_string(batchSize) + " and " +
-                       std::to_string(inputType.getDimSize(0)));
-  }
-  if (batchSize != outputType.getDimSize(0)) {
-    return emitOpError("Batch size attribute must match the first dimension of "
-                       "the output tensor, got: " +
-                       std::to_string(batchSize) + " and " +
-                       std::to_string(outputType.getDimSize(0)));
-  }
-
-  uint32_t inputHeight = getInputHeight();
-  if (inputHeight != inputType.getDimSize(inputType.getRank() - 3)) {
-    return emitOpError(
-        "Input height attribute must match the second dimension of the input "
-        "tensor, got: " +
-        std::to_string(inputHeight) + " and " +
-        std::to_string(inputType.getDimSize(inputType.getRank() - 3)));
-  }
-
-  uint32_t inputWidth = getInputWidth();
-  if (inputWidth != inputType.getDimSize(inputType.getRank() - 2)) {
-    return emitOpError(
-        "Input width attribute must match the third dimension of the input "
-        "tensor, got: " +
-        std::to_string(inputWidth) + " and " +
-        std::to_string(inputType.getDimSize(inputType.getRank() - 2)));
-  }
-
-  llvm::ArrayRef<int32_t> stride = getStride();
-  if (!std::all_of(stride.begin(), stride.end(),
-                   [](int32_t value) { return value >= 1; })) {
-    return emitOpError(
-        "Stride attribute must be greater than or equal to 1, got: " +
-        std::to_string(stride[0]) + ", " + std::to_string(stride[1]));
-  }
-
-  llvm::ArrayRef<int32_t> padding = getPadding();
-  if (!std::all_of(padding.begin(), padding.end(),
-                   [](int32_t value) { return value >= 0; })) {
-    return emitOpError(
-        "Padding attribute must be greater than or equal to 0, got: " +
-        std::to_string(padding[0]) + ", " + std::to_string(padding[1]));
-  }
-
-  llvm::ArrayRef<int32_t> dilation = getDilation();
-  if (!std::all_of(dilation.begin(), dilation.end(),
-                   [](int32_t value) { return value >= 1; })) {
-    return emitOpError(
-        "Dilation attribute must be greater than or equal to 1, got: " +
-        std::to_string(dilation[0]) + ", " + std::to_string(dilation[1]));
-  }
-
-  llvm::ArrayRef<int32_t> kernelSize = getKernelSize();
-  if (kernelSize[0] != weightType.getDimSize(2) ||
-      kernelSize[1] != weightType.getDimSize(3)) {
-    return emitOpError("Kernel size attribute must match the last two "
-                       "dimensions of the weight tensor, got: " +
-                       std::to_string(kernelSize[0]) + ", " +
-                       std::to_string(kernelSize[1]) + " and " +
-                       std::to_string(weightType.getDimSize(2)) + ", " +
-                       std::to_string(weightType.getDimSize(3)));
-  }
-
-  llvm::SmallVector<uint32_t, 2> paddedInputSize = {
-      inputHeight + 2 * padding[0], inputWidth + 2 * padding[1]};
-  llvm::SmallVector<uint32_t, 2> effectiveKernelSize = {
-      static_cast<uint32_t>(kernelSize[0] +
-                            (kernelSize[0] - 1) * (dilation[0] - 1)),
-      static_cast<uint32_t>(kernelSize[1] +
-                            (kernelSize[1] - 1) * (dilation[1] - 1))};
-  if (paddedInputSize[0] < effectiveKernelSize[0] ||
-      paddedInputSize[1] < effectiveKernelSize[1]) {
-    return emitOpError(
-        "Calculated padded input size per channel: (" +
-        std::to_string(paddedInputSize[0]) + " x " +
-        std::to_string(paddedInputSize[1]) + "). Kernel size: (" +
-        std::to_string(effectiveKernelSize[0]) + " x " +
-        std::to_string(effectiveKernelSize[1]) +
-        "). Kernel size can't be greater than actual input size");
-  }
-
-  uint32_t groups = getGroups();
-  if (inChannels % groups != 0) {
-    return emitOpError() << "Number of input channels from input tensor must "
-                            "be divisible by the number of groups. "
-                         << "Got " << inChannels << " input channels and "
-                         << groups << " groups.";
-  }
-
-  if (outChannels % groups != 0) {
-    return emitOpError() << "Number of output channels from output tensor must "
-                            "be divisible by the number of groups. "
-                         << "Got " << outChannels << " output channels and "
-                         << groups << " groups.";
-  }
-
-  llvm::ArrayRef<std::int64_t> kernelShape = weightType.getShape();
-  if (outChannels != kernelShape[0]) {
-    return emitOpError() << "Number of output channels from output tensor must "
-                            "match the first dimension of the weight tensor. "
-                         << "Got " << outChannels << " output channels and "
-                         << kernelShape[0] << " in the weight tensor.";
-  }
-
-  if (inChannels / groups != kernelShape[1]) {
-    return emitOpError() << "Number of input channels per group must match "
-                            "the second dimension of the weight tensor. "
-                         << "Got " << (inChannels / groups)
-                         << " input channels per group and " << kernelShape[1]
-                         << " in the weight tensor.";
-  }
-
-  if (bias) {
-    if (bias->getDimSize(bias->getRank() - 1) != outChannels) {
-      return emitOpError() << "Mismatch in bias tensor dimensions. "
-                           << "Bias tensor has "
-                           << bias->getDimSize(bias->getRank() - 1)
-                           << " channels, "
-                           << "but the output tensor has " << outChannels
-                           << " channels.";
-    }
-  }
-
-  int32_t calculatedHOut =
-      (inputHeight + 2 * padding[0] - dilation[0] * (kernelSize[0] - 1) - 1) /
-          stride[0] +
-      1;
-  int32_t calculatedWOut =
-      (inputWidth + 2 * padding[1] - dilation[1] * (kernelSize[1] - 1) - 1) /
-          stride[1] +
-      1;
-  if (calculatedHOut < 0 || calculatedWOut < 0) {
-    return emitOpError() << "Given input size per channel: (" << inputHeight
-                         << " x " << inputWidth << "). "
-                         << "Calculated output size per channel: ("
-                         << calculatedHOut << " x " << calculatedWOut << "). "
-                         << "Output size is too small";
-  }
-
   return success();
 }
 
@@ -256,7 +95,7 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::ConvTranspose2dOp::verify() {
   mlir::RankedTensorType inputType = getInput().getType();
   mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getOutput().getType();
+  mlir::RankedTensorType outputType = getResult().getType();
   std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
@@ -647,56 +486,54 @@ namespace mlir::tt::ttnn {
   auto shape = getShape();
   int64_t shapeSize = static_cast<int64_t>(shape.size());
 
-  // Check that the shape size matches the rank of the output tensor
-  if (shapeSize != static_cast<int64_t>(outputType.getRank())) {
-    return emitOpError("Shape attribute size must match output tensor rank");
-  }
-  // Check that the shape attribute is non-empty
+  // Check that the shape attribute is non-empty.
   if (shapeSize == 0) {
     return emitOpError("Shape attribute must be non-empty");
   }
 
-  // Cardinality of the input and output tensors must be the same
-  if (inputType.getNumElements() != outputType.getNumElements()) {
-    return emitOpError(
-        "Input and output tensors must have the same number of elements");
+  // Check that the shape size matches the rank of the output tensor.
+  if (shapeSize != static_cast<int64_t>(outputType.getRank())) {
+    return emitOpError() << "Shape attribute size " << shapeSize
+                         << " must match output tensor rank "
+                         << outputType.getRank();
   }
 
-  bool has_negative = false;
-  int64_t known_dim_product = 1;
+  // Cardinality of the input and output tensors must be the same.
+  if (inputType.getNumElements() != outputType.getNumElements()) {
+    return emitOpError() << "Input tensor number of elements "
+                         << inputType.getNumElements()
+                         << " and output tensor number of elements "
+                         << outputType.getNumElements() << " must be the same";
+  }
+
+  bool hasNegative = false;
   auto outputShape = outputType.getShape();
 
   // Check that all dimensions are positive except for at most one -1
   // Check that the non-negative dimensions match the output tensor shape
   // Calculate the product of the known dimensions
   for (int64_t i = 0; i < shapeSize; i++) {
-    int64_t dim_value = mlir::cast<IntegerAttr>(shape[i]).getInt();
+    int64_t dimValue = mlir::cast<IntegerAttr>(shape[i]).getInt();
 
-    if (dim_value == -1) {
-      if (has_negative) {
+    if (dimValue == -1) {
+      if (hasNegative) {
         return emitOpError("Shape attribute must have at most one -1 element");
       }
-      has_negative = true;
+      hasNegative = true;
     } else {
-      if (dim_value <= 0) {
+      if (dimValue <= 0) {
         return emitOpError(
             "All dimensions must be positive except the one with -1");
       }
 
       // Ensure that the non-negative dimensions match the output tensor shape
-      if (dim_value != outputShape[i]) {
-        return emitOpError("Shape attribute must match the output tensor shape "
-                           "for dimensions that are not -1");
+      if (dimValue != outputShape[i]) {
+        return emitOpError()
+               << "Shape attribute " << dimValue
+               << " must match the output tensor shape " << outputShape[i]
+               << " at index " << i << " for dimension that is not -1";
       }
-
-      known_dim_product *= dim_value;
     }
-  }
-
-  // If there's a -1, ensure that it can be inferred correctly
-  if (has_negative && inputType.getNumElements() % known_dim_product != 0) {
-    return emitOpError("Invalid shape: the dimensions do not multiply to the "
-                       "total number of elements in the tensor");
   }
 
   return success();
@@ -749,7 +586,7 @@ namespace mlir::tt::ttnn {
   ::mlir::ArrayAttr begins = getBeginsAttr();
   ::mlir::ArrayAttr ends = getEndsAttr();
   ::mlir::ArrayAttr stepAttr = getStepAttr();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // Verify that the input is at least 1D tensor
   if (inputType.getRank() < 1) {
@@ -936,7 +773,7 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType inputGradType = getInGradient().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // inputType checks:
   // 1. Last dimension must be divisible by TILE_WIDTH.
@@ -1034,13 +871,6 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
     // Currently TTNN backend only supports 2D shard shape
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
-    }
-    if (outputMemoryLayout.getValue() == TensorMemoryLayout::BlockSharded) {
-      // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
-      if (shardShape[0] % TILE_HEIGHT != 0 or shardShape[1] % TILE_WIDTH != 0) {
-        return emitOpError(
-            "Shard shape must divide tile shape (32, 32) evenly");
-      }
     }
   }
   return success();
@@ -1149,7 +979,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType inputBType = getB().getType();
   std::optional<::mlir::RankedTensorType> biasType =
       getBias() ? std::make_optional(getBias().getType()) : std::nullopt;
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
@@ -1298,7 +1128,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 ::mlir::LogicalResult mlir::tt::ttnn::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
