@@ -585,6 +585,15 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   return buf;
 }
 
+template <typename T>
+struct IsMLIRType {
+  static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
+                                std::is_convertible_v<T, mlir::Value>;
+};
+
+template <typename T>
+static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
+
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:
@@ -592,7 +601,7 @@ public:
 
   EmitCTTNNEmitter(TTNNOp op, OpAdaptor adaptor,
                    mlir::ConversionPatternRewriter &rewriter)
-      : op{op}, adaptor{adaptor}, rewriter{rewriter}, operands{} {}
+      : op{op}, adaptor{adaptor}, rewriter{rewriter} {}
 
   EmitCTTNNEmitter(const EmitCTTNNEmitter &) = delete;
   EmitCTTNNEmitter &operator=(const EmitCTTNNEmitter &) = delete;
@@ -625,7 +634,7 @@ public:
   template <typename TargetTy = void, typename SourceTy>
   mlir::Attribute emit(std::optional<SourceTy> attr) {
     if (!attr) {
-      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+      return emit(std::nullopt);
     }
 
     if constexpr (std::is_void_v<TargetTy>) {
@@ -660,7 +669,7 @@ public:
           std::next(op->getOperands().begin(), opOperand.getOperandNumber());
       if (Operation::operand_range(begin, std::next(begin, operands.size())) ==
           operands) {
-        auto index = opOperand.getOperandNumber();
+        unsigned index = opOperand.getOperandNumber();
         llvm::SmallVector<mlir::Value> values(
             adaptor.getOperands().begin() + index,
             adaptor.getOperands().begin() + index + operands.size());
@@ -692,7 +701,7 @@ public:
     if (auto convertedValue = EmitCTypeConverter<TargetTy>::convert(attr)) {
       return rewriter.getType<emitc::OpaqueAttr>(*convertedValue);
     }
-    return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    return emit(std::nullopt);
   }
 
   // Handles the case when source type is a non mlir::Attribute convertible type
@@ -704,9 +713,7 @@ public:
   // instantiation.
   template <typename SourceTy, typename TargetTy = std::remove_reference_t<
                                    std::remove_cv_t<SourceTy>>>
-  std::enable_if_t<!std::is_convertible_v<SourceTy, mlir::Attribute> &&
-                       !std::is_convertible_v<SourceTy, mlir::Value>,
-                   mlir::Attribute>
+  std::enable_if_t<!IsMLIRTypeV<SourceTy>, mlir::Attribute>
   emit(SourceTy &&attr) {
     auto result =
         EmitCTypeConverter<TargetTy>::convert(std::forward<SourceTy>(attr));

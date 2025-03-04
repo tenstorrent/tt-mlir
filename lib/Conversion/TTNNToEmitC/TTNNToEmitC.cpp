@@ -359,8 +359,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::EmbeddingOp> emitter(
         embeddingOp, adaptor, rewriter);
 
-    // TODO (azecevic): Potentially problematic. Has to model `EmbeddingsType`
-    // to be able to emit memory config.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
@@ -402,7 +400,6 @@ public:
   }
 };
 
-// TODO (azecevic): This is a reduction ops class pattern.
 // MeanOp conversion pattern
 //
 class MeanOpConversionPattern
@@ -478,9 +475,9 @@ public:
                                                                  rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-      emitter.emit(srcOp.getInput()),
-      emitter.emit<std::vector<int32_t>>(srcOp.getShape()),
-      emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<std::vector<int32_t>>(srcOp.getShape()),
+        emitter.emit(srcOp.getMemoryConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -565,7 +562,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRepeatDims()),
     };
-    srcOp->getNumOperands();
+
     emitter.replaceOp(*this, args);
 
     return success();
@@ -796,12 +793,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ToLayoutOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // TODO (azecevic): This is unbelievably bad design. There are two overloads
-    // with a tons of default valued paramaters, but they are all useless
-    // because every call will be ambiguous due to the fact that every parameter
-    // except the last one is the same (and the last one is pointer type, so
-    // even `nullptr` is not enough to disambiguate). This is a design flaw in
-    // the TTNN that needs to be fixed.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()), emitter.emit(srcOp.getLayout()),
         emitter.emit(srcOp.getDtype()), emitter.emit(srcOp.getMemoryConfig()),
@@ -890,7 +881,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::OnesOp> emitter(srcOp, adaptor,
                                                               rewriter);
 
-    // TODO (azecevic): Same as the `ZerosOp` conversion pattern.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getShape()),        emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),       emitter.emit(srcOp.getDevice()),
