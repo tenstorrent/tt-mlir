@@ -2766,10 +2766,10 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   for (auto output : getOutputs()) {
     Type operandType = output.getType();
     ArrayRef<int64_t> outputGridShape;
-    if (mlir::isa<RankedTensorType>(operandType)) {
-      RankedTensorType tensorType = mlir::cast<RankedTensorType>(operandType);
+    if (RankedTensorType tensorType =
+            mlir::dyn_cast<RankedTensorType>(operandType)) {
       if (!tensorType.getEncoding()) {
-        // Skip layout checks if the tensor type does not have a layout yet
+        // Skip layout checks if the tensor type does not have a layout yet.
         continue;
       }
       MetalLayoutAttr layout =
@@ -2803,16 +2803,16 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
     auto memrefArguments =
         region.getArguments().take_front(operandTypes.size());
     for (BlockArgument arg : memrefArguments) {
-      if (!mlir::isa<MemRefType>(arg.getType())) {
+      auto blockMemref = mlir::dyn_cast<MemRefType>(arg.getType());
+      if (!blockMemref) {
         return emitOpError("GenericOp region arguments must be of MemRefType");
       }
-      auto blockMemref = mlir::cast<MemRefType>(arg.getType());
 
       Type operandType = operandTypes[arg.getArgNumber()];
       Attribute expectedMemorySpace;
       ArrayRef<int64_t> expectedShardShape;
-      if (mlir::isa<RankedTensorType>(operandType)) {
-        RankedTensorType tensorType = mlir::cast<RankedTensorType>(operandType);
+      if (RankedTensorType tensorType =
+              mlir::dyn_cast<RankedTensorType>(operandType)) {
         if (!tensorType.getEncoding()) {
           // Skip layout checks if the tensor type does not have a layout yet
           continue;

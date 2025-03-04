@@ -19,14 +19,6 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"
-
-#define GET_ATTRDEF_CLASSES
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.h.inc"
-
-#define GET_OP_CLASSES
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h.inc"
-
 namespace mlir::tt::ttir {
 
 inline void getDpsEffects(
@@ -50,5 +42,13 @@ inline void getDpsEffects(
 }
 
 } // namespace mlir::tt::ttir
+
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.h.inc"
+
+#define GET_OP_CLASSES
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h.inc"
 
 #endif // TTMLIR_DIALECT_TTIR_IR_TTIROPS_H
