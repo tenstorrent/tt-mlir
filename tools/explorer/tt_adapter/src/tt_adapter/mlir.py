@@ -394,6 +394,7 @@ def parse_ttnn_ttnn_layout(attr):
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
     memory_layout = layout.tensor_memory_layout_as_int
+
     if memory_layout is not None:
         result.append(
             utils.make_editable_kv(
@@ -462,6 +463,7 @@ def parse_ttnn_ttnn_layout(attr):
             },
         )
     )
+
     return result
 
 
@@ -528,6 +530,7 @@ class OpHandler:
                         key="rank", value=str(output_tensor.type.rank)
                     ),
                 ]
+
             if hasattr(output_tensor.type, "encoding") and output_tensor.type.encoding:
                 if "ttnn_layout" in str(output_tensor.type.encoding):
                     output_attrs.extend(
@@ -549,15 +552,17 @@ class OpHandler:
             graph_builder.KeyValue(key="schedule", value=str(OpHandler.schedule))
         )
         OpHandler.schedule += 1
-
         return result
 
-    def make_graph_node(self):
+    def make_graph_node(self, extra_attrs=None):
+        attrs = self.get_attributes()
+        if extra_attrs is not None:
+            attrs.extend(extra_attrs)
         return graph_builder.GraphNode(
             id=self.id,
             label=str(self.op.name),
             namespace=self.get_namespace(),
-            attrs=self.get_attributes(),
+            attrs=attrs,
         )
 
     def make_constant_node(self, constant_name):
@@ -580,7 +585,7 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(module, perf_trace=None):
+def build_graph(module, perf_trace=None, memory_trace=None):
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id="tt-graph")
 
@@ -600,6 +605,26 @@ def build_graph(module, perf_trace=None):
                 loc_to_perf[loc] = 0
             loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
 
+    memory_data = {}
+    if memory_trace is not None:
+        for node in memory_trace:
+            loc = parse_loc_string(memory_trace[node]["loc"])
+            memory_data[loc] = {}
+            memory_data[loc]["dram"] = (
+                memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"]
+            )
+            memory_data[loc]["l1"] = (
+                memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"]
+            )
+            memory_data[loc]["l1_small"] = (
+                memory_trace[node]["l1_small"]["device_0"][
+                    "total_bytes_allocated_per_bank"
+                ]
+                / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"]
+            )
+
     # Process the module hierarchy recursively
     process_module(
         module,
@@ -609,6 +634,7 @@ def build_graph(module, perf_trace=None):
         output_connections,
         loc_to_perf,
         perf_node_data,
+        memory_data,
     )
 
     # Add performance data to the graph color overlay, if it exists
@@ -637,6 +663,7 @@ def process_module(
     output_connections,
     loc_to_perf,
     perf_node_data,
+    memory_data,
 ):
     """
     Process a module's operations.  Only works on top-level module, any nested modules won't have a body so they need to directly call process_operations instead.
@@ -675,6 +702,7 @@ def process_module(
         output_connections,
         loc_to_perf,
         perf_node_data,
+        memory_data,
     )
 
 
@@ -686,6 +714,7 @@ def process_operations(
     output_connections,
     loc_to_perf,
     perf_node_data,
+    memory_data,
 ):
     """
     Recursively process a list of operations, including handling nested modules.
@@ -714,6 +743,7 @@ def process_operations(
                 output_connections,
                 loc_to_perf,
                 perf_node_data,
+                memory_data,
             )
             continue
 
@@ -729,6 +759,7 @@ def process_operations(
                     output_connections,
                     loc_to_perf,
                     perf_node_data,
+                    memory_data,
                 )
 
         # Create graph node for this operation
@@ -741,8 +772,40 @@ def process_operations(
             perf_node_data[operation.id] = node_data_builder.NodeDataResult(
                 loc_to_perf[operation.named_location]
             )
+        extra_attrs = []
+        if memory_data and operation.named_location in memory_data:
+            extra_attrs.append(
+                utils.add_to_dataclass(
+                    graph_builder.KeyValue(
+                        key="dram_memory",
+                        value=str(memory_data[operation.named_location]["dram"]),
+                    ),
+                    "display_type",
+                    "memory",
+                )
+            )
+            extra_attrs.append(
+                utils.add_to_dataclass(
+                    graph_builder.KeyValue(
+                        key="l1_memory",
+                        value=str(memory_data[operation.named_location]["l1"]),
+                    ),
+                    "display_type",
+                    "memory",
+                )
+            )
+            extra_attrs.append(
+                utils.add_to_dataclass(
+                    graph_builder.KeyValue(
+                        key="l1_small_memory",
+                        value=str(memory_data[operation.named_location]["l1_small"]),
+                    ),
+                    "display_type",
+                    "memory",
+                )
+            )
         if not op.name == "func.func":
-            graph_node = operation.make_graph_node()
+            graph_node = operation.make_graph_node(extra_attrs)
 
             if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
                 append_later.append(graph_node)
