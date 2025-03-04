@@ -92,17 +92,20 @@ class TTKernelCompiler(ast.NodeVisitor):
         "tile_regs_wait": ttkernel.tile_regs_wait,
         "pack_tile": ttkernel.pack_tile,
         "copy_tile": ttkernel.copy_tile,
-        "add": ttkernel.add,
         "add_tiles": ttkernel.add_tiles,
         "get_compile_time_arg_val": ttkernel.get_compile_time_arg_val,
         "get_write_ptr": ttkernel.get_write_ptr,
         "get_read_ptr": ttkernel.get_read_ptr,
         "get_tile_size": ttkernel.get_tile_size,
+        "get_dataformat": ttkernel.get_dataformat,
         "get_noc_addr_from_bank_id": ttkernel.get_noc_addr_from_bank_id,
         "noc_async_read": ttkernel.noc_async_read,
+        "noc_async_read_tile": ttkernel.noc_async_read_tile,
         "noc_async_write": ttkernel.noc_async_write,
+        "noc_async_write_tile": ttkernel.noc_async_write_tile,
         "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
         "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
+        "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
     }
 
     def __init__(self, name, args):
@@ -299,6 +302,11 @@ class TTKernelCompiler(ast.NodeVisitor):
         sym_table = self.symbol_tables[-1]
         var_name = node.target.id
 
+        if hasattr(value, "type") and isinstance(value.type, MemRefType):
+            raise ValueError(
+                "Not allowed to AnnAssign to another AnnAssign'ed variable. Temporary fix is to just add 0 to the variable."
+            )
+
         if not var:
             var_type = value.type
             memref_type = MemRefType.get([1], var_type)
@@ -350,10 +358,13 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         # load variable if needed
         if isinstance(lhs.type, memref.MemRefType):
-            lhs = memref.LoadOp(lhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
+            lhs = memref.LoadOp(
+                lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
         if isinstance(rhs.type, memref.MemRefType):
-            rhs = memref.LoadOp(rhs, arith.ConstantOp(IndexType.get(self.ctx), 0))
-
+            rhs = memref.LoadOp(
+                rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
         match (node.op):
             case ast.Add():
                 return arith.addi(lhs, rhs)
@@ -425,7 +436,9 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Literals
     def visit_Constant(self, node):
-        if isinstance(node.value, int):
+        if isinstance(node.value, bool):
+            return arith.ConstantOp(IntegerType.get_signless(1, self.ctx), node.value)
+        elif isinstance(node.value, int):
             return arith.ConstantOp(IntegerType.get_signless(32, self.ctx), node.value)
         else:
             raise NotImplementedError(
@@ -447,7 +460,7 @@ def ttkernel_compile(kernel_type=None):
         def _wrapper(*args, **kwargs):
             m = ast.parse(inspect.getsource(f))
             b = TTKernelCompiler(f.__name__, args)
-            # print(ast.dump(m, indent=4) + "\n")
+            print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
             # Check if generated IR is valid
