@@ -80,6 +80,12 @@ createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
                              tensorGrid, memoryLayoutAttr, collapseDimsRef);
 }
 
+static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
+  auto meshShardOp = mlir::dyn_cast_if_present<ttir::MeshShardOp>(srcOp);
+  return meshShardOp &&
+         meshShardOp.getShardType() != mlir::tt::MeshShardType::Identity;
+}
+
 //===----------------------------------------------------------------------===//
 // To layout pass
 //===----------------------------------------------------------------------===//
@@ -380,7 +386,7 @@ public:
       // handle canonicalization of toLayout ops (#2102). Currently the
       // workaround pass cannot detect redundant toLayout ops as a result of
       // forcing the output layout and removing them.
-      if (mlir::isa<ttir::MeshShardOp>(op.getOperation())) {
+      if (shouldMeshShardOpForceSystemMemory(op.getOperation())) {
         modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
         continue;
       }
@@ -600,7 +606,7 @@ private:
 
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
     for (Operation *user : arg.getUsers()) {
-      if (mlir::isa<ttir::MeshShardOp>(user)) {
+      if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
       }
       // For the weight input of the conv2d op, it specifically needs to be on
@@ -619,7 +625,7 @@ private:
       if (!mlir::isa<RankedTensorType>(operand.getType())) {
         continue;
       }
-      if (operand.getDefiningOp<ttir::MeshShardOp>()) {
+      if (shouldMeshShardOpForceSystemMemory(operand.getDefiningOp())) {
         return true;
       }
     }
@@ -668,7 +674,7 @@ public:
 private:
   // Return op output should be on host if it's a result of a mesh shard op
   bool shouldForceSystemMemory(Value operandValue) const {
-    if (operandValue.getDefiningOp<ttir::MeshShardOp>()) {
+    if (shouldMeshShardOpForceSystemMemory(operandValue.getDefiningOp())) {
       return true;
     }
     return false;
