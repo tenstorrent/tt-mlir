@@ -1329,6 +1329,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                EltwiseUnaryOpConversionPattern<tt::ttnn::Expm1Op>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::TanOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::TanhOp>,
+               EltwiseUnaryOpConversionPattern<tt::ttnn::AtanOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::LogOp>>(typeConverter,
                                                                  ctx);
 
