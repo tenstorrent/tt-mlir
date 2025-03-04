@@ -489,7 +489,6 @@ public:
         tt::ttnn_to_emitc::utils::convertBoolAttr(rewriter,
                                                   srcOp.getUseMulticoreAttr()),
         tt::ttnn_to_emitc::utils::createStdNullopt(rewriter),
-        tt::ttnn_to_emitc::utils::createStdNullopt(rewriter),
     });
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
