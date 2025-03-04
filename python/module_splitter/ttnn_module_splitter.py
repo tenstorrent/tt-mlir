@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-from typing import List
-
 from mlir.ir import *
 from ttmlir.dialects import ttnn
 
@@ -24,11 +22,7 @@ class TTNNModuleSplitter(ModuleSplitter):
 
     @staticmethod
     def create_from_module_str(module_str: str) -> TTNNModuleSplitter:
-        module = parse_module_str(
-            module_str,
-            TTNNModuleSplitter._get_required_dialects(),
-        )
-        return TTNNModuleSplitter(module)
+        return TTNNModuleSplitter(TTNNModuleSplitter._parse_module_str(module_str))
 
     # ----- Private methods -----
 
@@ -37,16 +31,7 @@ class TTNNModuleSplitter(ModuleSplitter):
 
     # @override
     @staticmethod
-    def _get_required_dialects() -> List[Dialect]:
-        return [ttnn]
-
-
-if __name__ == "__main__":
-    # TODO find a convenient TTNN graph
-    ttnn_module_str = ""
-
-    splitter: TTNNModuleSplitter = TTNNModuleSplitter.create_from_module_str(
-        ttnn_module_str
-    )
-    print(splitter.get_sub_ops())
-    print(splitter.get_sub_modules())
+    def _parse_module_str(module_str: str) -> Module:
+        with Context() as ctx:
+            ttnn.register_dialect(ctx)
+            return parse_module_str(module_str, ctx)

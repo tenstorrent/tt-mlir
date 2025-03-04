@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-from typing import List
 
 from mlir.dialects import stablehlo
 from mlir.ir import *
@@ -24,11 +23,9 @@ class StableHLOModuleSplitter(ModuleSplitter):
 
     @staticmethod
     def create_from_module_str(module_str: str) -> StableHLOModuleSplitter:
-        module = parse_module_str(
-            module_str,
-            StableHLOModuleSplitter._get_required_dialects(),
+        return StableHLOModuleSplitter(
+            StableHLOModuleSplitter._parse_module_str(module_str)
         )
-        return StableHLOModuleSplitter(module)
 
     # ----- Private methods -----
 
@@ -37,24 +34,7 @@ class StableHLOModuleSplitter(ModuleSplitter):
 
     # @override
     @staticmethod
-    def _get_required_dialects() -> List[Dialect]:
-        return [stablehlo]
-
-
-if __name__ == "__main__":
-    shlo_module_str = """
-        module {
-        func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
-            %0 = stablehlo.broadcast_in_dim %arg0, dims = [0, 1] : (tensor<1x128xf32>) -> tensor<1x128xf32>
-            %1 = stablehlo.broadcast_in_dim %arg1, dims = [1] : (tensor<128xf32>) -> tensor<1x128xf32>
-            %2 = stablehlo.add %0, %1 : tensor<1x128xf32>
-            return %2 : tensor<1x128xf32>
-        }
-        }
-    """
-
-    splitter: StableHLOModuleSplitter = StableHLOModuleSplitter.create_from_module_str(
-        shlo_module_str
-    )
-    print(splitter.get_sub_ops())
-    print(splitter.get_sub_modules())
+    def _parse_module_str(module_str: str) -> Module:
+        with Context() as ctx:
+            stablehlo.register_dialect(ctx)
+            return parse_module_str(module_str, ctx)

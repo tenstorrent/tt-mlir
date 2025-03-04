@@ -90,9 +90,10 @@ declare_mlir_python_sources(TTMLIRPythonModuleSplitter.ModuleSplitter
   ROOT_DIR "${TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonModuleSplitter
   SOURCES
-    __init__.py
     module_splitter.py
     stablehlo_module_splitter.py
+    ttir_module_splitter.py
+    ttnn_module_splitter.py
     utils.py
 )
 

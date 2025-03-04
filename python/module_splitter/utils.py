@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import re
 from dataclasses import dataclass
 from typing import List
 
@@ -40,33 +41,25 @@ class OpWrapper:
     def __repr__(self) -> str:
         return str(self)
 
-    def as_module(self) -> Module:
-        """Returns self wrapped in a MLIR module."""
-        module_str = wrap_in_module_str(self._op, self._operands, self._result)
-        return parse_module_str(module_str)
+    def as_module_str(self) -> str:
+        """Returns self wrapped in a MLIR module str."""
+        return wrap_in_module_str(self._op, self._operands, self._result)
 
 
-def parse_module_str(
-    module_str: str, required_dialects: List[Dialect] = None
-) -> Module:
+def parse_module_str(module_str: str, ctx: Context) -> Module:
     """
     Parses `module_str` and returns MLIR module.
 
-    If any specific dialects are needed in order to be able to parse the `module_str`,
-    they can be provided using `required_dialects` parameter.
-
-    TODO not all dialects have `register_dialect` method, but stablehlo, ttir and ttnn
-    do. Check why and what to do with the ones that don't support it.
+    Context `ctx` must be provided which contains all registered dialects needed to
+    parse `module_str`.
     """
-    from mlir.dialects import stablehlo
 
-    with Context() as ctx:
-        stablehlo.register_dialect(ctx)  # TODO not like this
-        if required_dialects is not None:
-            for dialect in required_dialects:
-                dialect.register_dialect(ctx)
+    def preprocess_module_str(module_str: str) -> str:
+        """Preprocesses module string by removing `loc(...)` from it."""
+        loc_pattern = re.compile(r"\s*loc\([^)]*\)")
+        return re.sub(loc_pattern, "", module_str)
 
-        return Module.parse(module_str)
+    return Module.parse(preprocess_module_str(module_str), ctx)
 
 
 def wrap_in_module_str(op: OpWrapper, operands: List[Operand], result: Result) -> str:

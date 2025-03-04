@@ -4,10 +4,8 @@
 
 from __future__ import annotations
 
-from typing import List
-
 from mlir.ir import *
-from ttmlir.dialects import ttir
+from ttmlir.ir import *
 
 from .module_splitter import ModuleSplitter
 from .utils import parse_module_str
@@ -24,11 +22,7 @@ class TTIRModuleSplitter(ModuleSplitter):
 
     @staticmethod
     def create_from_module_str(module_str: str) -> TTIRModuleSplitter:
-        module = parse_module_str(
-            module_str,
-            TTIRModuleSplitter._get_required_dialects(),
-        )
-        return TTIRModuleSplitter(module)
+        return TTIRModuleSplitter(TTIRModuleSplitter._parse_module_str(module_str))
 
     # ----- Private methods -----
 
@@ -37,16 +31,8 @@ class TTIRModuleSplitter(ModuleSplitter):
 
     # @override
     @staticmethod
-    def _get_required_dialects() -> List[Dialect]:
-        return [ttir]
-
-
-if __name__ == "__main__":
-    # TODO find a convenient TTIR graph
-    ttir_module_str = ""
-
-    splitter: TTIRModuleSplitter = TTIRModuleSplitter.create_from_ttir_module_str(
-        ttir_module_str
-    )
-    print(splitter.get_sub_ops())
-    print(splitter.get_sub_modules())
+    def _parse_module_str(module_str: str) -> Module:
+        with Context() as ctx:
+            # tt.register_dialect(ctx)
+            # ttir.register_dialect(ctx)
+            return parse_module_str(module_str, ctx)
