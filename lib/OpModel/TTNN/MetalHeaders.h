@@ -58,6 +58,9 @@
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/small_vector.hpp"
 #include "ttnn/graph/graph_processor.hpp"
+// using namespace removed in metal
+// but IDevice cannot be resolved by "ttnn/graph/graph_query_op_constraints.hpp"
+using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
