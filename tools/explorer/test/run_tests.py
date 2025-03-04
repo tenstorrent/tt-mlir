@@ -133,9 +133,6 @@ def wait_for_execution_to_finish(timeout):
                 "isDone"
             ):
                 return response.json()
-            else:
-                # Print out Logs in the Interim
-                print(response.json())
         except requests.RequestException as e:
             print(f"Request failed: {e}")
             raise Exception("Status check request failed")
@@ -237,7 +234,6 @@ def test_execute_and_check_accuracy_data_exists():
     # Get the test_mnist path
     test_mnist_path = GET_TTNN_TEST()
 
-    # Key Decision: Make Test Fail or just provide error message and skip?
     assert (
         test_mnist_path is not None
     ), "Couldn't find test_mnist.ttnn in GENERATED_TTNN_TEST_DIRS"
@@ -245,6 +241,4 @@ def test_execute_and_check_accuracy_data_exists():
         test_mnist_path, {"optimizationPolicy": "Optimizer Disabled"}, timeout=300
     )
     result = convert_command_and_assert(test_mnist_path)
-    if "accuracy_data" not in result["graphs"][0]["overlays"]:
-        print(result)
-    assert "accuracy_data" in str(result)
+    assert "accuracy_data" in result["graphs"][0]["overlays"]

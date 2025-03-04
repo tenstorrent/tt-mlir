@@ -749,23 +749,10 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        # export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
+        export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        pytest -o log_cli=True -svv tools/explorer/test/run_tests.py
+        pytest tools/explorer/test/run_tests.py
         # collect results
-
-    - name: Archive tt-explorer artifacts
-      if: ${{ failure() }}
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.work-dir }}/ttrt-artifacts
-      run: tar cvf artifact.tar .
-
-    - name: Upload tt-explorer artifacts
-      if: ${{ failure() }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: tt-explorer-artifacts
-        path: ${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/artifact.tar
 
   build-ttmlir-opmodelinterface:
     needs: build-image
