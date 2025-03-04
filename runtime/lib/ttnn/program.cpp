@@ -9,6 +9,7 @@
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
+#include "operations/creation/construct_tensor.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
@@ -182,6 +183,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return operations::creation::run(op->type_as_EmptyOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ConstructTensorOp: {
+    return operations::creation::run(op->type_as_ConstructTensorOp(), context);
   }
   case ::tt::target::ttnn::OpType::ZerosOp: {
     return operations::creation::run(op->type_as_ZerosOp(), context);

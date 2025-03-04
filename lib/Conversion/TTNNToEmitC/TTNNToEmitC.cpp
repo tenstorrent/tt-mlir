@@ -948,6 +948,100 @@ public:
 };
 } // namespace
 
+// ConstructTensorOp conversion pattern
+//
+namespace {
+// ConstructTensorOp conversion pattern
+class ConstructTensorOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ConstructTensorOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::ConstructTensorOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::ConstructTensorOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Create a sequence of operations to construct a tensor
+
+    // 1. Create tt::ttnn::Shape from ShapeAttr
+    emitc::CallOpaqueOp shapeOp = tt::ttnn_to_emitc::utils::createShapeOp(
+        rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
+
+    // 2. Get volume of the shape
+    auto volumeTy = emitc::OpaqueType::get(rewriter.getContext(), "uint32_t");
+    auto volumeOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), volumeTy, "volume", nullptr, nullptr,
+        ValueRange{shapeOp.getResult(0)});
+
+    // 3. Create owned_buffer with proper template based on data type
+    auto dtype = srcOp.getDtypeAttr().getValue();
+
+    std::string templateArg;
+
+    switch (dtype) {
+    case tt::DataType::Float32:
+      templateArg = "float";
+      break;
+    case tt::DataType::UInt8:
+      templateArg = "uint8_t";
+      break;
+    case tt::DataType::UInt16:
+      templateArg = "uint16_t";
+      break;
+    case tt::DataType::Int32:
+      templateArg = "int32_t";
+      break;
+    case tt::DataType::UInt32:
+      templateArg = "uint32_t";
+      break;
+    case tt::DataType::BFloat16:
+      templateArg = "bfloat16";
+      break;
+    default:
+      return rewriter.notifyMatchFailure(
+          srcOp, "Unsupported data type for ConstructTensorOp");
+    }
+
+    auto bufferTy = emitc::OpaqueType::get(rewriter.getContext(),
+                                           "::tt::tt_metal::OwnedBuffer");
+    auto bufferOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), bufferTy, "::tt::tt_metal::owned_buffer::create",
+        nullptr, rewriter.getArrayAttr({rewriter.getStringAttr(templateArg)}),
+        ValueRange{volumeOp.getResult(0)});
+
+    // 4. Create owned_storage from buffer
+    auto storageTy = emitc::OpaqueType::get(rewriter.getContext(),
+                                            "::tt::tt_metal::OwnedStorage");
+    auto storageOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), storageTy, "::tt::tt_metal::OwnedStorage", nullptr,
+        nullptr, ValueRange{bufferOp.getResult(0)});
+
+    // 5. Create Tensor with storage, shape, dtype, and layout
+    llvm::SmallVector<Value, 4> operands{storageOp.getResult(0),
+                                         shapeOp.getResult(0)};
+
+    // Create ArrayAttr object holding attributes and pointers to operands
+    size_t operandIndex = 0;
+    ArrayAttr arrayAttr = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(operandIndex++), // OwnedStorage
+        rewriter.getIndexAttr(operandIndex++), // Shape
+        tt::ttnn_to_emitc::utils::convertDType(
+            rewriter, srcOp.getDtypeAttr()), // DataType
+        tt::ttnn_to_emitc::utils::convertLayoutAttr(
+            rewriter, srcOp.getLayoutAttr()) // Layout
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        "::ttnn::Tensor", arrayAttr, nullptr, operands);
+
+    return success();
+  }
+};
+} // namespace
+
 // ZerosOp conversion pattern
 //
 class ZerosOpConversionPattern
@@ -1294,6 +1388,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   // clang-format off
   patterns.add<EmptyOpConversionPattern,
+               ConstructTensorOpConversionPattern,
                ZerosOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<tt::ttnn::FullOp>,
