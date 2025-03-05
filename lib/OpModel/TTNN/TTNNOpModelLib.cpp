@@ -674,13 +674,13 @@ ToLayoutOpInterface::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     mlir::tt::ttnn::Layout outputPageLayout,
-    std::optional<mlir::tt::DataTypeAttr> outputDtype,
+    std::optional<mlir::tt::DataType> outputDtype,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto toLayoutOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                             mlir::tt::ttnn::Layout outputPageLayout,
-                            std::optional<mlir::tt::DataTypeAttr> outputDtype,
+                            std::optional<mlir::tt::DataType> outputDtype,
                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                             bool passDevicePtr) {
     // open device device, will close it at the end of function
@@ -701,7 +701,6 @@ ToLayoutOpInterface::getOpConstraints(
     std::optional<::tt::tt_metal::MemoryConfig> memoryConfig =
         std::make_optional(conversion::getMemoryConfig(outputLayout));
 
-    // run op constraint query
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::to_layout, device, inputSpec,
         conversion::getPageLayout(outputPageLayout), dtype, memoryConfig,
@@ -716,17 +715,18 @@ ToLayoutOpInterface::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> ToLayoutOpInterface::getOpRuntime(
-    llvm::ArrayRef<int64_t> inputShape,
-    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-    mlir::tt::ttnn::Layout outputPageLayout,
-    std::optional<mlir::tt::DataTypeAttr> outputDtype,
-    mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr) {
+llvm::Expected<size_t>
+ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                  mlir::tt::ttnn::Layout outputPageLayout,
+                                  std::optional<mlir::tt::DataType> outputDtype,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                                  bool passDevicePtr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto toLayoutOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
                             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                             mlir::tt::ttnn::Layout outputPageLayout,
-                            std::optional<mlir::tt::DataTypeAttr> outputDtype,
+                            std::optional<mlir::tt::DataType> outputDtype,
                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                             bool passDevicePtr) {
     // open device device, will close it at the end of function

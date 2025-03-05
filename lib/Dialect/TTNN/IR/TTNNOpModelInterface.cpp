@@ -278,7 +278,7 @@ ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
   assert(output.getLayout() == getLayoutAttr().getValue());
   return op_model::ttnn::ToLayoutOpInterface::getOpConstraints(
-      inputShape, inputs[0], getLayoutAttr().getValue(), getDtypeAttr(), output,
+      inputShape, inputs[0], getLayoutAttr().getValue(), getDtype(), output,
       !getODSOperands(1).empty());
 }
 
@@ -290,7 +290,7 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
 
   return op_model::ttnn::ToLayoutOpInterface::getOpRuntime(
-      inputShape, inputs[0], getLayoutAttr().getValue(), getDtypeAttr(), output,
+      inputShape, inputs[0], getLayoutAttr().getValue(), getDtype(), output,
       !getODSOperands(1).empty());
 }
 
