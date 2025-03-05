@@ -196,7 +196,7 @@ TEST_F(OpModelBase, MultiplyOpInterface) {
 
   auto multiply =
       builder.create<MultiplyOp>(builder.getUnknownLoc(), output.getType(),
-                                 ::mlir::ValueRange{input1, input2, output});
+                                 ::mlir::ValueRange{input1, input2});
   multiply->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test MultiplyOp interface
