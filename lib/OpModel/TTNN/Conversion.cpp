@@ -45,10 +45,6 @@ getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
   }
 }
 
-::tt::tt_metal::DataType getDataType(mlir::tt::DataTypeAttr dtype) {
-  return getDataType(dtype.getValue());
-}
-
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
   ::tt::stl::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
