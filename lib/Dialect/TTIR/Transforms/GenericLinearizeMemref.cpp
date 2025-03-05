@@ -59,7 +59,9 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    Block *entry = &op.getRegion().front();
+    assert(op.getNumRegions() == 1 &&
+           "expected single compute region at this stage");
+    Block *entry = &op.getRegion(0).front();
     rewriter.setInsertionPointToStart(entry);
     auto args = entry->getArguments();
     if (llvm::all_of(args, isLinearizedMemref)) {

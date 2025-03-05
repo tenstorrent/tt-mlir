@@ -34,7 +34,7 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
             tensorType, memorySpace);
       }
       return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-          .getMemref();
+          .getBufferType();
     };
     bufferizationOptions.defaultMemorySpaceFn =
         [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
