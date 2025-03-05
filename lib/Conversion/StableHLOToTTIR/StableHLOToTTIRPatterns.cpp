@@ -636,7 +636,7 @@ public:
 private:
   LogicalResult checkBasicLegality(mlir::stablehlo::ConstantOp &srcOp,
                                    ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getValue().getShapedType().getShape().empty() &&
+    if (isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue()) &&
         !srcOp.getValue().getElementType().isIntOrFloat()) {
       return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
     }
