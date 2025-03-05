@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
+#include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -41,16 +42,18 @@ public:
           emitc::OpaqueType::get(ctx, "ttnn::IDevice"));
     });
     addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
-      return emitc::OpaqueType::get(ctx, "ttnn::Tensor");
+      return emitc::OpaqueType::get(ctx,
+                                    ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
     });
     addConversion([ctx](mlir::TupleType type) -> emitc::OpaqueType {
-      return emitc::OpaqueType::get(ctx, "std::vector<ttnn::Tensor>");
+      return emitc::OpaqueType::get(
+          ctx, ttnn_to_emitc::TypeNameV<std::vector<::ttnn::Tensor>>);
     });
   }
 };
 
 struct ConvertTTNNToEmitCPass
-    : public ttnn::impl::ConvertTTNNToEmitCBase<ConvertTTNNToEmitCPass> {
+    : public tt::ttnn::impl::ConvertTTNNToEmitCBase<ConvertTTNNToEmitCPass> {
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();
     // Only run conversion on top-level moduleOp.
@@ -63,7 +66,7 @@ struct ConvertTTNNToEmitCPass
     // EmitC is legal, TTNN is illegal
     //
     target.addLegalDialect<emitc::EmitCDialect>();
-    target.addIllegalDialect<ttnn::TTNNDialect>();
+    target.addIllegalDialect<tt::ttnn::TTNNDialect>();
 
     // mlir::ModuleOp is legal only if no attributes are present on it
     //
