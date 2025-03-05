@@ -242,7 +242,6 @@ TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
-
   const auto outputShape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 

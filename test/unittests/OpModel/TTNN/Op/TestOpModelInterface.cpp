@@ -378,7 +378,6 @@ TEST_F(OpModelBase, typecastOp) {
       builder.getUnknownLoc(), rankedTensorTypeF32, input, DataType::Float32);
   typecast->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
-  // test transpose Op interface
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();

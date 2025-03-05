@@ -22,10 +22,6 @@ getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
   return getDataType(layout.getDataType());
 }
 
-::tt::tt_metal::DataType getDataType(mlir::tt::DataTypeAttr dtype) {
-  return getDataType(dtype.getValue());
-}
-
 ::tt::tt_metal::DataType getDataType(mlir::tt::DataType dtype) {
   switch (dtype) {
   case tt::DataType::Float32:
