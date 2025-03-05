@@ -3,19 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/layout/to_dtype.h"
+#include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
-
 void run(const ::tt::target::ttnn::ToDTypeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
+  const ::ttnn::Tensor &inputTensor = tensorPool.getAndValidate(op->in());
 
   ::ttnn::DataType targetDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
 
   ::ttnn::Tensor out = ::ttnn::to_dtype(inputTensor, targetDataType);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::layout

@@ -395,7 +395,7 @@ public:
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
 
-      bool isTiled = shouldTilize(op, operand.getOperandNumber());
+      bool isTiled = shouldTilize(op, operand.getOperandNumber(), isDPSResult);
 
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
@@ -418,8 +418,8 @@ public:
   }
 
 private:
-  bool shouldTilize(DestinationStyleOpInterface dpsOp,
-                    int64_t operandNumber) const {
+  bool shouldTilize(DestinationStyleOpInterface dpsOp, int64_t operandNumber,
+                    bool isDPSResult) const {
 
     Operation *operation = dpsOp.getOperation();
 
@@ -435,7 +435,12 @@ private:
     }
 
     // These ops constrain to ROW_MAJOR on their operands
-    if (mlir::isa<ttir::Conv2dOp>(operation)) {
+    //
+    // For conv2d, the result tensor is tilized by default in runtime
+    // unless we specify an override in the Conv2dConfig (which we don't
+    // currently). Therefore we don't force row major if the operand is a DPS
+    // result
+    if (mlir::isa<ttir::Conv2dOp>(operation) && !isDPSResult) {
       return false;
     }
     return true;

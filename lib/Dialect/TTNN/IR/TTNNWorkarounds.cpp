@@ -478,8 +478,13 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
   wa::TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
   rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
+
+  wa::TTNNOperandWorkarounds rowMajorLayoutUint32Workaround;
+  rowMajorLayoutUint32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorLayoutUint32Workaround.tensorDataTypeWorkaround = DataType::UInt32;
+
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
-      .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+      .addOutputOperandWorkaround(rowMajorLayoutUint32Workaround);
 }
 } // namespace mlir::tt::ttnn::wa
