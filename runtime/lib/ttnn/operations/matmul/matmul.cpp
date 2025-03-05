@@ -6,6 +6,7 @@
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -15,10 +16,8 @@ namespace tt::runtime::ttnn::operations::matmul {
 // ANCHOR: adding_an_op_matmul_runtime_operations
 void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &lhs = tensorPool.at(op->a()->global_id());
-  const ::ttnn::Tensor &rhs = tensorPool.at(op->b()->global_id());
-  DEBUG_ASSERT(lhs.is_allocated());
-  DEBUG_ASSERT(rhs.is_allocated());
+  const ::ttnn::Tensor &lhs = tensorPool.getAndValidate(op->a());
+  const ::ttnn::Tensor &rhs = tensorPool.getAndValidate(op->b());
 
   auto outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -36,20 +35,17 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), output);
+  tensorPool.insertAndValidate(op->out(), output);
 }
 // ANCHOR_END: adding_an_op_matmul_runtime_operations
 
 void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &lhs = tensorPool.at(op->a()->global_id());
-  const ::ttnn::Tensor &rhs = tensorPool.at(op->b()->global_id());
+  const ::ttnn::Tensor &lhs = tensorPool.getAndValidate(op->a());
+  const ::ttnn::Tensor &rhs = tensorPool.getAndValidate(op->b());
   std::optional<::ttnn::Tensor> bias =
-      op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
+      op->bias() ? std::make_optional(tensorPool.getAndValidate(op->bias()))
                  : std::nullopt;
-  DEBUG_ASSERT(lhs.is_allocated());
-  DEBUG_ASSERT(rhs.is_allocated());
-  DEBUG_ASSERT(!bias || bias->is_allocated());
 
   auto outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -67,6 +63,6 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), output);
+  tensorPool.insertAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::matmul

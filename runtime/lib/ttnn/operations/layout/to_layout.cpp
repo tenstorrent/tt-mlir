@@ -5,32 +5,22 @@
 #include "operations/layout/to_layout.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
-
-static ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout) {
-  switch (layout) {
-  case ::tt::target::TensorLayout::RowMajor:
-    return ::ttnn::Layout::ROW_MAJOR;
-  case ::tt::target::TensorLayout::Tile:
-    return ::ttnn::Layout::TILE;
-  case ::tt::target::TensorLayout::Invalid:
-    return ::ttnn::Layout::INVALID;
-  }
-}
-
 void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(inputTensor.is_allocated());
+
+  const ::ttnn::Tensor &inputTensor = tensorPool.getAndValidate(op->in());
   const ::tt::target::Dim2d *targetTileShape =
       op->out()->desc()->layout()->memory_desc()->tile_shape();
   LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(targetTileShape),
              "Invalid tile shape");
 
-  ::ttnn::Layout layout = toTTNNLayout(op->layout());
+  ::ttnn::Layout layout =
+      ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
   std::optional<::ttnn::DataType> dtype = std::nullopt;
@@ -53,7 +43,8 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
     out = ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig,
                             static_cast<::ttnn::IDevice *>(nullptr));
   }
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  tensorPool.insertAndValidate(op->out(), out);
 }
 
 } // namespace tt::runtime::ttnn::operations::layout

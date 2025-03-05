@@ -652,13 +652,13 @@ private:
     if (info.shouldUntilize() && !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
-          op, rewriter, currentInput, info, true /* forceCreate */);
+          op, rewriter, currentInput, info, /*forceCreate=*/true);
       // untilize on host
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       // move back to device and convert memory config if needed
       currentInput = createToDeviceOpIfNeeded(op, rewriter, currentInput, info,
-                                              true /* forceCreate */);
+                                              /*forceCreate=*/true);
       op.getResult().replaceAllUsesWith(currentInput);
       return;
     }
@@ -694,13 +694,13 @@ private:
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
-          op, rewriter, currentInput, info, true /* forceCreate */);
+          op, rewriter, currentInput, info, /*forceCreate=*/true);
       // tilize on host
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       // move back to device and convert memory config if needed
-      currentInput = this->createToDeviceOpIfNeeded(
-          op, rewriter, currentInput, info, true /* forceCreate */);
+      currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
+                                                    info, /*forceCreate=*/true);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
@@ -745,15 +745,14 @@ private:
     /* Device to device untilized typecast, need to move to host first */
     if (!output.isTilized() && !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
-      currentInput =
-          this->createOp<ttnn::FromDeviceOp>(op, rewriter, currentInput);
+      currentInput = this->createFromDeviceOpIfNeeded(
+          op, rewriter, currentInput, info, /*forceCreate=*/true);
       // typecast on host
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       // move back to device and convert memory config if needed
-      currentInput = this->createOp<ttnn::ToDeviceOp>(
-          op, rewriter, currentInput, info.device,
-          /* optional MemConfigAttr */ nullptr);
+      currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
+                                                    info, /*forceCreate=*/true);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
@@ -790,13 +789,13 @@ private:
                                                            currentInput, info);
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
-          op, rewriter, currentInput, info, true /* forceCreate */);
+          op, rewriter, currentInput, info, /*forceCreate=*/true);
       // untilize on host
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       // move back to device and convert memory config if needed
-      currentInput = this->createToDeviceOpIfNeeded(
-          op, rewriter, currentInput, info, true /* forceCreate */);
+      currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
+                                                    info, /*forceCreate=*/true);
       op.getResult().replaceAllUsesWith(currentInput);
       return;
     }
@@ -836,15 +835,14 @@ private:
     if (info.shouldTilize() && input.dataType != DataType::BFloat16 &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
-      currentInput =
-          this->createOp<ttnn::FromDeviceOp>(op, rewriter, currentInput);
+      currentInput = this->createFromDeviceOpIfNeeded(
+          op, rewriter, currentInput, info, /*forceCreate=*/true);
       // tilize on host
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       // move back to device and convert data type/memory config if needed
-      currentInput = this->createOp<ttnn::ToDeviceOp>(
-          op, rewriter, currentInput, info.device,
-          /* optional MemConfigAttr */ nullptr);
+      currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
+                                                    info, /*forceCreate=*/true);
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
