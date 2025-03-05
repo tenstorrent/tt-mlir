@@ -29,7 +29,7 @@ set(EXPLORER_REQ_FLAGS
 
 foreach(RUNTIME_OPT ${EXPLORER_REQ_FLAGS})
   if(NOT ${RUNTIME_OPT})
-    message(SEND_ERROR "${RUNTIME_OPT} must be enabled to execute model as intended in tt-explorer.")
+    message(WARNING "${RUNTIME_OPT} must be enabled to execute model as intended in tt-explorer.")
   endif()
 endforeach()
 
