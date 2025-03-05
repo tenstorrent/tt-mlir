@@ -35,7 +35,6 @@ std::vector<std::uint32_t> getShape(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getStride(::tt::runtime::Tensor tensor);
 std::uint32_t getElementSize(::tt::runtime::Tensor tensor);
 std::uint32_t getVolume(::tt::runtime::Tensor tensor);
-target::DataType getDtype(::tt::runtime::Tensor tensor);
 
 size_t getNumAvailableDevices();
 

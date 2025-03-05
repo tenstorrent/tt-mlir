@@ -579,13 +579,13 @@ std::vector<std::uint32_t> Tensor::getStride() {
 target::DataType Tensor::getDtype() {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getDtype(*this);
+    return ::tt::runtime::ttnn::getTensorDataType(*this);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getDtype(*this);
+    return ::tt::runtime::ttmetal::getTensorDataType(*this);
   }
 #endif
   LOG_FATAL("runtime is not enabled");

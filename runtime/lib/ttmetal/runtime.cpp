@@ -387,9 +387,5 @@ std::uint32_t getVolume(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getVolume not implemented for metal runtime");
   return 0;
 }
-target::DataType getDtype(::tt::runtime::Tensor tensor) {
-  LOG_WARNING("getDtype not implemented for metal runtime");
-  return {};
-}
 
 } // namespace tt::runtime::ttmetal
