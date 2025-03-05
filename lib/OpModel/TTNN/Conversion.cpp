@@ -91,9 +91,9 @@ getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
   // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
   return isShardedMemoryLayout(layout.getMemLayout().getValue())
-             ? std::make_optional(ShardSpec(getCoreRangeSet(layout),
-                                            getShardShape(layout),
-                                            ShardOrientation::ROW_MAJOR))
+             ? std::make_optional(::tt::tt_metal::ShardSpec(
+                   getCoreRangeSet(layout), getShardShape(layout),
+                   ::tt::tt_metal::ShardOrientation::ROW_MAJOR))
              : std::nullopt;
 }
 

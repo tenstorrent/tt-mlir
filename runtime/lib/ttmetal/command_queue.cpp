@@ -238,7 +238,9 @@ static void writeFile(std::string const &fileName, char const *data,
   file.close();
 }
 
-static std::variant<DataMovementConfig, ComputeConfig, EthernetConfig>
+static std::variant<::tt::tt_metal::DataMovementConfig,
+                    ::tt::tt_metal::ComputeConfig,
+                    ::tt::tt_metal::EthernetConfig>
 createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
   switch (kernelSource->config_type()) {
   case ::tt::target::metal::KernelConfig::NocConfig: {
@@ -255,22 +257,22 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     ::tt::tt_metal::EthernetConfig ethernetConfig;
     switch (kernelSource->config_as_EthernetConfig()->eth_type()) {
     case tt::target::metal::EthType::Sender: {
-      ethernetConfig.eth_mode = Eth::SENDER;
+      ethernetConfig.eth_mode = ::tt::tt_metal::Eth::SENDER;
       break;
     }
     case tt::target::metal::EthType::Receiver: {
-      ethernetConfig.eth_mode = Eth::RECEIVER;
+      ethernetConfig.eth_mode = ::tt::tt_metal::Eth::RECEIVER;
       break;
     }
     }
 
     switch (kernelSource->config_as_EthernetConfig()->noc_index()) {
     case tt::target::metal::NocIndex::Noc0: {
-      ethernetConfig.noc = NOC::NOC_0;
+      ethernetConfig.noc = ::tt::tt_metal::NOC::NOC_0;
       break;
     }
     case tt::target::metal::NocIndex::Noc1: {
-      ethernetConfig.noc = NOC::NOC_1;
+      ethernetConfig.noc = ::tt::tt_metal::NOC::NOC_1;
       break;
     }
     }
@@ -374,13 +376,14 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
       toDataFormat(cbRef->desc()->memory_desc()->data_type());
 
   if (!cbRef->tensor_ref()) {
-    return CircularBufferConfig(totalSize,
-                                {{cbRef->desc()->port(), dataFormat}})
+    return ::tt::tt_metal::CircularBufferConfig(
+               totalSize, {{cbRef->desc()->port(), dataFormat}})
         .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
   }
 
-  return CircularBufferConfig(totalSize, {{cbRef->desc()->port(), dataFormat}},
-                              *buffers.at(cbRef->tensor_ref()->global_id()))
+  return ::tt::tt_metal::CircularBufferConfig(
+             totalSize, {{cbRef->desc()->port(), dataFormat}},
+             *buffers.at(cbRef->tensor_ref()->global_id()))
       .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
 }
 
@@ -456,8 +459,9 @@ void CQExecutor::execute(
                                                 coreRangeSet, kernelSource);
     writeFile(fileName, kernelSource->source()->c_str(),
               kernelSource->source()->size());
-    std::variant<DataMovementConfig, ComputeConfig, EthernetConfig> config =
-        createKernelConfig(kernelSource);
+    std::variant<::tt::tt_metal::DataMovementConfig,
+                 ::tt::tt_metal::ComputeConfig, ::tt::tt_metal::EthernetConfig>
+        config = createKernelConfig(kernelSource);
 
     ::tt::tt_metal::KernelHandle handle =
         ::tt::tt_metal::CreateKernel(program, fileName, coreRangeSet, config);
@@ -469,13 +473,13 @@ void CQExecutor::execute(
       }
       ::tt::tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, buffers);
-      CBHandle cbHandle =
+      ::tt::tt_metal::CBHandle cbHandle =
           ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
 
       if (!cbRef->tensor_ref()) {
         // Internally allocated CBs are not associated with any tensor ref. We
         // need to set the address of the CB manually.
-        std::shared_ptr<CircularBuffer> cbPtr =
+        std::shared_ptr<::tt::tt_metal::CircularBuffer> cbPtr =
             tt_metal::detail::GetCircularBuffer(program, cbHandle);
         assert(!cbPtr->globally_allocated() &&
                "CB should not be globally allocated");
