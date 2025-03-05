@@ -11,7 +11,7 @@ module @module_argmax attributes {} {
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, use_multicore = false}>
     // CHECK-SAME: tensor<1x1x1x32128xbf16
-    // CHECK-SAME: -> tensor<1x1x1x1xsi32
+    // CHECK-SAME: -> tensor<1x1x1x1xui32
     %cst = stablehlo.constant dense<0xFF800000> : tensor<f32>
     %c = stablehlo.constant dense<0> : tensor<i64>
     %0 = stablehlo.iota dim = 1 : tensor<1x32128xi64>
@@ -33,7 +33,7 @@ module @module_argmax attributes {} {
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, use_multicore = false}>
     // CHECK-SAME: tensor<1x1x32x32xbf16
-    // CHECK-SAME: -> tensor<1x1x32x1xsi32
+    // CHECK-SAME: -> tensor<1x1x32x1xui32
     %0 = stablehlo.iota dim = 2 : tensor<1x32x32xi32>
     %cst = stablehlo.constant dense<0xFF800000> : tensor<f32>
     %c = stablehlo.constant dense<0> : tensor<i32>
@@ -58,7 +58,7 @@ module @module_argmax attributes {} {
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, use_multicore = false}>
     // CHECK-SAME: tensor<1x1x128x64xbf16
-    // CHECK-SAME: -> tensor<1x1x128x1xsi32
+    // CHECK-SAME: -> tensor<1x1x128x1xui32
     %cst = stablehlo.constant dense<0xFF800000> : tensor<f32>
     %c = stablehlo.constant dense<0> : tensor<i64>
     %0 = stablehlo.iota dim = 3 : tensor<1x1x128x64xi64>

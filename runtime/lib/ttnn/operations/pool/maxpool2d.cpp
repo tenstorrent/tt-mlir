@@ -5,6 +5,7 @@
 #include "operations/pool/maxpool2d.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/types.hpp"
@@ -15,8 +16,7 @@ namespace tt::runtime::ttnn::operations::pool {
 void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  ::ttnn::Tensor input = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(input.is_allocated());
+  ::ttnn::Tensor input = tensorPool.getAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -33,6 +33,6 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
       std::array{op->dilation_height(), op->dilation_width()},
       outputMemoryConfig, std::nullopt);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::pool

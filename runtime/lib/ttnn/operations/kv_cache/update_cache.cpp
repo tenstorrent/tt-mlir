@@ -6,16 +6,18 @@
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/workarounds.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 
 namespace tt::runtime::ttnn::operations::kv_cache {
 void run(const ::tt::target::ttnn::UpdateCacheOp *op, ProgramContext &context) {
 
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &cache = tensorPool.at(op->cache()->global_id());
-  const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
+  const ::ttnn::Tensor &cache = tensorPool.getAndValidate(op->cache());
+  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->input());
   const ::ttnn::Tensor &updateIndex =
-      tensorPool.at(op->update_index()->global_id());
+      tensorPool.getAndValidate(op->update_index());
+
   if (workaround::Env::get().readUpdateIndexFromDeviceForKVCache) {
 
     const ::ttnn::Tensor indexOnHost = ::ttnn::from_device(updateIndex);
