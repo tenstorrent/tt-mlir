@@ -5,19 +5,20 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
-#include "mlir-c/IR.h"
-#include "mlir/CAPI/IR.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/IR/AffineMap.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Error.h"
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/StringExtras.h>
+#include <llvm/Support/Error.h>
+#include <mlir-c/IR.h>
+#include <mlir/CAPI/IR.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include <mlir/IR/AffineMap.h>
+#include <mlir/IR/BuiltinAttributes.h>
 
 #include <cstdint>
 #include <type_traits>
 
 namespace ttmlir::utils {
+
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
@@ -459,49 +460,6 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
   return newOp;
 }
 
-// detect the presence of 'getOutputsMutable()' in 'Op':
-template <typename Op, typename = void>
-inline constexpr bool has_variadic_outputs = false;
-
-template <typename Op>
-inline constexpr bool has_variadic_outputs<
-    Op, std::void_t<decltype(std::declval<Op>().getOutputsMutable())>> = true;
-
-namespace impl {
-
-template <typename Op, typename _ = void>
-struct getDpsOutputs {
-  static mlir::MutableOperandRange evaluate(Op *op) {
-    return op->getOutputMutable();
-  }
-};
-
-template <typename Op>
-struct getDpsOutputs<Op, std::enable_if_t<has_variadic_outputs<Op>>> {
-  static mlir::MutableOperandRange evaluate(Op *op) {
-    return op->getOutputsMutable();
-  }
-};
-
-} // namespace impl
-
-// A helper for simplifying DPS tablegen derivations with 'arguments' of any
-// form in {AnyRankedTensor:$output, Variadic<AnyRankedTensor>:$outputs}.
-//
-// If a base tablegen 'class' adds this extra class declaration, derived 'def's
-// don't need to overrride it just to switch from single to variadic type of
-// '$outputs' (or vice versa):
-// ...
-// clang-format off
-//   let extraClassDeclaration = [{
-//     MutableOperandRange getDpsInitsMutable() { return ::ttmlir::utils::getDpsOutputs(this); }
-//   }]
-// clang-format on
-template <typename Op>
-mlir::MutableOperandRange getDpsOutputs(Op *op) {
-  return impl::getDpsOutputs<Op>::evaluate(op);
-}
-
 } // namespace ttmlir::utils
 
-#endif
+#endif // TTMLIR_UTILS_H

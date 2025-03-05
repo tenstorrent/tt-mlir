@@ -24,7 +24,7 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, !listconcat([TTIROpInterface, DestinationStyleOpInterface], traits)> {
     let extraClassDeclaration = [{
       // base implementation that will detect getOutputMutable() or getOutputsMutable()
-      MutableOperandRange getDpsInitsMutable() { return ::ttmlir::utils::getDpsOutputs(this); }
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 }
 
@@ -112,7 +112,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, N
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ::ttmlir::utils::getDpsOutputs(this); }
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 }
 
@@ -138,7 +138,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ::ttmlir::utils::getDpsOutputs(this); }
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
 
       struct CompoundComponents {
         bool isLayoutChange = false;
@@ -781,7 +781,7 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ::ttmlir::utils::getDpsOutputs(this); }
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       // Returns the indexing maps and iterator types for the reduction op.
@@ -1826,7 +1826,7 @@ class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseUnaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ::ttmlir::utils::getDpsOutputs(this); }
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
@@ -1856,7 +1856,7 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
     TTIR_ElementwiseBinaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ::ttmlir::utils::getDpsOutputs(this); }
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
