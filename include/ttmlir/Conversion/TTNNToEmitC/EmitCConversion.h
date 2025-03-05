@@ -648,34 +648,35 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
-  mlir::Attribute emit(Value val) {
+  mlir::Attribute emit(mlir::Value val) {
     if (!val) {
       return emit(std::nullopt);
     }
 
-    auto opOperand =
+    mlir::OpOperand *opOperand =
         std::find_if(std::next(op->getOpOperands().begin(), operands.size()),
                      op->getOpOperands().end(),
                      [&](OpOperand &operand) { return operand.get() == val; });
 
-    auto index = opOperand->getOperandNumber();
+    unsigned index = opOperand->getOperandNumber();
     operands.push_back(adaptor.getOperands()[index]);
     return rewriter.getIndexAttr(index);
   }
 
-  mlir::Attribute emit(Operation::operand_range operands) {
-    for (auto &opOperand : op->getOpOperands()) {
+  mlir::Attribute emit(mlir::Operation::operand_range operands) {
+    for (mlir::OpOperand &opOperand : op->getOpOperands()) {
       auto begin =
           std::next(op->getOperands().begin(), opOperand.getOperandNumber());
-      if (Operation::operand_range(begin, std::next(begin, operands.size())) ==
-          operands) {
-        unsigned index = opOperand.getOperandNumber();
-        llvm::SmallVector<mlir::Value> values(
-            adaptor.getOperands().begin() + index,
-            adaptor.getOperands().begin() + index + operands.size());
-        this->operands.push_back(createVector(values));
-        return rewriter.getIndexAttr(index);
+      if (mlir::Operation::operand_range(
+              begin, std::next(begin, operands.size())) != operands) {
+        continue;
       }
+      unsigned index = opOperand.getOperandNumber();
+      llvm::SmallVector<mlir::Value> values(
+          adaptor.getOperands().begin() + index,
+          adaptor.getOperands().begin() + index + operands.size());
+      this->operands.push_back(createVector(values));
+      return rewriter.getIndexAttr(index);
     }
     llvm_unreachable("Invalid operand range");
   }
