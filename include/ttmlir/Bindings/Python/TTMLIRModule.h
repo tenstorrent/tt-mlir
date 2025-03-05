@@ -22,6 +22,7 @@
 #include "ttmlir/RegisterAll.h"
 #include "llvm/Support/CommandLine.h"
 
+#include <nanobind/stl/variant.h>
 #include <variant>
 
 namespace nb = nanobind;
