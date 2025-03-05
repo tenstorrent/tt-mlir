@@ -199,6 +199,7 @@ Device::getDeviceConstraints(mlir::tt::GridAttr workerGrid) {
 // Template functions for binary elementwise operations.
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpSymbol>
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
 getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
@@ -262,6 +263,7 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
                                  inputShapeB, inputLayoutB, outputShape,
                                  outputLayout);
 }
+#endif
 
 //===----------------------------------------------------------------------===//
 // ReluOp
@@ -294,7 +296,7 @@ ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
   return operation::getOpConstraints("ReluOpInterface", reluOpQuery, inputShape,
                                      inputLayout, outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -344,7 +346,7 @@ AddOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                        inputShapeA, inputLayoutA, inputShapeB,
                                        inputLayoutB, outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -398,7 +400,7 @@ SoftmaxOpInterface::getOpConstraints(
                                      inputShape, inputLayout, dimArg,
                                      outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -554,7 +556,7 @@ ReshapeOpInterface::getOpConstraints(
                                      inputShape, inputLayout, outputShape,
                                      outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -621,7 +623,7 @@ TransposeOpInterface::getOpConstraints(
                                      inputShape, inputLayout, dim0, dim1,
                                      outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -696,7 +698,7 @@ MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                                      inputLayoutB, outputShape, outputLayout,
                                      transposeA, transposeB);
 #else
-  return std::make_tuple(0, 0, 0);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -754,7 +756,7 @@ MultiplyOpInterface::getOpConstraints(
                                        inputShapeA, inputLayoutA, inputShapeB,
                                        inputLayoutB, outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
