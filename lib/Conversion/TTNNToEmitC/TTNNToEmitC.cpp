@@ -295,7 +295,7 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::MatmulOp> emitter(srcOp, adaptor,
                                                                 rewriter);
 
-    // ANCHOR: adding_an_op_matmul_tt::ttnn_to_emitc_array_attrs
+    // ANCHOR: adding_an_op_matmul_ttnn_to_emitc_array_attrs
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
@@ -303,7 +303,7 @@ public:
         emitter.emit(srcOp.getTransposeB()),
         /*memory_config=*/emitter.emit(std::nullopt),
     };
-    // ANCHOR_END: adding_an_op_matmul_tt::ttnn_to_emitc_array_attrs
+    // ANCHOR_END: adding_an_op_matmul_ttnn_to_emitc_array_attrs
 
     emitter.replaceOp(*this, args);
 
