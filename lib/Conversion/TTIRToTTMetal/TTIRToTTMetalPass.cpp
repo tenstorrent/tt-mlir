@@ -125,8 +125,6 @@ struct ConvertTTIRToTTKernel
                                          typeConverter);
 
     GreedyRewriteConfig config = GreedyRewriteConfig();
-    config.maxNumRewrites = 1;
-    config.maxIterations = 1;
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns3),
                                      config))) {
       signalPassFailure();

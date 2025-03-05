@@ -34,6 +34,10 @@ public:
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     llvm::errs() << "ttir generic rewriter\n";
+    if (mlir::dyn_cast_or_null<ttkernel::CBType>(
+            op->getRegion(0).getBlocks().front().getArgument(0).getType())) {
+      return failure();
+    }
 
     for (auto &region : op->getRegions()) {
       assert(region.getBlocks().size() == 1 &&
@@ -248,6 +252,10 @@ public:
   LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
                                 PatternRewriter &rewriter) const final {
     llvm::errs() << "tile regs rewriter\n";
+
+    if (!op->getBlock()->getOps<ttkernel::TileRegsCommitOp>().empty()) {
+      return failure();
+    }
 
     rewriter.moveOpAfter(
         rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc()), op);
