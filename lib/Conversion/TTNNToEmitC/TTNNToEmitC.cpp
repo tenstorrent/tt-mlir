@@ -1255,6 +1255,35 @@ public:
 };
 } // namespace
 
+// CollectivePermuteOp conversion pattern
+//
+namespace {
+class CollectivePermuteOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::CollectivePermuteOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::CollectivePermuteOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::CollectivePermuteOp srcOp,
+                  tt::ttnn::CollectivePermuteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.create<emitc::VerbatimOp>(
+        srcOp.getLoc(),
+        "assert(0 && \"Collective permute operation is "
+        "not supported in emitc yet.\"); // ::ttnn::collective_permute");
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::CollectivePermuteOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+    };
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -1391,6 +1420,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops

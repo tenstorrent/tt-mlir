@@ -1659,6 +1659,43 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRCollectivePermuteOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CollectivePermuteOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::CollectivePermuteOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CollectivePermuteOp srcOp,
+                  mlir::stablehlo::CollectivePermuteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
+      // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Consider preserving this information in the future if the attribute
+      // is non-DEVICE_TO_DEVICE values.
+      auto channelType =
+          static_cast<StableHLOChannelType>(srcChannelHandleAttr.getType());
+      if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
+          channelType != StableHLOChannelType::kChannelTypeInvalid) {
+        return failure();
+      }
+    }
+
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectivePermuteOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        adaptor.getSourceTargetPairs());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRCustomCallOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
@@ -2331,6 +2368,8 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRAllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRReduceScatterOpConversionPattern>(typeConverter,
                                                                 ctx);
+  patterns.add<StableHLOToTTIRCollectivePermuteOpConversionPattern>(
+      typeConverter, ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }
