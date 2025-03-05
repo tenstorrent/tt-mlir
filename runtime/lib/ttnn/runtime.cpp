@@ -619,16 +619,20 @@ std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor) {
 std::vector<std::uint32_t> getShape(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  std::vector<std::uint32_t> shape(ttnnTensor.logical_shape().cbegin(),
-                                   ttnnTensor.logical_shape().cend());
+  std::vector<std::uint32_t> shape;
+  for (size_t i = 0; i < ttnnTensor.logical_shape().size(); ++i) {
+    shape.push_back(ttnnTensor.logical_shape()[i]);
+  }
   return shape;
 }
 
 std::vector<std::uint32_t> getStride(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  std::vector<std::uint32_t> stride(ttnnTensor.strides().cbegin(),
-                                    ttnnTensor.strides().cend());
+  std::vector<std::uint32_t> stride;
+  for (size_t i = 0; i < ttnnTensor.strides().size(); ++i) {
+    stride.push_back(ttnnTensor.strides()[i]);
+  }
   return stride;
 }
 
@@ -642,6 +646,15 @@ std::uint32_t getVolume(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
   return ttnnTensor.volume();
+}
+
+TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
+  TensorDesc desc;
+  desc.dataType = getTensorDataType(tensor);
+  desc.itemsize = getElementSize(tensor);
+  desc.stride = getStride(tensor);
+  desc.shape = getShape(tensor);
+  return desc;
 }
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,

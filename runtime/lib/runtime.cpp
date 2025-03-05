@@ -621,4 +621,19 @@ std::uint32_t Tensor::getVolume() {
   LOG_FATAL("runtime is not enabled");
 }
 
+TensorDesc Tensor::getTensorDesc() {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getTensorDesc(*this);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getTensorDesc(*this);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 } // namespace tt::runtime

@@ -23,13 +23,22 @@ def test_tensor_buffer_api(shape, dtype):
         runtime_dtype,
     )
     rt_shape = rt_tensor.get_shape()
+    rt_stride = rt_tensor.get_stride()
     rt_elem_size = rt_tensor.get_element_size()
     rt_vol = rt_tensor.get_volume()
     rt_dtype = ttrt_datatype_to_torch_dtype(rt_tensor.get_dtype())
     rt_bytes = rt_tensor.get_data_buffer()
+    rt_desc = rt_tensor.get_tensor_desc()
+
+    # Tests to make sure the binding of `TensorDesc` works. Might belong in its own test?
+    assert rt_desc.shape == rt_shape
+    assert rt_desc.stride == rt_stride
+    assert ttrt_datatype_to_torch_dtype(rt_desc.dtype) == rt_dtype
+    assert rt_desc.item_size == rt_elem_size
 
     # Various tests that the no underlying stuff has changed over the pybind boundary
     assert list(rt_shape) == list(shape)
+    assert list(rt_stride) == list(torch_tensor.stride())
     assert rt_elem_size == torch_tensor.element_size()
     assert rt_vol == torch_tensor.numel()
     assert rt_dtype == torch_tensor.dtype

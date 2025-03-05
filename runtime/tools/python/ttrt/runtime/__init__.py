@@ -7,6 +7,7 @@ try:
         Device,
         Event,
         Tensor,
+        TensorDesc,
         MemoryBufferType,
         DataType,
         DeviceRuntime,

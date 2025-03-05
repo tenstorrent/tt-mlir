@@ -39,17 +39,26 @@ PYBIND11_MODULE(_C, m) {
       .def("get_memory_view", &tt::runtime::detail::getMemoryView,
            py::arg("device_id") = 0);
   py::class_<tt::runtime::Event>(m, "Event");
+  py::class_<tt::runtime::TensorDesc>(m, "TensorDesc")
+      .def_readonly("shape", &tt::runtime::TensorDesc::shape)
+      .def_readonly("stride", &tt::runtime::TensorDesc::stride)
+      .def_readonly("item_size", &tt::runtime::TensorDesc::itemsize)
+      .def_readonly("dtype", &tt::runtime::TensorDesc::dataType);
   py::class_<tt::runtime::Tensor>(m, "Tensor")
       .def("get_shape", &tt::runtime::Tensor::getShape)
       .def("get_stride", &tt::runtime::Tensor::getStride)
       .def("get_volume", &tt::runtime::Tensor::getVolume)
       .def("get_dtype", &tt::runtime::Tensor::getDtype)
       .def("get_element_size", &tt::runtime::Tensor::getElementSize)
-      .def("get_data_buffer", [](tt::runtime::Tensor self) {
-        std::vector<std::byte> vec = self.getDataBuffer();
-        return py::bytes(reinterpret_cast<const char *>(vec.data()),
-                         vec.size());
-      });
+      .def("get_tensor_desc", &tt::runtime::Tensor::getTensorDesc)
+      .def(
+          "get_data_buffer",
+          [](tt::runtime::Tensor self) {
+            std::vector<std::byte> vec = self.getDataBuffer();
+            return py::bytes(reinterpret_cast<const char *>(vec.data()),
+                             vec.size());
+          },
+          py::return_value_policy::take_ownership);
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");

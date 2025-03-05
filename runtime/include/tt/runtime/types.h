@@ -158,6 +158,7 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::vector<std::uint32_t> getShape();
   std::vector<std::uint32_t> getStride();
   target::DataType getDtype();
+  TensorDesc getTensorDesc();
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {

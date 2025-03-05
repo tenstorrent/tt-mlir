@@ -388,4 +388,9 @@ std::uint32_t getVolume(::tt::runtime::Tensor tensor) {
   return 0;
 }
 
+TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
+  LOG_WARNING("getTensorDesc not implemented for metal runtime");
+  return {};
+}
+
 } // namespace tt::runtime::ttmetal
