@@ -65,7 +65,7 @@ class CallbackRuntimeConfig:
     def check_pcc(self):
         for loc, golden_data in self.golden_report.items():
             if golden_data["actual_pcc"] < golden_data["expected_pcc"]:
-                raise Exception(
+                raise PCCErrorException(
                     f"Failed: golden comparison failed, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
                 )
 
