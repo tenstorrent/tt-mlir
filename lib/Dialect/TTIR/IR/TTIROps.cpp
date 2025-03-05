@@ -2771,11 +2771,6 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
-  // Validate CB mappings.
-  if (getCbs().size()) {
-    return emitOpError("CB mappings are deprecated and should not be used");
-  }
-
   // Output grid shape must equal the GenericOp grid shape.
   auto opGridShape = getGrid().getShape();
   for (auto output : getOutputs()) {
@@ -2871,8 +2866,6 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   assert(getNumResults() == 1 && "GenericOp should have exactly one result");
   assert(getOutputs().size() == 1 &&
          "GenericOp should have exactly one output");
-  assert(getCbs().size() == 0 &&
-         "GenericOp should not have any cb, these are deprecated");
 
   if (!mlir::isa<mlir::RankedTensorType>(getResult(0).getType())) {
     return failure();
@@ -2896,9 +2889,8 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
     bufferOutputs.push_back(*maybeValue);
   }
   auto bufferGeneric = rewriter.create<mlir::tt::ttir::GenericOp>(
-      getLoc(), ValueRange(), bufferInputs, ValueRange(), bufferOutputs,
-      getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping(),
-      getNumRegions());
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
+      getIndexingMaps(), getIteratorTypes(), getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }

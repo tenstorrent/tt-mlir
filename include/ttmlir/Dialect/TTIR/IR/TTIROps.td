@@ -103,25 +103,16 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, N
     }];
 
     let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
-    Variadic<AnyRankedTensorOrMemRef>:$cbs,
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types,
-                         DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$operand_cb_mapping);
+                         TT_IteratorTypeArrayAttr:$iterator_types);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ::ttmlir::utils::getDpsOutputs(this); }
-
-      Value getMatchingOperand(size_t blockArgIndex) {
-        assert(blockArgIndex < getInputs().size() + getOutputs().size() &&
-               "blockArgIndex should be within the range of inputs and outputs");
-        return blockArgIndex < getInputs().size() ?
-          getOperand(blockArgIndex) : getOperand(blockArgIndex + getCbs().size());
-      }
     }];
 }
 
