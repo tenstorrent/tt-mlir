@@ -233,6 +233,42 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// TypecastOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  return op_model::ttnn::TypecastOpInterface::getOpConstraints(
+      inputShape, inputs[0], getDtypeAttr(), outputShape, output);
+}
+
+llvm::Expected<size_t>
+TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::TypecastOpInterface::getOpRuntime(
+      inputShape, inputs[0], getDtypeAttr(), outputShape, output);
+}
+
+//===----------------------------------------------------------------------===//
 // TransposeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

@@ -19,9 +19,15 @@ namespace conversion {
 
 ::tt::tt_metal::DataType
 getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
-  auto dataType = layout.getDataType();
+  return getDataType(layout.getDataType());
+}
 
-  switch (dataType) {
+::tt::tt_metal::DataType getDataType(mlir::tt::DataTypeAttr dtype) {
+  return getDataType(dtype.getValue());
+}
+
+::tt::tt_metal::DataType getDataType(mlir::tt::DataType dtype) {
+  switch (dtype) {
   case tt::DataType::Float32:
     return ::tt::tt_metal::DataType::FLOAT32;
   case tt::DataType::BFloat16:
