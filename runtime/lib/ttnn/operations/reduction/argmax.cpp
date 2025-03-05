@@ -22,7 +22,7 @@ runReductionArgMaxOp(::tt::target::ttnn::ReductionArgMaxOp const *op,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   ::ttnn::Tensor out =
-      ::ttnn::argmax(in, op->dim(), op->use_multicore(),
+      ::ttnn::argmax(in, op->dim(), std::nullopt, op->use_multicore(),
                      outputMemoryConfig /* memory_config_arg */, std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
