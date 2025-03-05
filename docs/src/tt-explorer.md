@@ -14,6 +14,37 @@ Starting Model Explorer server at:
 http://localhost:8080
 ```
 
+### Running TT-Explorer Tests Locally
+TT-Explorer relies on tests that are present in the `tests/` directory as well as tests dynamically created through `llvm-lit`. Below are the steps to replicate the testing procedure seen in CI:
+1. Make sure you're in the `tt-mlir` directory
+2. You need to build the explorer target with `cmake --build build -- explorer`
+3. Run and save the system descriptor `ttrt query --save-artifacts`
+4. Save the system variable `export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys`
+5. Run and generate ttnn + MLIR tests: `cmake --build build -- check-ttmlir`
+6. Save the relevant test directories:
+    - `export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn,$(pwd)/build/test/ttmlir/Silicon/TTNN/n150/perf`
+    - `export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn`
+7. Run the pytest for `tt-explorer` with `pytest tools/explorer/test/run_tests.py`
+
+or in a concise shell script:
+```sh
+# Ensure you are present in the tt-mlir directory
+source env/activate
+
+# Build Tests
+cmake --build build -- explorer
+ttrt query --save-artifacts
+export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys
+cmake --build build -- check-ttmlir
+
+# Load Tests
+export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn,$(pwd)/build/test/ttmlir/Silicon/TTNN/n150/perf
+export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$(pwd)/build/test/python/golden/ttnn
+
+# Run Tests
+pytest tools/explorer/test/run_tests.py
+```
+
 Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gameify_ model tuning.
 
 ## TT-Explorer - Project Architecture
