@@ -82,6 +82,7 @@ struct ConvertTTIRToTTKernel
     target.addIllegalDialect<math::MathDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     
+    target.addIllegalOp<memref::AllocOp>();
     target.addIllegalOp<memref::StoreOp>();
     target.addIllegalOp<ttir::AwaitOp>();
     target.addIllegalOp<ttir::YieldOp>();

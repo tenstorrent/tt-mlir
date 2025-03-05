@@ -41,17 +41,17 @@ namespace mlir::tt::ttmetal {
 }
 
 ::mlir::LogicalResult CreateBufferOp::verify() {
-  auto layout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
-      getResult().getType().getEncoding());
-  if (not layout) {
-    return emitOpError("Result type missing layout attribute");
-  }
+  // auto layout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
+  //     getResult().getType().getEncoding());
+  // if (not layout) {
+  //   return emitOpError("Result type missing layout attribute");
+  // }
 
   if (getSize() == 0) {
     return emitOpError("Alloc size must be non-zero");
   }
 
-  auto memref = layout.getMemref();
+  auto memref = getResult().getType();
   auto memspace =
       mlir::cast<mlir::tt::MemorySpaceAttr>(memref.getMemorySpace()).getValue();
   if (memspace != getMemorySpace()) {

@@ -268,6 +268,33 @@ public:
 
 // memref.alloc -> ttmetal.create_buffer pass
 
+namespace {
+
+class MemrefAllocRewriter : public OpRewritePattern<memref::AllocOp> {
+public:
+  using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::AllocOp op,
+                                PatternRewriter &rewriter) const final {
+    llvm::errs() << "memref alloc rewriter\n";
+    
+    assert(op->getAttr("address") && "No address attribute found, failing.");
+    auto address = op->getAttrOfType<IntegerAttr>("address");
+    assert(op.getMemref().getType().getMemorySpace() &&
+            "No memref memroy space found, failing.");
+    assert(mlir::isa<TileType>(op.getMemref().getType().getElementType()) && "Expected memref to have tile element type, failing.");
+    auto size = mlir::cast<TileType>(op.getMemref().getType().getElementType()).getSizeBytes() * op.getMemref().getType().getNumElements();
+    auto memorySpace = mlir::cast<tt::MemorySpaceAttr>(
+        op.getMemref().getType().getMemorySpace());
+    auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(op->getLoc(), op.getMemref().getType(), address.getInt(), size, memorySpace.getValue());
+    rewriter.replaceOp(op, createBufferOp);
+
+    return success();
+  };
+};
+
+} // namespace
+
 // memref.dealloc -> ttmetal.deallocate_buffer pass?
 
 // init cleanup pass ?
@@ -282,7 +309,8 @@ void populateTTIRToTTKernelPatternsPhase1(MLIRContext *ctx,
 
   patterns.add<ttkernel::TTIRTileOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
-               ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>>(ctx);
+               ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
+               ttkernel::MemrefAllocRewriter>(ctx);
 }
 
 void populateTTIRToTTKernelPatternsPhase2(MLIRContext *ctx,

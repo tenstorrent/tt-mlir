@@ -27,11 +27,11 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOp
       Enqueue program operation
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
+    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$inputs,
+                         Variadic<AnyNon0RankedMemRef>:$outputs,
                          TTMetal_CoreRangeArrayAttr:$core_ranges,
                          TTKernel_KernelConfigArrayAttr:$kernelConfigs);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
+    let results = (outs Variadic<AnyNon0RankedMemRef>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
 
     let extraClassDeclaration = [{
@@ -81,7 +81,7 @@ def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer"> {
     }];
 
     let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
-    let results = (outs AnyRankedTensor:$result);
+    let results = (outs AnyNon0RankedMemRef:$result);
 
     let hasVerifier = 1;
 }
