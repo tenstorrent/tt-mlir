@@ -199,6 +199,7 @@ Device::getDeviceConstraints(mlir::tt::GridAttr workerGrid) {
 // Template functions for binary elementwise operations.
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpSymbol>
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
 getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
@@ -262,6 +263,7 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
                                  inputShapeB, inputLayoutB, outputShape,
                                  outputLayout);
 }
+#endif
 
 //===----------------------------------------------------------------------===//
 // ReluOp
