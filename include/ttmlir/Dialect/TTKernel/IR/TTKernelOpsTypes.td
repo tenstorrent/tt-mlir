@@ -141,4 +141,14 @@ def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
     let description = "L1 pointer address type in TTKernel dialect";
 }
 
+def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "interleaved_addr_gen_fast"> {
+    let summary = "TTKernel InterleavedAddrGenFast type";
+    let description = "InterleavedAddrGenFast type in TTKernel dialect";
+}
+
+def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
+    let summary = "TTKernel tensix data format type";
+    let description = "Data format type in TTKernel dialect";
+}
+
 #endif
