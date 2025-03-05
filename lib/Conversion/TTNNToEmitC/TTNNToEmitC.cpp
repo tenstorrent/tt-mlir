@@ -1047,8 +1047,9 @@ public:
     // SubscriptOp also returns an emitc::LValueType, so we wrap the
     // OpaqueType with LValueType.
     //
-    emitc::LValueType lvalueReturnType = emitc::LValueType::get(
-        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Tensor"));
+    emitc::LValueType lvalueReturnType =
+        emitc::LValueType::get(emitc::OpaqueType::get(
+            rewriter.getContext(), ttnn_to_emitc::TypeNameV<::ttnn::Tensor>));
     Value subscript = rewriter.create<emitc::SubscriptOp>(
         getTupleElementOp->getLoc(), lvalueReturnType, adaptor.getOperand(),
         indexAsVal);
@@ -1057,7 +1058,9 @@ public:
     // OpaqueType - this is done by invoking the emitc::LoadOp.
     //
     rewriter.replaceOpWithNewOp<emitc::LoadOp>(
-        getTupleElementOp, emitc::OpaqueType::get(getContext(), "ttnn::Tensor"),
+        getTupleElementOp,
+        emitc::OpaqueType::get(getContext(),
+                               ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
         subscript);
     return success();
   }

@@ -7,6 +7,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -44,8 +45,14 @@ namespace ttnn_to_emitc {
 template <typename T>
 struct TypeName;
 
+template <typename... Types>
+struct JoinTypeNames;
+
 template <typename T>
 const std::string TypeNameV = TypeName<T>::value;
+
+template <typename... Types>
+const std::string JoinTypeNamesV = JoinTypeNames<Types...>::value;
 
 template <>
 struct TypeName<int32_t> {
@@ -111,6 +118,18 @@ struct TypeName<::ttnn::SmallVector<T>> {
       "::ttnn::SmallVector<" + TypeNameV<T> + ">";
 };
 
+template <typename T>
+struct TypeName<std::optional<T>> {
+  inline static const std::string value =
+      "::std::optional<" + TypeNameV<T> + ">";
+};
+
+template <typename... Types>
+struct TypeName<std::tuple<Types...>> {
+  inline static const std::string value =
+      "::std::tuple<" + JoinTypeNamesV<Types...> + ">";
+};
+
 template <>
 struct TypeName<::ttnn::IDevice> {
   inline static const std::string value = "::ttnn::IDevice";
@@ -119,6 +138,22 @@ struct TypeName<::ttnn::IDevice> {
 template <>
 struct TypeName<::ttnn::Tensor> {
   inline static const std::string value = "::ttnn::Tensor";
+};
+
+template <>
+struct JoinTypeNames<> {
+  inline static const std::string value = "";
+};
+
+template <typename T>
+struct JoinTypeNames<T> {
+  inline static const std::string value = TypeNameV<T>;
+};
+
+template <typename T, typename... Rest>
+struct JoinTypeNames<T, Rest...> {
+  inline static const std::string value =
+      TypeNameV<T> + ", " + JoinTypeNamesV<Rest...>;
 };
 
 template <typename T, typename Enable = void>
@@ -731,6 +766,25 @@ public:
   template <typename OpConversionPatternTy>
   emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
                                 llvm::ArrayRef<mlir::Attribute> args) {
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv2dOp> ||
+                  std::is_same_v<TTNNOp, tt::ttnn::ConvTranspose2dOp>) {
+      using ReturnTy =
+          std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
+                     std::optional<::ttnn::Tensor>>;
+
+      auto opResult = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          nullptr, adaptor.getOperands());
+
+      return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          op, rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          "::std::get", rewriter.getArrayAttr({rewriter.getIndexAttr(0)}),
+          rewriter.getArrayAttr(
+              {rewriter.getIntegerAttr(rewriter.getI32Type(), 0)}),
+          opResult.getResult(0));
+    }
+
     auto resultTypes = llvm::to_vector(
         llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);
