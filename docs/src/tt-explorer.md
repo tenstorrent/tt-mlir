@@ -6,9 +6,11 @@ Welcome to the tt-explorer wiki! The Wiki will serve as a source for documentati
 TT-Explorer comes packaged as a tool in the `tt-mlir` repo.
 
 1. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
-2. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
-3. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
-4. Ensure server has started in `tt-explorer` shell instance (check for message below)
+2. Ensure `tt-mlir` is built with atleast these flags:
+    - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_DEBUG=ON`
+3. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
+4. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
+5. Ensure server has started in `tt-explorer` shell instance (check for message below)
 ```sh
 Starting Model Explorer server at:
 http://localhost:8080
