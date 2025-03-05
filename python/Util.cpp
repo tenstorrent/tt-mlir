@@ -3,12 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
-#include <pybind11/pytypes.h>
 #include <variant>
 
 namespace mlir::ttmlir::python {
 
-void populateUtilModule(py::module &m) {
+void populateUtilModule(nb::module_ &m) {
   m.def("debug_print_module", [](MlirModule module) {
     std::string source;
     llvm::raw_string_ostream os(source);
@@ -20,17 +19,17 @@ void populateUtilModule(py::module &m) {
   });
 
   m.def("get_loc_name",
-        [](MlirLocation _loc) -> std::variant<std::string, py::object> {
+        [](MlirLocation _loc) -> std::variant<std::string, nb::object> {
           mlir::Location loc = unwrap(_loc);
           if (mlir::isa<mlir::NameLoc>(loc)) {
             mlir::NameLoc nameLoc = mlir::cast<mlir::NameLoc>(loc);
             return nameLoc.getName().str();
           }
-          return py::none();
+          return nb::none();
         });
 
   m.def("get_loc_full",
-        [](MlirLocation _loc) -> std::variant<std::string, py::object> {
+        [](MlirLocation _loc) -> std::variant<std::string, nb::object> {
           mlir::Location loc = unwrap(_loc);
 
           std::string locationStr;

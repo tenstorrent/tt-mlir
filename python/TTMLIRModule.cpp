@@ -4,7 +4,7 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
-PYBIND11_MODULE(_ttmlir, m) {
+NB_MODULE(_ttmlir, m) {
   m.doc() = "ttmlir main python extension";
 
   m.def(
@@ -25,7 +25,7 @@ PYBIND11_MODULE(_ttmlir, m) {
           mlirDialectHandleLoadDialect(ttnn_handle, context);
         }
       },
-      py::arg("context"), py::arg("load") = true);
+      nb::arg("context"), nb::arg("load") = true);
 
   auto tt_ir = m.def_submodule("tt_ir", "TT IR Bindings");
   mlir::ttmlir::python::populateTTModule(tt_ir);
