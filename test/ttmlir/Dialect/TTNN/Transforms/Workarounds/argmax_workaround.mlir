@@ -17,18 +17,12 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
     // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: tensor<1x1x64x64xf32,
     // CHECK-SAME: -> tensor<1x1x64x64xbf16,
-    // CHECK: %[[ARG1:[0-9]]] = "ttnn.to_layout"
-    // CHECK-SAME: dtype = #tt.supportedDataTypes<u32>
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: tensor<1x1x64x1xui32
-    // CHECK-SAME: -> tensor<1x1x64x1xui32
     %1 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<2x1>>, <interleaved>>, shape = #ttnn.shape<64x1>}> : (!tt.device<#device>) -> tensor<64x1xui32, #ttnn_layout1>
-    // CHECK: [[ARG_MAX:[0-9]+]] = "ttnn.argmax"(%[[ARG0]], %[[ARG1]])
+    // CHECK: [[ARG_MAX:[0-9]+]] = "ttnn.argmax"(%[[ARG0]])
     // CHECK-SAME: {dim = 3 : i32, use_multicore = false}
     // CHECK-SAME: tensor<1x1x64x64xbf16
-    // CHECK-SAME: tensor<1x1x64x1xui32
     // CHECK-SAME: -> tensor<1x1x64x1xui32
-    %2 = "ttnn.argmax"(%arg0, %1) <{dim = 1 : i32, use_multicore = false}> : (tensor<64x64xf32, #ttnn_layout>, tensor<64x1xui32, #ttnn_layout1>) -> tensor<64x1xui32, #ttnn_layout1>
+    %2 = "ttnn.argmax"(%arg0) <{dim = 1 : i32, use_multicore = false}> : (tensor<64x64xf32, #ttnn_layout>) -> tensor<64x1xui32, #ttnn_layout1>
     // CHECK: %[[TO_LAYOUT:[0-9]+]] = "ttnn.to_layout"(%[[ARG_MAX]],
     // CHECK-SAME: dtype = #tt.supportedDataTypes<u32>
     // CHECK-SAME: layout = #ttnn.layout<tile>

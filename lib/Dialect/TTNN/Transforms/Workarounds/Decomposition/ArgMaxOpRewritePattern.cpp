@@ -54,28 +54,6 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
   RankedTensorType newOutputType = RankedTensorType::get(
       argMaxOutputShape, outputType.getElementType(), newOutputLayoutAttr);
 
-  // Create new ttnn.empty tensor using new output shape and layout attribute.
-  ttnn::LayoutAttr tensorLayoutAttr =
-      ttnn::LayoutAttr::get(getContext(), newOutputLayoutAttr.getLayout());
-
-  ttnn::ShapeAttr shapeAttr =
-      ttnn::ShapeAttr::get(rewriter.getContext(), newOutputType.getShape());
-
-  ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
-      getContext(), newOutputLayoutAttr.getBufferType());
-  ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
-      getContext(),
-      ttnn::ShapeAttr::get(getContext(), newOutputLayoutAttr.getShardShape()));
-  ttnn::MemoryConfigAttr memoryConfigAttr =
-      ttnn::MemoryConfigAttr::get(getContext(), bufferTypeAttr, shardSpecAttr,
-                                  newOutputLayoutAttr.getMemLayout());
-  DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(),
-                                             newOutputLayoutAttr.getDataType());
-
-  EmptyOp emptyOp = rewriter.create<ttnn::EmptyOp>(
-      srcOp->getLoc(), newOutputType, shapeAttr, dTypeAttr, tensorLayoutAttr,
-      ttnn::utils::getOrInsertDevice(rewriter, srcOp), memoryConfigAttr);
-
   // Update the dimension according to reshaped input (if required). The dim
   // attribute will be incremented exactly as increase in input tensor rank due
   // to unsqueeze operation.
@@ -90,7 +68,7 @@ ArgMaxOpRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
   ArgMaxOp argMaxOp = rewriter.create<mlir::tt::ttnn::ArgMaxOp>(
       srcOp->getLoc(), newOutputType, preReshapeOp, dimAttr,
       /*use_multicore=*/false, // Default tt-metal value.
-      /*memoryConfig=*/nullptr, emptyOp);
+      /*memoryConfig=*/nullptr);
 
   // Create ttnn.reshape op after performing ttnn.argmax op.
   ReshapeOp postReshapeOp = ttir_to_ttnn::utils::generateReshape(

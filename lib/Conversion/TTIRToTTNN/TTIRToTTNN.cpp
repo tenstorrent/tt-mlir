@@ -402,7 +402,7 @@ public:
             ? mlir::cast<mlir::IntegerAttr>(dimArg->getValue().front())
             : nullptr,
         /*use_multicore*/ false, // Default tt-metal value.
-        /*memoryConfig*/ nullptr, adaptor.getOutput());
+        /*memoryConfig*/ nullptr);
     return success();
   }
 };
