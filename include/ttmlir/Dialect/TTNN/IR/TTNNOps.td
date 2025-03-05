@@ -583,7 +583,10 @@ def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum"> {
     }];
 }
 
-def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
+def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
+
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
