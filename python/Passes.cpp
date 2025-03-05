@@ -10,11 +10,14 @@
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
+#include <nanobind/stl/bind_map.h>
 #include <nanobind/stl/bind_vector.h>
 #include <nanobind/stl/shared_ptr.h>
 
 // Make Opaque so Casts & Copies don't occur
 NB_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
+NB_MAKE_OPAQUE(mlir::tt::GoldenTensor);
+NB_MAKE_OPAQUE(std::unordered_map<std::string, mlir::tt::GoldenTensor>);
 
 namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer();
@@ -155,6 +158,9 @@ void populatePassesModule(nb::module_ &m) {
   nb::bind_vector<std::vector<std::pair<std::string, std::string>>>(
       m, "ModuleLog");
 
+  nb::bind_map<std::unordered_map<std::string, mlir::tt::GoldenTensor>>(
+      m, "GoldenMap");
+
   m.def(
       "ttnn_to_flatbuffer_file",
       [](MlirModule module, std::string &filepath,
@@ -178,7 +184,9 @@ void populatePassesModule(nb::module_ &m) {
                                    filepath);
         }
       },
-      nb::arg("module"), nb::arg("filepath"), nb::arg("goldenMap") = nb::dict(),
+      nb::arg("module"), nb::arg("filepath"),
+      nb::arg("goldenMap") =
+          std::unordered_map<std::string, mlir::tt::GoldenTensor>(),
       nb::arg("moduleCache") =
           std::vector<std::pair<std::string, std::string>>());
 

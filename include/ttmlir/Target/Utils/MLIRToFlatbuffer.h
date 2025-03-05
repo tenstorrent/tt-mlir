@@ -31,6 +31,9 @@ struct GoldenTensor {
                std::vector<std::uint8_t> &&_data)
       : name(name), shape(shape), strides(strides), dtype(dtype),
         data(std::move(_data)) {}
+
+  // Create an explicit empty constructor
+  GoldenTensor() {}
 };
 
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
