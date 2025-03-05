@@ -41,6 +41,40 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
                                                            ]>
       , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
       ], traits)> {
+
+    let extraClassDefinition = [{
+      bool $cppClass::bufferizesToMemoryRead(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        // If the operand is an input, it is a bufferized to a memory read.
+        return isDpsInput(&operand);
+      }
+
+      bool $cppClass::bufferizesToMemoryWrite(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        // If the operand is an output, it is a bufferized to a memory write.
+        return isDpsInit(&operand);
+      }
+
+      bufferization::AliasingValueList $cppClass::getAliasingValues(
+          OpOperand &, const bufferization::AnalysisState &) {
+        bufferization::AliasingValueList result;
+        return result;
+      }
+
+      FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+          Value value, const bufferization::BufferizationOptions &,
+          SmallVector<mlir::Value> &) {
+        auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+        return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+            .getBufferType();
+      }
+
+      void $cppClass::getEffects(
+          SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+              &effects) {
+        ttir::getDpsEffects(*this, effects);
+      }
+    }];
 }
 
 def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, NoTerminator]> {
@@ -78,7 +112,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, N
                          TT_IteratorTypeArrayAttr:$iterator_types,
                          DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$operand_cb_mapping); // index of input operand and index of cb go together
     let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region AnyRegion:$region);
+    let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
@@ -135,6 +169,74 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasVerifier = 1;
 
     let hasCanonicalizeMethod = 1;
+}
+
+def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
+  [DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+    let summary = "Stream Layout op.";
+    let description = [{
+      StreamLayout operation used to form a stream between remote and local memory spaces. Note that this op has
+      no side-effects, it's purely representational. The primary use cases include, to enable streaming a large
+      tensor out of dram via a small L1 buffer and also as a means for forming reduce or gather multicast
+      operations. A stream definition includes:
+
+      - The tensor to be streamed.
+      - The storage buffer to be used for streaming.
+      - A result, which is also able to take a view over the input, i.e. same semantics as the ViewLayout op.
+
+      Additional constraints:
+      - It is not capable of changing the data type nor the memory space of the tensor.
+
+      ```llvm
+      %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
+      %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3), stream>, #l1_>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$storage);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getStorageMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
+  [ Pure
+  , TTIROpInterface
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+    let summary = "View Layout op.";
+    let description = [{
+      ViewLayout operation, used to take a view of one layout into another.  Note that this op is purely representational
+      and doesn't have any side-effects. Its primary usecase is to allow reinterpreting the layout of a tensor without actually
+      moving the data. Consumers of this op are expected to compose the layout with the underlying backing layout.
+
+      Additional notes/constraints:
+      - It is not capable of changing the data type nor the memory space of the tensor.
+      - All ViewLayout ops can trivially be converted to ToLayout ops.
+
+      ```llvm
+      #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
