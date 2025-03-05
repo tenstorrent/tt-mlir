@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTIR_IR_UTILS_H
 #define TTMLIR_DIALECT_TTIR_IR_UTILS_H
 
-#include <mlir/IR/ValueRange.h>
+#include "mlir/IR/ValueRange.h"
 
 #include <type_traits>
 
@@ -13,10 +13,10 @@ namespace mlir::tt::ttir {
 
 // detect the presence of 'getOutputsMutable()' in 'Op':
 template <typename Op, typename = void>
-inline constexpr bool has_variadic_outputs = false;
+inline constexpr bool has_variadic_outputs_v = false;
 
 template <typename Op>
-inline constexpr bool has_variadic_outputs<
+inline constexpr bool has_variadic_outputs_v<
     Op, std::void_t<decltype(std::declval<Op>().getOutputsMutable())>> = true;
 
 namespace impl {
@@ -29,7 +29,7 @@ struct getDpsOutputs {
 };
 
 template <typename Op>
-struct getDpsOutputs<Op, std::enable_if_t<has_variadic_outputs<Op>>> {
+struct getDpsOutputs<Op, std::enable_if_t<has_variadic_outputs_v<Op>>> {
   static mlir::MutableOperandRange evaluate(Op *op) {
     return op->getOutputsMutable();
   }
