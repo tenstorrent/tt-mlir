@@ -81,7 +81,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<arith::ArithDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addLegalDialect<scf::SCFDialect>();
-    
+
     target.addIllegalOp<memref::AllocOp>();
     target.addIllegalOp<memref::StoreOp>();
     target.addIllegalOp<ttir::AwaitOp>();
@@ -130,8 +130,6 @@ struct ConvertTTIRToTTKernel
       signalPassFailure();
       return;
     }
-
-    
   };
 };
 

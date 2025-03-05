@@ -285,16 +285,21 @@ public:
   LogicalResult matchAndRewrite(memref::AllocOp op,
                                 PatternRewriter &rewriter) const final {
     llvm::errs() << "memref alloc rewriter\n";
-    
+
     assert(op->getAttr("address") && "No address attribute found, failing.");
     auto address = op->getAttrOfType<IntegerAttr>("address");
     assert(op.getMemref().getType().getMemorySpace() &&
-            "No memref memroy space found, failing.");
-    assert(mlir::isa<TileType>(op.getMemref().getType().getElementType()) && "Expected memref to have tile element type, failing.");
-    auto size = mlir::cast<TileType>(op.getMemref().getType().getElementType()).getSizeBytes() * op.getMemref().getType().getNumElements();
+           "No memref memroy space found, failing.");
+    assert(mlir::isa<TileType>(op.getMemref().getType().getElementType()) &&
+           "Expected memref to have tile element type, failing.");
+    auto size = mlir::cast<TileType>(op.getMemref().getType().getElementType())
+                    .getSizeBytes() *
+                op.getMemref().getType().getNumElements();
     auto memorySpace = mlir::cast<tt::MemorySpaceAttr>(
         op.getMemref().getType().getMemorySpace());
-    auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(op->getLoc(), op.getMemref().getType(), address.getInt(), size, memorySpace.getValue());
+    auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(
+        op->getLoc(), op.getMemref().getType(), address.getInt(), size,
+        memorySpace.getValue());
     rewriter.replaceOp(op, createBufferOp);
 
     return success();
