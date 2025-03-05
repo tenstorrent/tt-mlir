@@ -12,6 +12,34 @@ from utils import TT_MLIR_HOME, Helper, DeviceContext, assert_pcc
 
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_tensor_buffer_api(shape, dtype):
+    torch_tensor = torch.randn(shape, dtype=dtype)
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+    rt_tensor = ttrt.runtime.create_tensor(
+        torch_tensor.data_ptr(),
+        list(torch_tensor.shape),
+        list(torch_tensor.stride()),
+        torch_tensor.element_size(),
+        runtime_dtype,
+    )
+    rt_shape = rt_tensor.get_shape()
+    rt_elem_size = rt_tensor.get_element_size()
+    rt_vol = rt_tensor.get_volume()
+    rt_dtype = ttrt_datatype_to_torch_dtype(rt_tensor.get_dtype())
+    rt_bytes = rt_tensor.get_data_buffer()
+
+    # Various tests that the no underlying stuff has changed over the pybind boundary
+    assert list(rt_shape) == list(shape)
+    assert rt_elem_size == torch_tensor.element_size()
+    assert rt_vol == torch_tensor.numel()
+    assert rt_dtype == torch_tensor.dtype
+    assert len(rt_bytes) == rt_vol * rt_elem_size
+    reconstructed_tensor = torch.frombuffer(rt_bytes, dtype=rt_dtype).reshape(rt_shape)
+    assert torch.equal(torch_tensor, reconstructed_tensor)
+
+
+@pytest.mark.parametrize("shape", [(64, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_to_layout(helper: Helper, shape, dtype, request):
     helper.initialize(request.node.name)
     helper.check_constraints()

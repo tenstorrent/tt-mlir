@@ -363,4 +363,33 @@ std::vector<float> getTensorData(Tensor tensor) {
   return {};
 }
 
+std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor) {
+  LOG_WARNING("getDataBuffer not implemented for metal runtime");
+  return {};
+}
+
+std::vector<std::uint32_t> getShape(::tt::runtime::Tensor tensor) {
+  LOG_WARNING("getShape not implemented for metal runtime");
+  return {};
+}
+
+std::vector<std::uint32_t> getStride(::tt::runtime::Tensor tensor) {
+  LOG_WARNING("getStride not implemented for metal runtime");
+  return {};
+}
+
+std::uint32_t getElementSize(::tt::runtime::Tensor tensor) {
+  LOG_WARNING("getElementSize not implemented for metal runtime");
+  return 0;
+}
+
+std::uint32_t getVolume(::tt::runtime::Tensor tensor) {
+  LOG_WARNING("getVolume not implemented for metal runtime");
+  return 0;
+}
+target::DataType getDtype(::tt::runtime::Tensor tensor) {
+  LOG_WARNING("getDtype not implemented for metal runtime");
+  return {};
+}
+
 } // namespace tt::runtime::ttmetal
