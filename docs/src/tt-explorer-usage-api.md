@@ -282,3 +282,161 @@ type AdapterOverrideResponse = ExtensionResponse<[{
   }]
 }
 ```
+
+## Editable attributes
+
+To enable an attribute to be edited, a response coming from the server should contain the `editable` field on the attribute.
+
+The typescript interface is as follows:
+```typescript
+interface Graph {
+	nodes: GraphNode[];
+	// ...
+}
+
+interface GraphNode {
+	attrs?: Attribute[];
+	// ...
+}
+
+type EditableAttributeTypes = EditableIntAttribute | EditableValueListAttribute | EditableGridAttribute; // Attribute types are defined below...
+
+interface Attribute {
+	key: string;
+	value: string;
+	editable?: EditableAttributeTypes; // <- the editable attribute information
+}
+```
+
+### `EditableIntAttribute`
+
+This editable attribute represents a list of integer values. It expects the **attribute `value`** to be formatted as a string, starting with `[` and ending with `]`, with all values separated by `,`. Like the example below:
+```
+[1, 2, 3]
+```
+
+The typescript interface for the `editable` attribute is this:
+```typescript
+interface EditableIntAttribute {
+	input_type: 'int_list';
+	min_value?: number = 0;
+	max_value?: number = 100;
+	step?: number = 1;
+}
+```
+
+Both `min_value` and `max_value` define the accepted range of values, and `step` define the number to increment or decrement per step.
+
+The default range of values is between `0` and `100`, inclusive, and the default step is `1`. Thus by default, the value will increment or decrement by `1` each time to a minimum of `0` and a maximum of `100`. 
+
+Here is an example of what this attribute look like:
+```json
+{
+  "graphs": [{
+    "nodes": [
+	    {
+		    "attrs": [
+			    {
+				    "key": "shape",
+				    "value": "[8, 8]",
+				    "editable": {
+					    "input_type": "int_list",
+					    "min_value": 8,
+					    "max_value": 64,
+					    "step": 8
+				    }
+			    }
+		    ]
+	    }
+    ]
+  }]
+}
+```
+
+### `EditableValueListAttribute`
+
+This editable attribute define a fixed list of string values to display.
+
+The typescript interface for the `editable` attribute is this:
+```typescript
+interface EditableValueListAttribute {
+	input_type: 'value_list';
+	options: string[];
+}
+```
+
+The `options` property provides the list of options to be displayed.  The current value will be added to this list and any duplicates will be removed.
+
+Here is an example of what this attribute look like:
+```json
+{
+  "graphs": [{
+    "nodes": [
+	    {
+		    "attrs": [
+			    {
+				    "key": "chip_arch",
+				    "value": "wormhole",
+				    "editable": {
+					    "input_type": "value_list",
+					    "options": [
+						    "wormhole",
+						    "grayskull"
+					    ]
+				    }
+			    }
+		    ]
+	    }
+    ]
+  }]
+}
+```
+
+### `EditableGridAttribute`
+
+The grid attribute is similar to to the integer list, with the main difference that you can specify a `separator` for the place the list will be split, and it doesn't need to be enclosed in bracket (`[` and `]`). The data for a grid attribute looks like this:
+```
+4x4x2
+```
+
+The typescript interface for the `editable` attribute is this:
+```typescript
+interface EditableGridAttribute {
+	input_type: 'grid';
+	separator?: string = 'x'; 
+	min_value?: number = 0;
+	max_value?: number = 100;
+	step?: number = 1;
+}
+```
+
+Both `min_value` and `max_value` define the accepted range of values, and `step` define the number to increment or decrement per step.
+
+The default range of values is between `0` and `100`, inclusive, and the default step is `1`. Thus by default, the value will increment or decrement by `1` each time to a minimum of `0` and a maximum of `100`. 
+
+The `separator` attribute defines the character used to split the string, it defaults to "`x`".
+
+Here is an example of what this attribute look like:
+```json
+{
+  "graphs": [{
+    "nodes": [
+	    {
+		    "attrs": [
+			    {
+				    "key": "grid",
+				    "value": "4x4",
+				    "editable": {
+					    "input_type": "grid",
+					    "min_value": 4,
+					    "max_value": 64,
+					    "step": 4,
+					    "separator": "x"
+				    }
+			    }
+		    ]
+	    }
+    ]
+  }]
+}
+```
