@@ -1629,7 +1629,8 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
                      /*allowMemorySpaceChange*/ true,
                      /*checkMemrefRank*/ true,
                      /*checkMemrefGridShardForm */ true,
-                     /*checkMemrefGridShape*/ false);
+                     /*checkMemrefGridShape*/ false,
+                     /*checkMemrefShardShape*/ false);
   if (failed(inputStorageVerification)) {
     return inputStorageVerification;
   }
@@ -1640,7 +1641,8 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
                      /*allowMemorySpaceChange*/ false,
                      /*checkMemrefRank*/ true,
                      /*checkMemrefGridShardForm */ true,
-                     /*checkMemrefGridShape*/ true);
+                     /*checkMemrefGridShape*/ false,
+                     /*checkMemrefShardShape*/ true);
   if (failed(storageResultVerification)) {
     return storageResultVerification;
   }
@@ -2771,6 +2773,17 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
+  if (!getGrid().getMapping().isEmpty()) {
+    return emitOpError("GenericOp grid mapping is not supported");
+  }
+
+  auto [outputOperandsIndex, outputOperandsLength] =
+      getODSOperandIndexAndLength(1);
+  if (outputOperandsLength != 1) {
+    return emitOpError(
+        "GenericOp must currently have exactly one output operand");
+  }
+
   // Output grid shape must equal the GenericOp grid shape.
   auto opGridShape = getGrid().getShape();
   for (auto output : getOutputs()) {
@@ -2849,6 +2862,16 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
       if (expectedShardShape != blockMemref.getShape()) {
         return emitOpError("GenericOp region argument shape must match the "
                            "shape of the corresponding operand");
+      }
+    }
+
+    auto additionalArguments =
+        region.getArguments().drop_front(operandTypes.size());
+    for (BlockArgument arg : additionalArguments) {
+      bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
+      if (!supportedType) {
+        return emitOpError(
+            "Additional GenericOp region arguments must be of SemaphoreType");
       }
     }
   }
@@ -3194,4 +3217,43 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// YieldOp / AwaitOp
+//===----------------------------------------------------------------------===//
+
+static bool valueInBlockArguments(mlir::Value value, mlir::Block *block) {
+  return llvm::any_of(block->getArguments(),
+                      [&](const mlir::BlockArgument &blockArgument) {
+                        return blockArgument == value;
+                      });
+}
+
+static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
+  while (auto memrefCastOp =
+             value.getDefiningOp<::mlir::memref::CollapseShapeOp>()) {
+    value = memrefCastOp.getOperand();
+  }
+  return value;
+}
+
+static ::mlir::LogicalResult operandsInBlockArguments(mlir::Operation *op,
+                                                      mlir::Block *block) {
+  for (mlir::OpOperand &operand : op->getOpOperands()) {
+    mlir::Value value = recurseThroughMemrefCollapse(operand.get());
+    if (!valueInBlockArguments(value, block)) {
+      return op->emitOpError() << "operand[" << operand.getOperandNumber()
+                               << "] not in block arguments";
+    }
+  }
+  return ::mlir::success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
+  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
+}
+
+::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
+  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
 }
