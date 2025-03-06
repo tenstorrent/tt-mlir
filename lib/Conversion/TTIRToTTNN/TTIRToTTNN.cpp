@@ -1121,8 +1121,8 @@ public:
     }
 
     auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[1] ||
-        paddingArrayRef[2] != paddingArrayRef[3]) {
+    if (paddingArrayRef[0] != paddingArrayRef[2] ||
+        paddingArrayRef[1] != paddingArrayRef[3]) {
       return rewriter.notifyMatchFailure(
           op,
           "TTNN only supports padding height/width attributes. Thus, "
