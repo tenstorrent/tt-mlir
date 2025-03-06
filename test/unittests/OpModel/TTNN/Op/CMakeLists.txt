@@ -8,6 +8,7 @@ TestOpModelInterface.cpp
 
 target_compile_options(TestOpModelInterface
     PRIVATE
+    -fno-rtti
 )
 
 target_include_directories(TestOpModelInterface
