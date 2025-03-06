@@ -422,6 +422,7 @@ class TTIRBuilder:
 
             # Use the golden output to determine proper output shape unless otherwise specified
             output_shape = golden.tensor.shape if not output_shape else output_shape
+            # print(output_shape, type(output_shape))
             output = self.empty(output_shape)
 
             id = self.get_next_global_id()
@@ -578,6 +579,22 @@ class TTIRBuilder:
     def minimum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.minimum, ttir.MinimumOp, [in0, in1])
 
+    def sum(
+        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+    ) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.sum,
+            ttir.SumOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
     def mean(
         self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
     ) -> OpView:
@@ -588,6 +605,42 @@ class TTIRBuilder:
         return self.op_proxy(
             torch.mean,
             ttir.MeanOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def max(
+        self,
+        in0: Operand,
+        dim_arg: int = 1,
+        keep_dim: bool = True,
+    ) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.max,
+            ttir.MaxOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            output_shape=torch.Size([0, 0]),  # clunky?
+        )
+
+    def min(
+        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+    ) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.min,
+            ttir.MinOp,
             [in0],
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
@@ -605,6 +658,12 @@ class TTIRBuilder:
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
         )
+
+    def scatter(self) -> OpView:
+        pass
+
+    def typecast(self) -> OpView:
+        pass
 
     def squeeze(self, in0: Operand, dim: Optional[int] = 0) -> OpView:
         kwargs = {"dim": dim}
