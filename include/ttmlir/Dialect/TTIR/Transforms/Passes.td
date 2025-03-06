@@ -195,4 +195,16 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
   let dependentDialects = ["::mlir::tt::TTDialect"];
 }
 
+def TTIRConstEvalHoistTransform: Pass<"ttir-const-eval-hoist-transform", "::mlir::ModuleOp">
+{
+  let summary = "Transform to hoist const-eval subgraph into separate func(s)";
+  let description = [{
+    Transform pass which runs an analysis pass to find const-eval subgraphs in an input and hoist them into separate functions.
+
+    Example: (TODO)
+  }];
+
+  // let dependentDialects = ["::mlir::tt::TTDialect"];
+}
+
 #endif
