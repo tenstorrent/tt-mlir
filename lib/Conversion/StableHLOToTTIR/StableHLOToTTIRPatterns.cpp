@@ -30,6 +30,7 @@
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Diagnostics.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Support/LogicalResult.h>
@@ -1736,6 +1737,10 @@ public:
     std::optional<bool> ineffectiveness =
         isCclOpIneffective(adaptor.getReplicaGroups());
     if (ineffectiveness.has_value() && ineffectiveness == true) {
+      emitWarning(srcOp.getLoc())
+          << "Performing a CCL operation across a single mesh device is "
+             "ineffective. Check your replica_groups : "
+          << adaptor.getReplicaGroups();
       rewriter.replaceOp(srcOp, adaptor.getOperands()[0]);
       return success();
     }
