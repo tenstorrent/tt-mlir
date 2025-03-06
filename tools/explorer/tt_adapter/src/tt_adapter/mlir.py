@@ -610,19 +610,22 @@ def build_graph(module, perf_trace=None, memory_trace=None):
         for node in memory_trace:
             loc = parse_loc_string(memory_trace[node]["loc"])
             memory_data[loc] = {}
-            memory_data[loc]["dram"] = (
+            memory_data[loc]["dram"] = round(
                 memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"]
+                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"],
+                4,
             )
-            memory_data[loc]["l1"] = (
+            memory_data[loc]["l1"] = round(
                 memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"]
+                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"],
+                4,
             )
-            memory_data[loc]["l1_small"] = (
+            memory_data[loc]["l1_small"] = round(
                 memory_trace[node]["l1_small"]["device_0"][
                     "total_bytes_allocated_per_bank"
                 ]
-                / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"]
+                / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"],
+                4,
             )
 
     # Process the module hierarchy recursively
