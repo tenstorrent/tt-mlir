@@ -577,38 +577,64 @@ std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor) {
   // Need to `memcpy` in each case because the vector will go out of scope if we
   // wait until after the switch case
   switch (getTensorDataType(tensor)) {
-  case target::DataType::BFP_BFloat4:
-  case target::DataType::BFP_BFloat8:
-  case target::DataType::Float32:
-    dataPtr = ttnnTensor.to_vector<float>().data();
+  case target::DataType::BFP_BFloat4: {
+    dataVec.resize(sizeof(float) * getVolume(tensor));
+    auto vec = ttnnTensor.to_vector<float>();
+    dataPtr = vec.data();
     LOG_ASSERT(dataPtr != nullptr);
     std::memcpy(dataVec.data(), dataPtr, numBytes);
     return dataVec;
-  case target::DataType::BFloat16:
-    dataPtr = ttnnTensor.to_vector<bfloat16>().data();
+  }
+  case target::DataType::BFP_BFloat8: {
+    dataVec.resize(sizeof(float) * getVolume(tensor));
+    auto vec = ttnnTensor.to_vector<float>();
+    dataPtr = vec.data();
     LOG_ASSERT(dataPtr != nullptr);
     std::memcpy(dataVec.data(), dataPtr, numBytes);
     return dataVec;
-  case target::DataType::Int32:
-    dataPtr = ttnnTensor.to_vector<std::int32_t>().data();
+  }
+  case target::DataType::Float32: {
+    auto vec = ttnnTensor.to_vector<float>();
+    dataPtr = vec.data();
     LOG_ASSERT(dataPtr != nullptr);
     std::memcpy(dataVec.data(), dataPtr, numBytes);
     return dataVec;
-  case target::DataType::UInt32:
-    dataPtr = ttnnTensor.to_vector<std::uint32_t>().data();
+  }
+  case target::DataType::BFloat16: {
+    auto vec = ttnnTensor.to_vector<bfloat16>();
+    dataPtr = vec.data();
     LOG_ASSERT(dataPtr != nullptr);
     std::memcpy(dataVec.data(), dataPtr, numBytes);
     return dataVec;
-  case target::DataType::UInt16:
-    dataPtr = ttnnTensor.to_vector<std::uint16_t>().data();
+  }
+  case target::DataType::Int32: {
+    auto vec = ttnnTensor.to_vector<std::int32_t>();
+    dataPtr = vec.data();
     LOG_ASSERT(dataPtr != nullptr);
     std::memcpy(dataVec.data(), dataPtr, numBytes);
     return dataVec;
-  case target::DataType::UInt8:
-    dataPtr = ttnnTensor.to_vector<std::uint8_t>().data();
+  }
+  case target::DataType::UInt32: {
+    auto vec = ttnnTensor.to_vector<std::uint32_t>();
+    dataPtr = vec.data();
     LOG_ASSERT(dataPtr != nullptr);
     std::memcpy(dataVec.data(), dataPtr, numBytes);
     return dataVec;
+  }
+  case target::DataType::UInt16: {
+    auto vec = ttnnTensor.to_vector<std::uint16_t>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, numBytes);
+    return dataVec;
+  }
+  case target::DataType::UInt8: {
+    auto vec = ttnnTensor.to_vector<std::uint8_t>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, numBytes);
+    return dataVec;
+  }
   default:
     LOG_ERROR("Unsupported datatype for underlying TTNN tensor, returning "
               "empty data vector");
