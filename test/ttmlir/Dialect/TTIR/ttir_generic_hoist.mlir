@@ -7,16 +7,15 @@ func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tens
     grid = #tt.grid<1x1>,
     indexing_maps = [#map, #map, #map],
     iterator_types = [#parallel, #parallel],
-    operandSegmentSizes = array<i32: 2, 0, 1>,
-    operand_cb_mapping = array<i64>}> ({
-  ^bb0(%arg2: memref<64x128xf32>, %arg3: tensor<64x128xf32>, %arg4: tensor<64x128xf32>):
+    operandSegmentSizes = array<i32: 2, 1>}> ({
+  ^bb0(%arg2: memref<64x128xf32>, %arg3: memref<64x128xf32>, %arg4: memref<64x128xf32>):
     // lit CHECK to make sure this constant stays inside the generic region
     // CHECK: ttir.generic
     // CHECK: arith.constant 0 : index
     %i = arith.constant 0 : index
     %2 = arith.constant 0.000000e+00 : f32
     memref.store %2, %arg2[%i, %i] : memref<64x128xf32>
-    "ttir.yield"(%arg3) : (tensor<64x128xf32>) -> ()
+    "ttir.yield"(%arg3) : (memref<64x128xf32>) -> ()
   }) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }

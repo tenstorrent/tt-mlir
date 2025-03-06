@@ -5,6 +5,7 @@
 #include "operations/reduction/prod.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -15,14 +16,13 @@ static void runReductionProdOp(::tt::target::ttnn::ReductionProdOp const *op,
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
-  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(in.is_allocated());
+  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
 
   ::ttnn::Tensor out =
       ::ttnn::prod(in, op->all_dimensions(), op->dim_arg(), op->keep_dim(),
                    outputMemoryConfig /* memory_config_arg */);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tensorPool.insertAndValidate(op->out(), out);
 }
 
 void run(const ::tt::target::ttnn::ReductionProdOp *op,

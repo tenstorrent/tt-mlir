@@ -5,6 +5,7 @@
 #include "operations/conv/conv_transpose2d.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -15,13 +16,11 @@ namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
-  const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
-  DEBUG_ASSERT(input.is_allocated());
-  DEBUG_ASSERT(weight.is_allocated());
+  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->input());
+  const ::ttnn::Tensor &weight = tensorPool.getAndValidate(op->weight());
 
   std::optional<::ttnn::Tensor> bias =
-      op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
+      op->bias() ? std::make_optional(tensorPool.getAndValidate(op->bias()))
                  : std::nullopt;
 
   LOG_ASSERT(op->kernel_size()->size() == 2,
@@ -57,7 +56,7 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
       },
       targetDevice);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tensorPool.insertAndValidate(op->out(), out);
 }
 
 } // namespace tt::runtime::ttnn::operations::conv

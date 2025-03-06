@@ -373,6 +373,11 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
+      // Concatenates the grid shape with the memref shape to form an all in one memref shape,
+      // used as the buffer type for bufferization, e.g.:
+      //   metal_layout<..., <2x3>, memref<4x5xtt.tile<32x32, f32>>>
+      //     -> memref<2x3x4x5xtt.tile<32x32, f32>>
+      MemRefType getBufferType() const;
   }];
 }
 

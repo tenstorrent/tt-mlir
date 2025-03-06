@@ -4,6 +4,7 @@
 
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn {
@@ -339,36 +340,40 @@ LayoutConverter::convertDeviceTensorLayout(const ::ttnn::Tensor &input) {
 //
 // ProgramTensorPool APIs
 //
-std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
-ProgramTensorPool::try_emplace(std::uint32_t globalId,
-                               const ::ttnn::Tensor &tensor) {
-  auto it = liveTensors.find(globalId);
-  if (it != liveTensors.end()) {
-    return std::make_pair(it, false);
-  }
-  LOG_ASSERT(!intermedTensors.contains(globalId));
-  intermedTensors.try_emplace(globalId, tensor);
-  return liveTensors.try_emplace(globalId, &intermedTensors.at(globalId));
-}
-
-std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
-ProgramTensorPool::insert_or_assign(std::uint32_t globalId,
-                                    const ::ttnn::Tensor &tensor) {
-  intermedTensors.insert_or_assign(globalId, tensor);
-  return liveTensors.insert_or_assign(globalId, &intermedTensors.at(globalId));
-}
-
-::ttnn::Tensor &ProgramTensorPool::at(std::uint32_t globalId) {
+const ::ttnn::Tensor &ProgramTensorPool::getAndValidate(
+    const ::tt::target::ttnn::TensorRef *tensorRef) const {
+  LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
+  std::uint32_t globalId = tensorRef->global_id();
   LOG_ASSERT(liveTensors.contains(globalId));
-  return *liveTensors.at(globalId);
+  const ::ttnn::Tensor &ttnnTensor = *liveTensors.at(globalId);
+  DEBUG_ASSERT(ttnnTensor.is_allocated());
+  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+  return ttnnTensor;
 }
 
-const ::ttnn::Tensor &ProgramTensorPool::at(std::uint32_t globalId) const {
-  LOG_ASSERT(liveTensors.contains(globalId));
-  return *liveTensors.at(globalId);
+::ttnn::Tensor &ProgramTensorPool::getAndValidate(
+    const ::tt::target::ttnn::TensorRef *tensorRef) {
+  return const_cast<::ttnn::Tensor &>(
+      static_cast<const ProgramTensorPool &>(*this).getAndValidate(tensorRef));
 }
 
-size_t ProgramTensorPool::erase(std::uint32_t globalId) {
+std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
+ProgramTensorPool::insertAndValidate(
+    const ::tt::target::ttnn::TensorRef *tensorRef,
+    const ::ttnn::Tensor &ttnnTensor) {
+  LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
+  std::uint32_t globalId = tensorRef->global_id();
+  DEBUG_ASSERT(ttnnTensor.is_allocated());
+  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+  auto [iter, inserted] =
+      intermedTensors.insert_or_assign(globalId, ttnnTensor);
+  return liveTensors.insert_or_assign(globalId, &(iter->second));
+}
+
+size_t
+ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
+  std::uint32_t globalId = tensorRef->global_id();
   LOG_ASSERT(liveTensors.contains(globalId) &&
              intermedTensors.contains(globalId));
   intermedTensors.erase(globalId);
@@ -377,11 +382,14 @@ size_t ProgramTensorPool::erase(std::uint32_t globalId) {
 
 std::vector<Tensor> ProgramTensorPool::gatherOutputTensors() {
   std::vector<Tensor> outputTensors;
-  outputTensors.reserve(programOutputs.size());
+  outputTensors.reserve(programOutputIds.size());
   std::transform(
-      programOutputs.begin(), programOutputs.end(),
+      programOutputIds.begin(), programOutputIds.end(),
       std::back_inserter(outputTensors), [this](uint32_t outputGlobalId) {
-        return utils::createRuntimeTensorFromTTNN(this->at(outputGlobalId));
+        LOG_ASSERT(liveTensors.contains(outputGlobalId));
+        const ::ttnn::Tensor &ttnnTensor = *liveTensors.at(outputGlobalId);
+        DEBUG_ASSERT(ttnnTensor.is_allocated());
+        return utils::createRuntimeTensorFromTTNN(ttnnTensor);
       });
   return outputTensors;
 }
@@ -389,7 +397,6 @@ std::vector<Tensor> ProgramTensorPool::gatherOutputTensors() {
 //
 // ProgramContext APIs
 //
-
 void ProgramContext::addSubMesh(uint32_t meshId,
                                 std::shared_ptr<::ttnn::MeshDevice> subMesh) {
   auto [it, inserted] = subMeshes.try_emplace(meshId, subMesh);

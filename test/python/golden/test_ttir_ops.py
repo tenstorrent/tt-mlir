@@ -11,15 +11,19 @@ from ttmlir.test_utils import compile_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
 
-
+# NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection
+"""
 @compile_to_flatbuffer([(1, 128, 128, 1)], targets=["ttnn"])
 def test_squeeze(in0: Operand, builder: TTIRBuilder):
     return builder.squeeze(in0, 0)
+"""
 
-
+# NOTE: Same as Squeeze, this Op is not valid for TTRT Perf.
+"""
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_unsqueeze(in0: Operand, builder: TTIRBuilder):
     return builder.unsqueeze(in0, 0)
+"""
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
@@ -54,9 +58,11 @@ def test_logical_not(in0: Operand, builder: TTIRBuilder):
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
+"""
 @compile_to_flatbuffer([(128, 128)], inputs_types=[torch.int8], targets=["ttnn"])
 def test_bitwise_not(in0: Operand, builder: TTIRBuilder):
     return builder.bitwise_not(in0)
+"""
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
@@ -218,6 +224,8 @@ def test_logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
+
+"""
 @compile_to_flatbuffer(
     [
         (64, 64),
@@ -228,10 +236,12 @@ def test_logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_and(in0, in1)
-
+"""
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
+
+"""
 @compile_to_flatbuffer(
     [
         (64, 64),
@@ -242,10 +252,12 @@ def test_bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_or(in0, in1)
-
+"""
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
+
+"""
 @compile_to_flatbuffer(
     [
         (64, 64),
@@ -256,6 +268,7 @@ def test_bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_bitwise_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_xor(in0, in1)
+"""
 
 
 @compile_to_flatbuffer(
@@ -469,6 +482,21 @@ def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 if __name__ == "__main__":
+    import argparse, os
+
+    parser = argparse.ArgumentParser(description="Run TTIR Builder Op tests")
+    parser.add_argument(
+        "--path",
+        type=str,
+        help="Optional output path for the flatbuffer. Creates path if supplied path doesn't exist",
+    )
+    args = parser.parse_args()
+
+    if args.path and os.path.exists(args.path):
+        if not os.path.exists(args.path):
+            os.makedirs(args.path)
+        set_output_path(args.path)
+
     test_functions = inspect.getmembers(
         inspect.getmodule(inspect.currentframe()), inspect.isfunction
     )

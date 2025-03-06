@@ -5,6 +5,7 @@
 #include "operations/ccl/all_gather.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
@@ -12,7 +13,9 @@
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
+
+  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->in());
+
   int32_t allGatherDim = op->all_gather_dim();
   uint32_t clusterAxis = op->cluster_axis();
   uint32_t numLinks = op->num_links();
@@ -32,6 +35,7 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
       ::ttnn::all_gather(input, allGatherDim, clusterAxis, meshDevice, numLinks,
                          outputMemoryConfig, std::nullopt, std::nullopt,
                          ::ttnn::ccl::Topology::Linear);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl

@@ -1,6 +1,18 @@
-add_subdirectory(types)
+if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN)
+    set(TTNN_RUNTIME_ENABLED ON)
+else()
+    set(TTNN_RUNTIME_ENABLED OFF)
+endif()
+
 add_subdirectory(utils)
+add_subdirectory(debug)
+add_subdirectory(types)
 add_subdirectory(operations)
+
+if (NOT TTNN_RUNTIME_ENABLED)
+  add_library(TTRuntimeTTNN INTERFACE)
+  return()
+endif()
 
 add_library(TTRuntimeTTNN
   STATIC
