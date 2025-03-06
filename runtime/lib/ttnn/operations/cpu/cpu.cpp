@@ -31,7 +31,7 @@ std::vector<wrapped_tensor> pack_tensors(
   for (size_t i = 0; i < ins->size(); ++i) {
     const size_t rank = ins->Get(i)->desc()->shape()->size();
     std::vector<int64_t> sizes(rank);
-    const auto &tens = context.getTensorPool().at(ins->Get(i)->global_id());
+    const auto &tens = context.getTensorPool().getAndValidate(ins->Get(i));
     for (size_t j = 0; j < rank; ++j) {
       sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
@@ -66,10 +66,10 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
   const auto *fbInputs = op->ins();
 
   auto dylibInputs = pack_tensors(fbInputs, op->out(), context);
-  ::Tensor out = context.getTensorPool().at(
-      fbInputs->Get(fbInputs->size() - 1)->global_id());
+  ::ttnn::Tensor out = context.getTensorPool().getAndValidate(
+      fbInputs->Get(fbInputs->size() - 1));
 
-  context.getTensorPool().insert_or_assign(op->out()->global_id(), out);
+  context.getTensorPool().insertAndValidate(op->out(), out);
   fn(dylibInputs.data());
 
   // We don't need to unpack any data from output, it should be written directly
