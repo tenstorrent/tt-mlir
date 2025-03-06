@@ -1472,6 +1472,8 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
