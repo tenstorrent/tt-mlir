@@ -17,15 +17,15 @@ func.func @maximum(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tens
 #layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <4x1>, memref<64x32xf32, #l1_>>
 // CHECK-LABEL: func.func @reduceW(
 // CHECK-SAME: %arg0: tensor<256x384xf32, #[[LAYOUT1:layout1]]>
-// CHECK-SAME: ) -> tensor<256x32xf32, #[[LAYOUT2:layout2]]>
-func.func @reduceW(%arg0: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
-  // CHECK: %[[C0:.*]] = tensor.empty() : tensor<256x32xf32, #[[LAYOUT2]]>
-  // CHECK: %[[C1:.*]] = "ttir.sum"(%arg0, %0) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<256x384xf32, #[[LAYOUT1]]>, tensor<256x32xf32, #[[LAYOUT2]]>) -> tensor<256x32xf32, #[[LAYOUT2]]>
-  %0 = tensor.empty() : tensor<256x32xf32, #layout2>
+// CHECK-SAME: ) -> tensor<256x1xf32, #[[LAYOUT2:layout2]]>
+func.func @reduceW(%arg0: tensor<256x384xf32, #layout1>) -> tensor<256x1xf32, #layout2> {
+  // CHECK: %[[C0:.*]] = tensor.empty() : tensor<256x1xf32, #[[LAYOUT2]]>
+  // CHECK: %[[C1:.*]] = "ttir.sum"(%arg0, %0) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<256x384xf32, #[[LAYOUT1]]>, tensor<256x1xf32, #[[LAYOUT2]]>) -> tensor<256x1xf32, #[[LAYOUT2]]>
+  %0 = tensor.empty() : tensor<256x1xf32, #layout2>
   %1 = "ttir.sum"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
                                dim_arg = [-1: i32],
                                keep_dim = true}> :
-    (tensor<256x384xf32, #layout1>, tensor<256x32xf32, #layout2>) -> tensor<256x32xf32, #layout2>
-  // CHECK: return %[[C1]] : tensor<256x32xf32, #[[LAYOUT2]]>
-  return %1 : tensor<256x32xf32, #layout2>
+    (tensor<256x384xf32, #layout1>, tensor<256x1xf32, #layout2>) -> tensor<256x1xf32, #layout2>
+  // CHECK: return %[[C1]] : tensor<256x1xf32, #[[LAYOUT2]]>
+  return %1 : tensor<256x1xf32, #layout2>
 }
