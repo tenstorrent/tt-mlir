@@ -15,6 +15,7 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
@@ -1604,6 +1605,8 @@ def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]>
         return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
       }
     }];
+
+    let hasVerifier = 1;
 }
 
 #endif

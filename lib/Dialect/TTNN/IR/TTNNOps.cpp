@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Traits.h"
+#include "mlir/IR/BuiltinAttributes.h"
 
 #include <numeric>
 #include <optional>
@@ -18,6 +19,20 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
+
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ConstantOp::verify() {
+
+  if (!isa<DenseResourceElementsAttr, DenseElementsAttr>(getValue())) {
+    return emitOpError("value attribute must be one of "
+                       "DenseResourceElementsAttr or DenseElementsAttr.");
+  }
+
+  return success();
+}
 
 //===----------------------------------------------------------------------===//
 // ClampOp
