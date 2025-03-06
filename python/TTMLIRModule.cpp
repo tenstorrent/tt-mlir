@@ -10,22 +10,16 @@ PYBIND11_MODULE(_ttmlir, m) {
   m.def(
       "register_dialect",
       [](MlirContext context, bool load) {
-        // Create a dialect registry
         mlir::DialectRegistry registry;
 
-        // Register all dialects including LLVM dialect
+        // Register all dialects + extensions.
         mlir::tt::registerAllDialects(registry);
-
-        // Register all extensions (interfaces, etc.)
         mlir::tt::registerAllExtensions(registry);
 
-        // Get the MLIRContext from MlirContext
+        // Append registry to mlir context
         mlir::MLIRContext *mlirContext = unwrap(context);
-
-        // Append the registry to the context
         mlirContext->appendDialectRegistry(registry);
 
-        // If load is true, load all available dialects
         if (load) {
           mlirContext->loadAllAvailableDialects();
         }

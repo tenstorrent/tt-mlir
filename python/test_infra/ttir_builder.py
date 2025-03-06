@@ -376,9 +376,6 @@ class TTIRBuilder:
                 loc=self._loc,  # Location
             )
 
-            # Wrap in the appropriate OpView
-            # op = ttir.ZerosOp(operation)
-
             # Generate and store random golden tensor
             self.generate_and_store_random_golden(op)
 

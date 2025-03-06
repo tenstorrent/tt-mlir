@@ -80,8 +80,6 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     delete[] input_tensor.sizes_and_strides;
   }
-  // The ins vector itself will be cleared by going out of scope, and the output
-  // underlying data won't be affected.
 }
 
 } // namespace tt::runtime::ttnn::operations::cpu
