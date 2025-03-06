@@ -187,9 +187,10 @@ jobs:
           {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, enable_async: OFF, enable_runtime_debug: OFF, name: "emitc", ttrt_flags: ""},
           {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: ON, enable_runtime_debug: OFF, name: "async", ttrt_flags: ""},
           {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "runtime_debug", ttrt_flags: ""},
+          {runs-on: n150,          enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "op_model", build_name: "op_model", ttrt_flags: ""}
         ]
 
-    name: Build and test tt-mlir (compute machine)
+    name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
@@ -208,7 +209,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "Build and test tt-mlir (compute machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
+        job_name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
 
     - name: Set reusable strings
       id: strings
@@ -252,25 +253,26 @@ jobs:
     needs:
       - build-image
       - build-ttmlir
-      - build-ttmlir-opmodelinterface
     strategy:
       fail-fast: false
       matrix:
         build: [
-            {runs-on: n150, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: ON, enable_runtime_debug: OFF, name: "run", build_name: "async", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: ON, name: "run", build_name: "runtime_debug", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150, enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "op_model", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n300, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n300, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
-            # {runs-on: llmbox, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-            # {runs-on: llmbox, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-            # {runs-on: tg, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-            # {runs-on: tg, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "perf", build_name: "perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+            {runs-on: n150,   name: "run",  build_name: "run",            type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150,   name: "perf", build_name: "perf",           type: "ttrt", path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150,   name: "run",  build_name: "emitc",          type: "ttrt", path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150,   name: "run",  build_name: "async",          type: "ttrt", path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150,   name: "run",  build_name: "runtime_debug",  type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150,   name: "run",  build_name: "op_model",       type: "ttrt", path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n300,   name: "run",  build_name: "run",            type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n300,   name: "perf", build_name: "perf",           type: "ttrt", path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
+            # {runs-on: llmbox, name: "run",  build_name: "run",            type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+            # {runs-on: llmbox, name: "perf", build_name: "perf",           type: "ttrt", path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+            # {runs-on: tg,     name: "run",  build_name: "run",            type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+            # {runs-on: tg,     name: "perf", build_name: "perf",           type: "ttrt", path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+            {runs-on: n150,   name: "perf", build_name: "perf",           type: "pytest", path: "tools/python/test", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150,   name: "run",  build_name: "run",            type: "pytest", path: "/test/python/ttnn/test_runtime_api.py", container-options: "--device /dev/tenstorrent/0"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug }}, ${{ matrix.build.build_name }})"
+    name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.build_name }},${{ matrix.build.type}})"
 
     runs-on:
       - in-service
@@ -295,7 +297,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug }}, ${{ matrix.build.build_name }})"
+        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.build_name }},${{ matrix.build.type}})"
 
     - name: Set reusable strings
       id: strings
@@ -341,6 +343,9 @@ jobs:
         source env/activate
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt-${{ env.version }}*.whl --force-reinstall
+        if [ "${{ matrix.build.type }}" == "pytest" ]; then
+          pip install pytest
+        fi
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
@@ -364,7 +369,7 @@ jobs:
 
     - name: Generate EmitC tests
       shell: bash
-      if: matrix.build.enable_emitc == 'ON'
+      if: matrix.build.build_name == 'emitc'
       run: |
         source env/activate
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
@@ -372,69 +377,45 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
 
-    - name: Run functional tests
+    - name: Run TTRT tests
+      if: matrix.build.type == 'ttrt'
       shell: bash
-      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_emitc == 'OFF' && matrix.build.enable_async == 'OFF' && matrix.build.enable_runtime_debug == 'OFF' && matrix.build.enable_op_model == 'OFF'
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/${{ matrix.build.path }}
+        if [ "${{ matrix.build.name }}" = "perf" ]; then
+          # collect ops_perf_results.csv
+          cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
+        fi
 
-    - name: Run async TTNN tests
+    - name: Run pytest ttrt tests
+      if: matrix.build.type == 'pytest'
       shell: bash
-      if: matrix.build.enable_async == 'ON' && matrix.build.enable_op_model == 'OFF'
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
-
-    - name: Run runtime debug tests
-      shell: bash
-      if: matrix.build.enable_runtime_debug == 'ON' && matrix.build.enable_op_model == 'OFF'
-      run: |
-        source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
-
-    - name: Run optimizer tests
-      shell: bash
-      if: matrix.build.enable_op_model == 'ON'
-      run: |
-        source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer
-
-    - name: Run perf tests
-      shell: bash
-      if: matrix.build.enable_perf == 'ON'
-      run: |
-        source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/${{ matrix.build.runs-on }}/perf
-        # collect ops_perf_results.csv
-        cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
+        pytest -ssv runtime/${{ matrix.build.path }} \
+        --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
     - name: Collect and Upload Perf Reports
-      if: matrix.build.enable_perf == 'ON'
+      if: matrix.build.name == 'perf'
       uses: ./.github/actions/collect-and-upload-perf-reports
       with:
         reports_dir: ttrt-artifacts
         perf_report_path: ${{ steps.strings.outputs.perf_report_path }}
-        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.build_name }}
-
-    - name: Run emitc tests
-      shell: bash
-      if: matrix.build.enable_emitc == 'ON'
-      run: |
-        source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC
+        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.build_name }}
 
     - name: Upload ttrt test report json
-      if: always()
+      if: (success() || failure()) && matrix.build.type == 'ttrt'
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.enable_async }}_${{ matrix.build.enable_runtime_debug }}_${{ matrix.build.build_name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.build_name }}_results.json
         path: ${{ matrix.build.build_name }}_results.json
+
     - name: Upload Test Report xml
       uses: actions/upload-artifact@v4
       if: success() || failure()
       with:
-        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.test_group_id }}
+        name: test-reports-${{ matrix.build.type }}-${{ matrix.build.runs-on }}-${{ matrix.build.build_name }}-${{ steps.fetch-job-id.outputs.job_id }}
         path: ${{ steps.strings.outputs.test_report_path }}
 
     - name: Show Test Report
@@ -442,228 +423,12 @@ jobs:
       if: success() || failure()
       with:
         report_paths: ${{ steps.strings.outputs.test_report_path }}
-        check_name: TTRT ${{ matrix.build.runs-on }} ${{ matrix.build.build_name }} Tests
+        check_name: ${{ matrix.build.type }} ${{ matrix.build.runs-on }} ${{ matrix.build.build_name }} Tests
 
-  run-ttrt-tests:
-
-    timeout-minutes: 30
-    needs:
-      - build-image
-      - build-ttmlir
-    strategy:
-      fail-fast: false
-      matrix:
-        build: [
-          {runs-on: n150, enable_perf: ON, name: "perf", build_name: "perf"},
-        ]
-
-    runs-on:
-      - in-service
-      - ${{ matrix.build.runs-on }}
-
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
-      options: --device /dev/tenstorrent/0
-      volumes:
-        - /dev/hugepages:/dev/hugepages
-        - /dev/hugepages-1G:/dev/hugepages-1G
-        - /etc/udev/rules.d:/etc/udev/rules.d
-        - /lib/modules:/lib/modules
-        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
-
-    steps:
-
-    - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0
-
-    - name: Fetch job id
-      id: fetch-job-id
-      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
-      with:
-        job_name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }}, ${{ matrix.build.build_name }})"
-
-    - name: Set reusable strings
-      id: strings
-      shell: bash
-      env:
-        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
-      run: |
-        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-
-    - name: Git safe dir
-      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
-
-    - name: Use build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: install-artifacts-${{ matrix.build.build_name }}
-        path: ${{ steps.strings.outputs.install-output-dir }}
-
-    # This is needed to preserve file permissions
-    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
-    - name: 'Untar install directory'
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xvf artifact.tar
-
-    - name: Remove existing whls files
-      shell: bash
-      run: |
-        rm -f *.whl
-
-    - name: Download ttrt run whls
-      uses: actions/download-artifact@v4
-      with:
-        name: ttrt-whl-${{ matrix.build.build_name }}
-
-    - name: Install ttrt run whls
-      shell: bash
-      run: |
-        source env/activate
-        pip show ttrt && pip uninstall -y ttrt
-        pip install ttrt-${{ env.version }}*.whl --force-reinstall
-        pip install pytest
-
-    - name: Generate system descriptor
-      shell: bash
-      run: |
-        source env/activate
-        ttrt query --save-artifacts
-
-    - name: Generate tests
-      shell: bash
-      run: |
-        source env/activate
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
-
-    - name: ttrt read tests
-      shell: bash
-      run: |
-        source env/activate
-        pytest -ssv runtime/tools/python/test \
-        --junit-xml=${{ steps.strings.outputs.test_report_path }}
-
-    - name: Upload Test Report
-      uses: actions/upload-artifact@v4
-      if: success() || failure()
-      with:
-        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.build.build_name }}
-        path: ${{ steps.strings.outputs.test_report_path }}
-
-    - name: Show Test Report
-      uses: mikepenz/action-junit-report@v4
-      if: success() || failure()
-      with:
-        report_paths: ${{ steps.strings.outputs.test_report_path }}
-        check_name: Run ttrt tests
-
-  run-runtime-api-tests:
-
-    timeout-minutes: 30
-    needs:
-      - build-image
-      - build-ttmlir
-    strategy:
-      fail-fast: false
-      matrix:
-        build: [
-          {runs-on: n150, enable_perf: OFF, name: "run", build_name: "run"},
-        ]
-
-    runs-on:
-      - in-service
-      - ${{ matrix.build.runs-on }}
-
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
-      options: --device /dev/tenstorrent/0
-      volumes:
-        - /dev/hugepages:/dev/hugepages
-        - /dev/hugepages-1G:/dev/hugepages-1G
-        - /etc/udev/rules.d:/etc/udev/rules.d
-        - /lib/modules:/lib/modules
-        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
-
-    steps:
-    - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0
-
-    - name: Set reusable strings
-      id: strings
-      shell: bash
-      run: |
-        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-
-    - name: Git safe dir
-      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
-
-    - name: Use build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: install-artifacts-${{ matrix.build.build_name }}
-        path: ${{ steps.strings.outputs.install-output-dir }}
-
-    # This is needed to preserve file permissions
-    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
-    - name: 'Untar install directory'
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xvf artifact.tar
-
-    - name: Remove existing whls files
-      shell: bash
-      run: |
-        rm -f *.whl
-
-    - name: Download ttrt run whls
-      uses: actions/download-artifact@v4
-      with:
-        name: ttrt-whl-${{ matrix.build.build_name }}
-
-    # Runtime tests currently require ttrt whls to be installed
-    - name: Install ttrt run whls
-      shell: bash
-      run: |
-        source env/activate
-        pip show ttrt && pip uninstall -y ttrt
-        pip install ttrt-${{ env.version }}*.whl --force-reinstall
-        pip install pytest
-
-    - name: Generate system descriptor
-      shell: bash
-      run: |
-        source env/activate
-        ttrt query --save-artifacts
-
-    - name: Generate tests
-      shell: bash
-      run: |
-        source env/activate
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
-
-    - name: ttnn api tests
-      shell: bash
-      run: |
-        source env/activate
-        pytest -ssv runtime/test/python/ttnn/test_runtime_api.py
 
   build-and-test-explorer:
     needs:
       - build-image
-      - build-ttmlir
     timeout-minutes: 60
     # Force upload of artifacts
     continue-on-error: true
@@ -753,73 +518,3 @@ jobs:
         export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         pytest tools/explorer/test/run_tests.py
         # collect results
-
-  build-ttmlir-opmodelinterface:
-    needs: build-image
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        build: [
-          {runs-on: n150, enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, enable_async: OFF, enable_runtime_debug: OFF, name: "op_model", build_name: "op_model", ttrt_flags: ""}
-        ]
-
-    name: Run build and test tt-mlir (TT machine)
-    runs-on: ${{ matrix.build.runs-on }}
-
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
-      options: --device /dev/tenstorrent/0
-      volumes:
-        - /dev/hugepages:/dev/hugepages
-        - /dev/hugepages-1G:/dev/hugepages-1G
-        - /etc/udev/rules.d:/etc/udev/rules.d
-        - /lib/modules:/lib/modules
-        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
-
-    steps:
-
-    - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0
-
-    - name: Fetch job id
-      id: fetch-job-id
-      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
-      with:
-        job_name: "Run build and test tt-mlir (TT machine) (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug }}, ${{ matrix.build.name }}, ${{ matrix.build.build_name }})"
-
-    - name: Set reusable strings
-      id: strings
-      shell: bash
-      env:
-        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
-      run: |
-        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-
-    - name: Git safe dir
-      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
-
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ matrix.build.enable_emitc }}-async-${{ matrix.build.enable_async }}-runtime_debug-${{ matrix.build.enable_runtime_debug}}-${{ env.SDK_VERSION }}
-
-    # Build project
-    - name: Run build and test tt-mlir
-      uses: ./.github/actions/build-tt-mlir-action
-      with:
-        enable-perf: ${{ matrix.build.enable_perf }}
-        enable-op-model: ${{ matrix.build.enable_op_model }}
-        enable-emitc: ${{ matrix.build.enable_emitc }}
-        enable-async: ${{ matrix.build.enable_async }}
-        enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
-        build-name: ${{ matrix.build.build_name }}
-        build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
-        install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
-        work-dir: ${{ steps.strings.outputs.work-dir }}
-        test_report_path: ${{ steps.strings.outputs.test_report_path }}
