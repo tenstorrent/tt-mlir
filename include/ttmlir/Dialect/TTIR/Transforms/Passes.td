@@ -459,4 +459,16 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRConstEvalHoistTransform: Pass<"ttir-const-eval-hoist-transform", "::mlir::ModuleOp">
+{
+  let summary = "Transform to hoist const-eval subgraph into separate func(s)";
+  let description = [{
+    Transform pass which runs an analysis pass to find const-eval subgraphs in an input and hoist them into separate functions.
+
+    Example: (TODO)
+  }];
+
+  let dependentDialects = ["::mlir::tt::TTDialect"];
+}
+
 #endif
