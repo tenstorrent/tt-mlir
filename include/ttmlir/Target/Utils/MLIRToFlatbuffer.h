@@ -33,7 +33,7 @@ struct GoldenTensor {
         data(std::move(_data)) {}
 
   // Create an explicit empty constructor
-  GoldenTensor() {}
+  GoldenTensor() = default;
 };
 
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
