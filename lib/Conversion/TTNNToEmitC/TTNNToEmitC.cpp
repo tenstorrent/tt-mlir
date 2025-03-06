@@ -332,7 +332,6 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getBatchSize()),
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()),
@@ -341,6 +340,8 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        /*memory_config=*/emitter.emit(std::nullopt),
+        /*applied_shard_scheme=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getCeilMode()),
     };
 
