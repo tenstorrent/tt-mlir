@@ -61,6 +61,19 @@ public:
         rewriter.modifyOpInPlace(
             op, [&]() { block.getArgument(i).setType(cbTypes[i]); });
       }
+
+      auto enqueueProgramOp = rewriter.create<ttmetal::EnqueueProgramOp>(
+          op->getLoc(), op->getResultTypes(), op.getInputs(), op.getOutputs(),
+          rewriter.getArrayAttr({}), rewriter.getArrayAttr({}),
+          op->getNumRegions());
+      rewriter.modifyOpInPlace(enqueueProgramOp, [&]() {
+        for (uint32_t i = 0; i < op->getNumRegions(); i++) {
+          auto &region = enqueueProgramOp->getRegion(i);
+          region.takeBody(op->getRegion(i));
+        }
+      });
+
+      rewriter.eraseOp(op);
     }
 
     return success();
@@ -215,7 +228,7 @@ public:
       auto type = mlir::cast<MemRefType>(input.getType());
       assert(type.getShape().size() == 1 &&
              "Expected collapsed 1D memref, failing.");
-      auto numPages = i32(type.getShape()[0], builder);
+      auto numPages = i32(type.getNumElements(), builder);
       Block *block = op->getBlock();
       if (mlir::isa<ttir::AwaitOp>(op)) {
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), cbId, numPages);
@@ -239,9 +252,9 @@ public:
 
 } // namespace
 
-// tile regs pass
-
 // reconfig data formats
+
+// tile regs pass
 
 namespace {
 
