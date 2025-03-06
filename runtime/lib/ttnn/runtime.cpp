@@ -555,18 +555,6 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
                 DeviceRuntime::TTNN);
 }
 
-std::vector<float> getTensorData(Tensor tensor) {
-  const ::ttnn::Tensor *nnTensor =
-      static_cast<::ttnn::Tensor *>(tensor.handle.get());
-  if (nnTensor == nullptr) {
-    return {};
-  }
-
-  void *dataPtr = ::tt::tt_metal::get_raw_host_data_ptr(*nnTensor);
-  return std::vector<float>(static_cast<float *>(dataPtr),
-                            static_cast<float *>(dataPtr) + nnTensor->volume());
-}
-
 std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);

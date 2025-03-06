@@ -196,9 +196,11 @@ PYBIND11_MODULE(_C, m) {
          tt::runtime::CallbackContext &programContextHandle) {
         tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
             opContextHandle, programContextHandle);
-        return tt::runtime::getTensorData(tensor);
+        return tensor.handle.get() == nullptr
+                   ? std::nullopt
+                   : std::optional<tt::runtime::Tensor>(tensor);
       },
-      "Get the input tensor of the op");
+      "Get the output tensor of the op");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

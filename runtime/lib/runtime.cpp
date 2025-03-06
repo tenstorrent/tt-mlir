@@ -477,22 +477,6 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   LOG_FATAL("runtime is not enabled");
 }
 
-std::vector<float> getTensorData(Tensor tensor) {
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getTensorData(tensor);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getTensorData(tensor);
-  }
-#endif
-
-  LOG_FATAL("runtime is not enabled");
-}
-
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> const &inputHandles) {

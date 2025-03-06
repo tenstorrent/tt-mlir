@@ -357,12 +357,6 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   return createNullTensor();
 }
 
-std::vector<float> getTensorData(Tensor tensor) {
-  // Not implemented
-  LOG_WARNING("obtaining tensor data for metal runtime not implemented");
-  return {};
-}
-
 std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getDataBuffer not implemented for metal runtime");
   return {};

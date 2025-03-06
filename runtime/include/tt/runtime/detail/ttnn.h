@@ -144,8 +144,6 @@ std::string getOpLocInfo(OpContext opContextHandle);
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 
-std::vector<float> getTensorData(Tensor tensor);
-
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> const &inputs);
