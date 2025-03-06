@@ -148,7 +148,6 @@ namespace ToLayoutOpInterface {
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
 getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-                 mlir::tt::ttnn::Layout outputPageLayout,
                  std::optional<mlir::tt::DataType> outputDtype,
                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                  bool passDevicePtr);
@@ -156,7 +155,6 @@ getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
 llvm::Expected<size_t>
 getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
-             mlir::tt::ttnn::Layout outputPageLayout,
              std::optional<mlir::tt::DataType> outputDtype,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr);
 

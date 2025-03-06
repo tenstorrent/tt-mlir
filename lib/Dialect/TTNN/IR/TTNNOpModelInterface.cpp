@@ -276,10 +276,10 @@ ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   if (!check) {
     return check.takeError();
   }
+  const bool passDevicePtr = !getODSOperands(1).empty();
   assert(output.getLayout() == getLayoutAttr().getValue());
   return op_model::ttnn::ToLayoutOpInterface::getOpConstraints(
-      inputShape, inputs[0], getLayoutAttr().getValue(), getDtype(), output,
-      !getODSOperands(1).empty());
+      inputShape, inputs[0], getDtype(), output, passDevicePtr);
 }
 
 llvm::Expected<size_t>
@@ -288,10 +288,9 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == 1);
 
   const auto inputShape = getInput().getType().getShape();
-
+  const bool passDevicePtr = !getODSOperands(1).empty();
   return op_model::ttnn::ToLayoutOpInterface::getOpRuntime(
-      inputShape, inputs[0], getLayoutAttr().getValue(), getDtype(), output,
-      !getODSOperands(1).empty());
+      inputShape, inputs[0], getDtype(), output, passDevicePtr);
 }
 
 //===----------------------------------------------------------------------===//
