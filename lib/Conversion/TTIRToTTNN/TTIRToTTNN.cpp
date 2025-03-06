@@ -375,6 +375,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto dimArg = op.getDimArg();
 
+    // Most of the frontends uses signed or sign less integer as return type for
+    // argmax op (tt-mlir uses signed integer in this case); whereas, tt-metal
+    // uses UINT32 as return type. This difference is ignored as the output
+    // indices will always be positive.
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(),
@@ -382,7 +386,7 @@ public:
             ? mlir::cast<mlir::IntegerAttr>(dimArg->getValue().front())
             : nullptr,
         /*use_multicore*/ false, // Default tt-metal value.
-        /*memoryConfig*/ nullptr, adaptor.getOutput());
+        /*memoryConfig*/ nullptr);
     return success();
   }
 };

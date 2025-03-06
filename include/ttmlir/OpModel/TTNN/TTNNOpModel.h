@@ -160,5 +160,28 @@ llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                                     bool transposeA, bool transposeB);
 }; // namespace MatmulOpInterface
 
+//===----------------------------------------------------------------------===//
+// MultiplyOp
+//===----------------------------------------------------------------------===//
+
+namespace MultiplyOpInterface {
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+                 llvm::ArrayRef<int64_t> inputShapeB,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
+             llvm::ArrayRef<int64_t> inputShapeB,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace MultiplyOpInterface
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

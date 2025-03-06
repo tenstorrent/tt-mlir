@@ -308,4 +308,47 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       false, false);
 }
 
+//===----------------------------------------------------------------------===//
+// MultiplyOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+MultiplyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+  const auto inputShapeB =
+      mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult(0).getType()).getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  return op_model::ttnn::MultiplyOpInterface::getOpConstraints(
+      inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output);
+}
+
+llvm::Expected<size_t>
+MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+  const auto inputShapeB =
+      mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult(0).getType()).getShape();
+
+  return op_model::ttnn::MultiplyOpInterface::getOpRuntime(
+      inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output);
+}
+
 } // namespace mlir::tt::ttnn

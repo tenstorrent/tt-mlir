@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
@@ -474,7 +475,8 @@ public:
                        ttnn::MeanOp, /*keepDimUnsupported*/ false>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
                        ttnn::MinOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::CumSumOpRewritePattern>(
+                   workarounds::decomposition::CumSumOpRewritePattern,
+                   workarounds::decomposition::ArgMaxOpRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),

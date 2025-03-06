@@ -18,6 +18,7 @@
 #include <type_traits>
 
 namespace ttmlir::utils {
+
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
@@ -461,4 +462,4 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
 
 } // namespace ttmlir::utils
 
-#endif
+#endif // TTMLIR_UTILS_H
