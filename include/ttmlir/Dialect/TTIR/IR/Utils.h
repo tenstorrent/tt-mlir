@@ -19,24 +19,6 @@ template <typename Op>
 inline constexpr bool has_variadic_outputs_v<
     Op, std::void_t<decltype(std::declval<Op>().getOutputsMutable())>> = true;
 
-namespace impl {
-
-template <typename Op, typename = void>
-struct getDpsOutputs {
-  static mlir::MutableOperandRange evaluate(Op *op) {
-    return op->getOutputMutable();
-  }
-};
-
-template <typename Op>
-struct getDpsOutputs<Op, std::enable_if_t<has_variadic_outputs_v<Op>>> {
-  static mlir::MutableOperandRange evaluate(Op *op) {
-    return op->getOutputsMutable();
-  }
-};
-
-} // namespace impl
-
 // A helper for simplifying DPS tablegen derivations with 'arguments' of any
 // form in {AnyRankedTensor:$output, Variadic<AnyRankedTensor>:$outputs}.
 //
@@ -51,7 +33,11 @@ struct getDpsOutputs<Op, std::enable_if_t<has_variadic_outputs_v<Op>>> {
 // clang-format on
 template <typename Op>
 mlir::MutableOperandRange getDpsOutputs(Op *op) {
-  return impl::getDpsOutputs<Op>::evaluate(op);
+  if constexpr (has_variadic_outputs_v<Op>) {
+    return op->getOutputsMutable();
+  } else {
+    return op->getOutputMutable();
+  }
 }
 
 } // namespace mlir::tt::ttir
