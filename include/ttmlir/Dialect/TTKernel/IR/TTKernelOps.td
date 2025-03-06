@@ -191,13 +191,13 @@ def TTKernel_MaxOp : TTKernel_FPUOp<"max"> {
     let arguments = (ins I32:$dst_index);
 }
 
-def TTKernel_MatmulOp : TTKernel_FPUOp<"matmul"> {
-    let summary = "Matmul operation";
+def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
+    let summary = "Matmul tiles operation";
     let description = [{
-      Matmul operation
+      Matmul tiles operation
     }];
 
-    let arguments = (ins I32:$dst_index);
+    let arguments = (ins I32:$in0_cb_id, I32:$in1_cb_id, Index:$in0_tile_idx, Index:$in1_tile_idx, Index:$dst_tile_idx);
 }
 
 def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {

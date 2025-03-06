@@ -40,8 +40,8 @@ public:
     }
 
     for (auto &region : op->getRegions()) {
-      assert(region.getBlocks().size() == 1 &&
-             "Expected single block in region, failing.");
+      assert(region.getBlocks().size() <= 1 &&
+             "Expected single block in region (temporary), failing.");
       Block &block = region.getBlocks().front();
       assert(
           block.getNumArguments() == op.getNumOperands() &&
@@ -170,11 +170,10 @@ public:
 namespace {
 
 class TTIRTileOpsRewriter
-    : public OpRewritePattern<
-          ttir::TileMaximumOp> { // this needs to match all generic region ops,
+    : public OpTraitRewritePattern<ttir::OpTrait::TTIRGenericRegionOpTrait> { // this needs to match all generic region ops,
                                  // for now, match max specifically
 public:
-  using OpRewritePattern<ttir::TileMaximumOp>::OpRewritePattern;
+  using OpTraitRewritePattern<ttir::OpTrait::TTIRGenericRegionOpTrait>::OpTraitRewritePattern;
 
   static Value index(Value tile) {
     Operation *loadOp = tile.getDefiningOp();
@@ -182,7 +181,21 @@ public:
     return mlir::cast<memref::LoadOp>(loadOp).getIndices().front();
   }
 
-  LogicalResult matchAndRewrite(ttir::TileMaximumOp op,
+  static uint32_t getCbId(Value value) {
+    memref::LoadOp loadOp = mlir::cast<memref::LoadOp>(value.getDefiningOp());
+    assert(loadOp && "Could not find associated load op with value, failing.");
+    memref::CollapseShapeOp collapseOp =
+        mlir::cast<memref::CollapseShapeOp>(loadOp.getMemref().getDefiningOp());
+    assert(collapseOp && "Could not find assocated collapse shape op with memref load, failing");
+    if (auto blockArg =
+            mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {
+      return blockArg.getArgNumber();
+    }
+    assert(false && "Could not match collapse op src to block argument, cannot "
+                    "determine CB id. Failing.");
+  }
+
+  LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const final {
     llvm::errs() << "tileops rewriter\n";
     OpBuilder builder(op);
@@ -191,6 +204,8 @@ public:
       rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
       rewriter.create<ttkernel::MaxTilesOp>(op->getLoc(), i32(0, builder),
                                             i32(1, builder));
+    } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
+      rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), i32(getCbId(op->getOperand(0)), builder), i32(getCbId(op->getOperand(1)), builder), index(op->getOperand(0)), index(op->getOperand(1)), index(op->getOperand(2)));
     }
 
     rewriter.eraseOp(op);

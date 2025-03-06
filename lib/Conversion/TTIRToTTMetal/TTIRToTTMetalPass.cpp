@@ -87,6 +87,7 @@ struct ConvertTTIRToTTKernel
     target.addIllegalOp<ttir::AwaitOp>();
     target.addIllegalOp<ttir::YieldOp>();
     target.addIllegalOp<ttir::TileMaximumOp>();
+    target.addIllegalOp<ttir::TileMatmulOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.
