@@ -944,10 +944,19 @@ createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
 createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
+  std::vector<uint8_t> rawVector;
+  if (auto data =
+          mlir::dyn_cast<mlir::DenseResourceElementsAttr>(op.getValue())) {
+    ArrayRef<char> rawData = data.getData();
+    rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+  } else if (auto data =
+                 mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue())) {
+    ArrayRef<char> rawData = data.getRawData();
+    rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+  } else {
+    llvm_unreachable("Unknown constant value attribute type");
+  }
 
-  auto rawData =
-      mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue()).getRawData();
-  auto rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
   return ::tt::target::ttnn::CreateConstantOpDirect(*cache.fbb, output,
                                                     &rawVector);
 }
