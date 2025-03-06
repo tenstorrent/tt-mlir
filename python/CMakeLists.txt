@@ -4,6 +4,8 @@ set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
 set(TTMLIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ttmlir")
 set(TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra")
+set(TTMLIR_PYTHON_COMPILER_PASSES_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/compiler_passes")
+set(TTMLIR_PYTHON_MODULE_COMPILER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/module_compiler")
 set(TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/module_splitter")
 
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
@@ -11,6 +13,8 @@ add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 declare_mlir_python_sources(TTMLIRPythonSources)
 declare_mlir_python_sources(TTMLIRPythonExtensions)
 declare_mlir_python_sources(TTMLIRPythonTestInfra)
+declare_mlir_python_sources(TTMLIRPythonCompilerPasses)
+declare_mlir_python_sources(TTMLIRPythonModuleCompiler)
 declare_mlir_python_sources(TTMLIRPythonModuleSplitter)
 
 declare_mlir_python_sources(TTMLIRPythonSources.Dialects
@@ -86,6 +90,23 @@ declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
     test_utils.py
 )
 
+declare_mlir_python_sources(TTMLIRPythonCompilerPasses.CompilerPasses
+  ROOT_DIR "${TTMLIR_PYTHON_COMPILER_PASSES_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonCompilerPasses
+  SOURCES
+    compiler_passes.py
+)
+
+declare_mlir_python_sources(TTMLIRPythonModuleCompiler.ModuleCompiler
+  ROOT_DIR "${TTMLIR_PYTHON_MODULE_COMPILER_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonModuleCompiler
+  SOURCES
+    module_compiler.py
+    stablehlo_module_compiler.py
+    ttir_module_compiler.py
+    ttnn_module_compiler.py
+)
+
 declare_mlir_python_sources(TTMLIRPythonModuleSplitter.ModuleSplitter
   ROOT_DIR "${TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonModuleSplitter
@@ -146,6 +167,8 @@ set(TTMLIR_PYTHON_SOURCES
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonTestInfra
+  TTMLIRPythonCompilerPasses
+  TTMLIRPythonModuleCompiler
   TTMLIRPythonModuleSplitter
 )
 

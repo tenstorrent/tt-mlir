@@ -2,39 +2,49 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.ir import *
 from ttmlir.ttir_module_splitter import TTIRModuleSplitter
 
 
-def test1():
+def test1(print_results: bool = False):
+    # ttir_module_str = """
+    #     module {
+    #         func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
+    #             %0 = tensor.empty() : tensor<1x128xf32>
+    #             %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
+    #             %2 = tensor.empty() : tensor<1x128xf32>
+    #             %3 = "ttir.reshape"(%arg1, %2) <{shape = [1 : i32, 128 : i32]}> : (tensor<128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
+    #             %4 = tensor.empty() : tensor<1x128xf32>
+    #             %5 = "ttir.broadcast"(%3, %4) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
+    #             %6 = tensor.empty() : tensor<1x128xf32>
+    #             %7 = "ttir.add"(%1, %5, %6) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
+    #             return %7 : tensor<1x128xf32>
+    #         }
+    #     }
+    # """
+
     ttir_module_str = """
-    module {
-        func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
-            %0 = tensor.empty() : tensor<1x128xf32>
-            %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
-            %2 = tensor.empty() : tensor<1x128xf32>
-            %3 = "ttir.reshape"(%arg1, %2) <{shape = [1 : i32, 128 : i32]}> : (tensor<128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
-            %4 = tensor.empty() : tensor<1x128xf32>
-            %5 = "ttir.broadcast"(%3, %4) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
-            %6 = tensor.empty() : tensor<1x128xf32>
-            %7 = "ttir.add"(%1, %5, %6) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
-            return %7 : tensor<1x128xf32>
+        module {
+            func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
+                %0 = tensor.empty() : tensor<1x128xf32>
+                %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i64: 1, 1>}> : (tensor<1x128xf32>, tensor<1x128xf32>) -> tensor<1x128xf32>
+                return %1 : tensor<1x128xf32>
+            }
         }
-    }
     """
 
-    splitter: TTIRModuleSplitter = TTIRModuleSplitter.create_from_module_str(
-        ttir_module_str
-    )
+    splitter = TTIRModuleSplitter.create_from_module_str(ttir_module_str)
+    sub_ops = splitter.get_sub_ops()
+    sub_modules = splitter.get_sub_modules()
 
-    for op in splitter.get_sub_ops():
-        print(op)
+    if print_results:
+        for op in sub_ops:
+            print(op)
 
-    for m in splitter.get_sub_modules():
-        print(str(m))
+        for m in sub_modules:
+            print(str(m))
 
 
-def test2():
+def test2(print_results: bool = False):
     ttir_module_str = """
     module {
         func.func public @main(%arg0: tensor<1x4xi32>, %arg1: tensor<512x768xf32>, %arg2: tensor<2x768xf32>, %arg3: tensor<30522x768xf32>) -> tensor<1x4x768xf32> {
@@ -227,14 +237,18 @@ def test2():
     }
     """
 
-    splitter: TTIRModuleSplitter = TTIRModuleSplitter.create_from_module_str(
-        ttir_module_str
-    )
+    splitter = TTIRModuleSplitter.create_from_module_str(ttir_module_str)
+    sub_ops = splitter.get_sub_ops()
+    sub_modules = splitter.get_sub_modules()
 
-    for m in splitter.get_sub_modules():
-        print(str(m))
+    if print_results:
+        for op in sub_ops:
+            print(op)
+
+        for m in sub_modules:
+            print(str(m))
 
 
 if __name__ == "__main__":
-    test1()
+    test1(True)
     # test2()

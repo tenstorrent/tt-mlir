@@ -5,11 +5,11 @@
 from __future__ import annotations
 
 from mlir.ir import *
-from module_splitter.ttnn_module_splitter import TTNNModuleSplitter
+from ttmlir.compiler_passes import ttnn_to_flatbuffer
+from ttmlir.ttnn_module_splitter import TTNNModuleSplitter
+from ttrt.common.util import Binary
 
-from .module_compiler import ModuleCompiler
-from .ttmlir import Binary, ttnn_to_flatbuffer
-from .utils import CompileStep
+from .module_compiler import CompileStep, ModuleCompiler
 
 
 class TTNNModuleCompiler(ModuleCompiler):
@@ -17,10 +17,12 @@ class TTNNModuleCompiler(ModuleCompiler):
 
     # ----- Public methods -----
 
+    @staticmethod
     def create_from_module(module: Module) -> TTNNModuleCompiler:
         module_splitter = TTNNModuleSplitter.create_from_module(module)
         return TTNNModuleCompiler(module_splitter.get_module(), module_splitter)
 
+    @staticmethod
     def create_from_module_str(module_str: str) -> TTNNModuleCompiler:
         module_splitter = TTNNModuleSplitter.create_from_module_str(module_str)
         return TTNNModuleCompiler(module_splitter.get_module(), module_splitter)
@@ -36,14 +38,3 @@ class TTNNModuleCompiler(ModuleCompiler):
         self._mark_compile_step(CompileStep.FLATBUFFER)
 
         return flatbuffer
-
-
-if __name__ == "__main__":
-    # TODO find a convenient TTNN graph
-    ttnn_module_str = ""
-
-    compiler: TTNNModuleCompiler = TTNNModuleCompiler.create_from_module_str(
-        ttnn_module_str
-    )
-    compiler.compile_full_module()
-    compiler.compile_op_by_op()

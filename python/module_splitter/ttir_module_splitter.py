@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from mlir.ir import *
-from ttmlir.ir import *
+from ttmlir.dialects import ttir
 
 from .module_splitter import ModuleSplitter
 from .utils import parse_module_str
@@ -34,5 +34,5 @@ class TTIRModuleSplitter(ModuleSplitter):
     def _parse_module_str(module_str: str) -> Module:
         with Context() as ctx:
             # tt.register_dialect(ctx)
-            # ttir.register_dialect(ctx)
+            ttir.register_dialect(ctx)
             return parse_module_str(module_str, ctx)

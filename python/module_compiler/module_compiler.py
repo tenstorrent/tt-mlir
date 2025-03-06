@@ -5,13 +5,19 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import List
 
 from mlir.ir import *
-from module_splitter.module_splitter import ModuleSplitter
+from ttmlir.module_splitter import ModuleSplitter
+from ttrt.common.util import Binary
 
-from .ttmlir import Binary
-from .utils import CompileStep
+
+class CompileStep(Enum):
+    STABLE_HLO = 1
+    TTIR = 2
+    TTNN = 3
+    FLATBUFFER = 4
 
 
 class ModuleCompiler(ABC):

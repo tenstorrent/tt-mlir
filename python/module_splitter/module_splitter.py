@@ -132,7 +132,7 @@ class ModuleSplitter(ABC):
                 if op.name == "func.call":
                     self.__process_call_op(op)
                 else:
-                    # Add the operation to the list
+                    # Store captured op.
                     self.__sub_ops.append(OpWrapper(op))
 
     def __process_call_op(self, call_op: func.CallOp):

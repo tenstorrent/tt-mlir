@@ -5,11 +5,11 @@
 from __future__ import annotations
 
 from mlir.ir import *
-from module_splitter.ttir_module_splitter import TTIRModuleSplitter
+from ttmlir.compiler_passes import ttir_to_ttnn, ttnn_to_flatbuffer
+from ttmlir.ttir_module_splitter import TTIRModuleSplitter
+from ttrt.common.util import Binary
 
-from .module_compiler import ModuleCompiler
-from .ttmlir import Binary, ttir_to_ttnn, ttnn_to_flatbuffer
-from .utils import CompileStep
+from .module_compiler import CompileStep, ModuleCompiler
 
 
 class TTIRModuleCompiler(ModuleCompiler):
@@ -17,10 +17,12 @@ class TTIRModuleCompiler(ModuleCompiler):
 
     # ----- Public methods -----
 
+    @staticmethod
     def create_from_module(module: Module) -> TTIRModuleCompiler:
         module_splitter = TTIRModuleSplitter.create_from_module(module)
         return TTIRModuleCompiler(module_splitter.get_module(), module_splitter)
 
+    @staticmethod
     def create_from_module_str(module_str: str) -> TTIRModuleCompiler:
         module_splitter = TTIRModuleSplitter.create_from_module_str(module_str)
         return TTIRModuleCompiler(module_splitter.get_module(), module_splitter)
@@ -39,14 +41,3 @@ class TTIRModuleCompiler(ModuleCompiler):
         self._mark_compile_step(CompileStep.FLATBUFFER)
 
         return flatbuffer
-
-
-if __name__ == "__main__":
-    # TODO find a convenient TTIR graph
-    ttir_module_str = ""
-
-    compiler: TTIRModuleCompiler = TTIRModuleCompiler.create_from_module_str(
-        ttir_module_str
-    )
-    compiler.compile_full_module()
-    compiler.compile_op_by_op()

@@ -5,7 +5,7 @@
 from ttmlir.stablehlo_module_splitter import StableHLOModuleSplitter
 
 
-def test1():
+def test1(print_results: bool = False):
     shlo_module_str = """
         module {
             func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
@@ -17,18 +17,21 @@ def test1():
         }
     """
 
-    splitter: StableHLOModuleSplitter = StableHLOModuleSplitter.create_from_module_str(
-        shlo_module_str
-    )
+    splitter = StableHLOModuleSplitter.create_from_module_str(shlo_module_str)
+    sub_ops = splitter.get_sub_ops()
+    sub_modules = splitter.get_sub_modules()
 
-    for op in splitter.get_sub_ops():
-        print(op)
+    assert len(sub_ops) == len(sub_modules) == 3, f"Splitter isn't working as expected"
 
-    for m in splitter.get_sub_modules():
-        print(str(m))
+    if print_results:
+        for op in sub_ops:
+            print(op)
+
+        for m in sub_modules:
+            print(str(m))
 
 
-def test2():
+def test2(print_results: bool = False):
     shlo_module_str = """
         module {
             func.func public @main(%arg0: tensor<1x4xi32>, %arg1: tensor<512x768xf32>, %arg2: tensor<2x768xf32>, %arg3: tensor<30522x768xf32>) -> (tensor<1x4x768xf32>) {
@@ -130,12 +133,18 @@ def test2():
         }
     """
 
-    splitter: StableHLOModuleSplitter = StableHLOModuleSplitter.create_from_module_str(
-        shlo_module_str
-    )
+    splitter = StableHLOModuleSplitter.create_from_module_str(shlo_module_str)
+    sub_ops = splitter.get_sub_ops()
+    sub_modules = splitter.get_sub_modules()
 
-    for m in splitter.get_sub_modules():
-        print(str(m))
+    assert len(sub_ops) == len(sub_modules) == 77, f"Splitter isn't working as expected"
+
+    if print_results:
+        for op in sub_ops:
+            print(op)
+
+        for m in sub_modules:
+            print(str(m))
 
 
 if __name__ == "__main__":
