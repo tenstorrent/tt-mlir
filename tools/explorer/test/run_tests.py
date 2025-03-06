@@ -218,7 +218,8 @@ def test_execute_and_check_memory_data_exists():
         timeout=300,
     )
     result = convert_command_and_assert(MNIST_SHARDING_PATH)
-    assert "display_type" in str(result["graphs"])
+    assertion = "display_type" in str(result["graphs"][0]["nodes"])
+    assert assertion, str(result["graphs"][0]["nodes"])
 
 
 def test_execute_model_invalid_policy():
