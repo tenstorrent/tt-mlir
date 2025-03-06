@@ -1337,10 +1337,8 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   return ::tt::target::ttnn::CreateMaxPool2dOp(
       *cache.fbb, in, out, cache.at<::tt::target::DeviceRef>(device),
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), op.getKernelHeight(), op.getKernelWidth(),
-      op.getStrideHeight(), op.getStrideWidth(), op.getDilationHeight(),
-      op.getDilationWidth(), op.getCeilMode(), op.getPaddingHeight(),
-      op.getPaddingWidth());
+      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getDilation(), op.getCeilMode());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>

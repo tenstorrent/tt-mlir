@@ -1246,16 +1246,31 @@ public:
                                              outputType.getElementType(),
                                              outputType.getEncoding());
 
+    DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(adaptor.getKernelHeight()),
+         static_cast<int32_t>(adaptor.getKernelWidth())});
+
+    DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(adaptor.getStrideHeight()),
+         static_cast<int32_t>(adaptor.getStrideWidth())});
+
+    assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
+    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
+    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(adaptor.getPaddingTop()),
+         static_cast<int32_t>(adaptor.getPaddingLeft())});
+
+    DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(adaptor.getDilationHeight()),
+         static_cast<int32_t>(adaptor.getDilationWidth())});
+
     auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
         op.getLoc(), this->getTypeConverter()->convertType(outputType),
         flattenedInput, device, batchSize,
         static_cast<int32_t>(inputShape[inputShape.size() - 3]),
         static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
-        adaptor.getKernelHeight(), adaptor.getKernelWidth(),
-        adaptor.getStrideHeight(), adaptor.getStrideWidth(),
-        adaptor.getDilationHeight(), adaptor.getDilationWidth(),
-        adaptor.getCeilMode(), adaptor.getPaddingTop(),
-        adaptor.getPaddingRight());
+        kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+        adaptor.getCeilMode());
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(newPool, outputShape, rewriter);

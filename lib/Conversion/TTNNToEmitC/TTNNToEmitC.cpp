@@ -337,15 +337,11 @@ public:
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit(srcOp.getChannels()),
-        emitter.emit(srcOp.getKernelHeight()),
-        emitter.emit(srcOp.getKernelWidth()),
-        emitter.emit(srcOp.getStrideHeight()),
-        emitter.emit(srcOp.getStrideWidth()),
-        emitter.emit(srcOp.getDilationHeight()),
-        emitter.emit(srcOp.getDilationWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
-        emitter.emit(srcOp.getPaddingHeight()),
-        emitter.emit(srcOp.getPaddingWidth()),
     };
 
     emitter.replaceOp(*this, args);
