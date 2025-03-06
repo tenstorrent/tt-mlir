@@ -1702,7 +1702,8 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 // Common verifier for all Reduction ops.
 static mlir::LogicalResult
-verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
+verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+               mlir::RankedTensorType inputType,
                const std::optional<mlir::ArrayAttr> &reduceDims, bool keepDim,
                ::llvm::ArrayRef<int64_t> specifiedOutputShape) {
 
@@ -1738,10 +1739,11 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
 
   // Finally, compare shapes.
   if (!llvm::equal(specifiedOutputShape, expectedOutputShape)) {
-    return reduceOp->emitOpError(
-        "Expected output shape (" +
-        ttmlir::utils::join(expectedOutputShape, ", ") + "), got (" +
-        ttmlir::utils::join(specifiedOutputShape, ", ") + ")");
+    return emitOpError() << "Expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got ("
+                         << ttmlir::utils::join(specifiedOutputShape, ", ")
+                         << ")";
   }
 
   return mlir::success();
@@ -1775,8 +1777,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MaxOp verification.
 ::mlir::LogicalResult MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1785,8 +1788,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MeanOp verification.
 ::mlir::LogicalResult MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1795,8 +1799,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // SumOp verification.
 ::mlir::LogicalResult SumOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1805,8 +1810,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MinOp verification.
 ::mlir::LogicalResult MinOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
