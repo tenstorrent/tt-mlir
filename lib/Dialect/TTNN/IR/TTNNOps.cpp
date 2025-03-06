@@ -273,14 +273,14 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
 
-  if (getKernelHeight() > getInputHeight()) {
-    return emitOpError() << "Kernel height " << getKernelHeight()
+  if (getKernelSize()[0] > getInputHeight()) {
+    return emitOpError() << "Kernel height " << getKernelSize()[0]
                          << " is greater than input height " << getInputHeight()
                          << ". This MaxPool2d configuration is invalid.";
   }
 
-  if (getKernelWidth() > getInputWidth()) {
-    return emitOpError() << "Kernel width " << getKernelWidth()
+  if (getKernelSize()[1] > getInputWidth()) {
+    return emitOpError() << "Kernel width " << getKernelSize()[1]
                          << " is greater than input width " << getInputWidth()
                          << ". This MaxPool2d configuration is invalid.";
   }
