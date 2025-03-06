@@ -337,8 +337,7 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = ToLayoutOpInterface::getOpConstraints(
-      tensorShape, layoutDRAMTiled, layoutDRAMRowMajor.getLayout(),
-      std::nullopt, layoutDRAMRowMajor, true);
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cb_size, peak_size, output_size] = constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
@@ -346,8 +345,7 @@ TEST_F(OpModelTest, ToLayout) {
   EXPECT_EQ(peak_size, 0);
 
   auto runtimeExp = ToLayoutOpInterface::getOpRuntime(
-      tensorShape, layoutDRAMTiled, layoutDRAMRowMajor.getLayout(),
-      std::nullopt, layoutDRAMRowMajor, true);
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
