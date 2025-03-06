@@ -359,4 +359,56 @@ TEST_F(OpModelBase, transposeOp) {
   }
 }
 
+TEST_F(OpModelBase, maxPool2DOp) {
+  // Create maxPool2DOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 64 * 64, 32};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  // Input params
+  int32_t batchSize = 1;
+  int32_t inputHeight = 128;
+  int32_t inputWidth = 128;
+  int32_t numChannels = 32;
+
+  // Pooling params
+  int32_t kernelHeight = 2;
+  int32_t kernelWidth = 2;
+  int32_t strideHeight = 2;
+  int32_t strideWidth = 2;
+  int32_t dilationHeight = 1;
+  int32_t dilationWidth = 1;
+  bool ceilMode = false;
+  int32_t paddingHeight = 0;
+  int32_t paddingWidth = 0;
+
+  auto maxPool2DOp = builder.create<MaxPool2dOp>(
+      builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
+      inputWidth, numChannels, kernelHeight, kernelWidth, strideHeight,
+      strideWidth, dilationHeight, dilationWidth, ceilMode, paddingHeight,
+      paddingWidth);
+  maxPool2DOp->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  // auto constraintsExp = getOpConstraints(maxPool2DOp.getOperation());
+  // if (constraintsExp) {
+  //   auto l1 = constraintsExp.get();
+  //   const auto &[cb_size, peak_size, output_size] = l1;
+  //   EXPECT_EQ(cb_size, 16448);
+  //   EXPECT_EQ(peak_size, 41120);
+  //   EXPECT_EQ(output_size, 4096);
+  // } else {
+  //   FAIL() << "Missing L1 constraints; Error="
+  //          << llvm::toString(constraintsExp.takeError()) << std::endl;
+  // }
+
+  auto runtimeExp = getOpRuntime(maxPool2DOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn

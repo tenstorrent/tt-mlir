@@ -351,4 +351,48 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output);
 }
 
+//===----------------------------------------------------------------------===//
+// MaxPool2dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  return op_model::ttnn::MaxPool2DInterface::getOpConstraints(
+      inputShape, inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
+      getChannels(), getKernelHeight(), getKernelWidth(), getStrideHeight(),
+      getStrideWidth(), getPaddingHeight(), getPaddingWidth(),
+      getDilationHeight(), getDilationWidth(), getCeilMode(), outputShape,
+      output);
+}
+
+llvm::Expected<size_t>
+MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::MaxPool2DInterface::getOpRuntime(
+      inputShape, inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
+      getChannels(), getKernelHeight(), getKernelWidth(), getStrideHeight(),
+      getStrideWidth(), getPaddingHeight(), getPaddingWidth(),
+      getDilationHeight(), getDilationWidth(), getCeilMode(), outputShape,
+      output);
+}
+
 } // namespace mlir::tt::ttnn

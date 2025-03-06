@@ -10,6 +10,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 
+#include <llvm/Support/Error.h>
 #include <tuple>
 
 namespace mlir::tt::op_model::ttnn {
@@ -182,6 +183,33 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
 }; // namespace MultiplyOpInterface
+
+//===----------------------------------------------------------------------===//
+// MaxPool2D
+//===----------------------------------------------------------------------===//
+namespace MaxPool2DInterface {
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
+                 int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
+                 int32_t kernelHeight, int32_t kernelWidth,
+                 int32_t strideHeight, int32_t strideWidth,
+                 int32_t paddingHeight, int32_t paddingWidth,
+                 int32_t dilationHeight, int32_t dilationWidth, bool ceilMode,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
+             int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
+             int32_t kernelHeight, int32_t kernelWidth, int32_t strideHeight,
+             int32_t strideWidth, int32_t paddingHeight, int32_t paddingWidth,
+             int32_t dilationHeight, int32_t dilationWidth, bool ceilMode,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace MaxPool2DInterface
 
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
