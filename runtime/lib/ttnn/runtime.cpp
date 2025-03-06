@@ -528,7 +528,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::CpuOp: {
-    globalId = opContext.type_as_CpuOp()->out()->global_id();
+    tensorRef = opContext.type_as_CpuOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::GetDeviceOp:
