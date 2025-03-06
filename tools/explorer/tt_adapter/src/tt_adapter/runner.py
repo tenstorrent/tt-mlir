@@ -153,7 +153,7 @@ class ModelRunner:
             memory_trace = json.load(file)
 
         return memory_trace
-      
+
     def get_golden_results(self, model_path):
         accuracy_res = f"{self.model_state[model_path].model_output_dir}/run/program_0/golden_results.json"
 
