@@ -25,7 +25,6 @@
 namespace tt::runtime::common {
 using DylibHandleMap = std::unordered_map<uint32_t, void *>;
 
-
 class DylibManager {
 public:
     // Constructor takes dylibs and loads them

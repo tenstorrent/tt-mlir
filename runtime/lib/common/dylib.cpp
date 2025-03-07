@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/dylib.h"
+
 #include "tt/runtime/detail/logger.h"
 
 namespace tt::runtime::common {
