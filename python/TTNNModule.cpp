@@ -6,7 +6,7 @@
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
 namespace mlir::ttmlir::python {
-void populateTTNNModule(py::module &m) {
+void populateTTNNModule(nb::module_ &m) {
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")
       .def_static("get",
@@ -27,12 +27,12 @@ void populateTTNNModule(py::module &m) {
                 unwrap(ctx), mlir::cast<tt::GridAttr>(unwrap(grid)),
                 offsetVec));
           },
-          py::arg("ctx"), py::arg("grid"),
-          py::arg("offset") = std::vector<int64_t>{0, 0})
-      .def_property_readonly(
+          nb::arg("ctx"), nb::arg("grid"),
+          nb::arg("offset") = std::vector<int64_t>{0, 0})
+      .def_prop_ro(
           "offset",
           [](tt::ttnn::CoreRangeAttr self) { return self.getOffset().vec(); })
-      .def_property_readonly("size", [](tt::ttnn::CoreRangeAttr self) {
+      .def_prop_ro("size", [](tt::ttnn::CoreRangeAttr self) {
         return self.getSize().vec();
       });
 
@@ -42,7 +42,7 @@ void populateTTNNModule(py::module &m) {
                     return wrap(tt::ttnn::LayoutAttr::get(
                         unwrap(ctx), static_cast<tt::ttnn::Layout>(layout)));
                   })
-      .def_property_readonly("value", [](tt::ttnn::LayoutAttr self) {
+      .def_prop_ro("value", [](tt::ttnn::LayoutAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
 
@@ -54,10 +54,9 @@ void populateTTNNModule(py::module &m) {
                         unwrap(ctx), static_cast<tt::ttnn::TensorMemoryLayout>(
                                          tensorMemoryLayout)));
                   })
-      .def_property_readonly("value",
-                             [](tt::ttnn::TensorMemoryLayoutAttr self) {
-                               return static_cast<uint32_t>(self.getValue());
-                             });
+      .def_prop_ro("value", [](tt::ttnn::TensorMemoryLayoutAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
   tt_attribute_class<tt::ttnn::BufferTypeAttr>(m, "BufferTypeAttr")
       .def_static(
           "get",
@@ -65,7 +64,7 @@ void populateTTNNModule(py::module &m) {
             return wrap(tt::ttnn::BufferTypeAttr::get(
                 unwrap(ctx), static_cast<tt::ttnn::BufferType>(bufferType)));
           })
-      .def_property_readonly("value", [](tt::ttnn::BufferTypeAttr self) {
+      .def_prop_ro("value", [](tt::ttnn::BufferTypeAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
 
@@ -75,8 +74,7 @@ void populateTTNNModule(py::module &m) {
                     return wrap(
                         tt::ttnn::ShardSpecAttr::get(unwrap(ctx), shardShape));
                   })
-      .def_property_readonly("shard_shape",
-                             &tt::ttnn::ShardSpecAttr::getShardShape);
+      .def_prop_ro("shard_shape", &tt::ttnn::ShardSpecAttr::getShardShape);
 
   tt_attribute_class<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")
       .def_static("get",
@@ -106,19 +104,17 @@ void populateTTNNModule(py::module &m) {
                     tt::ttnn::ShapeAttr::get(unwrap(ctx), shardShape)),
                 layoutAttr));
           })
-      .def_property_readonly("tensor_memory_layout",
-                             &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
-      .def_property_readonly("buffer_type",
-                             &tt::ttnn::MemoryConfigAttr::getBufferType)
-      .def_property_readonly("shard_spec",
-                             &tt::ttnn::MemoryConfigAttr::getShardSpec);
+      .def_prop_ro("tensor_memory_layout",
+                   &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
+      .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
+      .def_prop_ro("shard_spec", &tt::ttnn::MemoryConfigAttr::getShardSpec);
 
   tt_attribute_class<tt::ttnn::ShapeAttr>(m, "ShapeAttr")
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> shape) {
                     return wrap(tt::ttnn::ShapeAttr::get(unwrap(ctx), shape));
                   })
-      .def_property_readonly("shape", [](tt::ttnn::ShapeAttr self) {
+      .def_prop_ro("shape", [](tt::ttnn::ShapeAttr self) {
         return std::vector<int64_t>(self.getShape().begin(),
                                     self.getShape().end());
       });
@@ -129,8 +125,8 @@ void populateTTNNModule(py::module &m) {
                     return wrap(
                         tt::ttnn::MeshShapeAttr::get(unwrap(ctx), y, x));
                   })
-      .def_property_readonly("y", &tt::ttnn::MeshShapeAttr::getY)
-      .def_property_readonly("x", &tt::ttnn::MeshShapeAttr::getX);
+      .def_prop_ro("y", &tt::ttnn::MeshShapeAttr::getY)
+      .def_prop_ro("x", &tt::ttnn::MeshShapeAttr::getX);
 
   tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
       .def_static(
@@ -149,29 +145,28 @@ void populateTTNNModule(py::module &m) {
                 mlir::cast<tt::GridAttr>(unwrap(grid)),
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr));
           })
-      .def_property_readonly(
+      .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
-      .def_property_readonly("grid_attr", &tt::ttnn::TTNNLayoutAttr::getGrid)
-      .def_property_readonly(
+      .def_prop_ro("grid_attr", &tt::ttnn::TTNNLayoutAttr::getGrid)
+      .def_prop_ro(
           "memref",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getMemref()); })
-      .def_property_readonly("tensor_memory_layout_as_int",
-                             [](tt::ttnn::TTNNLayoutAttr self)
-                                 -> std::variant<uint32_t, py::object> {
-                               if (!self.getMemLayout()) {
-                                 return py::none();
-                               }
-                               return static_cast<uint32_t>(
-                                   self.getMemLayout().getValue());
-                             })
-      .def_property_readonly("memory_layout_as_int",
-                             [](tt::ttnn::TTNNLayoutAttr self) {
-                               return static_cast<uint32_t>(self.getLayout());
-                             })
-      .def_property_readonly("data_type_as_int",
-                             [](tt::ttnn::TTNNLayoutAttr self) {
-                               return static_cast<uint32_t>(self.getDataType());
-                             });
+      .def_prop_ro("tensor_memory_layout_as_int",
+                   [](tt::ttnn::TTNNLayoutAttr self)
+                       -> std::variant<uint32_t, nb::object> {
+                     if (!self.getMemLayout()) {
+                       return nb::none();
+                     }
+                     return static_cast<uint32_t>(
+                         self.getMemLayout().getValue());
+                   })
+      .def_prop_ro("memory_layout_as_int",
+                   [](tt::ttnn::TTNNLayoutAttr self) {
+                     return static_cast<uint32_t>(self.getLayout());
+                   })
+      .def_prop_ro("data_type_as_int", [](tt::ttnn::TTNNLayoutAttr self) {
+        return static_cast<uint32_t>(self.getDataType());
+      });
 }
 } // namespace mlir::ttmlir::python
