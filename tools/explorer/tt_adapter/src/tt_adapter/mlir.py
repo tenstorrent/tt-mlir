@@ -396,7 +396,6 @@ def parse_ttnn_ttnn_layout(attr):
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
     memory_layout = layout.tensor_memory_layout_as_int
-
     if memory_layout is not None:
         result.append(
             utils.make_editable_kv(
@@ -465,7 +464,6 @@ def parse_ttnn_ttnn_layout(attr):
             },
         )
     )
-
     return result
 
 
@@ -532,7 +530,6 @@ class OpHandler:
                         key="rank", value=str(output_tensor.type.rank)
                     ),
                 ]
-
             if hasattr(output_tensor.type, "encoding") and output_tensor.type.encoding:
                 if "ttnn_layout" in str(output_tensor.type.encoding):
                     output_attrs.extend(
@@ -554,6 +551,7 @@ class OpHandler:
             graph_builder.KeyValue(key="schedule", value=str(OpHandler.schedule))
         )
         OpHandler.schedule += 1
+
         return result
 
     def make_graph_node(self, extra_attrs=None):
@@ -629,6 +627,7 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
                 / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"],
                 4,
             )
+
     accuracy_node_data = {}
     loc_to_accuracy = {}
     if golden_results is not None:
@@ -711,6 +710,7 @@ def process_module(
         loc_to_perf: Mapping from locations to performance data
         loc_to_accuracy: Locs to Golden Results
         perf_node_data: Performance data for nodes
+        memory_data: Memory usage for nodes
         accuracy_node_data: Acccuracy Node Data
     """
     module_op = OpHandler(module.operation)
@@ -818,6 +818,16 @@ def process_operations(
             perf_node_data[operation.id] = node_data_builder.NodeDataResult(
                 loc_to_perf[operation.named_location]
             )
+
+        if (
+            operation.named_location in loc_to_accuracy
+            and operation.op.name not in EMPTY_OPS
+        ):
+            accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
+                loc_to_accuracy[operation.named_location]["actual_pcc"]
+                - loc_to_accuracy[operation.named_location]["expected_pcc"]
+            )
+
         extra_attrs = []
         if memory_data and operation.named_location in memory_data:
             extra_attrs.append(
@@ -849,15 +859,6 @@ def process_operations(
                     "display_type",
                     "memory",
                 )
-            )
-
-        if (
-            operation.named_location in loc_to_accuracy
-            and operation.op.name not in EMPTY_OPS
-        ):
-            accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
-                loc_to_accuracy[operation.named_location]["actual_pcc"]
-                - loc_to_accuracy[operation.named_location]["expected_pcc"]
             )
 
         if not op.name == "func.func":

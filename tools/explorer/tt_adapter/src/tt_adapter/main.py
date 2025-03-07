@@ -93,7 +93,7 @@ class TTAdapter(model_explorer.Adapter):
             model_path
         ):
             logging.info(f"Using optimized model: {optimized_model_path}")
-            # Get performance and memory results.
+            # Get performance results.
             perf_trace = self.model_runner.get_perf_trace(model_path)
             memory_trace = self.model_runner.get_memory_usage(model_path)
             golden_results = self.model_runner.get_golden_results(model_path)
@@ -102,11 +102,9 @@ class TTAdapter(model_explorer.Adapter):
                 module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, perf_data = mlir.build_graph(module, perf_trace, memory_trace)
-            if perf_data:
-                # TODO(odjuricic) We should replace the perf_data with overlays once this is fixed on FE.
-                graph = utils.add_to_dataclass(graph, "perf_data", perf_data.graphsData)
-            graph, overlays = mlir.build_graph(module, perf_trace, golden_results)
+            graph, overlays = mlir.build_graph(
+                module, perf_trace, memory_trace, golden_results
+            )
 
             if overlays:
                 graph = utils.add_to_dataclass(graph, "overlays", overlays)
