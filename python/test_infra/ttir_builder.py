@@ -637,7 +637,6 @@ class TTIRBuilder:
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
-            # output_shape=torch.Size([0, 0]),  # clunky?
         )
 
     def min(
