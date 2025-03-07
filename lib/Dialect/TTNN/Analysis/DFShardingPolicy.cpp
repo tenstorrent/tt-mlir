@@ -120,20 +120,12 @@ void DFShardingPolicy::run() {
             TTNNLayoutAttr currentOpLayout =
                 legalLayouts.lookup(currentOp).front();
             assert(currentOpLayout.hasShardedL1TensorMemoryLayout());
-            llvm::ArrayRef<int64_t> currentOpOutputTensorShape =
-                mlir::cast<RankedTensorType>(currentOp->getResult(0).getType())
-                    .getShape();
             uint64_t currentOpL1OutputUsage =
-                currentOpLayout.getTensorSizeInBytes(currentOpOutputTensorShape,
-                                                     deviceAttr);
+                currentOpLayout.getShardSizeInBytes();
 
             TTNNLayoutAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
             assert(nextOpLayout.hasShardedL1TensorMemoryLayout());
-            llvm::ArrayRef<int64_t> nextOpOutputTensorShape =
-                mlir::cast<RankedTensorType>(nextOp->getResult(0).getType())
-                    .getShape();
-            uint64_t nextOpL1OutputUsage = nextOpLayout.getTensorSizeInBytes(
-                nextOpOutputTensorShape, deviceAttr);
+            uint64_t nextOpL1OutputUsage = nextOpLayout.getShardSizeInBytes();
 
             // Figure out this const based on exec data, but will be replaced
             // with API.
@@ -174,8 +166,7 @@ void DFShardingPolicy::run() {
                                   currentOpLayout.getGrid());
 
                 uint64_t firstInputL1Usage =
-                    firstOpInputShardedLayout.getTensorSizeInBytes(
-                        firstOpInputTensorType.getShape(), deviceAttr);
+                    firstOpInputShardedLayout.getShardSizeInBytes();
 
                 firstInputL1UsageValid =
                     (firstInputL1Usage + currentOpL1OutputUsage) <
