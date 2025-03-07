@@ -5,12 +5,12 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Traits.h"
+#include "mlir/IR/BuiltinAttributes.h"
 
 #include <numeric>
 #include <optional>
@@ -19,6 +19,20 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
+
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ConstantOp::verify() {
+
+  if (!isa<DenseResourceElementsAttr, DenseElementsAttr>(getValue())) {
+    return emitOpError("value attribute must be one of "
+                       "DenseResourceElementsAttr or DenseElementsAttr.");
+  }
+
+  return success();
+}
 
 //===----------------------------------------------------------------------===//
 // ClampOp
@@ -1703,49 +1717,48 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 // Common verifier for all Reduction ops.
 static mlir::LogicalResult
-verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
+verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+               mlir::RankedTensorType inputType,
                const std::optional<mlir::ArrayAttr> &reduceDims, bool keepDim,
                ::llvm::ArrayRef<int64_t> specifiedOutputShape) {
-  if (!reduceDims) {
-    return mlir::success();
-  }
 
   int64_t inputTensorRank = inputType.getRank();
 
-  // Calculate output shape for given args.
-  //
-  llvm::SmallVector<int64_t> calculatedOutputShape;
-  for (int64_t i = 0; i < inputType.getRank(); ++i) {
-    bool isDimInReduceDims =
-        llvm::any_of(*reduceDims, [i, inputTensorRank](mlir::Attribute attr) {
-          int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(attr).getInt();
-          // Check for match even if negative dim is used.
-          //
-          return reduceDim == i || (reduceDim + inputTensorRank) == i;
-        });
+  llvm::BitVector reduceDimsMask(inputTensorRank, false);
+  if (reduceDims) {
+    for (mlir::Attribute attr : *reduceDims) {
+      int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(attr).getInt();
+      // Normalize range to [0, inputTensorRank).
+      if (reduceDim < 0) {
+        reduceDim += inputTensorRank;
+      }
+      reduceDimsMask.set(reduceDim);
+    }
+  } else {
+    reduceDimsMask.set();
+  }
 
-    // If dim is being reduced on, the dim will have size of 1 if keepDim==true,
-    // otherwise the dim is erased.
-    //
-    if (!isDimInReduceDims) {
-      calculatedOutputShape.push_back(inputType.getDimSize(i));
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  for (int64_t index = 0; index < inputTensorRank; ++index) {
+    if (!reduceDimsMask[index]) {
+      expectedOutputShape.push_back(inputType.getDimSize(index));
     } else if (keepDim) {
-      calculatedOutputShape.push_back(1);
+      expectedOutputShape.push_back(1);
     }
   }
 
   // Cover edge case where all dims are reduced, and keepDim==false.
-  if (calculatedOutputShape.size() == 0 && keepDim == false) {
-    calculatedOutputShape.push_back(1);
+  if (expectedOutputShape.empty() && !keepDim) {
+    expectedOutputShape.push_back(1);
   }
 
   // Finally, compare shapes.
-  //
-  if (!llvm::equal(specifiedOutputShape, calculatedOutputShape)) {
-    return reduceOp->emitOpError(
-        "Expected output shape (" +
-        ttmlir::utils::join(specifiedOutputShape, ", ") + "), got (" +
-        ttmlir::utils::join(calculatedOutputShape, ", ") + ")");
+  if (!llvm::equal(specifiedOutputShape, expectedOutputShape)) {
+    return emitOpError() << "Expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got ("
+                         << ttmlir::utils::join(specifiedOutputShape, ", ")
+                         << ")";
   }
 
   return mlir::success();
@@ -1779,8 +1792,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MaxOp verification.
 ::mlir::LogicalResult MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1789,8 +1803,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MeanOp verification.
 ::mlir::LogicalResult MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1799,8 +1814,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // SumOp verification.
 ::mlir::LogicalResult SumOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1809,8 +1825,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MinOp verification.
 ::mlir::LogicalResult MinOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
