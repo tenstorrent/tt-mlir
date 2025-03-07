@@ -5,8 +5,8 @@
 #ifndef TT_RUNTIME_UTILS_H
 #define TT_RUNTIME_UTILS_H
 
-#include <concepts>
 #include <memory>
+#include <type_traits>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
@@ -45,7 +45,7 @@ inline std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   }
 }
 
-template <std::integral T>
+template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 inline std::vector<T> calculateStride(const std::vector<T> &shape) {
   assert(!shape.empty());
   std::vector<T> stride(shape.size(), 1);
