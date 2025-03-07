@@ -45,16 +45,30 @@ PYBIND11_MODULE(_C, m) {
       .def_readonly("item_size", &tt::runtime::TensorDesc::itemsize)
       .def_readonly("dtype", &tt::runtime::TensorDesc::dataType);
   py::class_<tt::runtime::Tensor>(m, "Tensor")
-      .def("get_shape", &tt::runtime::Tensor::getShape)
-      .def("get_stride", &tt::runtime::Tensor::getStride)
-      .def("get_volume", &tt::runtime::Tensor::getVolume)
-      .def("get_dtype", &tt::runtime::Tensor::getDtype)
-      .def("get_element_size", &tt::runtime::Tensor::getElementSize)
-      .def("get_tensor_desc", &tt::runtime::Tensor::getTensorDesc)
+      .def("get_shape",
+           [](tt::runtime::Tensor self) { return tt::runtime::getShape(self); })
+      .def(
+          "get_stride",
+          [](tt::runtime::Tensor self) { return tt::runtime::getStride(self); })
+      .def(
+          "get_volume",
+          [](tt::runtime::Tensor self) { return tt::runtime::getVolume(self); })
+      .def("get_dtype",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorDataType(self);
+           })
+      .def("get_element_size",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getElementSize(self);
+           })
+      .def("get_tensor_desc",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorDesc(self);
+           })
       .def(
           "get_data_buffer",
           [](tt::runtime::Tensor self) {
-            std::vector<std::byte> vec = self.getDataBuffer();
+            std::vector<std::byte> vec = tt::runtime::getDataBuffer(self);
             return py::bytes(reinterpret_cast<const char *>(vec.data()),
                              vec.size());
           },

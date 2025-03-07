@@ -515,106 +515,106 @@ Event submit(Device deviceHandle, Binary executableHandle,
 #endif
   LOG_FATAL("runtime is not enabled");
 }
-std::vector<std::byte> Tensor::getDataBuffer() {
+std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getDataBuffer(*this);
+    return ::tt::runtime::ttnn::getDataBuffer(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getDataBuffer(*this);
+    return ::tt::runtime::ttmetal::getDataBuffer(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-std::vector<std::uint32_t> Tensor::getShape() {
+std::vector<std::uint32_t> getShape(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getShape(*this);
+    return ::tt::runtime::ttnn::getShape(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getShape(*this);
+    return ::tt::runtime::ttmetal::getShape(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-std::vector<std::uint32_t> Tensor::getStride() {
+std::vector<std::uint32_t> getStride(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getStride(*this);
+    return ::tt::runtime::ttnn::getStride(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getStride(*this);
+    return ::tt::runtime::ttmetal::getStride(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-target::DataType Tensor::getDtype() {
+target::DataType getDtype(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getTensorDataType(*this);
+    return ::tt::runtime::ttnn::getTensorDataType(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getTensorDataType(*this);
+    return ::tt::runtime::ttmetal::getTensorDataType(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-std::uint32_t Tensor::getElementSize() {
+std::uint32_t getElementSize(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getElementSize(*this);
+    return ::tt::runtime::ttnn::getElementSize(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getElementSize(*this);
+    return ::tt::runtime::ttmetal::getElementSize(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-std::uint32_t Tensor::getVolume() {
+std::uint32_t getVolume(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getVolume(*this);
+    return ::tt::runtime::ttnn::getVolume(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getVolume(*this);
+    return ::tt::runtime::ttmetal::getVolume(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-TensorDesc Tensor::getTensorDesc() {
+TensorDesc getTensorDesc(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getTensorDesc(*this);
+    return ::tt::runtime::ttnn::getTensorDesc(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getTensorDesc(*this);
+    return ::tt::runtime::ttmetal::getTensorDesc(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
