@@ -327,7 +327,7 @@ interface EditableIntAttribute {
 
 Both `min_value` and `max_value` define the accepted range of values, and `step` define the number to increment or decrement per step.
 
-The default range of values is between `0` and `100`, inclusive, and the default step is `1`. Thus by default, the value will increment or decrement by `1` each time to a minimum of `0` and a maximum of `100`. 
+The default range of values is between `0` and `100`, inclusive, and the default step is `1`. Thus by default, the value will increment or decrement by `1` each time to a minimum of `0` and a maximum of `100`.
 
 Here is an example of what this attribute look like:
 ```json
@@ -403,7 +403,7 @@ The typescript interface for the `editable` attribute is this:
 ```typescript
 interface EditableGridAttribute {
 	input_type: 'grid';
-	separator?: string = 'x'; 
+	separator?: string = 'x';
 	min_value?: number = 0;
 	max_value?: number = 100;
 	step?: number = 1;
@@ -412,7 +412,7 @@ interface EditableGridAttribute {
 
 Both `min_value` and `max_value` define the accepted range of values, and `step` define the number to increment or decrement per step.
 
-The default range of values is between `0` and `100`, inclusive, and the default step is `1`. Thus by default, the value will increment or decrement by `1` each time to a minimum of `0` and a maximum of `100`. 
+The default range of values is between `0` and `100`, inclusive, and the default step is `1`. Thus by default, the value will increment or decrement by `1` each time to a minimum of `0` and a maximum of `100`.
 
 The `separator` attribute defines the character used to split the string, it defaults to "`x`".
 
