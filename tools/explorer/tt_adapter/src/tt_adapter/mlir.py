@@ -305,14 +305,16 @@ def parse_memory_config(attr):
             value="x".join(map(str, memory_config.shard_spec.shard_shape.shape)),
         )
     )
+
     result.append(
         graph_builder.KeyValue(
             key="tensor-memory-layout",
             value=str(
-                ttnn.TensorMemoryLayout(memory_config.tensor_memory_layout.value)
+                ttnn.TensorMemoryLayout(int(memory_config.tensor_memory_layout.value))
             ),
         )
     )
+
     return result
 
 
@@ -580,7 +582,7 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(module, perf_trace=None):
+def build_graph(module, perf_trace=None, golden_results=None):
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id="tt-graph")
 
@@ -624,7 +626,9 @@ def build_graph(module, perf_trace=None):
         operands_in_graph,
         output_connections,
         loc_to_perf,
+        loc_to_accuracy,
         perf_node_data,
+        accuracy_node_data,
     )
 
     # Add Overlay Data if it exists
@@ -668,7 +672,9 @@ def process_operations(
     operands_in_graph,
     output_connections,
     loc_to_perf,
+    loc_to_accuracy,
     perf_node_data,
+    accuracy_node_data,
 ):
     """
     Recursively process a list of operations, including handling nested modules.
@@ -680,7 +686,9 @@ def process_operations(
         operands_in_graph: Set of operands already added to graph
         output_connections: Tracking of output connections
         loc_to_perf: Mapping from locations to performance data
+        loc_to_accuracy: Locs from Golden Result
         perf_node_data: Performance data for nodes
+        accuracy_node_data: Accuracy Node Data
     """
     append_later = []
 
@@ -696,7 +704,9 @@ def process_operations(
                 operands_in_graph,
                 output_connections,
                 loc_to_perf,
+                loc_to_accuracy,
                 perf_node_data,
+                accuracy_node_data,
             )
             continue
 
@@ -711,7 +721,9 @@ def process_operations(
                     operands_in_graph,
                     output_connections,
                     loc_to_perf,
+                    loc_to_accuracy,
                     perf_node_data,
+                    accuracy_node_data,
                 )
 
         # Create graph node for this operation
@@ -724,6 +736,16 @@ def process_operations(
             perf_node_data[operation.id] = node_data_builder.NodeDataResult(
                 loc_to_perf[operation.named_location]
             )
+
+        if (
+            operation.named_location in loc_to_accuracy
+            and operation.op.name not in EMPTY_OPS
+        ):
+            accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
+                loc_to_accuracy[operation.named_location]["actual_pcc"]
+                - loc_to_accuracy[operation.named_location]["expected_pcc"]
+            )
+
         if not op.operation.name == "func.func":
             graph_node = operation.make_graph_node()
 

@@ -15,6 +15,7 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
@@ -313,6 +314,25 @@ def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
     }];
 }
 
+def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
+    let summary = "Eltwise arctangent op.";
+    let description = [{
+      Performs an elementwise arctangent (`atan`) operation on the input tensor.
+      This operation computes the inverse tangent of each element, returning
+      values in the range [-π/2, π/2]. Supports floating-point tensor types.
+
+      Example:
+
+      ```mlir
+      %input = tensor<4xf32> {1.0, 0.5, 0.0, -1.0}
+      %result = "ttir.atan"(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      ```
+
+      Given the input `[1.0, 0.5, 0.0, -1.0]`, the result would be approximately:
+      `[0.785, 0.464, 0.0, -0.785]` (values in radians).
+    }];
+}
+
 def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
     let summary = "Eltwise tanh op.";
     let description = [{
@@ -583,7 +603,10 @@ def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum"> {
     }];
 }
 
-def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
+def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
+
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
@@ -688,7 +711,7 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   }];
 }
 
-def TTNN_ArgMaxOp : TTNN_NamedDPSOp<"argmax"> {
+def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
   let summary = "Argmax reduction op.";
   let description = [{
     Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
@@ -722,12 +745,14 @@ def TTNN_ArgMaxOp : TTNN_NamedDPSOp<"argmax"> {
   let arguments = (ins AnyRankedTensor:$input,
                        OptionalAttr<I32Attr>:$dim,
                        BoolAttr:$use_multicore,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                       AnyRankedTensor:$output);
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::
+          createArgMaxOpOperandsWorkarounds();
+    }
+  }];
 
   let results = (outs AnyRankedTensor:$result);
 }
@@ -889,7 +914,9 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     let hasVerifier = 1;
 }
 
-def TTNN_TransposeOp : TTNN_Op<"transpose"> {
+def TTNN_TransposeOp : TTNN_Op<"transpose",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Transpose op.";
     let description = [{
       Transpose tensor along two given dimensions.
@@ -953,8 +980,8 @@ def TTNN_ConcatOp : TTNN_Op<"concat", [HasMemoryConfigTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_ReshapeOp : TTNN_Op<"reshape",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+def TTNN_ReshapeOp : TTNN_Op<"reshape", [HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Reshape op.";
     let description = [{
@@ -962,7 +989,8 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape",
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$shape);
+                         I32ArrayAttr:$shape,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1250,15 +1278,11 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
                          SI32Attr:$input_height,
                          SI32Attr:$input_width,
                          SI32Attr:$channels,
-                         SI32Attr:$kernel_height,
-                         SI32Attr:$kernel_width,
-                         SI32Attr:$stride_height,
-                         SI32Attr:$stride_width,
-                         SI32Attr:$dilation_height,
-                         SI32Attr:$dilation_width,
-                         BoolAttr:$ceil_mode,
-                         SI32Attr:$padding_height,
-                         SI32Attr:$padding_width);
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         BoolAttr:$ceil_mode);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1577,6 +1601,8 @@ def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]>
         return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
       }
     }];
+
+    let hasVerifier = 1;
 }
 
 #endif

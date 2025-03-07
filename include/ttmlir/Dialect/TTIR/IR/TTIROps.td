@@ -23,7 +23,8 @@ include "mlir/IR/OpBase.td"
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, !listconcat([TTIROpInterface, DestinationStyleOpInterface], traits)> {
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+      // base implementation that will detect getOutputMutable() or getOutputsMutable()
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 }
 
@@ -41,6 +42,40 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
                                                            ]>
       , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
       ], traits)> {
+
+    let extraClassDefinition = [{
+      bool $cppClass::bufferizesToMemoryRead(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        // If the operand is an input, it is a bufferized to a memory read.
+        return isDpsInput(&operand);
+      }
+
+      bool $cppClass::bufferizesToMemoryWrite(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        // If the operand is an output, it is a bufferized to a memory write.
+        return isDpsInit(&operand);
+      }
+
+      bufferization::AliasingValueList $cppClass::getAliasingValues(
+          OpOperand &, const bufferization::AnalysisState &) {
+        bufferization::AliasingValueList result;
+        return result;
+      }
+
+      FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+          Value value, const bufferization::BufferizationOptions &,
+          SmallVector<mlir::Value> &) {
+        auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+        return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+            .getBufferType();
+      }
+
+      void $cppClass::getEffects(
+          SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+              &effects) {
+        ttir::getDpsEffects(*this, effects);
+      }
+    }];
 }
 
 def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, NoTerminator]> {
@@ -57,10 +92,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, N
         grid = #tt.grid<1x1>,                        // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
-        operandSegmentSizes = array<i32: 2, 1, 1>,   // Sizes of the operand segments, i.e. 2 inputs, 1 cb and 1 output.
-        operand_cb_mapping = array<i64: -1, 0, -1>,  // Mapping of input & output operands to cbs. -1 means no mapping.
-                                                     // Mapped operands correspond to buffers in streaming mode.
-                                                     // Non-mapped operands correspond to buffers in alias mode.
+        operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
       ({
       ^bb0(%arg2: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, alias>>,
            %arg3: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, stream>>,
@@ -71,29 +103,16 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, N
     }];
 
     let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
-                         Variadic<AnyRankedTensorOrMemRef>:$cbs,
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types,
-                         DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$operand_cb_mapping); // index of input operand and index of cb go together
+                         TT_IteratorTypeArrayAttr:$iterator_types);
     let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region AnyRegion:$region);
+    let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
-      // For a given block argument index, return the corresponding operand of the surrounding generic op.
-      // This is needed because extra CB operands may be present in between the inputs and outputs.
-      Value getMatchingOperand(size_t blockArgIndex) {
-        assert(blockArgIndex < getInputs().size() + getOutputs().size() &&
-               "blockArgIndex should be within the range of inputs and outputs");
-        return blockArgIndex < getInputs().size() ?
-          getOperand(blockArgIndex) : getOperand(blockArgIndex + getCbs().size());
-      }
-
-      MutableOperandRange getDpsInitsMutable() {
-        return getOutputsMutable();
-      }
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 }
 
@@ -119,7 +138,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
 
       struct CompoundComponents {
         bool isLayoutChange = false;
@@ -135,6 +154,74 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasVerifier = 1;
 
     let hasCanonicalizeMethod = 1;
+}
+
+def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
+  [DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+    let summary = "Stream Layout op.";
+    let description = [{
+      StreamLayout operation used to form a stream between remote and local memory spaces. Note that this op has
+      no side-effects, it's purely representational. The primary use cases include, to enable streaming a large
+      tensor out of dram via a small L1 buffer and also as a means for forming reduce or gather multicast
+      operations. A stream definition includes:
+
+      - The tensor to be streamed.
+      - The storage buffer to be used for streaming.
+      - A result, which is also able to take a view over the input, i.e. same semantics as the ViewLayout op.
+
+      Additional constraints:
+      - It is not capable of changing the data type nor the memory space of the tensor.
+
+      ```llvm
+      %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
+      %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3), stream>, #l1_>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$storage);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getStorageMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
+  [ Pure
+  , TTIROpInterface
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+    let summary = "View Layout op.";
+    let description = [{
+      ViewLayout operation, used to take a view of one layout into another.  Note that this op is purely representational
+      and doesn't have any side-effects. Its primary usecase is to allow reinterpreting the layout of a tensor without actually
+      moving the data. Consumers of this op are expected to compose the layout with the underlying backing layout.
+
+      Additional notes/constraints:
+      - It is not capable of changing the data type nor the memory space of the tensor.
+      - All ViewLayout ops can trivially be converted to ToLayout ops.
+
+      ```llvm
+      #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -342,6 +429,26 @@ def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
     let summary = "Eltwise tan op.";
     let description = [{
       Eltwise tan operation.
+    }];
+}
+
+def TTIR_AtanOp: TTIR_ElementwiseUnaryOp<"atan"> {
+    let summary = "Eltwise arctangent op.";
+    let description = [{
+      Performs an elementwise arctangent (`atan`) operation on the input tensor.
+      This operation computes the inverse tangent of each element, returning
+      values in the range [-π/2, π/2]. Supports floating-point tensor types.
+
+      Example:
+
+      ```mlir
+      %input = tensor<4xf32> {1.0, 0.5, 0.0, -1.0}
+      %empty = tensor<4xf32>
+      %result = "ttir.atan"(%input, %empty) : (tensor<4xf32>) -> tensor<4xf32>
+      ```
+
+      Given the input `[1.0, 0.5, 0.0, -1.0]`, the result would be approximately:
+      `[0.785, 0.464, 0.0, -0.785]` (values in radians).
     }];
 }
 
@@ -694,8 +801,7 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       // Returns the indexing maps and iterator types for the reduction op.
@@ -882,10 +988,6 @@ def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -901,10 +1003,6 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
                          AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }
@@ -933,10 +1031,6 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
 
   let results = (outs AnyRankedTensor:$result);
 
-  let extraClassDeclaration = [{
-    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-  }];
-
   let hasVerifier = 1;
 }
 
@@ -951,10 +1045,6 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
                          SI32Attr:$dimension);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }
@@ -972,10 +1062,6 @@ def TTIR_TransposeOp : TTIR_NamedOp<"transpose"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
@@ -992,10 +1078,6 @@ def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }
@@ -1028,10 +1110,6 @@ def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
 
   let results = (outs AnyRankedTensor:$result);
 
-  let extraClassDeclaration = [{
-    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-  }];
-
   let hasVerifier = 1;
 }
 
@@ -1054,10 +1132,6 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }
@@ -1120,10 +1194,6 @@ def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
                          DenseI64ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 
@@ -1194,10 +1264,6 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1259,10 +1325,6 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1293,10 +1355,6 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution"> {
 
   let results = (outs AnyRankedTensor);
   let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-  }];
 }
 
 def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
@@ -1317,9 +1375,6 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
                          DenseI64ArrayAttr:$slice_sizes,
                          BoolAttr:$indices_are_sorted);
     let results = (outs AnyRankedTensor:$result);
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 }
 
 def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments]> {
@@ -1366,10 +1421,6 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1384,10 +1435,6 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape"> {
                          I32ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 
@@ -1445,10 +1492,6 @@ def TTIR_SliceOp: TTIR_NamedOp<"slice"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1471,10 +1514,6 @@ def TTIR_SelectOp: TTIR_NamedOp<"select"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1496,10 +1535,6 @@ def TTIR_IndexOp: TTIR_NamedOp<"index"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 // ANCHOR_END: decomposing_an_op_index_ttir
@@ -1516,10 +1551,6 @@ def TTIR_SqueezeOp : TTIR_NamedOp<"squeeze"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1534,10 +1565,6 @@ def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }
@@ -1560,10 +1587,6 @@ def TTIR_ClampOp : TTIR_NamedOp<"clamp"> {
                          AnyRankedTensor:$output,
                          F32Attr:$min,
                          F32Attr:$max);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1673,10 +1696,6 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
@@ -1718,10 +1737,6 @@ def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
                          ElementsAttr:$value);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 }
 
 def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
@@ -1746,10 +1761,6 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
@@ -1769,10 +1780,6 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 
@@ -1799,10 +1806,6 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
                          DenseI64ArrayAttr:$permutation);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 
@@ -1832,10 +1835,6 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1847,8 +1846,7 @@ class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseUnaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
@@ -1878,8 +1876,7 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
     TTIR_ElementwiseBinaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
@@ -1957,10 +1954,6 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1998,10 +1991,6 @@ def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -2018,10 +2007,24 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let hasVerifier = 1;
+}
+
+def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
+    let summary = "Reduce scatter operation.";
+    let description = [{
+      Reduce scatter op.
+    }];
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_ReduceTypeAttr:$reduce_type,
+                         SI32Attr:$scatter_dim,
+                         UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
-
     let hasVerifier = 1;
 }
 
@@ -2068,10 +2071,6 @@ def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
     );
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }

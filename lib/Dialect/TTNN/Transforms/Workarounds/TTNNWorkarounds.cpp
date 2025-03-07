@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RepeatOpRewritePattern.h"
@@ -386,7 +387,8 @@ public:
 
       // Create a new reshape op.
       ttnn::ReshapeOp preReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr);
+          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
+          /* memory_config */ nullptr);
 
       // Determine new dimension since entire tensor shape got shifted.
       dimension = dimension + requiredOnesInput;
@@ -424,9 +426,9 @@ public:
           loc, Type(reshapedOutputType), reduceScatterOp.getResult(),
           deviceValue, dimension, clusterAxis);
 
-      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(op, Type(outputType),
-                                                   allGatherOp.getResult(),
-                                                   reshapedOutputShapeAttr);
+      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+          op, Type(outputType), allGatherOp.getResult(),
+          reshapedOutputShapeAttr, /* memory_config */ nullptr);
     } else {
       // TODO(wooseoklee): Once ttnn supports all_reduce op
       // (https://github.com/tenstorrent/tt-metal/issues/13835), we can convert
@@ -473,7 +475,8 @@ public:
                        ttnn::MeanOp, /*keepDimUnsupported*/ false>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
                        ttnn::MinOp, /*keepDimUnsupported*/ false>,
-                   workarounds::decomposition::CumSumOpRewritePattern>(
+                   workarounds::decomposition::CumSumOpRewritePattern,
+                   workarounds::decomposition::ArgMaxOpRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),

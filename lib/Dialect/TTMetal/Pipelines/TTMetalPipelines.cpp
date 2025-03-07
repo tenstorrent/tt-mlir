@@ -4,9 +4,11 @@
 
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
 
 #include "ttmlir/Conversion/Passes.h"
@@ -32,7 +34,7 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
             tensorType, memorySpace);
       }
       return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-          .getMemref();
+          .getBufferType();
     };
     bufferizationOptions.defaultMemorySpaceFn =
         [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
@@ -79,6 +81,9 @@ void createTTIRToTTMetalBackendPipeline(
   // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   if (options.version > 0) {
     createTTIRBufferizationPipeline(pm);
+    pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+    pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
+    pm.addPass(mlir::createLowerAffinePass());
   } else {
     mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
     {

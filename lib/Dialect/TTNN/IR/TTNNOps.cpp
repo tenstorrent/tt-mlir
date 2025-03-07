@@ -5,12 +5,12 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Traits.h"
+#include "mlir/IR/BuiltinAttributes.h"
 
 #include <numeric>
 #include <optional>
@@ -19,6 +19,20 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
+
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ConstantOp::verify() {
+
+  if (!isa<DenseResourceElementsAttr, DenseElementsAttr>(getValue())) {
+    return emitOpError("value attribute must be one of "
+                       "DenseResourceElementsAttr or DenseElementsAttr.");
+  }
+
+  return success();
+}
 
 //===----------------------------------------------------------------------===//
 // ClampOp
@@ -273,14 +287,14 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
 
-  if (getKernelHeight() > getInputHeight()) {
-    return emitOpError() << "Kernel height " << getKernelHeight()
+  if (getKernelSize()[0] > getInputHeight()) {
+    return emitOpError() << "Kernel height " << getKernelSize()[0]
                          << " is greater than input height " << getInputHeight()
                          << ". This MaxPool2d configuration is invalid.";
   }
 
-  if (getKernelWidth() > getInputWidth()) {
-    return emitOpError() << "Kernel width " << getKernelWidth()
+  if (getKernelSize()[1] > getInputWidth()) {
+    return emitOpError() << "Kernel width " << getKernelSize()[1]
                          << " is greater than input width " << getInputWidth()
                          << ". This MaxPool2d configuration is invalid.";
   }
@@ -486,56 +500,54 @@ namespace mlir::tt::ttnn {
   auto shape = getShape();
   int64_t shapeSize = static_cast<int64_t>(shape.size());
 
-  // Check that the shape size matches the rank of the output tensor
-  if (shapeSize != static_cast<int64_t>(outputType.getRank())) {
-    return emitOpError("Shape attribute size must match output tensor rank");
-  }
-  // Check that the shape attribute is non-empty
+  // Check that the shape attribute is non-empty.
   if (shapeSize == 0) {
     return emitOpError("Shape attribute must be non-empty");
   }
 
-  // Cardinality of the input and output tensors must be the same
-  if (inputType.getNumElements() != outputType.getNumElements()) {
-    return emitOpError(
-        "Input and output tensors must have the same number of elements");
+  // Check that the shape size matches the rank of the output tensor.
+  if (shapeSize != static_cast<int64_t>(outputType.getRank())) {
+    return emitOpError() << "Shape attribute size " << shapeSize
+                         << " must match output tensor rank "
+                         << outputType.getRank();
   }
 
-  bool has_negative = false;
-  int64_t known_dim_product = 1;
+  // Cardinality of the input and output tensors must be the same.
+  if (inputType.getNumElements() != outputType.getNumElements()) {
+    return emitOpError() << "Input tensor number of elements "
+                         << inputType.getNumElements()
+                         << " and output tensor number of elements "
+                         << outputType.getNumElements() << " must be the same";
+  }
+
+  bool hasNegative = false;
   auto outputShape = outputType.getShape();
 
   // Check that all dimensions are positive except for at most one -1
   // Check that the non-negative dimensions match the output tensor shape
   // Calculate the product of the known dimensions
   for (int64_t i = 0; i < shapeSize; i++) {
-    int64_t dim_value = mlir::cast<IntegerAttr>(shape[i]).getInt();
+    int64_t dimValue = mlir::cast<IntegerAttr>(shape[i]).getInt();
 
-    if (dim_value == -1) {
-      if (has_negative) {
+    if (dimValue == -1) {
+      if (hasNegative) {
         return emitOpError("Shape attribute must have at most one -1 element");
       }
-      has_negative = true;
+      hasNegative = true;
     } else {
-      if (dim_value <= 0) {
+      if (dimValue <= 0) {
         return emitOpError(
             "All dimensions must be positive except the one with -1");
       }
 
       // Ensure that the non-negative dimensions match the output tensor shape
-      if (dim_value != outputShape[i]) {
-        return emitOpError("Shape attribute must match the output tensor shape "
-                           "for dimensions that are not -1");
+      if (dimValue != outputShape[i]) {
+        return emitOpError()
+               << "Shape attribute " << dimValue
+               << " must match the output tensor shape " << outputShape[i]
+               << " at index " << i << " for dimension that is not -1";
       }
-
-      known_dim_product *= dim_value;
     }
-  }
-
-  // If there's a -1, ensure that it can be inferred correctly
-  if (has_negative && inputType.getNumElements() % known_dim_product != 0) {
-    return emitOpError("Invalid shape: the dimensions do not multiply to the "
-                       "total number of elements in the tensor");
   }
 
   return success();
@@ -1389,9 +1401,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::tt::ReduceType reduceType = getReduceType();
 
   if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
-    return emitOpError("Invalid scatter dimension for all reduce op. Scatter "
-                       "dimension must be >= to input tensor rank or < -input "
-                       "tensor rank, got scatter_dim = ")
+    return emitOpError(
+               "Invalid scatter dimension for reduce scatter op. Scatter "
+               "dimension must be >= to input tensor rank or < -input "
+               "tensor rank, got scatter_dim = ")
            << scatterDim;
   }
 
@@ -1401,7 +1414,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   if (reduceType != ::mlir::tt::ReduceType::Sum &&
       reduceType != ::mlir::tt::ReduceType::Max &&
       reduceType != ::mlir::tt::ReduceType::Min) {
-    return emitOpError("Invalid reduction op for all reduce op.");
+    return emitOpError("Invalid reduction op for reduce scatter op.");
   }
 
   return success();
@@ -1704,49 +1717,48 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 // Common verifier for all Reduction ops.
 static mlir::LogicalResult
-verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
+verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+               mlir::RankedTensorType inputType,
                const std::optional<mlir::ArrayAttr> &reduceDims, bool keepDim,
                ::llvm::ArrayRef<int64_t> specifiedOutputShape) {
-  if (!reduceDims) {
-    return mlir::success();
-  }
 
   int64_t inputTensorRank = inputType.getRank();
 
-  // Calculate output shape for given args.
-  //
-  llvm::SmallVector<int64_t> calculatedOutputShape;
-  for (int64_t i = 0; i < inputType.getRank(); ++i) {
-    bool isDimInReduceDims =
-        llvm::any_of(*reduceDims, [i, inputTensorRank](mlir::Attribute attr) {
-          int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(attr).getInt();
-          // Check for match even if negative dim is used.
-          //
-          return reduceDim == i || (reduceDim + inputTensorRank) == i;
-        });
+  llvm::BitVector reduceDimsMask(inputTensorRank, false);
+  if (reduceDims) {
+    for (mlir::Attribute attr : *reduceDims) {
+      int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(attr).getInt();
+      // Normalize range to [0, inputTensorRank).
+      if (reduceDim < 0) {
+        reduceDim += inputTensorRank;
+      }
+      reduceDimsMask.set(reduceDim);
+    }
+  } else {
+    reduceDimsMask.set();
+  }
 
-    // If dim is being reduced on, the dim will have size of 1 if keepDim==true,
-    // otherwise the dim is erased.
-    //
-    if (!isDimInReduceDims) {
-      calculatedOutputShape.push_back(inputType.getDimSize(i));
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  for (int64_t index = 0; index < inputTensorRank; ++index) {
+    if (!reduceDimsMask[index]) {
+      expectedOutputShape.push_back(inputType.getDimSize(index));
     } else if (keepDim) {
-      calculatedOutputShape.push_back(1);
+      expectedOutputShape.push_back(1);
     }
   }
 
   // Cover edge case where all dims are reduced, and keepDim==false.
-  if (calculatedOutputShape.size() == 0 && keepDim == false) {
-    calculatedOutputShape.push_back(1);
+  if (expectedOutputShape.empty() && !keepDim) {
+    expectedOutputShape.push_back(1);
   }
 
   // Finally, compare shapes.
-  //
-  if (!llvm::equal(specifiedOutputShape, calculatedOutputShape)) {
-    return reduceOp->emitOpError(
-        "Expected output shape (" +
-        ttmlir::utils::join(specifiedOutputShape, ", ") + "), got (" +
-        ttmlir::utils::join(calculatedOutputShape, ", ") + ")");
+  if (!llvm::equal(specifiedOutputShape, expectedOutputShape)) {
+    return emitOpError() << "Expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got ("
+                         << ttmlir::utils::join(specifiedOutputShape, ", ")
+                         << ")";
   }
 
   return mlir::success();
@@ -1780,8 +1792,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MaxOp verification.
 ::mlir::LogicalResult MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1790,8 +1803,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MeanOp verification.
 ::mlir::LogicalResult MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1800,8 +1814,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // SumOp verification.
 ::mlir::LogicalResult SumOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1810,8 +1825,9 @@ static mlir::LogicalResult verifyReduceProdOp(mlir::Operation *reduceOp,
 
 // MinOp verification.
 ::mlir::LogicalResult MinOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg(),
-                        getKeepDim(), getResult().getType().getShape());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(),
+                        getResult().getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//

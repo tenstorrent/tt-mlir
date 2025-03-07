@@ -375,6 +375,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto dimArg = op.getDimArg();
 
+    // Most of the frontends uses signed or sign less integer as return type for
+    // argmax op (tt-mlir uses signed integer in this case); whereas, tt-metal
+    // uses UINT32 as return type. This difference is ignored as the output
+    // indices will always be positive.
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(),
@@ -382,7 +386,7 @@ public:
             ? mlir::cast<mlir::IntegerAttr>(dimArg->getValue().front())
             : nullptr,
         /*use_multicore*/ false, // Default tt-metal value.
-        /*memoryConfig*/ nullptr, adaptor.getOutput());
+        /*memoryConfig*/ nullptr);
     return success();
   }
 };
@@ -671,7 +675,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getShape());
+        adaptor.getInput(), adaptor.getShape(), /* memory_config */ nullptr);
     return success();
   }
 };
@@ -731,7 +735,7 @@ public:
     // Replace the SqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
 
     return success();
   }
@@ -854,7 +858,7 @@ public:
     // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), shapeAttr, /* memory_config */ nullptr);
 
     return success();
   }
@@ -1242,16 +1246,27 @@ public:
                                              outputType.getElementType(),
                                              outputType.getEncoding());
 
+    DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
+
+    DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
+
+    assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
+    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
+    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
+
+    DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
+
     auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
         op.getLoc(), this->getTypeConverter()->convertType(outputType),
         flattenedInput, device, batchSize,
         static_cast<int32_t>(inputShape[inputShape.size() - 3]),
         static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
-        adaptor.getKernelHeight(), adaptor.getKernelWidth(),
-        adaptor.getStrideHeight(), adaptor.getStrideWidth(),
-        adaptor.getDilationHeight(), adaptor.getDilationWidth(),
-        adaptor.getCeilMode(), adaptor.getPaddingTop(),
-        adaptor.getPaddingRight());
+        kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+        adaptor.getCeilMode());
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(newPool, outputShape, rewriter);
@@ -1345,6 +1360,27 @@ public:
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
         adaptor.getInput(), device, adaptor.getReduceType(),
         adaptor.getClusterAxis());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ReduceScatterOpConversionPattern
+    : public OpConversionPattern<ttir::ReduceScatterOp> {
+public:
+  using OpConversionPattern<ttir::ReduceScatterOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceScatterOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    rewriter.replaceOpWithNewOp<ttnn::ReduceScatterOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), device, adaptor.getReduceType(),
+        adaptor.getScatterDim(), adaptor.getClusterAxis());
 
     return success();
   }
@@ -1544,6 +1580,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::WhereOp, ttnn::WhereOp>,
            ElementwiseOpConversionPattern<ttir::TanOp, ttnn::TanOp>,
            ElementwiseOpConversionPattern<ttir::TanhOp, ttnn::TanhOp>,
+           ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
            ElementwiseOpConversionPattern<ttir::PowerOp, ttnn::PowerOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
@@ -1578,6 +1615,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
            AllGatherOpConversionPattern,
+           ReduceScatterOpConversionPattern,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,

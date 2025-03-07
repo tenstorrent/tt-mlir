@@ -5,6 +5,7 @@
 #include "operations/data_movement/concat.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -13,15 +14,18 @@ void run(const ::tt::target::ttnn::ConcatOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   std::vector<::ttnn::Tensor> inputs;
   for (const auto &input : *op->inputs()) {
-    const ::ttnn::Tensor &in = tensorPool.at(input->global_id());
-    DEBUG_ASSERT(in.is_allocated());
+    const ::ttnn::Tensor &in = tensorPool.getAndValidate(input);
     inputs.push_back(in);
   }
   int32_t dim = op->dim();
   std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+      op->memory_config() == 0
+          ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()))
+          : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                op->memory_config());
   ::ttnn::Tensor out = ::ttnn::concat(inputs, dim, memoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+
+  tensorPool.insertAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

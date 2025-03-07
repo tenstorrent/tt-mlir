@@ -1,3 +1,14 @@
+if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTMETAL)
+  set(TTMETAL_RUNTIME_ENABLED ON)
+else()
+  set(TTMETAL_RUNTIME_ENABLED OFF)
+endif()
+
+if (NOT TTMETAL_RUNTIME_ENABLED)
+  add_library(TTRuntimeTTMetal INTERFACE)
+  return()
+endif()
+
 add_library(TTRuntimeTTMetal
   STATIC
   runtime.cpp
@@ -12,5 +23,3 @@ target_include_directories(TTRuntimeTTMetal PUBLIC
 target_include_directories(TTRuntimeTTMetal SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTMetal PUBLIC TTMETAL_LIBRARY DEVICE_LIBRARY)
 add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY DEVICE_LIBRARY tt-metal FBS_GENERATION)
-
-# Optionally compile profiling code and link tracy client for perf profiling.
