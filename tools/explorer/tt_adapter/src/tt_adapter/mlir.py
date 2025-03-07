@@ -627,8 +627,10 @@ def build_graph(module, perf_trace=None):
         perf_node_data,
     )
 
+    # Add Overlay Data if it exists
+    overlays = {}
+
     # Add performance data to the graph color overlay, if it exists
-    overlay_data = None
     if perf_node_data:
         gradient = [
             node_data_builder.GradientItem(stop=0, bgColor="yellow"),
@@ -637,12 +639,26 @@ def build_graph(module, perf_trace=None):
         graph_node_data = node_data_builder.GraphNodeData(
             results=perf_node_data, gradient=gradient
         )
-        overlay_data = node_data_builder.ModelNodeData(
+        overlays["perf_data"] = node_data_builder.ModelNodeData(
             graphsData={"tt-graph": graph_node_data}
+        ).graphsData
+
+    if accuracy_node_data:
+        thres = [
+            # Show Red if ActualPCC - ExpectedPCC is 0 and below (ActualPCC < ExpectedPCC)
+            node_data_builder.ThresholdItem(value=0, bgColor="red"),
+            # Show Green if ActualPCC - ExpectedPCC is 1 and below (Actual PCC >= ExpectedPCC)
+            node_data_builder.ThresholdItem(value=1, bgColor="green"),
+        ]
+        graph_node_data = node_data_builder.GraphNodeData(
+            results=accuracy_node_data, thresholds=thres
         )
+        overlays["accuracy_data"] = node_data_builder.ModelNodeData(
+            graphsData={"tt-graph": graph_node_data}
+        ).graphsData
 
     OpHandler.schedule = 0
-    return graph, overlay_data
+    return graph, overlays
 
 
 def process_operations(
