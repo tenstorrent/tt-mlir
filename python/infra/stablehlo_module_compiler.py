@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from mlir.ir import *
 from ttmlir.compiler_passes import stablehlo_to_ttir, ttir_to_ttnn, ttnn_to_flatbuffer
+from ttmlir.ir import Module
 from ttmlir.stablehlo_module_splitter import StableHLOModuleSplitter
 from ttrt.common.util import Binary
 

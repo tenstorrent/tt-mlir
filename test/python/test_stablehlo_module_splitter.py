@@ -27,6 +27,8 @@ def test1(print_results: bool = False):
         for op in sub_ops:
             print(op)
 
+        print()
+
         for m in sub_modules:
             print(str(m))
 
@@ -142,6 +144,8 @@ def test2(print_results: bool = False):
     if print_results:
         for op in sub_ops:
             print(op)
+
+        print()
 
         for m in sub_modules:
             print(str(m))

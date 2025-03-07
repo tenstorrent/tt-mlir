@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from mlir.ir import *
 from ttmlir.compiler_passes import ttnn_to_flatbuffer
+from ttmlir.ir import Module
 from ttmlir.ttnn_module_splitter import TTNNModuleSplitter
 from ttrt.common.util import Binary
 

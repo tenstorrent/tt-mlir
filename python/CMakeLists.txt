@@ -3,19 +3,19 @@ include(AddMLIRPython)
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
 set(TTMLIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ttmlir")
-set(TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra")
-set(TTMLIR_PYTHON_COMPILER_PASSES_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/compiler_passes")
-set(TTMLIR_PYTHON_MODULE_COMPILER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/module_compiler")
-set(TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/module_splitter")
+set(TTMLIR_PYTHON_INFRA_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/infra")
+# set(TTMLIR_PYTHON_COMPILER_PASSES_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/compiler_passes")
+# set(TTMLIR_PYTHON_MODULE_COMPILER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/module_compiler")
+# set(TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/module_splitter")
 
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 
 declare_mlir_python_sources(TTMLIRPythonSources)
 declare_mlir_python_sources(TTMLIRPythonExtensions)
-declare_mlir_python_sources(TTMLIRPythonTestInfra)
-declare_mlir_python_sources(TTMLIRPythonCompilerPasses)
-declare_mlir_python_sources(TTMLIRPythonModuleCompiler)
-declare_mlir_python_sources(TTMLIRPythonModuleSplitter)
+declare_mlir_python_sources(TTMLIRPythonInfra)
+# declare_mlir_python_sources(TTMLIRPythonCompilerPasses)
+# declare_mlir_python_sources(TTMLIRPythonModuleCompiler)
+# declare_mlir_python_sources(TTMLIRPythonModuleSplitter)
 
 declare_mlir_python_sources(TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
@@ -82,41 +82,52 @@ declare_mlir_python_sources(TTMLIRPythonSources.Util
   SOURCES util.py
 )
 
-declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
-  ROOT_DIR "${TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR}"
-  ADD_TO_PARENT TTMLIRPythonTestInfra
+declare_mlir_python_sources(TTMLIRPythonInfra.Infra
+  ROOT_DIR "${TTMLIR_PYTHON_INFRA_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonInfra
   SOURCES
     ttir_builder.py
     test_utils.py
-)
-
-declare_mlir_python_sources(TTMLIRPythonCompilerPasses.CompilerPasses
-  ROOT_DIR "${TTMLIR_PYTHON_COMPILER_PASSES_ROOT_DIR}"
-  ADD_TO_PARENT TTMLIRPythonCompilerPasses
-  SOURCES
     compiler_passes.py
-)
-
-declare_mlir_python_sources(TTMLIRPythonModuleCompiler.ModuleCompiler
-  ROOT_DIR "${TTMLIR_PYTHON_MODULE_COMPILER_ROOT_DIR}"
-  ADD_TO_PARENT TTMLIRPythonModuleCompiler
-  SOURCES
     module_compiler.py
-    stablehlo_module_compiler.py
-    ttir_module_compiler.py
-    ttnn_module_compiler.py
-)
-
-declare_mlir_python_sources(TTMLIRPythonModuleSplitter.ModuleSplitter
-  ROOT_DIR "${TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR}"
-  ADD_TO_PARENT TTMLIRPythonModuleSplitter
-  SOURCES
     module_splitter.py
+    stablehlo_module_compiler.py
     stablehlo_module_splitter.py
+    test_optimizer_overrides.py
+    ttir_module_compiler.py
     ttir_module_splitter.py
+    ttnn_module_compiler.py
     ttnn_module_splitter.py
     utils.py
 )
+
+# declare_mlir_python_sources(TTMLIRPythonCompilerPasses.CompilerPasses
+#   ROOT_DIR "${TTMLIR_PYTHON_COMPILER_PASSES_ROOT_DIR}"
+#   ADD_TO_PARENT TTMLIRPythonCompilerPasses
+#   SOURCES
+#     compiler_passes.py
+# )
+
+# declare_mlir_python_sources(TTMLIRPythonModuleCompiler.ModuleCompiler
+#   ROOT_DIR "${TTMLIR_PYTHON_MODULE_COMPILER_ROOT_DIR}"
+#   ADD_TO_PARENT TTMLIRPythonModuleCompiler
+#   SOURCES
+#     module_compiler.py
+#     stablehlo_module_compiler.py
+#     ttir_module_compiler.py
+#     ttnn_module_compiler.py
+# )
+
+# declare_mlir_python_sources(TTMLIRPythonModuleSplitter.ModuleSplitter
+#   ROOT_DIR "${TTMLIR_PYTHON_MODULE_SPLITTER_ROOT_DIR}"
+#   ADD_TO_PARENT TTMLIRPythonModuleSplitter
+#   SOURCES
+#     module_splitter.py
+#     stablehlo_module_splitter.py
+#     ttir_module_splitter.py
+#     ttnn_module_splitter.py
+#     utils.py
+# )
 
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   MODULE_NAME _ttmlir
@@ -164,12 +175,13 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.tosa
   MLIRPythonSources.Dialects.memref
+  # MLIRPythonSources.Dialects.stablehlo
   TTMLIRPythonSources
   TTMLIRPythonExtensions
-  TTMLIRPythonTestInfra
-  TTMLIRPythonCompilerPasses
-  TTMLIRPythonModuleCompiler
-  TTMLIRPythonModuleSplitter
+  TTMLIRPythonInfra
+  # TTMLIRPythonCompilerPasses
+  # TTMLIRPythonModuleCompiler
+  # TTMLIRPythonModuleSplitter
 )
 
 add_mlir_python_common_capi_library(TTMLIRPythonCAPI

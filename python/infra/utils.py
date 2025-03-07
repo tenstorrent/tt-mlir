@@ -4,9 +4,9 @@
 
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
-from mlir.ir import *
+from ttmlir.ir import Context, Module, OpView, Type
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,11 @@ class OpWrapper:
         self._operands = [
             Operand(operand.get_name(), operand.type) for operand in op.operands
         ]
-        self._result = Result(op.result.get_name(), op.result.type)
+        self._result = (
+            Result(op.result.get_name(), op.result.type)
+            if len(op.results) > 0
+            else None
+        )
 
     def __str__(self) -> str:
         return str(self._op)
@@ -62,7 +66,9 @@ def parse_module_str(module_str: str, ctx: Context) -> Module:
     return Module.parse(preprocess_module_str(module_str), ctx)
 
 
-def wrap_in_module_str(op: OpWrapper, operands: List[Operand], result: Result) -> str:
+def wrap_in_module_str(
+    op: OpWrapper, operands: List[Operand], result: Optional[Result] = None
+) -> str:
     """
     Wraps `op` in a MLIR `func` and then in a MLIR `module` and returns string
     representation of that module.
@@ -70,12 +76,19 @@ def wrap_in_module_str(op: OpWrapper, operands: List[Operand], result: Result) -
     unpacked_operands = ", ".join(
         f"{operand.name}: {operand.type}" for operand in operands
     )
+    # Handle special case of ops that don't return anything.
+    if result is not None:
+        fn_return_type = result.type
+        return_stmt = f"return {result.name} : {result.type}"
+    else:
+        fn_return_type = "()"
+        return_stmt = "return"
 
     return (
         f"module {{ \n"
-        f"\tfunc.func @main({unpacked_operands}) -> {result.type} {{ \n"
+        f"\tfunc.func @main({unpacked_operands}) -> {fn_return_type} {{ \n"
         f"\t\t{op} \n"
-        f"\t\treturn {result.name} : {result.type} \n"
+        f"\t\t{return_stmt} \n"
         f"\t}} \n"
         f"}}"
     )

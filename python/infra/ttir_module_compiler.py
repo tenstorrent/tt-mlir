@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from mlir.ir import *
 from ttmlir.compiler_passes import ttir_to_ttnn, ttnn_to_flatbuffer
+from ttmlir.ir import Module
 from ttmlir.ttir_module_splitter import TTIRModuleSplitter
 from ttrt.common.util import Binary
 
@@ -33,11 +33,11 @@ class TTIRModuleCompiler(ModuleCompiler):
         super().__init__(module, module_splitter, CompileStep.TTIR)
 
     # @override
-    def _compile(self, module: Module) -> Binary:
+    def _compile(self, module: Module, flatbuffer_name: str = "ttnn_fb.ttnn") -> Binary:
         ttnn = ttir_to_ttnn(module)
         self._mark_compile_step(CompileStep.TTNN)
 
-        flatbuffer = ttnn_to_flatbuffer(ttnn)
+        flatbuffer = ttnn_to_flatbuffer(ttnn, flatbuffer_name)
         self._mark_compile_step(CompileStep.FLATBUFFER)
 
         return flatbuffer

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import List
 
-from mlir.ir import *
+from ttmlir.ir import Module
 from ttmlir.module_splitter import ModuleSplitter
 from ttrt.common.util import Binary
 
@@ -43,8 +43,8 @@ class ModuleCompiler(ABC):
 
     def compile_op_by_op(self) -> List[Binary]:
         return [
-            self._compile(sub_module)
-            for sub_module in self._module_splitter.get_sub_modules()
+            self._compile(sub_module, f"ttnn_fb{i+1}.ttnn")
+            for i, sub_module in enumerate(self._module_splitter.get_sub_modules())
         ]
 
     # ----- Protected methods -----
@@ -63,5 +63,5 @@ class ModuleCompiler(ABC):
         self._compile_step = step
 
     @abstractmethod
-    def _compile(self, module: Module) -> Binary:
+    def _compile(self, module: Module, flatbuffer_name: str = "ttnn_fb.ttnn") -> Binary:
         raise NotImplementedError("Subclasses must implement this method.")

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from mlir.ir import Module
+from ttmlir.ir import Module
 from ttmlir.passes import (
     stablehlo_to_ttir_pipeline,
     ttir_to_ttnn_backend_pipeline,

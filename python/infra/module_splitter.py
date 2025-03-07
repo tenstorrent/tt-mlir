@@ -7,8 +7,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List
 
-from mlir.dialects import func
-from mlir.ir import *
+from ttmlir.dialects import func
+from ttmlir.ir import Module
 
 from .utils import OpWrapper
 
