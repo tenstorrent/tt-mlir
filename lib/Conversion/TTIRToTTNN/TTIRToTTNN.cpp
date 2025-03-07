@@ -1247,22 +1247,18 @@ public:
                                              outputType.getEncoding());
 
     DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(adaptor.getKernelHeight()),
-         static_cast<int32_t>(adaptor.getKernelWidth())});
+        {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
 
     DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(adaptor.getStrideHeight()),
-         static_cast<int32_t>(adaptor.getStrideWidth())});
+        {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
 
     assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
     assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
     DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(adaptor.getPaddingTop()),
-         static_cast<int32_t>(adaptor.getPaddingLeft())});
+        {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
 
     DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(adaptor.getDilationHeight()),
-         static_cast<int32_t>(adaptor.getDilationWidth())});
+        {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
 
     auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
         op.getLoc(), this->getTypeConverter()->convertType(outputType),

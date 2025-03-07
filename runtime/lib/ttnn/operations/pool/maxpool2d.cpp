@@ -33,8 +33,8 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor out = ::ttnn::max_pool2d(
       input, op->batch_size(), op->input_height(), op->input_width(),
-      op->channels(), kernelSize, stride, padding, dilation, std::nullopt,
-      std::nullopt, op->ceil_mode());
+      op->channels(), kernelSize, stride, padding, dilation, outputMemoryConfig,
+      /*applied_shard_scheme=*/std::nullopt, op->ceil_mode());
 
   tensorPool.insertAndValidate(op->out(), out);
 }
