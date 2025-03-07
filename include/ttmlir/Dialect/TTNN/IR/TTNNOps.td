@@ -15,6 +15,7 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
@@ -310,6 +311,25 @@ def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
     let summary = "Eltwise tan op.";
     let description = [{
       Eltwise tan operation.
+    }];
+}
+
+def TTNN_AtanOp: TTNN_ElementwiseUnaryOp<"atan"> {
+    let summary = "Eltwise arctangent op.";
+    let description = [{
+      Performs an elementwise arctangent (`atan`) operation on the input tensor.
+      This operation computes the inverse tangent of each element, returning
+      values in the range [-π/2, π/2]. Supports floating-point tensor types.
+
+      Example:
+
+      ```mlir
+      %input = tensor<4xf32> {1.0, 0.5, 0.0, -1.0}
+      %result = "ttir.atan"(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      ```
+
+      Given the input `[1.0, 0.5, 0.0, -1.0]`, the result would be approximately:
+      `[0.785, 0.464, 0.0, -0.785]` (values in radians).
     }];
 }
 
@@ -1258,15 +1278,11 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
                          SI32Attr:$input_height,
                          SI32Attr:$input_width,
                          SI32Attr:$channels,
-                         SI32Attr:$kernel_height,
-                         SI32Attr:$kernel_width,
-                         SI32Attr:$stride_height,
-                         SI32Attr:$stride_width,
-                         SI32Attr:$dilation_height,
-                         SI32Attr:$dilation_width,
-                         BoolAttr:$ceil_mode,
-                         SI32Attr:$padding_height,
-                         SI32Attr:$padding_width);
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         BoolAttr:$ceil_mode);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1585,6 +1601,8 @@ def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]>
         return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
       }
     }];
+
+    let hasVerifier = 1;
 }
 
 #endif

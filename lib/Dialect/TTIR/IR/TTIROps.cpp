@@ -2771,11 +2771,6 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
 
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
-  // Validate CB mappings.
-  if (getCbs().size()) {
-    return emitOpError("CB mappings are deprecated and should not be used");
-  }
-
   // Output grid shape must equal the GenericOp grid shape.
   auto opGridShape = getGrid().getShape();
   for (auto output : getOutputs()) {
@@ -2871,8 +2866,6 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   assert(getNumResults() == 1 && "GenericOp should have exactly one result");
   assert(getOutputs().size() == 1 &&
          "GenericOp should have exactly one output");
-  assert(getCbs().size() == 0 &&
-         "GenericOp should not have any cb, these are deprecated");
 
   if (!mlir::isa<mlir::RankedTensorType>(getResult(0).getType())) {
     return failure();
@@ -2896,9 +2889,8 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
     bufferOutputs.push_back(*maybeValue);
   }
   auto bufferGeneric = rewriter.create<mlir::tt::ttir::GenericOp>(
-      getLoc(), ValueRange(), bufferInputs, ValueRange(), bufferOutputs,
-      getGrid(), getIndexingMaps(), getIteratorTypes(), getOperandCbMapping(),
-      getNumRegions());
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
+      getIndexingMaps(), getIteratorTypes(), getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
@@ -2991,31 +2983,57 @@ static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
 
 // Common verifier for all Reduce ops.
 static mlir::LogicalResult
-verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
-               const std::optional<mlir::ArrayAttr> &reduceDims) {
-  if (!reduceDims) {
-    return mlir::success();
-  }
+verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+               mlir::RankedTensorType inputType,
+               const std::optional<mlir::ArrayAttr> &reduceDims, bool keepDim,
+               ::llvm::ArrayRef<int64_t> specifiedOutputShape) {
 
   int64_t inputTensorRank = inputType.getRank();
 
-  llvm::SmallSet<int64_t, 4> uniqueReduceDims;
-  for (mlir::Attribute reduceDim : *reduceDims) {
-    int64_t reduceDimInt = mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
-    if (reduceDimInt < -inputTensorRank || reduceDimInt >= inputTensorRank) {
-      return reduceOp->emitOpError("Reduce dimensions are out of range");
+  llvm::BitVector reduceDimsMask(inputTensorRank, false);
+  if (!reduceDims) {
+    reduceDimsMask.set();
+  } else {
+    llvm::SmallSet<int64_t, 4> uniqueReduceDims;
+    for (mlir::Attribute reduceDim : *reduceDims) {
+      int64_t reduceDimInt = mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
+      if (reduceDimInt < -inputTensorRank || reduceDimInt >= inputTensorRank) {
+        return emitOpError() << "Reduce dimension " << reduceDimInt
+                             << " is out of range for input tensor of rank "
+                             << inputTensorRank;
+      }
+      uniqueReduceDims.insert(reduceDimInt);
+      reduceDimsMask.set((reduceDimInt + inputTensorRank) % inputTensorRank);
     }
-    uniqueReduceDims.insert(reduceDimInt);
+
+    if (uniqueReduceDims.size() != reduceDims->size()) {
+      return emitOpError() << "Reduce dimensions are not unique";
+    }
   }
 
-  if (uniqueReduceDims.size() != reduceDims->size()) {
-    return reduceOp->emitOpError("Reduce dimensions are not unique");
+  // Check that the output shape is valid.
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  for (int64_t index = 0; index < inputTensorRank; ++index) {
+    if (!reduceDimsMask[index]) {
+      expectedOutputShape.push_back(inputType.getDimSize(index));
+    } else if (keepDim) {
+      expectedOutputShape.push_back(1);
+    }
   }
 
-  // TODO(mrakita): Add a check that depending on inputShape, reduceDims and
-  // keepDim computes the expected output shape and checks if it matches the
-  // actual output shape. Tracked by:
-  // https://github.com/tenstorrent/tt-mlir/issues/1639
+  // Cover edge case where all dims are reduced, and keepDim==false.
+  if (expectedOutputShape.empty() && !keepDim) {
+    expectedOutputShape.push_back(1);
+  }
+
+  // Finally, compare shapes.
+  if (!llvm::equal(specifiedOutputShape, expectedOutputShape)) {
+    return emitOpError() << "Expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got ("
+                         << ttmlir::utils::join(specifiedOutputShape, ", ")
+                         << ")";
+  }
 
   return mlir::success();
 }
@@ -3033,7 +3051,8 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -3049,7 +3068,8 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MeanOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -3065,7 +3085,8 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // SumOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -3081,7 +3102,8 @@ void mlir::tt::ttir::MinOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MinOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MinOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -3097,7 +3119,8 @@ void mlir::tt::ttir::ProdOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // ProdOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ProdOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -3113,7 +3136,8 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 
 // ReduceAndOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ReduceAndOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -3129,7 +3153,8 @@ void mlir::tt::ttir::ReduceOrOp::buildGenericRegion(
 
 // ReduceOrOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ReduceOrOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -3152,7 +3177,8 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
            << dimArg->size() << ".";
   }
 
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
+                        getDimArg(), getKeepDim(), getType().getShape());
 }
 
 //===----------------------------------------------------------------------===//

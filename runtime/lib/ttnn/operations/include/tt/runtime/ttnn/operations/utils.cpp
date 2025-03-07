@@ -46,7 +46,7 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
 
 ::ttnn::operations::conv::conv2d::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg) {
-  std::optional<TensorMemoryLayout> shardLayout = std::nullopt;
+  std::optional<::ttnn::TensorMemoryLayout> shardLayout = std::nullopt;
   if (memcfg->shard_layout()) {
     shardLayout = ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
         memcfg->shard_layout().value());
