@@ -1069,6 +1069,8 @@ def TTIR_TransposeOp : TTIR_NamedOp<"transpose"> {
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
@@ -1920,6 +1922,8 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
