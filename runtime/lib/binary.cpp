@@ -7,7 +7,6 @@
 #include "flatbuffers/idl.h"
 
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/strides.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
@@ -71,7 +70,7 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
                   input->desc()->shape()->end()};
-    desc.stride = common::calculateStride(desc.shape);
+    desc.stride = utils::calculateStride(desc.shape);
     desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
         input->desc()->layout()->memory_desc()->data_type());
     desc.dataType = input->desc()->layout()->memory_desc()->data_type();
@@ -88,7 +87,7 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
                   output->desc()->shape()->end()};
-    desc.stride = common::calculateStride(desc.shape);
+    desc.stride = utils::calculateStride(desc.shape);
     desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
         output->desc()->layout()->memory_desc()->data_type());
     desc.dataType = output->desc()->layout()->memory_desc()->data_type();
@@ -155,7 +154,7 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
                   input->desc()->shape()->end()};
-    desc.stride = common::calculateStride(desc.shape);
+    desc.stride = utils::calculateStride(desc.shape);
     desc.itemsize = utils::dataTypeElementSize(
         input->desc()->layout()->memory_desc()->data_type());
     desc.dataType = input->desc()->layout()->memory_desc()->data_type();
@@ -175,7 +174,7 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
                   output->desc()->shape()->end()};
-    desc.stride = common::calculateStride(desc.shape);
+    desc.stride = utils::calculateStride(desc.shape);
     desc.itemsize = utils::dataTypeElementSize(
         output->desc()->layout()->memory_desc()->data_type());
     desc.dataType = output->desc()->layout()->memory_desc()->data_type();

@@ -7,9 +7,9 @@
 #include "tt/runtime/detail/ttnn.h"
 
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/strides.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/utils.h"
 
 #include <dlfcn.h>
 #include <link.h>
@@ -43,7 +43,7 @@ std::vector<WrappedTensor> packTensors(
     for (size_t j = 0; j < rank; ++j) {
       sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
-    std::vector<int64_t> strides = common::calculateStride(sizes);
+    std::vector<int64_t> strides = tt::runtime::utils::calculateStride(sizes);
     allSizesAndStrides.emplace_back(2*rank);
     std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
     std::copy(strides.begin(), strides.end(), allSizesAndStrides.back().begin() + rank);
