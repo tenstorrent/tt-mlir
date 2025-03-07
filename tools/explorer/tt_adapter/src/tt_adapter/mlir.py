@@ -618,6 +618,22 @@ def build_graph(module, perf_trace=None, golden_results=None):
         # Merge with existing attributes if namespace already exists
         graph.groupNodeAttributes[namespace].update(module_attrs)
 
+    module_op = OpHandler(module.operation)
+    module_attrs = module_op.get_attributes()
+    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+
+    # Add module attributes to the graph as "namespace attributes"
+    if not graph.groupNodeAttributes:
+        graph.groupNodeAttributes = {}
+
+    # Add this module's namespace attributes
+    namespace = module_op.get_namespace()
+    if namespace not in graph.groupNodeAttributes:
+        graph.groupNodeAttributes[namespace] = module_attrs
+    else:
+        # Merge with existing attributes if namespace already exists
+        graph.groupNodeAttributes[namespace].update(module_attrs)
+
     # Process the module hierarchy recursively
     process_operations(
         module.body.operations,
