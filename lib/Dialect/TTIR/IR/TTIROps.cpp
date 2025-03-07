@@ -17,6 +17,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectResourceBlobManager.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -25,6 +26,8 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/BuiltinAttributeInterfaces.h>
 #include <numeric>
 #include <string>
 
@@ -752,6 +755,12 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   if (getType() == getOperand(0).getType()) {
     return getOperand(0);
   }
+  if (auto value = dyn_cast<DenseElementsAttr>(adaptor.getInput())) {
+    return value.reshape(getType());
+  } else if (auto value =
+                 dyn_cast<DenseResourceElementsAttr>(adaptor.getInput())) {
+    return DenseResourceElementsAttr::get(getType(), value.getRawHandle());
+  }
   return nullptr;
 }
 
@@ -1298,6 +1307,79 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
         rewriter.replaceAllOpUsesWith(op, producerOp.getInput());
         return mlir::success();
       });
+}
+
+llvm::ArrayRef<char> getDenseElementsRawData(mlir::ElementsAttr attr) {
+  if (auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(attr)) {
+    return denseAttr.getRawData();
+  }
+  if (auto denseAttr = mlir::dyn_cast<mlir::DenseResourceElementsAttr>(attr)) {
+    return denseAttr.getData();
+  }
+  return llvm::ArrayRef<char>();
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
+  auto elementsAttr = cast<ElementsAttr>(adaptor.getInput());
+  uint32_t elementBitWidth =
+      elementsAttr.getElementType().getIntOrFloatBitWidth();
+  if (elementBitWidth % 8 != 0) {
+    return nullptr;
+  }
+
+  uint32_t rank = elementsAttr.getShapedType().getRank();
+
+  llvm::SmallVector<uint32_t, 8> permutation;
+  for (uint32_t i = 0; i < rank; i++) {
+    permutation.push_back(i);
+  }
+  std::swap(permutation[getDim0()], permutation[getDim1()]);
+
+  auto shape = elementsAttr.getShapedType().getShape();
+  llvm::SmallVector<uint32_t> initialStrides(rank, 1);
+  for (int32_t i = rank - 2; i >= 0; i--) {
+    initialStrides[i] = initialStrides[i + 1] * shape[i + 1];
+  }
+
+  llvm::SmallVector<int64_t> newShape;
+  for (uint32_t i : permutation) {
+    newShape.push_back(shape[i]);
+  }
+
+  llvm::SmallVector<uint32_t> newStrides(rank, 1);
+  for (int32_t i = rank - 2; i >= 0; i--) {
+    newStrides[i] = newStrides[i + 1] * newShape[i + 1];
+  }
+
+  uint32_t elementByteWidth = elementBitWidth / 8;
+
+  auto data = getDenseElementsRawData(elementsAttr);
+  llvm::SmallVector<char> newVals(
+      elementByteWidth * elementsAttr.getNumElements(), 0);
+
+  for (int64_t rawIndex = 0; rawIndex < elementsAttr.getNumElements();
+       rawIndex++) {
+    llvm::SmallVector<int64_t> oldIndex(rank, 0);
+    llvm::SmallVector<int64_t> newIndex(rank, 0);
+    for (uint32_t i = 0; i < rank; i++) {
+      oldIndex[i] = (rawIndex / initialStrides[i]) % shape[i];
+    }
+    for (uint32_t i = 0; i < rank; i++) {
+      newIndex[i] = oldIndex[permutation[i]];
+    }
+
+    int64_t newIndexFlat = 0;
+    for (uint32_t i = 0; i < rank; i++) {
+      newIndexFlat += newIndex[i] * newStrides[i];
+    }
+
+    for (uint32_t byte = 0; byte < elementByteWidth; byte++) {
+      newVals[newIndexFlat * elementByteWidth + byte] =
+          data[rawIndex * elementByteWidth + byte];
+    }
+  }
+
+  return DenseElementsAttr::getFromRawBuffer(getType(), newVals);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2763,6 +2845,65 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         }
         return mlir::failure();
       });
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
+  auto elementsAttr = cast<ElementsAttr>(adaptor.getInput());
+  uint32_t elementBitWidth =
+      elementsAttr.getElementType().getIntOrFloatBitWidth();
+  if (elementBitWidth % 8 != 0) {
+    return nullptr;
+  }
+
+  uint32_t rank = elementsAttr.getShapedType().getRank();
+
+  auto permutation = getPermutation();
+
+  auto shape = elementsAttr.getShapedType().getShape();
+  llvm::SmallVector<uint32_t> initialStrides(rank, 1);
+  for (int32_t i = rank - 2; i >= 0; i--) {
+    initialStrides[i] = initialStrides[i + 1] * shape[i + 1];
+  }
+
+  llvm::SmallVector<int64_t> newShape;
+  for (uint32_t i : permutation) {
+    newShape.push_back(shape[i]);
+  }
+
+  llvm::SmallVector<uint32_t> newStrides(rank, 1);
+  for (int32_t i = rank - 2; i >= 0; i--) {
+    newStrides[i] = newStrides[i + 1] * newShape[i + 1];
+  }
+
+  uint32_t elementByteWidth = elementBitWidth / 8;
+
+  auto data = getDenseElementsRawData(elementsAttr);
+  llvm::SmallVector<char> newVals(
+      elementByteWidth * elementsAttr.getNumElements(), 0);
+
+  for (int64_t rawIndex = 0; rawIndex < elementsAttr.getNumElements();
+       rawIndex++) {
+    llvm::SmallVector<int64_t> oldIndex(rank, 0);
+    llvm::SmallVector<int64_t> newIndex(rank, 0);
+    for (uint32_t i = 0; i < rank; i++) {
+      oldIndex[i] = (rawIndex / initialStrides[i]) % shape[i];
+    }
+    for (uint32_t i = 0; i < rank; i++) {
+      newIndex[i] = oldIndex[permutation[i]];
+    }
+
+    int64_t newIndexFlat = 0;
+    for (uint32_t i = 0; i < rank; i++) {
+      newIndexFlat += newIndex[i] * newStrides[i];
+    }
+
+    for (uint32_t byte = 0; byte < elementByteWidth; byte++) {
+      newVals[newIndexFlat * elementByteWidth + byte] =
+          data[rawIndex * elementByteWidth + byte];
+    }
+  }
+
+  return DenseElementsAttr::getFromRawBuffer(getType(), newVals);
 }
 
 //===----------------------------------------------------------------------===//
