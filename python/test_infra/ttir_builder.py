@@ -667,12 +667,6 @@ class TTIRBuilder:
             ttir_kwargs=ttir_kwargs,
         )
 
-    def scatter(self) -> OpView:
-        pass
-
-    def typecast(self) -> OpView:
-        pass
-
     def squeeze(self, in0: Operand, dim: Optional[int] = 0) -> OpView:
         kwargs = {"dim": dim}
         return self.op_proxy(
