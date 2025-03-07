@@ -89,11 +89,11 @@ inline Tensor createTensor(Device device, Layout layout,
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor);
-std::vector<std::byte> getDataBuffer(Tensor tensor);
-std::uint32_t getElementSize(Tensor tensor);
-std::uint32_t getVolume(Tensor tensor);
-std::vector<std::uint32_t> getShape(Tensor tensor);
-std::vector<std::uint32_t> getStride(Tensor tensor);
+std::vector<std::byte> getTensorDataBuffer(Tensor tensor);
+std::uint32_t getTensorElementSize(Tensor tensor);
+std::uint32_t getTensorVolume(Tensor tensor);
+std::vector<std::uint32_t> getTensorShape(Tensor tensor);
+std::vector<std::uint32_t> getTensorStride(Tensor tensor);
 TensorDesc getTensorDesc(Tensor tensor);
 
 size_t getNumAvailableDevices();

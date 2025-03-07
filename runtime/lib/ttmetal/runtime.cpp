@@ -357,27 +357,27 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   return createNullTensor();
 }
 
-std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor tensor) {
+std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getDataBuffer not implemented for metal runtime");
   return {};
 }
 
-std::vector<std::uint32_t> getShape(::tt::runtime::Tensor tensor) {
+std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getShape not implemented for metal runtime");
   return {};
 }
 
-std::vector<std::uint32_t> getStride(::tt::runtime::Tensor tensor) {
+std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getStride not implemented for metal runtime");
   return {};
 }
 
-std::uint32_t getElementSize(::tt::runtime::Tensor tensor) {
+std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getElementSize not implemented for metal runtime");
   return 0;
 }
 
-std::uint32_t getVolume(::tt::runtime::Tensor tensor) {
+std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getVolume not implemented for metal runtime");
   return 0;
 }

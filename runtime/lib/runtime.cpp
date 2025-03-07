@@ -515,46 +515,46 @@ Event submit(Device deviceHandle, Binary executableHandle,
 #endif
   LOG_FATAL("runtime is not enabled");
 }
-std::vector<std::byte> getDataBuffer(::tt::runtime::Tensor t) {
+std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getDataBuffer(t);
+    return ::tt::runtime::ttnn::getTensorDataBuffer(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getDataBuffer(t);
+    return ::tt::runtime::ttmetal::getTensorDataBuffer(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-std::vector<std::uint32_t> getShape(::tt::runtime::Tensor t) {
+std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getShape(t);
+    return ::tt::runtime::ttnn::getTensorShape(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getShape(t);
+    return ::tt::runtime::ttmetal::getTensorShape(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-std::vector<std::uint32_t> getStride(::tt::runtime::Tensor t) {
+std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getStride(t);
+    return ::tt::runtime::ttnn::getTensorStride(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getStride(t);
+    return ::tt::runtime::ttmetal::getTensorStride(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
@@ -575,31 +575,31 @@ target::DataType getDtype(::tt::runtime::Tensor t) {
   LOG_FATAL("runtime is not enabled");
 }
 
-std::uint32_t getElementSize(::tt::runtime::Tensor t) {
+std::uint32_t getTensorElementSize(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getElementSize(t);
+    return ::tt::runtime::ttnn::getTensorElementSize(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getElementSize(t);
+    return ::tt::runtime::ttmetal::getTensorElementSize(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-std::uint32_t getVolume(::tt::runtime::Tensor t) {
+std::uint32_t getTensorVolume(::tt::runtime::Tensor t) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getVolume(t);
+    return ::tt::runtime::ttnn::getTensorVolume(t);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getVolume(t);
+    return ::tt::runtime::ttmetal::getTensorVolume(t);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
