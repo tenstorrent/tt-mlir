@@ -479,28 +479,18 @@ private:
         return false;
       }
     } else if (initValueOp.getResult().getType().getElementType().isF32()) {
-      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<float>() == desiredF32;
     } else if (initValueOp.getResult().getType().getElementType().isF64()) {
-      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<double>() == desiredF64;
     } else if (initValueOp.getResult().getType().getElementType().isInteger(
                    32)) {
-      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
     } else if (initValueOp.getResult().getType().getElementType().isInteger(
                    64)) {
-      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
     } else if (initValueOp.getResult().getType().getElementType().isInteger(
                    1)) {
-      if (*initValueOp.getValue().value_begin<bool>() != desiredI1) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<bool>() == desiredI1;
     } else {
       return false;
     }
