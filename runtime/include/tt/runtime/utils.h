@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_UTILS_H
 #define TT_RUNTIME_UTILS_H
 
+#include <concepts>
 #include <memory>
 
 #pragma clang diagnostic push
