@@ -441,18 +441,21 @@ private:
     uint16_t desiredBF16;
     int32_t desiredI32;
     int64_t desiredI64;
+    bool desiredI1;
     if (desired == TypicalInitReductionValue::NEG_INF) {
       desiredF32 = -std::numeric_limits<float>::infinity();
       desiredF64 = -std::numeric_limits<double>::infinity();
       desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
       desiredI32 = std::numeric_limits<int32_t>::min();
       desiredI64 = std::numeric_limits<int64_t>::min();
+      desiredI1 = false;
     } else if (desired == TypicalInitReductionValue::ZERO) {
       desiredF32 = 0.0;
       desiredF64 = 0.0;
       desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
       desiredI32 = 0;
       desiredI64 = 0;
+      desiredI1 = false;
     } else {
       return false;
     }
@@ -491,6 +494,11 @@ private:
     } else if (initValueOp.getResult().getType().getElementType().isInteger(
                    64)) {
       if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
+        return false;
+      }
+    } else if (initValueOp.getResult().getType().getElementType().isInteger(
+                   1)) {
+      if (*initValueOp.getValue().value_begin<bool>() != desiredI1) {
         return false;
       }
     } else {
