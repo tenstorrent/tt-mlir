@@ -81,7 +81,12 @@ public:
 };
 } // namespace
 
-// memref load rewriter
+/*
+
+========
+Old Memref Load Rewriter - keeping while lowering is WIP
+========
+
 namespace {
 
 class MemrefLoadRewriter : public OpRewritePattern<memref::LoadOp> {
@@ -130,7 +135,8 @@ public:
   };
 };
 
-} // namespace
+} // namespace */
+
 // memref store rewriter
 
 namespace {
@@ -156,8 +162,13 @@ public:
     OpBuilder builder(op);
 
     auto cbId = i32(getCbId(op), builder);
-    rewriter.create<ttkernel::PackTileOp>(op.getLoc(), i32(0, builder), cbId,
-                                          i32(0, builder));
+    rewriter.create<ttkernel::PackTileOp>(
+        op.getLoc(), i32(0, builder), cbId,
+        i32(0,
+            builder)); // we should lower to a pack loop (or use
+                       // matmul_pack_tile??) if input is not one tile, i.e. for
+                       // matmul_block, we need to loop pack on the whole dst
+                       // output. out_idx is ignore except for out of order pack
 
     rewriter.eraseOp(op);
     return success();
@@ -170,10 +181,10 @@ public:
 namespace {
 
 class TTIRTileOpsRewriter
-    : public OpTraitRewritePattern<ttir::OpTrait::TTIRGenericRegionOpTrait> { // this needs to match all generic region ops,
-                                 // for now, match max specifically
+    : public OpTraitRewritePattern<ttir::OpTrait::TTIRGenericRegionOpTrait> {
 public:
-  using OpTraitRewritePattern<ttir::OpTrait::TTIRGenericRegionOpTrait>::OpTraitRewritePattern;
+  using OpTraitRewritePattern<
+      ttir::OpTrait::TTIRGenericRegionOpTrait>::OpTraitRewritePattern;
 
   static Value index(Value tile) {
     Operation *loadOp = tile.getDefiningOp();
@@ -181,12 +192,12 @@ public:
     return mlir::cast<memref::LoadOp>(loadOp).getIndices().front();
   }
 
-  static uint32_t getCbId(Value value) {
-    memref::LoadOp loadOp = mlir::cast<memref::LoadOp>(value.getDefiningOp());
-    assert(loadOp && "Could not find associated load op with value, failing.");
+  static uint32_t getCbId(memref::LoadOp value) {
     memref::CollapseShapeOp collapseOp =
-        mlir::cast<memref::CollapseShapeOp>(loadOp.getMemref().getDefiningOp());
-    assert(collapseOp && "Could not find assocated collapse shape op with memref load, failing");
+        mlir::cast<memref::CollapseShapeOp>(value.getMemref().getDefiningOp());
+    assert(
+        collapseOp &&
+        "Could not find assocated collapse shape op with memref load, failing");
     if (auto blockArg =
             mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {
       return blockArg.getArgNumber();
@@ -195,20 +206,92 @@ public:
                     "determine CB id. Failing.");
   }
 
+  static bool isFirstComputeOp(Operation *op) {
+    auto generic = op->getParentOfType<ttir::GenericOp>();
+    assert(generic && "Could not find parent generic op, failing.");
+
+    bool isFirst = 1;
+
+    generic.walk([&](Operation *walkOp) {
+      if (walkOp->hasTrait<OpTrait::TTKernelFPUOpTrait>() ||
+          walkOp->hasTrait<OpTrait::TTKernelSFPUOpTrait>()) {
+        isFirst = 0;
+      }
+    });
+
+    return isFirst;
+  }
+
+  static void lowerLoad(memref::LoadOp op, bool copyToDst, bool cbIndices,
+                        PatternRewriter &rewriter) {
+    OpBuilder builder(op);
+
+    if (copyToDst) {
+      auto cbId = i32(getCbId(op), builder);
+      rewriter.setInsertionPoint(op);
+      rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
+      rewriter.create<ttkernel::CopyTileOp>(op.getLoc(), cbId,
+                                            op.getIndices().front(),
+                                            cbIndices ? cbId : i32(0, builder));
+    }
+    rewriter.eraseOp(op);
+  }
+
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const final {
-    llvm::errs() << "tileops rewriter\n";
+    llvm::errs() << "tileops & memref load rewriter\n";
     OpBuilder builder(op);
+
+    auto first = isFirstComputeOp(op);
+    bool erase = 0;
+    Operation *newOp;
 
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
       rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
-      rewriter.create<ttkernel::MaxTilesOp>(op->getLoc(), i32(0, builder),
-                                            i32(1, builder));
+      newOp = rewriter.create<ttkernel::MaxTilesOp>(
+          op->getLoc(), i32(0, builder), i32(1, builder));
+      erase = 1;
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
-      rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), i32(getCbId(op->getOperand(0)), builder), i32(getCbId(op->getOperand(1)), builder), index(op->getOperand(0)), index(op->getOperand(1)), index(op->getOperand(2)));
+      auto dstIdx = rewriter.create<arith::ConstantOp>(
+          op->getLoc(), builder.getIndexType(), builder.getIndexAttr(0));
+      newOp = rewriter.create<ttkernel::MatmulTilesOp>(
+          op->getLoc(),
+          i32(getCbId(op->getOperand(0).getDefiningOp<memref::LoadOp>()),
+              builder),
+          i32(getCbId(op->getOperand(1).getDefiningOp<memref::LoadOp>()),
+              builder),
+          index(op->getOperand(0)), index(op->getOperand(1)), dstIdx);
+      erase = 1;
     }
 
-    rewriter.eraseOp(op);
+    if (!erase) {
+      return failure(); // new ttir trait for generic region compute vs generic region "helpers" or something
+    }
+
+    if (first) {
+      if (mlir::isa<ttkernel::MatmulTilesOp>(newOp)) {
+        lowerLoad(op->getOperand(0).getDefiningOp<memref::LoadOp>(), false,
+                  false, rewriter);
+        lowerLoad(op->getOperand(1).getDefiningOp<memref::LoadOp>(), false,
+                  false, rewriter);
+        lowerLoad(op->getOperand(2).getDefiningOp<memref::LoadOp>(), true,
+                  false, rewriter);
+      } else if (newOp->hasTrait<OpTrait::TTKernelSFPUOpTrait>()) {
+        for (uint32_t i = 0; i < op->getNumOperands(); i++) {
+          lowerLoad(op->getOperand(i).getDefiningOp<memref::LoadOp>(), true,
+                    true, rewriter);
+        }
+      } else {
+        for (uint32_t i = 0; i < op->getNumOperands(); i++) {
+          lowerLoad(op->getOperand(i).getDefiningOp<memref::LoadOp>(), false,
+                    false, rewriter);
+        }
+      }
+    }
+
+    if (erase) {
+      rewriter.eraseOp(op);
+    }
     return success();
   };
 };
@@ -336,6 +419,10 @@ public:
 
 } // namespace
 
+// core range and kernel config rewriter
+
+// dma rewriter
+
 // memref.dealloc -> ttmetal.deallocate_buffer pass?
 
 // init cleanup pass ?
@@ -357,7 +444,7 @@ void populateTTIRToTTKernelPatternsPhase1(MLIRContext *ctx,
 void populateTTIRToTTKernelPatternsPhase2(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
                                           TypeConverter & /*typeConverter*/) {
-  patterns.add<ttkernel::MemrefLoadRewriter>(ctx);
+  // patterns.add<ttkernel::MemrefLoadRewriter>(ctx);
 }
 
 void populateTTIRToTTKernelPatternsPhase3(MLIRContext *ctx,
