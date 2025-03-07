@@ -82,7 +82,7 @@ public:
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputs,
       const std::vector<uint32_t> &programOutputs,
-      common::DylibManager&& dylibManager, ::ttnn::MeshDevice *meshDevice)
+      common::DylibManager &&dylibManager, ::ttnn::MeshDevice *meshDevice)
       : executableHandle(executableHandle),
         context(ProgramContext(liveTensors, programInputs, programOutputs,
                                std::move(dylibManager), meshDevice)) {}
@@ -112,7 +112,7 @@ private:
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
-}
+} // namespace
 
 void ProgramExecutor::runCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
@@ -322,8 +322,9 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
     programOutputs.push_back(output->global_id());
   }
-  ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                           programOutputs, common::DylibManager(program->dylibs()), &meshDevice);
+  ProgramExecutor executor(
+      executableHandle, liveTensors, programInputs, programOutputs,
+      common::DylibManager(program->dylibs()), &meshDevice);
   executor.execute(program);
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;

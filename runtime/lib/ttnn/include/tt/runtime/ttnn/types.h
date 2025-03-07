@@ -142,7 +142,8 @@ public:
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputs,
       const std::vector<uint32_t> &programOutputs,
-      common::DylibManager&& programDylibManager, ::ttnn::MeshDevice *parentMesh)
+      common::DylibManager &&programDylibManager,
+      ::ttnn::MeshDevice *parentMesh)
       : tensorPool(
             ProgramTensorPool(liveTensors, programInputs, programOutputs)),
         dylibManager(std::move(programDylibManager)), parentMesh(parentMesh) {

@@ -15,31 +15,33 @@ void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
     LOG_ERROR("memfd_create");
     return nullptr;
   }
-  
+
   if (write(memfd, data, size) != static_cast<ssize_t>(size)) {
     LOG_ERROR("write");
     close(memfd);
     return nullptr;
   }
-  
-  void *handle = dlopen(("/proc/self/fd/" + std::to_string(memfd)).c_str(), RTLD_LAZY);
+
+  void *handle =
+      dlopen(("/proc/self/fd/" + std::to_string(memfd)).c_str(), RTLD_LAZY);
   close(memfd); // Can close after dlopen
-  
+
   if (!handle) {
     LOG_ERROR("dlopen failed: ", dlerror());
     return nullptr;
   }
-  
+
   return handle;
 }
 
 DylibManager::DylibManager(
-    const ::flatbuffers::Vector<::flatbuffers::Offset<tt::target::DynamicLib>> *dylibs) {
+    const ::flatbuffers::Vector<::flatbuffers::Offset<tt::target::DynamicLib>>
+        *dylibs) {
   if (dylibs) {
     for (const auto &dylib_offset : *dylibs) {
       const auto *dylib = dylib_offset; // Automatic dereferencing works here
       void *handle = loadLibraryFromMemory(dylib->raw_file()->data(),
-                                          dylib->raw_file()->size());
+                                           dylib->raw_file()->size());
       if (!handle) {
         LOG_FATAL("failed to open input dynamic library handle!");
       }
@@ -49,27 +51,27 @@ DylibManager::DylibManager(
 }
 
 DylibManager::~DylibManager() {
-  for (const auto& [_, handle] : handles) {
+  for (const auto &[_, handle] : handles) {
     dlclose(handle);
   }
 }
 
-DylibManager::DylibManager(DylibManager&& other) noexcept
+DylibManager::DylibManager(DylibManager &&other) noexcept
     : handles(std::move(other.handles)) {
   // Clear the moved-from object's handles to prevent double-free
   other.handles.clear();
 }
 
-DylibManager& DylibManager::operator=(DylibManager&& other) noexcept {
+DylibManager &DylibManager::operator=(DylibManager &&other) noexcept {
   if (this != &other) {
     // First, close our current handles
-    for (const auto& [_, handle] : handles) {
+    for (const auto &[_, handle] : handles) {
       dlclose(handle);
     }
-    
+
     // Then take ownership of the other's handles
     handles = std::move(other.handles);
-    
+
     // Clear the moved-from object's handles
     other.handles.clear();
   }

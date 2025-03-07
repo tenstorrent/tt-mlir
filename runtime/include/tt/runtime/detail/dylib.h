@@ -27,27 +27,32 @@ using DylibHandleMap = std::unordered_map<uint32_t, void *>;
 
 class DylibManager {
 public:
-    // Constructor takes dylibs and loads them
-    DylibManager(const ::flatbuffers::Vector<::flatbuffers::Offset<tt::target::DynamicLib>> *dylibs);
-    
-    // Destructor cleans up handles
-    ~DylibManager();
-    
-    // Disable copy operations
-    DylibManager(const DylibManager&) = delete;
-    DylibManager& operator=(const DylibManager&) = delete;
-    
-    // Allow move operations
-    DylibManager(DylibManager&& other) noexcept;
-    DylibManager& operator=(DylibManager&& other) noexcept;
-    
-    // Access the handle map
-    const DylibHandleMap& getHandles() const { return handles; }
+  // Constructor takes dylibs and loads them
+  DylibManager(
+      const ::flatbuffers::Vector<::flatbuffers::Offset<tt::target::DynamicLib>>
+          *dylibs);
 
-    void* getHandle(const uint32_t key) { const auto it = handles.find(key); return (it == handles.end()) ? nullptr : it->second;}
-    
+  // Destructor cleans up handles
+  ~DylibManager();
+
+  // Disable copy operations
+  DylibManager(const DylibManager &) = delete;
+  DylibManager &operator=(const DylibManager &) = delete;
+
+  // Allow move operations
+  DylibManager(DylibManager &&other) noexcept;
+  DylibManager &operator=(DylibManager &&other) noexcept;
+
+  // Access the handle map
+  const DylibHandleMap &getHandles() const { return handles; }
+
+  void *getHandle(const uint32_t key) {
+    const auto it = handles.find(key);
+    return (it == handles.end()) ? nullptr : it->second;
+  }
+
 private:
-    DylibHandleMap handles;
+  DylibHandleMap handles;
 };
 } // namespace tt::runtime::common
 
