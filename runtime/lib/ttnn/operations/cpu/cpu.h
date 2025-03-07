@@ -10,17 +10,6 @@
 
 namespace tt::runtime::ttnn::operations::cpu {
 
-struct wrapped_tensor {
-  float *start;
-  float *aligned_start;
-  int64_t start_idx;
-  int64_t *sizes_and_strides;
-};
-
-// generic signature to call all our funcs; args will be an array of input
-// tensors + a counter to tell us how many
-using WrappedFunc = void (*)(wrapped_tensor *);
-
 void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context);
 
 } // namespace tt::runtime::ttnn::operations::cpu

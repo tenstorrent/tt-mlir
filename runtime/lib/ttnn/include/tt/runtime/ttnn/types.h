@@ -5,8 +5,11 @@
 #ifndef TT_RUNTIME_TTNN_TYPES_H
 #define TT_RUNTIME_TTNN_TYPES_H
 
+#include "tt/runtime/detail/dylib.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/types.h"
+
 #include <optional>
 #include <unordered_map>
 
@@ -139,11 +142,11 @@ public:
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputs,
       const std::vector<uint32_t> &programOutputs,
-      const DylibHandleMap *programDylibs, ::ttnn::MeshDevice *parentMesh)
+      common::DylibManager&& programDylibManager, ::ttnn::MeshDevice *parentMesh)
       : tensorPool(
             ProgramTensorPool(liveTensors, programInputs, programOutputs)),
-        dylibHandles(programDylibs), parentMesh(parentMesh) {
-    assert(parentMesh && "Parent mesh cannot be null");
+        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh) {
+    LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
   }
   ProgramContext(const ProgramContext &) = delete;
   ProgramContext &operator=(const ProgramContext &) = delete;
@@ -176,8 +179,7 @@ public:
   DeviceVariant getTargetDevice(uint32_t meshId);
 
   void *tryGetDylibHandle(const uint32_t dylibId) {
-    const auto it = dylibHandles->find(dylibId);
-    return (it == dylibHandles->end()) ? nullptr : it->second;
+    return dylibManager.getHandle(dylibId);
   }
 
   //
@@ -189,7 +191,7 @@ public:
 private:
   ProgramTensorPool tensorPool;
 
-  const DylibHandleMap *dylibHandles;
+  common::DylibManager dylibManager;
   // Contains all devices borrowed from the user that are available to the
   // program
   ::ttnn::MeshDevice *parentMesh = nullptr;

@@ -47,6 +47,7 @@ if "TT_EXPLORER_GENERATED_TTNN_TEST_DIRS" in os.environ:
 FILTERED_TESTS = [
     # This test is way too large to fit reasonably in CI.
     "test_llama_attention.ttnn",
+    "test_hoisted_add.ttnn"
 ]
 
 

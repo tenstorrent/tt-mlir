@@ -16,18 +16,26 @@
 
 namespace tt::runtime::ttnn::operations::cpu {
 
-float *align_to_64(float const *ptr) {
-  uintptr_t ptr_val = reinterpret_cast<uintptr_t>(ptr);
-  uintptr_t aligned_ptr = (ptr_val + 63) & ~(static_cast<uintptr_t>(63));
-  return reinterpret_cast<float *>(aligned_ptr);
+namespace {
+struct WrappedTensor {
+  float *start;
+  float *alignedStart;
+  int64_t startIdx;
+  int64_t *sizesAndStrides;
+};
 }
 
-std::vector<wrapped_tensor> pack_tensors(
+// generic signature to call all our funcs; args will be an array of input
+// tensors + a counter to tell us how many
+using WrappedFunc = void (*)(WrappedTensor *);
+
+std::vector<WrappedTensor> packTensors(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *ins,
-    const tt::target::ttnn::TensorRef *out, const ProgramContext &context) {
-  std::vector<wrapped_tensor> packed_tensors;
-  packed_tensors.reserve(ins->size());
+    const tt::target::ttnn::TensorRef *out, const ProgramContext &context, std::vector<std::vector<int64_t>>& allSizesAndStrides) {
+  allSizesAndStrides.reserve(ins->size() + 1);
+  std::vector<WrappedTensor> packedTensors;
+  packedTensors.reserve(ins->size());
   for (size_t i = 0; i < ins->size(); ++i) {
     const size_t rank = ins->Get(i)->desc()->shape()->size();
     std::vector<int64_t> sizes(rank);
@@ -36,50 +44,43 @@ std::vector<wrapped_tensor> pack_tensors(
       sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
     std::vector<int64_t> strides = common::calculateStride(sizes);
-    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-    int64_t *sizes_and_strides = new int64_t[2 * rank];
-    std::copy(sizes.begin(), sizes.end(), sizes_and_strides);
-    std::copy(strides.begin(), strides.end(), sizes_and_strides + rank);
+    allSizesAndStrides.emplace_back(2*rank);
+    std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
+    std::copy(strides.begin(), strides.end(), allSizesAndStrides.back().begin() + rank);
 
-    float *raw_data_ptr = static_cast<float *>(get_raw_host_data_ptr(tens));
-    packed_tensors.emplace_back(raw_data_ptr, raw_data_ptr, 0,
-                                sizes_and_strides);
+    float *rawDataPtr = static_cast<float *>(get_raw_host_data_ptr(tens));
+    packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
+                                allSizesAndStrides.back().data());
   }
-  return packed_tensors;
+  return packedTensors;
 }
 
 void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
-  auto *dylib_handle = context.tryGetDylibHandle(op->dylib_id());
-  if (!dylib_handle) {
-    throw std::runtime_error("could not find dylib corresponding to id: " +
+  auto *dylibHandle = context.tryGetDylibHandle(op->dylib_id());
+  if (!dylibHandle) {
+    LOG_FATAL("could not find dylib corresponding to id: " +
                              std::to_string(op->dylib_id()));
   }
 
   WrappedFunc fn = reinterpret_cast<WrappedFunc>(
-      dlsym(dylib_handle, op->func_name()->str().c_str()));
+      dlsym(dylibHandle, op->func_name()->str().c_str()));
   if (!fn) {
-    throw std::runtime_error(
+    LOG_FATAL(
         "could not find requested op: \"" + op->func_name()->str() +
         "\" in dylib with id: " + std::to_string(op->dylib_id()));
   }
 
   const auto *fbInputs = op->ins();
 
-  auto dylibInputs = pack_tensors(fbInputs, op->out(), context);
+  std::vector<std::vector<int64_t>> allSizesAndStrides;
+  auto dylibInputs = packTensors(fbInputs, op->out(), context, allSizesAndStrides);
   ::ttnn::Tensor out = context.getTensorPool().getAndValidate(
       fbInputs->Get(fbInputs->size() - 1));
 
   context.getTensorPool().insertAndValidate(op->out(), out);
   fn(dylibInputs.data());
-
   // We don't need to unpack any data from output, it should be written directly
   // to correct memory.
-
-  // Clean up everything we heap alloc'ed.
-  for (auto &input_tensor : dylibInputs) {
-    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-    delete[] input_tensor.sizes_and_strides;
-  }
 }
 
 } // namespace tt::runtime::ttnn::operations::cpu

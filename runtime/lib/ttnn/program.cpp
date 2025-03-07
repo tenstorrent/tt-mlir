@@ -74,6 +74,7 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
+namespace {
 class ProgramExecutor {
 public:
   ProgramExecutor(
@@ -81,10 +82,10 @@ public:
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputs,
       const std::vector<uint32_t> &programOutputs,
-      const DylibHandleMap *programDylibHandles, ::ttnn::MeshDevice *meshDevice)
+      common::DylibManager&& dylibManager, ::ttnn::MeshDevice *meshDevice)
       : executableHandle(executableHandle),
         context(ProgramContext(liveTensors, programInputs, programOutputs,
-                               programDylibHandles, meshDevice)) {}
+                               std::move(dylibManager), meshDevice)) {}
 
   void runCallback(Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
@@ -111,6 +112,7 @@ private:
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
+}
 
 void ProgramExecutor::runCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
@@ -320,11 +322,9 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
     programOutputs.push_back(output->global_id());
   }
-  auto dylibMap = common::openDylibHandles(program->dylibs());
   ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                           programOutputs, &dylibMap, &meshDevice);
+                           programOutputs, common::DylibManager(program->dylibs()), &meshDevice);
   executor.execute(program);
-  common::closeDylibHandles(dylibMap);
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;
 }
