@@ -416,10 +416,18 @@ class TTIRBuilder:
 
         with self._ctx, self._loc:
             # Compute the golden
-            golden = Golden(
-                op_golden_function(*(organize_golden_args(inputs)), **golden_kwargs)
-            )
-
+            if op_ttir_function in [ttir.MaxOp, ttir.MinOp]:
+                golden = Golden(
+                    op_golden_function(
+                        *(organize_golden_args(inputs)),
+                        golden_kwargs["dim"][0],
+                        golden_kwargs["keepdim"],
+                    )[0]
+                )
+            else:
+                golden = Golden(
+                    op_golden_function(*(organize_golden_args(inputs)), **golden_kwargs)
+                )
             # Use the golden output to determine proper output shape unless otherwise specified
             output_shape = golden.tensor.shape if not output_shape else output_shape
             # print(output_shape, type(output_shape))
@@ -428,6 +436,7 @@ class TTIRBuilder:
             id = self.get_next_global_id()
             loc = get_loc_of_extra_file_callee(id=id)
 
+            # print(organize_ttir_args(inputs, output, output_shape),loc,ttir_kwargs)
             op = op_ttir_function(
                 *organize_ttir_args(inputs, output, output_shape),
                 loc=loc,
@@ -614,7 +623,7 @@ class TTIRBuilder:
     def max(
         self,
         in0: Operand,
-        dim_arg: int = 1,
+        dim_arg: List[int] = [0],
         keep_dim: bool = True,
     ) -> OpView:
 
@@ -628,7 +637,7 @@ class TTIRBuilder:
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
-            output_shape=torch.Size([0, 0]),  # clunky?
+            # output_shape=torch.Size([0, 0]),  # clunky?
         )
 
     def min(
