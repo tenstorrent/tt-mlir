@@ -295,6 +295,7 @@ jobs:
   build-and-test-explorer:
     needs:
       - build-image
+      - build-ttmlir
     timeout-minutes: 60
     # Force upload of artifacts
     continue-on-error: true
@@ -302,7 +303,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: ON, enable_runtime_debug: ON, name: "perf"},
+          {runs-on: n150, enable_perf: ON, enable_runtime_debug: ON, enable_op_model: ON, image: "tracy"},
         ]
 
     name: Build and test tt-explorer
@@ -341,6 +342,17 @@ jobs:
         create-symlink: true
         key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ env.SDK_VERSION }}
 
+    - name: Download Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.build.image }}
+        path: ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: 'Untar build directory'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: tar xvf artifact.tar
+
     - name: Configure CMake
       shell: bash
       run: |
@@ -352,9 +364,9 @@ jobs:
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DTTMLIR_ENABLE_RUNTIME=ON \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
-        -DTTMLIR_ENABLE_STABLEHLO=OFF \
+        -DTTMLIR_ENABLE_STABLEHLO=ON \
         -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
         -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \
         -S ${{ steps.strings.outputs.work-dir }}
@@ -364,17 +376,6 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
-
-    - name: Download Tests
-      uses: actions/download-artifact@v4
-      with:
-        name: build-artifacts-${{ matrix.build.name }}
-        path: ${{ steps.strings.outputs.build-output-dir }}
-
-    - name: 'Untar build directory'
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: tar xvf artifact.tar
 
     - name: Run tt-explorer tests
       shell: bash
