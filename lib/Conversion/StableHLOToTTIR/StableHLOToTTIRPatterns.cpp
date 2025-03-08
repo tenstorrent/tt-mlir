@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -890,7 +891,7 @@ public:
     int64_t dimension = -1;
     if (isMaxPool(srcOp)) {
       poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
-    } else if (isCumSum(srcOp, adaptor, dimension)) {
+    } else if (isCumSum(srcOp, adaptor, dimension, padding)) {
       rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
           srcOp, outputType, adaptor.getInputs()[0],
           rewriter.getI64IntegerAttr(dimension), outputs[0]);
@@ -930,7 +931,7 @@ private:
   //    dimension and value must be qual to size of the required dimension.
   bool isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
                 mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
-                int64_t &dimension) const {
+                int64_t &dimension, DenseI64ArrayAttr padding) const {
 
     // Check basic structure of the ReduceWindowOp
     if (!hasValidOpStructure(srcOp)) {
@@ -953,7 +954,7 @@ private:
     }
 
     // Check input tensor type and padding
-    if (!hasValidInputAndPadding(srcOp, adaptor, dimension)) {
+    if (!hasValidInputAndPadding(srcOp, adaptor, dimension, padding)) {
       return false;
     }
 
@@ -1023,22 +1024,26 @@ private:
   // Check input tensor type and validate padding.
   bool hasValidInputAndPadding(mlir::stablehlo::ReduceWindowOp &srcOp,
                                mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
-                               int64_t &dimension) const {
+                               int64_t &dimension,
+                               DenseI64ArrayAttr padding) const {
     RankedTensorType inputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getInputs()[0].getType()));
     int64_t inputRank = inputType.getRank();
     llvm::ArrayRef<int64_t> windowDimensions =
         adaptor.getWindowDimensionsAttr().asArrayRef();
-    mlir::DenseIntElementsAttr padding = adaptor.getPaddingAttr();
 
     // Validate padding size
     if (padding.size() != (inputRank * 2)) {
       return false;
     }
 
+    auto padding_elems = padding.asArrayRef();
+    auto first = padding_elems[0];
+
     // Check for splat padding (all zeroes expected).
-    if (padding.isSplat()) {
-      if (padding.getSplatValue<int64_t>() != 0) {
+    if (std::all_of(padding_elems.begin(), padding_elems.end(),
+                    [first](int value) { return value == first; })) {
+      if (first != 0) {
         return false;
       }
       if (!std::all_of(windowDimensions.begin(), windowDimensions.end(),
@@ -1070,12 +1075,12 @@ private:
 
   // Determine and validate dimension attribute for non-splat padding attribute.
   bool validateNonSplatPadding(llvm::ArrayRef<int64_t> windowDimensions,
-                               mlir::DenseIntElementsAttr padding,
+                               DenseI64ArrayAttr padding,
                                RankedTensorType inputType,
                                int64_t &dimension) const {
     int64_t dimArgValue = -1;
     int64_t idx = -1;
-    auto padding_values = padding.getValues<int64_t>();
+    auto padding_values = padding.asArrayRef();
 
     // Determine dimension attribute.
     for (int64_t windowDim : windowDimensions) {
