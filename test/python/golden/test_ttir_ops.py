@@ -393,6 +393,17 @@ def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
+        (64, 64),
+        (64, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_power(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.power(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
         (32, 64),
         (64, 128),
     ],
