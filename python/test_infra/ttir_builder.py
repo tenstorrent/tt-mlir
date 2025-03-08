@@ -430,13 +430,11 @@ class TTIRBuilder:
                 )
             # Use the golden output to determine proper output shape unless otherwise specified
             output_shape = golden.tensor.shape if not output_shape else output_shape
-            # print(output_shape, type(output_shape))
             output = self.empty(output_shape)
 
             id = self.get_next_global_id()
             loc = get_loc_of_extra_file_callee(id=id)
 
-            # print(organize_ttir_args(inputs, output, output_shape),loc,ttir_kwargs)
             op = op_ttir_function(
                 *organize_ttir_args(inputs, output, output_shape),
                 loc=loc,
