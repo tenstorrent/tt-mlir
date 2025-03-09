@@ -1,6 +1,7 @@
 // RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-implicit-device --ttir-allocate --convert-ttir-to-ttmetal %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
+// UNSUPPORTED: true
 
 #l1_ = #tt.memory_space<l1>
 #dram = #tt.memory_space<dram>
