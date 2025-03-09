@@ -1525,8 +1525,18 @@ public:
   LogicalResult
   matchAndRewrite(ttir::Downsample2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    auto inputShape = inputTy.getShape();
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto inputShape = inputType.getShape();
+    auto outputType = op.getResult().getType();
+    auto outputShape = outputType.getShape();
+
+    // First three dimensions of input and output tensor are flattened.
+    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()), rewriter);
+
+    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
+    outputType = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(outputType.cloneWith(flattenedOutputShape, outputType.getElementType())));
+    outputType = mlir::RankedTensorType::get(flattenedOutputShape, outputType.getElementType(), outputType.getEncoding());
+
     auto scaleFactor =
         ttmlir::utils::getPairOfInteger<int32_t>(adaptor.getScaleFactor());
     if (auto error = scaleFactor.takeError()) {
@@ -1539,10 +1549,10 @@ public:
          static_cast<int32_t>(scaleFactor->first),
          static_cast<int32_t>(scaleFactor->second)});
 
-    rewriter.replaceOpWithNewOp<ttnn::DownsampleOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), downsample_params);
+    ttnn::DownsampleOp newDownsample = rewriter.create<ttnn::DownsampleOp>(op->getLoc(), outputType, flattenedInput, downsample_params);
+    Value output = ttir_to_ttnn::utils::generateReshape(newDownsample, outputShape, rewriter);
 
+    rewriter.replaceOp(op, output);
     return success();
   }
 };
