@@ -97,11 +97,11 @@ public:
             builder.getAffineConstantExpr(shardShape[result]);
         AffineMap shardMap =
             AffineMap::get(2, 0, {gridExpr * shardDimExpr + iterExpr});
-        Value gridIndex = builder.create<GridIndexOp>(
+        Value coreIndex = builder.create<CoreIndexOp>(
             loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
         index = builder.create<affine::AffineApplyOp>(
             loc, builder.getIndexType(), shardMap,
-            ValueRange{gridIndex, iterIndex});
+            ValueRange{coreIndex, iterIndex});
       } else {
         index = iterIndex;
       }
@@ -154,8 +154,9 @@ public:
     ArrayRef<Value> srcIndex = streamIndex.take_front(srcRankDiff);
     ArrayRef<Value> dstIndex = streamIndex.take_front(dstRankDiff);
     return builder
-        .create<ttir::DMAOp>(loc, builder.getType<MemTxType>(), src, srcIndex,
-                             dst, dstIndex, coreIndex, mcastShape)
+        .create<ttir::DMAOp>(loc, builder.getType<MemTxType>(), src, nullptr,
+                             srcIndex, dst, nullptr, dstIndex, nullptr,
+                             coreIndex, mcastShape)
         .getResult();
   }
 
@@ -180,11 +181,11 @@ public:
       Value gridDimMinusOne = blockBuilder.create<arith::ConstantOp>(
           loc, blockBuilder.getIndexType(),
           blockBuilder.getIndexAttr(grid.getShape()[dim] - 1));
-      Value gridIndex =
-          blockBuilder.create<GridIndexOp>(loc, blockBuilder.getIndexType(),
+      Value core =
+          blockBuilder.create<CoreIndexOp>(loc, blockBuilder.getIndexType(),
                                            blockBuilder.getI64IntegerAttr(dim));
       if (iteratorType == IteratorType::Parallel) {
-        coreIndex.push_back(Value(gridIndex));
+        coreIndex.push_back(Value(core));
         mcastShape.push_back(Value(one));
       } else {
         assert(iteratorType == IteratorType::Reduction);
@@ -193,8 +194,8 @@ public:
         mcastVolume *= grid.getShape()[dim];
 
         Value condition = blockBuilder.create<arith::CmpIOp>(
-            loc, blockBuilder.getI1Type(), mlir::arith::CmpIPredicate::eq,
-            gridIndex, zero);
+            loc, blockBuilder.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
+            zero);
         conditions.push_back(condition);
       }
     }
@@ -253,13 +254,13 @@ public:
                          AffineMap operandIndexingMap,
                          AffineMap gridIndexingMap, ArrayAttr iteratorTypes,
                          bool isOutput) {
-
     if (isOutput) {
       // Wait for compute
       builder.create<ttir::AwaitOp>(loc, ValueRange(blockOperand));
     }
 
     if (isStream(genericOperand.getType())) {
+      assert(!isOutput && "Output streaming is not currently supported");
       MemRefType memrefType = mlir::cast<MemRefType>(blockOperand.getType());
       SmallVector<Value> streamIndex =
           buildStreamIndex(builder, loc, memrefType.getShape(),
