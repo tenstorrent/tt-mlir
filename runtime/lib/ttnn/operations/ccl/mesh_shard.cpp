@@ -18,8 +18,16 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
                       const std::vector<int64_t> &shardShape,
                       const std::vector<int64_t> &shardDims) {
   if (shardType == ::tt::target::ttnn::MeshShardType::Replicate) {
+
+    // todo: (tapspatel) - metal issue #18842. Currently ReplicateTensorToMesh
+    // map API cannot take as input a borrowed storage tensor, so we need to
+    // create a deep copy of this tensor and convert to owned storage.
+    // https://github.com/tenstorrent/tt-metal/issues/18842
+    auto copiedTensorChunk = ::ttnn::experimental::xtensor::chunk(input, 1, 0);
+    auto copiedTensor =
+        ::ttnn::experimental::xtensor::concat(copiedTensorChunk, 0);
     out = ::ttnn::distributed::distribute_tensor(
-        input,
+        copiedTensor,
         *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
   } else {
     DEBUG_ASSERT(input.get_logical_shape().rank() > 1,
