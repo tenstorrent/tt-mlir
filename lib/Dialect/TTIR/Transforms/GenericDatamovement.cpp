@@ -140,22 +140,15 @@ public:
   }
 
   static Value createDMA(OpBuilder &builder, Location loc, Value src, Value dst,
-                         ArrayRef<Value> streamIndex,
+                         std::optional<AffineMap> operandIndexingMap,
                          SmallVector<Value> coreIndex = {},
                          SmallVector<Value> mcastShape = {}) {
-    MemRefType srcMemrefType = mlir::cast<MemRefType>(src.getType());
-    MemRefType dstMemrefType = mlir::cast<MemRefType>(dst.getType());
-    size_t srcRankDiff = (srcMemrefType.getRank() > dstMemrefType.getRank())
-                             ? srcMemrefType.getRank() - dstMemrefType.getRank()
-                             : 0;
-    size_t dstRankDiff = (dstMemrefType.getRank() > srcMemrefType.getRank())
-                             ? dstMemrefType.getRank() - srcMemrefType.getRank()
-                             : 0;
-    ArrayRef<Value> srcIndex = streamIndex.take_front(srcRankDiff);
-    ArrayRef<Value> dstIndex = streamIndex.take_front(dstRankDiff);
     return builder
-        .create<ttir::DMAOp>(loc, builder.getType<MemTxType>(), src, nullptr,
-                             srcIndex, dst, nullptr, dstIndex, nullptr,
+        .create<ttir::DMAOp>(loc, builder.getType<MemTxType>(), src,
+                             operandIndexingMap
+                                 ? AffineMapAttr::get(*operandIndexingMap)
+                                 : nullptr,
+                             ValueRange(), dst, nullptr, ValueRange(), nullptr,
                              coreIndex, mcastShape)
         .getResult();
   }
@@ -207,7 +200,7 @@ public:
   // respective dim) takes on the role of (the sender) gathering and sending the
   // data to all other cores (the receivers) via mcast along the same dimension.
   static void createGatherMcastDMA(OpBuilder &builder, Location loc, Value src,
-                                   Value dst, ArrayRef<Value> streamIndex,
+                                   Value dst, AffineMap operandIndexingMap,
                                    GridAttr grid,
                                    ArrayRef<IteratorType> mcastIterators) {
     SmallVector<Value> coreIndex, mcastShape, conditions;
@@ -228,12 +221,12 @@ public:
     builder.create<scf::IfOp>(
         loc, conditions[0],
         [&](OpBuilder &builder, Location loc) {
-          Value gatherMemTx = createDMA(builder, loc, src, dst, streamIndex);
+          Value gatherMemTx = createDMA(builder, loc, src, dst, operandIndexingMap);
           builder.create<ttir::DMAWaitOp>(loc, gatherMemTx);
           builder.create<ttir::SemaphoreWaitOp>(loc, receiversReadySemaphore,
                                                 mcastVolumeMinusOne, zero);
-          Value mcastMemTx = createDMA(
-              builder, loc, dst, dst, ArrayRef<Value>(), coreIndex, mcastShape);
+          Value mcastMemTx = createDMA(builder, loc, dst, dst, std::nullopt,
+                                       coreIndex, mcastShape);
           builder.create<ttir::DMAWaitOp>(loc, mcastMemTx);
           builder.create<ttir::SemaphoreSetOp>(loc, senderFinishedSemaphore,
                                                one, coreIndex, mcastShape);
@@ -261,20 +254,20 @@ public:
 
     if (isStream(genericOperand.getType())) {
       assert(!isOutput && "Output streaming is not currently supported");
-      MemRefType memrefType = mlir::cast<MemRefType>(blockOperand.getType());
-      SmallVector<Value> streamIndex =
-          buildStreamIndex(builder, loc, memrefType.getShape(),
-                           operandIndexingMap, gridIndexingMap);
+      // MemRefType memrefType = mlir::cast<MemRefType>(blockOperand.getType());
+      // SmallVector<Value> streamIndex =
+      //     buildStreamIndex(builder, loc, memrefType.getShape(),
+      //                      operandIndexingMap, gridIndexingMap);
       Value src = isOutput ? blockOperand : genericOperand;
       Value dst = isOutput ? genericOperand : blockOperand;
       SmallVector<IteratorType> mcastIterators = calculateMcastIterators(
           grid, device, operandIndexingMap, iteratorTypes);
       bool isMcast = !mcastIterators.empty();
       if (isMcast) {
-        createGatherMcastDMA(builder, loc, src, dst, streamIndex, grid,
+        createGatherMcastDMA(builder, loc, src, dst, operandIndexingMap, grid,
                              mcastIterators);
       } else {
-        Value memTx = createDMA(builder, loc, src, dst, streamIndex);
+        Value memTx = createDMA(builder, loc, src, dst, operandIndexingMap);
         builder.create<ttir::DMAWaitOp>(loc, memTx);
       }
     }
