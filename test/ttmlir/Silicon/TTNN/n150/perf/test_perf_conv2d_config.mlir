@@ -33,9 +33,22 @@
 >
 
 module attributes {tt.device = #device, tt.system_desc = #system_desc} {
-  func.func @forward(%arg0: tensor<1x32x32x64xbf16, #ttnn_layout>, %arg1: tensor<64x64x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x64xbf16, #ttnn_layout2>) -> tensor<1x30x30x64xbf16, #ttnn_layout3> {
+  func.func @forward(%arg0: tensor<1x1x1024x64xbf16, #ttnn_layout>, %arg1: tensor<64x64x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x64xbf16, #ttnn_layout2>) -> tensor<1x30x30x64xbf16, #ttnn_layout3> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
-    %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0) <{batch_size = 1 : i32, conv2d_config = #conv2d_config, dilation = array<i32: 1, 1>, groups = 1 : i32, in_channels = 64 : i32, input_height = 32 : i32, input_width = 32 : i32, kernel_size = array<i32: 3, 3>, out_channels = 64 : i32, padding = array<i32: 0, 0>, stride = array<i32: 1, 1>}> : (tensor<1x32x32x64xbf16, #ttnn_layout>, tensor<64x64x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x64xbf16, #ttnn_layout2>, !tt.device<#device>) -> tensor<1x1x900x64xbf16, #ttnn_layout4>
+    %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0)
+            <{
+              in_channels = 64 : i32,
+              out_channels = 64 : i32,
+              batch_size = 1 : i32,
+              input_height = 32 : i32,
+              input_width = 32 : i32,
+              kernel_size = array<i32: 3, 3>,
+              stride = array<i32: 1, 1>,
+              padding = array<i32: 0, 0>,
+              dilation = array<i32: 1, 1>,
+              groups = 1 : i32,
+              conv2d_config = #conv2d_config
+            }> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<64x64x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x64xbf16, #ttnn_layout2>, !tt.device<#device>) -> tensor<1x1x900x64xbf16, #ttnn_layout4>
     %2 = "ttnn.reshape"(%1) <{shape = [1 : i32, 30 : i32, 30 : i32, 64 : i32]}> : (tensor<1x1x900x64xbf16, #ttnn_layout4>) -> tensor<1x30x30x64xbf16, #ttnn_layout4>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x1x900x64xbf16, #ttnn_layout4>) -> ()
     %3 = "ttnn.from_device"(%2) : (tensor<1x30x30x64xbf16, #ttnn_layout4>) -> tensor<1x30x30x64xbf16, #ttnn_layout5>
