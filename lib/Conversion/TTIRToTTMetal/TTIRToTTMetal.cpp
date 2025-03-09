@@ -206,12 +206,10 @@ public:
             : NocTx::Type::Write;
 
     AffineMap src = inputLayout.projectOnto(
-        inputLinearMap,
-        device.getMapForMemorySpace(inputLayout.getMemorySpace()));
+        inputLinearMap, device.getMemoryMap(inputLayout.getMemref(), 0));
 
     AffineMap dst = outputLayout.projectOnto(
-        outputLinearMap,
-        device.getMapForMemorySpace(outputLayout.getMemorySpace()));
+        outputLinearMap, device.getMemoryMap(outputLayout.getMemref(), 0));
 
     auto dm = calculateDataMovement(
         inputShape, inputLayout.getElementSizeBytes(), src, dst,
