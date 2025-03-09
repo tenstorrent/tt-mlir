@@ -134,6 +134,7 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
 
   list<Option> options = [
         Option<"path", "path", "std::string", "", "System desc path">,
+        ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape.">,
     ];
 }
 

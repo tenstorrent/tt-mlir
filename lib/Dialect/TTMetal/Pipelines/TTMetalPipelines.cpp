@@ -60,8 +60,13 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
-  { systemDescOptions.path = options.systemDescPath; }
+  {
+    systemDescOptions.path = options.systemDescPath;
+    systemDescOptions.meshShape = ::llvm::SmallVector<int64_t>(
+        options.meshShape.begin(), options.meshShape.end());
+  }
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
+
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
   {
     implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
