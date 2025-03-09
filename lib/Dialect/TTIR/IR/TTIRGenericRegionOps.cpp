@@ -75,14 +75,43 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
         "MemRef operands to DMA must have the same element type");
   }
 
-  auto minRank = std::min(srcType.getRank(), dstType.getRank());
-  if (!std::equal(srcType.getShape().end() - minRank, srcType.getShape().end(),
-                  dstType.getShape().end() - minRank)) {
-    return emitOpError("MemRef operands to DMA must have the same shape");
-  }
-
   if (isSrcRemote() && isDstRemote()) {
     return emitOpError("DMA cannot have both src and dst remote");
+  }
+
+  if (getSrcAffineMap() && getSrcIndices().size()) {
+    return emitOpError("DMA cannot have both src affine map and indices");
+  }
+
+  if (getDstAffineMap() && getDstIndices().size()) {
+    return emitOpError("DMA cannot have both dst affine map and indices");
+  }
+
+  int64_t srcIndices = getSrcAffineMap() ? getSrcAffineMap()->getNumResults()
+                                         : getSrcIndices().size();
+  int64_t dstIndices = getDstAffineMap() ? getDstAffineMap()->getNumResults()
+                                         : getDstIndices().size();
+
+  if (srcIndices > srcType.getRank()) {
+    return emitOpError("Invalid number of src indices, expected less than ")
+           << srcType.getRank();
+  }
+
+  if (dstIndices > dstType.getRank()) {
+    return emitOpError("Invalid number of dst indices, expected less than ")
+           << dstType.getRank();
+  }
+
+  if ((srcType.getRank() - srcIndices) != (dstType.getRank() - dstIndices)) {
+    return emitOpError(
+        "MemRef operands to DMA must have the same post-index rank");
+  }
+
+  if (!std::equal(srcType.getShape().begin() + srcIndices,
+                  srcType.getShape().end(),
+                  dstType.getShape().begin() + dstIndices)) {
+    return emitOpError(
+        "MemRef operands to DMA must have the same post-index shape");
   }
 
   return success();
@@ -103,4 +132,16 @@ void mlir::tt::ttir::DMAOp::getEffects(
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(),
                        0 /*stage*/, true /*effectOnFullRegion*/,
                        mlir::SideEffects::DefaultResource::get());
+}
+
+void mlir::tt::ttir::IterIndexOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "iter" + std::to_string(dim));
+}
+
+void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "core" + std::to_string(dim));
 }

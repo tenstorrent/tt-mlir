@@ -185,12 +185,12 @@ def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
     let description = [{
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$src, Variadic<Index>:$srcIndices,
-                         AnyNon0RankedMemRef:$dst, Variadic<Index>:$dstIndices,
-                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
+    let arguments = (ins AnyNon0RankedMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
+                         AnyNon0RankedMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
+                         Optional<Index>:$numElems, Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
-    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src ($srcAffineMap^)? (`[` $srcIndices^ `]`)? `,` $dst ($dstAffineMap^)? (`[` $dstIndices^ `]`)? (`,` $numElems^)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -311,7 +311,10 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
 // TTIR Generic Region Indexing Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-class TTIR_IndexOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic, [Pure]> {
+class TTIR_IndexOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic,
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  ]> {
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
@@ -324,8 +327,8 @@ def TTIR_IterIndexOp : TTIR_IndexOp<"iter_index"> {
     }];
 }
 
-def TTIR_GridIndexOp : TTIR_IndexOp<"grid_index"> {
-    let summary = "Grid Index op.";
+def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index"> {
+    let summary = "Core Index op.";
     let description = [{
       Return the index of the this core's coordinate for the given grid dimension.
     }];

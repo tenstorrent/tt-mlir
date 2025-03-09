@@ -2879,6 +2879,33 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   return success();
 }
 
+void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(
+    Region &region, function_ref<void(Value, StringRef)> setNameFn) {
+  int cbIndex = 0;
+  int semIndex = 0;
+  for (BlockArgument arg : region.getArguments()) {
+    if (mlir::isa<MemRefType>(arg.getType())) {
+      setNameFn(arg, "cb" + std::to_string(cbIndex++));
+    } else {
+      setNameFn(arg, "sem" + std::to_string(semIndex++));
+    }
+  }
+}
+
+void mlir::tt::ttir::GenericOp::getAsmBlockNames(
+    function_ref<void(Block *, StringRef)> setNameFn) {
+  size_t numRegions = getNumRegions();
+  for (Region &region : getRegions()) {
+    // Right now the last region is implicitly the compute region.
+    if (region.getRegionNumber() < (numRegions - 1)) {
+      setNameFn(&region.front(),
+                "datamovement" + std::to_string(region.getRegionNumber()));
+    } else {
+      setNameFn(&region.front(), "compute");
+    }
+  }
+}
+
 mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options) {
