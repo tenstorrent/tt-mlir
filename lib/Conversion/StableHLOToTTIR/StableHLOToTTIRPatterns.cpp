@@ -1038,11 +1038,11 @@ private:
       return false;
     }
 
-    auto padding_elems = padding.asArrayRef();
-    auto first = padding_elems[0];
+    auto paddingElems = padding.asArrayRef();
+    auto first = paddingElems[0];
 
     // Check for splat padding (all zeroes expected).
-    if (llvm::all_of(padding_elems,
+    if (llvm::all_of(paddingElems,
                      [first](int value) { return value == first; })) {
       if (first != 0) {
         return false;
