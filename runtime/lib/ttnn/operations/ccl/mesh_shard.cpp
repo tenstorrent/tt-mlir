@@ -5,6 +5,7 @@
 #include "operations/ccl/mesh_shard.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
@@ -18,9 +19,24 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
                       const std::vector<int64_t> &shardShape,
                       const std::vector<int64_t> &shardDims) {
   if (shardType == ::tt::target::ttnn::MeshShardType::Replicate) {
-    out = ::ttnn::distributed::distribute_tensor(
-        input,
-        *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
+    if (input.storage_type() == ::ttnn::StorageType::BORROWED) {
+      DEBUG_ASSERT(
+          workaround::Env::get().manualDeviceStorageFromBorrowedStorage,
+          "Replicate mesh shard type requires manual conversion from borrowed "
+          "storage to device storage");
+
+      auto copiedTensorChunk =
+          ::ttnn::experimental::xtensor::chunk(input, 1, 0);
+      auto copiedTensor =
+          ::ttnn::experimental::xtensor::concat(copiedTensorChunk, 0);
+      out = ::ttnn::distributed::distribute_tensor(
+          copiedTensor,
+          *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
+    } else {
+      out = ::ttnn::distributed::distribute_tensor(
+          input,
+          *::ttnn::distributed::replicate_tensor_to_mesh_mapper(meshDevice));
+    }
   } else {
     DEBUG_ASSERT(input.get_logical_shape().rank() > 1,
                  "Sharding requires higher than one dimensional tensor.");
@@ -101,8 +117,7 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   // pre-sharded by frontend. Thus, no sharding is required, but need to makes
   // sure if the tensor is multi-device host tensor.
   if (shardType == ::tt::target::ttnn::MeshShardType::Manual) {
-    LOG_ASSERT(input.storage_type() ==
-                   ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST,
+    LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::MULTI_DEVICE_HOST,
                "Input of mesh_shard with manual sharding must be MULTI DEVICE "
                "HOST Storage. id:",
                op->in()->global_id());

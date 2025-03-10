@@ -14,10 +14,6 @@ namespace mlir::tt::ttir {
 //
 struct StableHLOToTTIRPipelineOptions
     : public PassPipelineOptions<StableHLOToTTIRPipelineOptions> {
-  Option<bool> removeDeadValuesEnabled{
-      *this, "enable-remove-dead-values",
-      llvm::cl::desc("Enable --remove-dead-values optimization pass."),
-      llvm::cl::init(true)};
   Option<bool> arithDialectConversionsEnabled{
       *this, "enable-arith-to-stablehlo",
       llvm::cl::desc("Enable Arith to StableHLO conversion pass."),

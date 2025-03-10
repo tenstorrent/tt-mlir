@@ -155,6 +155,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::tanh);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Atan: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::atan);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
     runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::exp);
     break;

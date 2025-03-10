@@ -441,18 +441,21 @@ private:
     uint16_t desiredBF16;
     int32_t desiredI32;
     int64_t desiredI64;
+    bool desiredI1;
     if (desired == TypicalInitReductionValue::NEG_INF) {
       desiredF32 = -std::numeric_limits<float>::infinity();
       desiredF64 = -std::numeric_limits<double>::infinity();
       desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
       desiredI32 = std::numeric_limits<int32_t>::min();
       desiredI64 = std::numeric_limits<int64_t>::min();
+      desiredI1 = false;
     } else if (desired == TypicalInitReductionValue::ZERO) {
       desiredF32 = 0.0;
       desiredF64 = 0.0;
       desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
       desiredI32 = 0;
       desiredI64 = 0;
+      desiredI1 = false;
     } else {
       return false;
     }
@@ -476,23 +479,18 @@ private:
         return false;
       }
     } else if (initValueOp.getResult().getType().getElementType().isF32()) {
-      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<float>() == desiredF32;
     } else if (initValueOp.getResult().getType().getElementType().isF64()) {
-      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<double>() == desiredF64;
     } else if (initValueOp.getResult().getType().getElementType().isInteger(
                    32)) {
-      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
     } else if (initValueOp.getResult().getType().getElementType().isInteger(
                    64)) {
-      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
-        return false;
-      }
+      return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
+    } else if (initValueOp.getResult().getType().getElementType().isInteger(
+                   1)) {
+      return *initValueOp.getValue().value_begin<bool>() == desiredI1;
     } else {
       return false;
     }
@@ -636,7 +634,7 @@ public:
 private:
   LogicalResult checkBasicLegality(mlir::stablehlo::ConstantOp &srcOp,
                                    ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getValue().getShapedType().getShape().empty() &&
+    if (isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue()) &&
         !srcOp.getValue().getElementType().isIntOrFloat()) {
       return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
     }

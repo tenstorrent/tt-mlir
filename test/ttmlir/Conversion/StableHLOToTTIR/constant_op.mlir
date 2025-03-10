@@ -339,4 +339,22 @@ module @jit_constant attributes {} {
     // CHECK: return %[[CONSTANT]] : tensor<1xi32>
     return %0 : tensor<i64>
   }
+
+  func.func @test_dense_attr() -> tensor<1x2xbf16> {
+    // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense_resource<dense_attr> : tensor<1x2xbf16>}> : () -> tensor<1x2xbf16>
+    %0 = stablehlo.constant dense_resource<dense_attr> : tensor<1x2xbf16>
+    // CHECK: return %{{[0-9]+}} : tensor<1x2xbf16>
+    return %0 : tensor<1x2xbf16>
+  }
 }
+{-#
+    dialect_resources: {
+        builtin: {
+            // This should encode for two bfloat16 values which are both 2.0
+            // 0x020000000 is a hex string blob
+            // 0x0040 is 2.0 in bfloat16
+            // 0x00400040 is 2.0, 2.0
+            dense_attr: "0x0200000000400040"
+        }
+    }
+#-}

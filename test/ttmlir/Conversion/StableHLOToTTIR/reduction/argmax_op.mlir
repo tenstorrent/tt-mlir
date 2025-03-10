@@ -103,4 +103,31 @@ module @module_argmax attributes {} {
     }
     return %1#1 : tensor<4x8x64xi64>
   }
+
+  func.func public @argmax_jax_2D_bool(%arg0: tensor<2x7xi1>) -> tensor<2xi32> {
+    // CHECK-LABEL: func.func public @argmax_jax_2D_bool(
+    // CHECK: %[[EMPTY:[0-9]+]] = tensor.empty() : tensor<2xi32>
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.argmax"(%arg0, %[[EMPTY]])
+    // CHECK-SAME: dim_arg = [1 : i32]
+    // CHECK-SAME: keep_dim = false
+    // CHECK-SAME: (tensor<2x7xbf16>, tensor<2xi32>) -> tensor<2xi32>
+    // CHECK: return %[[VAL]] : tensor<2xi32>
+    %c = stablehlo.constant dense<0> : tensor<i32>
+    %c_0 = stablehlo.constant dense<false> : tensor<i1>
+    %0 = stablehlo.iota dim = 1 : tensor<2x7xi32>
+    %1:2 = stablehlo.reduce(%arg0 init: %c_0), (%0 init: %c) across dimensions = [1] : (tensor<2x7xi1>, tensor<2x7xi32>, tensor<i1>, tensor<i32>) -> (tensor<2xi1>, tensor<2xi32>)
+     reducer(%arg1: tensor<i1>, %arg3: tensor<i1>) (%arg2: tensor<i32>, %arg4: tensor<i32>)  {
+      %2 = stablehlo.compare  GT, %arg1, %arg3,  UNSIGNED : (tensor<i1>, tensor<i1>) -> tensor<i1>
+      %3 = stablehlo.compare  NE, %arg1, %arg1,  UNSIGNED : (tensor<i1>, tensor<i1>) -> tensor<i1>
+      %4 = stablehlo.or %2, %3 : tensor<i1>
+      %5 = stablehlo.compare  EQ, %arg1, %arg3,  UNSIGNED : (tensor<i1>, tensor<i1>) -> tensor<i1>
+      %6 = stablehlo.compare  LT, %arg2, %arg4,  SIGNED : (tensor<i32>, tensor<i32>) -> tensor<i1>
+      %7 = stablehlo.and %5, %6 : tensor<i1>
+      %8 = stablehlo.or %4, %7 : tensor<i1>
+      %9 = stablehlo.select %4, %arg1, %arg3 : tensor<i1>, tensor<i1>
+      %10 = stablehlo.select %8, %arg2, %arg4 : tensor<i1>, tensor<i32>
+      stablehlo.return %9, %10 : tensor<i1>, tensor<i32>
+    }
+    return %1#1 : tensor<2xi32>
+  }
 }
