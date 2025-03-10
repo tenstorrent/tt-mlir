@@ -21,7 +21,7 @@
 namespace mlir::tt::ttnn {
 
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
-constexpr bool DEBUG = false;
+constexpr bool DEBUG = true;
 
 ShardSolver::ShardSolver(
     const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
@@ -703,7 +703,7 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
         llvm::errs() << "OpModel constraints failed: ";
         llvm::errs() << producerOperand.getLoc() << "->"
                      << consumerOp->getName()
-                     << " :: " << llvm::toString(l1UsageExp.takeError())
+                    //  << " :: " << llvm::toString(l1UsageExp.takeError())
                      << "\n";
         producerLayout.dump();
         consumerLayout.dump();

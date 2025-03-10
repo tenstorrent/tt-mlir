@@ -90,19 +90,15 @@ void DFShardingPolicy::run() {
           //
           // TODO(#2038): Remove this once this bug is fixed.
           // TODO(#2042): And constraints are implemented.
-          if (llvm::isa<ttnn::ReshapeOp>(currentOp)) {
-            validForSharding = false;
-          }
+          // if (llvm::isa<ttnn::ReshapeOp>(currentOp)) {
+          //   validForSharding = false;
+          // }
           // TODO(#2038): Remove this once this bug is fixed.
           if (llvm::isa<ttnn::ConcatOp>(currentOp)) {
             validForSharding = false;
           }
           // TODO(#2041): Remove once constraints are added for MeanOp.
           if (llvm::isa<ttnn::MeanOp>(currentOp)) {
-            validForSharding = false;
-          }
-          // TODO(#2084): Remove once constraints are added.
-          if (llvm::isa<ttnn::MultiplyOp>(currentOp)) {
             validForSharding = false;
           }
           // TODO(#2084): Remove once constraints are added.

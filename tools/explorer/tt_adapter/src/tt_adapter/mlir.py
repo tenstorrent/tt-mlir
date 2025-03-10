@@ -655,6 +655,62 @@ def build_graph(module, perf_trace=None, golden_results=None):
             graphsData={"tt-graph": graph_node_data}
         ).graphsData
 
+    # Sharding overlay
+
+    gradient = [
+         node_data_builder.GradientItem(stop=0, bgColor="yellow"),
+         node_data_builder.GradientItem(stop=1, bgColor="red"),
+    ]
+
+    sharded_nodes = {}
+    for op in op_to_graph_node.values():
+        for attr in op.attrs:
+            if attr.key == "tensor_memory_layout" and "sharded" in attr.value:
+                sharded_nodes[op.id] = node_data_builder.NodeDataResult(
+                    1, bgColor="blue"
+                )
+                break
+
+    def is_editable(node):
+        for attr in node.attrs:
+            if attr.key == "tensor_memory_layout" and hasattr(attr, "editable"):
+                return True
+        return False
+
+    # def is_sharded(node):
+    #     for attr in node.attrs:
+    #         if attr.key == "tensor_memory_layout" and 'sharded' in attr.value:
+    #             return True
+    #     return False
+
+    print("Total ops:", len(op_to_graph_node))
+    non_mem_config_ops = [
+        node
+        for node in op_to_graph_node.values()
+        if node.label != "ttnn.to_memory_config"
+        and is_editable(node)
+        and node.label not in FILTERED_OPS
+    ]
+    non_mem_config_sharded_ops = [
+        node for node in non_mem_config_ops if node.id in sharded_nodes
+    ]
+    print("Total non mem config ops:", len(non_mem_config_ops))
+    print("Sharded ops:", len(non_mem_config_sharded_ops))
+    print(
+        "Sharded ops %:",
+        len(non_mem_config_sharded_ops) / len(non_mem_config_ops)
+        if non_mem_config_ops
+        else 0,
+    )
+
+    graph_node_data = node_data_builder.GraphNodeData(
+        results=sharded_nodes, gradient=gradient
+    )
+    overlays["sharding_data"] = node_data_builder.ModelNodeData(
+        graphsData={"tt-graph": graph_node_data}
+    )
+
+
     OpHandler.schedule = 0
     return graph, overlays
 
