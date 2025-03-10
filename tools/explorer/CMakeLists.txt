@@ -21,6 +21,18 @@ if (TT_EXPLORER_EDITABLE)
   set(PIP_EDITABLE_FLAG "-e")
 endif()
 
+set(EXPLORER_REQ_FLAGS
+  TT_RUNTIME_DEBUG
+  TT_RUNTIME_ENABLE_PERF_TRACE
+  TTMLIR_ENABLE_RUNTIME
+)
+
+foreach(RUNTIME_OPT ${EXPLORER_REQ_FLAGS})
+  if(NOT ${RUNTIME_OPT})
+    message(WARNING "${RUNTIME_OPT} must be enabled to execute model as intended in tt-explorer.")
+  endif()
+endforeach()
+
 add_custom_target(explorer
   COMMENT "Building tt-explorer... ${TTMLIR_BIN_DIR}"
   COMMAND pip install ${PIP_EDITABLE_FLAG} ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter
