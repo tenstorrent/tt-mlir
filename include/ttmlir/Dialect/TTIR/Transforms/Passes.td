@@ -127,6 +127,12 @@ def TTIRGenericDatamovement: Pass<"ttir-generic-datamovement", "::mlir::ModuleOp
   }];
 }
 
+def TTIRGenericLowerAffineDMAs : Pass<"ttir-generic-lower-affine-dmas", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{

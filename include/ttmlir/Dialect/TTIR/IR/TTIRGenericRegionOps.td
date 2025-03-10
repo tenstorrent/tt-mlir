@@ -275,6 +275,16 @@ _tx
     }];
 }
 
+def TTIR_NullTxOp : TTIR_GenericRegionOp<"null_tx", [Pure]> {
+    let summary = "Create a null transaction.";
+    let description = [{
+    }];
+
+    let results = (outs TTIR_MemTx:$result);
+
+    let assemblyFormat = [{ attr-dict }];
+}
+
 def TTIR_DMAWaitOp : TTIR_GenericRegionOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "TTIR DMA wait Op";
     let description = [{

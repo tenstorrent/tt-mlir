@@ -188,8 +188,7 @@ public:
   static LogicalResult
   buildDatamovementBlock(OpBuilder &builder, Location loc, Value genericOperand,
                          Value blockOperand, GridAttr grid, DeviceAttr device,
-                         AffineMap operandIndexingMap,
-                         AffineMap gridIndexingMap, ArrayAttr iteratorTypes,
+                         AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
                          bool isOutput) {
     if (isOutput) {
       // Wait for compute
@@ -238,11 +237,6 @@ public:
     // Insert the new data movement regions.
     auto [outputOperandsIndex, outputOperandsLength] =
         generic.getODSOperandIndexAndLength(1);
-    // The output and the grid indexing must always be aligned.
-    AffineMap gridIndexingMap =
-        mlir::cast<AffineMapAttr>(
-            generic.getIndexingMaps()[outputOperandsIndex])
-            .getValue();
     auto device = getCurrentScopeDevice(generic);
     for (OpOperand &operand : generic->getOpOperands()) {
       Block *datamovementBlock =
@@ -263,7 +257,7 @@ public:
           blockBuilder, generic->getLoc(),
           generic->getOperand(operand.getOperandNumber()),
           datamovementBlock->getArgument(operand.getOperandNumber()),
-          generic.getGrid(), device, operandIndexingMap, gridIndexingMap,
+          generic.getGrid(), device, operandIndexingMap,
           generic.getIteratorTypes(), isOutput);
       if (failed(result)) {
         return result;
