@@ -15,52 +15,44 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRTENSORLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-GridAttr getOptimalGrid(MLIRContext *ctx, ArrayRef<int64_t> memref_shape,
-                        ArrayRef<int64_t> device_grid_shape) {
-  std::vector<int64_t> grid_shape;
-  for (size_t i = 0; i < memref_shape.size(); i++) {
-    int64_t dim = memref_shape[i];
-    for (int grid = device_grid_shape[i]; grid > 1; grid--) {
-      for (int pad = 0; pad < 9; pad++) {
-        if ((dim + pad) % grid == 0 && pad < (dim + pad) / grid) {
-          grid_shape.push_back(grid);
-          break;
-        }
-      }
-      if (grid_shape.size() == i + 1) {
+GridAttr getOptimalGrid(MLIRContext *ctx, ArrayRef<int64_t> memrefShape,
+                        ArrayRef<int64_t> deviceGridShape) {
+  std::vector<int64_t> gridShape;
+  for (size_t i = 0; i < memrefShape.size(); i++) {
+    int64_t dim = memrefShape[i];
+    for (size_t grid = deviceGridShape[i]; grid > 0; grid--) {
+      if (dim % grid == 0) {
+        gridShape.push_back(grid);
         break;
       }
     }
-    if (grid_shape.size() == i + 1) {
-      continue;
-    }
-    grid_shape.push_back(1);
   }
-  return GridAttr::get(ctx, grid_shape);
+  return GridAttr::get(ctx, gridShape);
 }
 
 RankedTensorType getLocalLayout(Value tensor, PatternRewriter &rewriter,
                                 DeviceAttr &device) {
-  RankedTensorType result_type =
+  RankedTensorType resultType =
       mlir::dyn_cast<RankedTensorType>(tensor.getType());
-  auto result_encoding =
-      mlir::dyn_cast_or_null<MetalLayoutAttr>(result_type.getEncoding());
-  assert(result_encoding && "Tensor type must have a MetalLayoutAttr encoding");
-  auto optimal_output_grid = getOptimalGrid(
-      tensor.getContext(), result_encoding.getMemref().getShape(),
+  auto resultEncoding =
+      mlir::dyn_cast_or_null<MetalLayoutAttr>(resultType.getEncoding());
+  assert(resultEncoding && "Tensor type must have a MetalLayoutAttr encoding");
+  assert(mlir::isa<TileType>(resultEncoding.getElementType()) && "Inputs to the tensor layout pass must be tiled.");
+  auto optimalOutputGrid = getOptimalGrid(
+      tensor.getContext(), resultEncoding.getMemref().getShape(),
       device.getWorkerGrid().getShape());
 
-  auto new_result_encoding =
-      MetalLayoutAttr::get(tensor.getContext(), result_type,
-                           result_encoding.getMemorySpace(),
-                           optimal_output_grid)
+  auto newResultEncoding =
+      MetalLayoutAttr::get(tensor.getContext(), resultType,
+                           resultEncoding.getMemorySpace(),
+                           optimalOutputGrid)
           .withElementType(tensor.getContext(),
-                           result_encoding.getMemref().getElementType());
+                           resultEncoding.getMemref().getElementType());
 
-  auto new_tensor_type =
-      RankedTensorType::get(result_type.getShape(),
-                            result_type.getElementType(), new_result_encoding);
-  return new_tensor_type;
+  auto newTensorType =
+      RankedTensorType::get(resultType.getShape(),
+                            resultType.getElementType(), newResultEncoding);
+  return newTensorType;
 }
 
 class TTIRGenericTensorLayoutRewriter : public RewritePattern {
@@ -78,22 +70,22 @@ public:
     // Update output tensor type
     assert(op->getResults().size() == 1 &&
            "Only one result tensor is supported for now");
-    auto optimal_layout = getLocalLayout(op->getResult(0), rewriter, device);
+    auto optimalLayout = getLocalLayout(op->getResult(0), rewriter, device);
     if (genericOp.getGridAttr() != GridAttr::get(rewriter.getContext()) ||
-        genericOp.getResult(0).getType() == optimal_layout) {
+        genericOp.getResult(0).getType() == optimalLayout) {
       return failure();
     }
 
     rewriter.modifyOpInPlace(genericOp, [&]() {
-      genericOp->getResult(0).setType(optimal_layout);
+      genericOp->getResult(0).setType(optimalLayout);
       auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op);
       assert(dpsOp.getNumDpsInits() == 1 &&
              "Only one result tensor is supported for now");
-      dpsOp.getDpsInits()[0].setType(optimal_layout);
+      dpsOp.getDpsInits()[0].setType(optimalLayout);
 
       // Update generic grid (match worker cores to output grid)
       genericOp.setGridAttr(
-          mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding()).getGrid());
+          mlir::cast<MetalLayoutAttr>(optimalLayout.getEncoding()).getGrid());
     });
 
     return success();
@@ -148,10 +140,10 @@ public:
     ;
     bool modified = false;
     for (Value operand : funcOp.getArguments()) {
-      auto optimal_layout = getLocalLayout(operand, rewriter, device);
+      auto optimalLayout = getLocalLayout(operand, rewriter, device);
       auto tensor = mlir::cast<RankedTensorType>(operand.getType());
       auto encoding = mlir::cast<MetalLayoutAttr>(tensor.getEncoding());
-      if (mlir::cast<MetalLayoutAttr>(optimal_layout.getEncoding())
+      if (mlir::cast<MetalLayoutAttr>(optimalLayout.getEncoding())
                   .getGrid()
                   .getShape() == encoding.getGrid().getShape() ||
           (std::distance(operand.getUses().begin(), operand.getUses().end()) ==
@@ -161,8 +153,8 @@ public:
       }
       modified = true;
       auto emptyOp = rewriter.create<tensor::EmptyOp>(
-          op->getLoc(), optimal_layout.getShape(),
-          optimal_layout.getElementType(), optimal_layout.getEncoding());
+          op->getLoc(), optimalLayout.getShape(),
+          optimalLayout.getElementType(), optimalLayout.getEncoding());
       auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
           op->getLoc(), emptyOp.getType(), operand, emptyOp);
       rewriter.replaceAllUsesExcept(
