@@ -24,8 +24,12 @@ namespace mlir::tt::ttnn {
 
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
+  systemDescOptions.meshShape = ::llvm::SmallVector<int64_t>(
+      options.meshShape.begin(), options.meshShape.end());
+  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
   pm.addPass(mlir::tt::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
@@ -35,8 +39,6 @@ void createTTNNPipelineTTIRPasses(
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
-
-  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
   implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(

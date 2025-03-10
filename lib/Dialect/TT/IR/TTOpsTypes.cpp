@@ -39,62 +39,115 @@ unsigned mlir::tt::ChipDescAttr::getScratchL1RegionAddress() const {
   return getL1Size() - getScratchL1RegionSize();
 }
 
-mlir::tt::SystemDescAttr
-mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
-  // Populate a dummy n150
-  SmallVector<std::int64_t> gridShape = {8, 8};
+// This function should not be exposed or called anywhere else because these
+// values don't represent a target system. They are only placeholders.
+static mlir::tt::ChipDescAttr getDefaultChipDesc(mlir::MLIRContext *context) {
+  // Populate dummy values.
+  llvm::SmallVector<std::int64_t> gridShape = {8, 8};
 
   // populate a placeholder for supported tile sizes
-  SmallVector<tt::DataTypeAttr> supported_data_types;
+  llvm::SmallVector<DataTypeAttr> supported_data_types;
+  supported_data_types.push_back(DataTypeAttr::get(context, DataType::Float32));
+  supported_data_types.push_back(DataTypeAttr::get(context, DataType::Float16));
   supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::Float32));
+      DataTypeAttr::get(context, DataType::BFloat16));
   supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::Float16));
+      DataTypeAttr::get(context, DataType::BFP_Float8));
   supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::BFloat16));
+      DataTypeAttr::get(context, DataType::BFP_BFloat8));
   supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::BFP_Float8));
+      DataTypeAttr::get(context, DataType::BFP_Float4));
   supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat8));
+      DataTypeAttr::get(context, DataType::BFP_BFloat4));
   supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::BFP_Float4));
+      DataTypeAttr::get(context, DataType::BFP_Float2));
   supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat4));
-  supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::BFP_Float2));
-  supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat2));
-  supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::UInt32));
-  supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::UInt16));
-  supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::UInt8));
-  supported_data_types.push_back(
-      tt::DataTypeAttr::get(context, tt::DataType::Int32));
+      DataTypeAttr::get(context, DataType::BFP_BFloat2));
+  supported_data_types.push_back(DataTypeAttr::get(context, DataType::UInt32));
+  supported_data_types.push_back(DataTypeAttr::get(context, DataType::UInt16));
+  supported_data_types.push_back(DataTypeAttr::get(context, DataType::UInt8));
+  supported_data_types.push_back(DataTypeAttr::get(context, DataType::Int32));
 
   // populate a placeholder for supported tile sizes
-  SmallVector<tt::TileSizeAttr> supported_tile_sizes;
-  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 4, 16));
-  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 16, 16));
-  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 32, 16));
-  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 4, 32));
-  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 16, 32));
-  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 32, 32));
+  llvm::SmallVector<TileSizeAttr> supported_tile_sizes;
+  supported_tile_sizes.push_back(TileSizeAttr::get(context, 4, 16));
+  supported_tile_sizes.push_back(TileSizeAttr::get(context, 16, 16));
+  supported_tile_sizes.push_back(TileSizeAttr::get(context, 32, 16));
+  supported_tile_sizes.push_back(TileSizeAttr::get(context, 4, 32));
+  supported_tile_sizes.push_back(TileSizeAttr::get(context, 16, 32));
+  supported_tile_sizes.push_back(TileSizeAttr::get(context, 32, 32));
 
-  SmallVector<CoreCoordAttr> workerCores;
+  llvm::SmallVector<CoreCoordAttr> workerCores;
   workerCores.reserve(gridShape[0] * gridShape[1]);
   for (std::int64_t y = 0; y < gridShape[0]; ++y) {
     for (std::int64_t x = 0; x < gridShape[1]; ++x) {
       workerCores.push_back(CoreCoordAttr::get(context, y, x));
     }
   }
-  SmallVector<CoreCoordAttr> dramCores;
+  llvm::SmallVector<CoreCoordAttr> dramCores;
   for (std::int64_t x = 0; x < 4; ++x) {
     for (std::int64_t y = 0; y < 3; ++y) {
       dramCores.push_back(CoreCoordAttr::get(context, y + gridShape[0], x));
     }
   }
+
+  return ChipDescAttr::get(
+      context, ArchAttr::get(context, Arch::WormholeB0), gridShape, 1499136, 12,
+      (1 << 30), 16, 32, 32, 1024, 1024, 1024, (1 << 30),
+      ChipPhysicalCoresAttr::get(context, workerCores, dramCores, {}, {}),
+      supported_data_types, supported_tile_sizes, 32);
+}
+
+// This function should not be exposed or called anywhere else because these
+// values don't represent a target system. They are only placeholders.
+static mlir::tt::ChipCapabilityAttr
+getDefaultChipCapability(mlir::MLIRContext *context) {
+  return ChipCapabilityAttr::get(context,
+                                 // NOLINTNEXTLINE
+                                 ChipCapability::PCIE |
+                                     ChipCapability::HostMMIO);
+}
+
+mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
+    MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
+  // Get number of chips in mesh.
+  int64_t numberOfChips =
+      std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
+                      std::multiplies<int64_t>());
+
+  // Get number of chips indices.
+  llvm::SmallVector<uint32_t> chipIndicesList =
+      llvm::to_vector(llvm::seq<uint32_t>(numberOfChips));
+
+  // Duplicate number of chip desc attributes based on number of chips.
+  llvm::SmallVector<tt::ChipDescAttr> chipDescs;
+  chipDescs.reserve(numberOfChips);
+
+  for (auto i = 0; i < numberOfChips; i++) {
+    chipDescs.push_back(getDefaultChipDesc(context));
+  }
+
+  // Duplicate number of chip capabilities based on number of chips.
+  llvm::SmallVector<tt::ChipCapabilityAttr> chipCapabilities;
+  chipCapabilities.reserve(numberOfChips);
+
+  for (auto i = 0; i < numberOfChips; i++) {
+    chipCapabilities.push_back(getDefaultChipCapability(context));
+  }
+
+  // Update chip channels based on number of chips.
+  llvm::SmallVector<tt::ChipChannelAttr> chipChannelList;
+  chipChannelList.reserve(numberOfChips);
+
+  if (numberOfChips != 1) {
+    for (auto i = 0; i < numberOfChips; i++) {
+      // Assume a default ring topology where final chip connects with initial
+      // chip.
+      chipChannelList.push_back(tt::ChipChannelAttr::get(
+          context, i, {0, 0}, (i + 1) % numberOfChips, {0, 0}));
+    }
+  }
+
   return tt::SystemDescAttr::get(
       context,
       // CPU Descriptors
@@ -102,32 +155,17 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
           context, tt::CPURole::Host,
           mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
       // Chip Descriptors
-      {
-          tt::ChipDescAttr::get(
-              context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
-              gridShape, 1499136, 12, (1 << 30), 16, 32, 32, 1024, 1024, 1024,
-              (1 << 30),
-              tt::ChipPhysicalCoresAttr::get(context, workerCores, dramCores,
-                                             {}, {}),
-              supported_data_types, supported_tile_sizes, 32),
-      },
+      chipDescs,
       // Chip Descriptor Indices
-      {
-          0,
-      },
+      chipIndicesList,
       // Chip capabilities
-      {
-          tt::ChipCapabilityAttr::get(context,
-                                      // NOLINTNEXTLINE
-                                      tt::ChipCapability::PCIE |
-                                          tt::ChipCapability::HostMMIO),
-      },
+      chipCapabilities,
       // Chip Mesh Coordinates
       {
           tt::ChipCoordAttr::get(context, 0, 0, 0, 0),
       },
       // Chip Channel Connections
-      {});
+      chipChannelList);
 }
 
 mlir::tt::SystemDescAttr
