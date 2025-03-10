@@ -33,8 +33,8 @@ class TTNNModuleCompiler(ModuleCompiler):
         super().__init__(module, module_splitter, CompileStep.TTNN)
 
     # @override
-    def _compile(self, module: Module) -> Binary:
-        flatbuffer = ttnn_to_flatbuffer(module)
+    def _compile(self, module: Module, flatbuffer_name: str = "ttnn_fb.ttnn") -> Binary:
+        flatbuffer = ttnn_to_flatbuffer(module, flatbuffer_name)
         self._mark_compile_step(CompileStep.FLATBUFFER)
 
         return flatbuffer

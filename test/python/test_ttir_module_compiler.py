@@ -2,12 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from pprint import pprint
-
 from ttmlir.ttir_module_compiler import TTIRModuleCompiler
 
 
-def test_compile_full_module():
+def test_compile_full_module(print_results: bool = False):
     ttir_module_str = """
         module {
             func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
@@ -26,10 +24,12 @@ def test_compile_full_module():
 
     compiler = TTIRModuleCompiler.create_from_module_str(ttir_module_str)
     fb = compiler.compile_full_module()
-    pprint(fb.fbb_dict)
+
+    if print_results:
+        fb.print()
 
 
-def test_compile_op_by_op():
+def test_compile_op_by_op(print_results: bool = False):
     ttir_module_str = """
         module {
             func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
@@ -48,12 +48,12 @@ def test_compile_op_by_op():
 
     compiler = TTIRModuleCompiler.create_from_module_str(ttir_module_str)
     fbs = compiler.compile_op_by_op()
-    for fb in fbs:
-        pprint(fb.fbb_dict)
 
-    print("duzina", len(fbs))
+    if print_results:
+        for fb in fbs:
+            fb.print()
 
 
 if __name__ == "__main__":
-    # test_compile_full_module()
-    test_compile_op_by_op()
+    test_compile_full_module(True)
+    test_compile_op_by_op(True)
