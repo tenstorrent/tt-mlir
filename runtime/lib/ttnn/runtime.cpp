@@ -527,6 +527,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    tensorRef = opContext.type_as_CpuOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     LOG_WARNING("getting output tensor is not supported for ",

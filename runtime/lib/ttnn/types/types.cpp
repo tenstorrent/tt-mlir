@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/ttnn/types.h"
-#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -397,17 +396,6 @@ std::vector<Tensor> ProgramTensorPool::gatherOutputTensors() {
 //
 // ProgramContext APIs
 //
-ProgramContext::ProgramContext(
-    const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-    const std::vector<uint32_t> &programInputIds,
-    const std::vector<uint32_t> &programOutputIds,
-    ::ttnn::MeshDevice *parentMesh)
-    : tensorPool(
-          ProgramTensorPool(liveTensors, programInputIds, programOutputIds)),
-      parentMesh(parentMesh) {
-  LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
-}
-
 void ProgramContext::addSubMesh(uint32_t meshId,
                                 std::shared_ptr<::ttnn::MeshDevice> subMesh) {
   auto [it, inserted] = subMeshes.try_emplace(meshId, subMesh);
