@@ -1215,6 +1215,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                                                   ctx);
   patterns.add<DefaultOpConversionPattern<tt::ttnn::ReduceScatterOp>>(
       typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<tt::ttnn::CollectivePermuteOp>>(
+      typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<tt::ttnn::MeshShardOp>>(typeConverter,
                                                                   ctx);
 

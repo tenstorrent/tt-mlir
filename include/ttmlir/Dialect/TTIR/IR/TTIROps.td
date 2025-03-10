@@ -2028,6 +2028,23 @@ def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
+def TTIR_CollectivePermuteOp : TTIR_DPSOp<"collective_permute"> {
+    let summary = "Collective permute operation.";
+    let description = [{
+      Collective permute op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I64ElementsAttr:$source_target_pairs);
+
+    let results = (outs AnyRankedTensor:$result);
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+    let hasVerifier = 1;
+}
+
 def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
     let summary = "Mesh shard operation.";
     let description = [{

@@ -1505,6 +1505,21 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
     let hasVerifier = 1;
 }
 
+def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
+    let summary = "Collective permute op.";
+    let description = [{
+        Tensor Collective Permute operation
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
+                         I64ElementsAttr:$source_target_pairs);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     let summary = "Mesh shard op.";
     let description = [{

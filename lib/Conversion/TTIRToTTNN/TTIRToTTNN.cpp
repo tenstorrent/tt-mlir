@@ -1419,6 +1419,28 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), device, adaptor.getAllGatherDim(),
         static_cast<uint32_t>(adaptor.getClusterAxis()));
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class CollectivePermuteOpConversionPattern
+    : public OpConversionPattern<ttir::CollectivePermuteOp> {
+public:
+  using OpConversionPattern<ttir::CollectivePermuteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CollectivePermuteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    rewriter.replaceOpWithNewOp<ttnn::CollectivePermuteOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), device, adaptor.getSourceTargetPairs());
+
     return success();
   }
 };
@@ -1610,6 +1632,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllReduceOpConversionPattern,
            AllGatherOpConversionPattern,
            ReduceScatterOpConversionPattern,
+           CollectivePermuteOpConversionPattern,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
