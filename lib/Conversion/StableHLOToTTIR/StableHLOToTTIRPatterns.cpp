@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <llvm/ADT/STLExtras.h>
 #include <vector>
 
 #include "mlir/Dialect/Traits.h"
@@ -1041,13 +1042,13 @@ private:
     auto first = padding_elems[0];
 
     // Check for splat padding (all zeroes expected).
-    if (std::all_of(padding_elems.begin(), padding_elems.end(),
-                    [first](int value) { return value == first; })) {
+    if (llvm::all_of(padding_elems,
+                     [first](int value) { return value == first; })) {
       if (first != 0) {
         return false;
       }
-      if (!std::all_of(windowDimensions.begin(), windowDimensions.end(),
-                       [](int value) { return value == 1; })) {
+      if (!llvm::all_of(windowDimensions,
+                        [](int value) { return value == 1; })) {
         return false;
       }
       // Determine the dimension using input tensor shape.
@@ -1080,7 +1081,7 @@ private:
                                int64_t &dimension) const {
     int64_t dimArgValue = -1;
     int64_t idx = -1;
-    auto padding_values = padding.asArrayRef();
+    auto paddingValues = padding.asArrayRef();
 
     // Determine dimension attribute.
     for (int64_t windowDim : windowDimensions) {
@@ -1102,10 +1103,10 @@ private:
 
     for (int64_t i = 0; i < padding.size(); ++i) {
       if (i == (dimension * 2)) {
-        if (padding_values[i] != (dimArgValue - 1)) {
+        if (paddingValues[i] != (dimArgValue - 1)) {
           return false;
         }
-      } else if (padding_values[i] != 0) {
+      } else if (paddingValues[i] != 0) {
         return false;
       }
     }
