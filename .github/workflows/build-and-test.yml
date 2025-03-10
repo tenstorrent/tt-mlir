@@ -50,7 +50,7 @@ jobs:
       matrix:
         build: [
           {runs-on: n150, enable_async: ON, name: "speedy", ttrt_flags: ""},
-          {runs-on: n150, enable_perf: ON,  enable_op_model: ON, enable_emitc: ON, name: "tracy", ttrt_flags: ""},
+          {runs-on: n150, enable_perf: ON,  enable_emitc: ON, name: "tracy", ttrt_flags: ""},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
