@@ -1111,45 +1111,44 @@ public:
 
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {
-      return LogicalResult::failure();
+      return op.emitOpError() << llvm::toString(std::move(error));
     }
 
-    auto paddingAttr =
-        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
-    if (auto error = paddingAttr.takeError()) {
-      return LogicalResult::failure();
+    auto maybePaddingAttr =
+        attrToDenseI32ArrayAttr<4>(adaptor.getPadding(), rewriter);
+    if (auto error = maybePaddingAttr.takeError()) {
+      return op.emitOpError() << llvm::toString(std::move(error));
+    }
+    auto paddingAttr = *maybePaddingAttr;
+
+    if (paddingAttr[0] != paddingAttr[2] || paddingAttr[1] != paddingAttr[3]) {
+      return op.emitOpError()
+             << "TTNN only supports padding height/width attributes. Thus, "
+                "padding_top/padding_left must equal "
+                "padding_bottom/padding_right "
+                "for the op to execute as expected.";
     }
 
-    auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[1] ||
-        paddingArrayRef[2] != paddingArrayRef[3]) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports padding height/width attributes. Thus, "
-          "padding_top/padding_left must equal padding_bottom/padding_right "
-          "for the op to execute as expected.");
-    }
-
-    // Padding only supports 2 values in ttnn
+    // Padding only supports 2 values in TTNN.
     auto reducedPaddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
+        rewriter.getDenseI32ArrayAttr({paddingAttr[0], paddingAttr[1]});
 
     auto outputPaddingAttr =
         attrToDenseI32ArrayAttr(adaptor.getOutputPadding(), rewriter);
     if (auto error = outputPaddingAttr.takeError()) {
-      return LogicalResult::failure();
+      return op.emitOpError() << llvm::toString(std::move(error));
     }
 
     auto dilationAttr =
         attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
     if (auto error = dilationAttr.takeError()) {
-      return LogicalResult::failure();
+      return op.emitOpError() << llvm::toString(std::move(error));
     }
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
     // Transposed convolution in ttnn returns a tensor in a flattened shape
-    // (1 x 1 x N * H * W x C)
+    // (1 x 1 x N * H * W x C).
     llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
     llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
         1, 1, output_shape[0] * output_shape[1] * output_shape[2],
@@ -1164,7 +1163,7 @@ public:
         *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
         groupsAttr);
 
-    // Restore the normal shape (N x H x W x C)
+    // Restore the normal shape (N x H x W x C).
     Value output =
         ttir_to_ttnn::utils::generateReshape(new_conv, output_shape, rewriter);
 
@@ -1173,12 +1172,11 @@ public:
   }
 
 private:
+  template <size_t ElementCount = 2>
   llvm::Expected<DenseI32ArrayAttr>
   attrToDenseI32ArrayAttr(mlir::Attribute attr,
-                          ConversionPatternRewriter &rewriter,
-                          uint32_t elementCount = 2) const {
-    switch (elementCount) {
-    case 2: {
+                          ConversionPatternRewriter &rewriter) const {
+    if constexpr (ElementCount == 2) {
       // Handles attributes requiring 2 spatial dimensions (e.g., stride,
       // dilation). Converts the attribute into a pair of integers.
       auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
@@ -1186,8 +1184,7 @@ private:
         return std::move(error);
       }
       return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
-    }
-    case 4: {
+    } else if constexpr (ElementCount == 4) {
       // Handles attributes requiring 4 spatial dimensions (e.g., padding in
       // this case). Converts the attribute into a quadruple of integers.
       auto quadruple = ttmlir::utils::getQuadrupleOfInteger<int32_t>(attr);
@@ -1198,12 +1195,9 @@ private:
           {std::get<0>(*quadruple), std::get<1>(*quadruple),
            std::get<2>(*quadruple), std::get<3>(*quadruple)});
     }
-    default: {
-      return llvm::createStringError(std::errc::invalid_argument,
-                                     "Unsupported element count: %d",
-                                     elementCount);
-    }
-    }
+    return llvm::createStringError(std::errc::invalid_argument,
+                                   "Unsupported element count: %d",
+                                   ElementCount);
   }
 };
 } // namespace
@@ -1246,16 +1240,27 @@ public:
                                              outputType.getElementType(),
                                              outputType.getEncoding());
 
+    DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
+
+    DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
+
+    assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
+    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
+    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
+
+    DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
+
     auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
         op.getLoc(), this->getTypeConverter()->convertType(outputType),
         flattenedInput, device, batchSize,
         static_cast<int32_t>(inputShape[inputShape.size() - 3]),
         static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
-        adaptor.getKernelHeight(), adaptor.getKernelWidth(),
-        adaptor.getStrideHeight(), adaptor.getStrideWidth(),
-        adaptor.getDilationHeight(), adaptor.getDilationWidth(),
-        adaptor.getCeilMode(), adaptor.getPaddingTop(),
-        adaptor.getPaddingRight());
+        kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+        adaptor.getCeilMode());
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(newPool, outputShape, rewriter);

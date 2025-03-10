@@ -15,7 +15,7 @@
 #include "ttmlir/Utils.h"
 
 namespace mlir::ttmlir::python {
-void populateTTModule(py::module &m) {
+void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::MetalLayoutAttr>(m, "MetalLayoutAttr")
       .def_static("get",
                   [](MlirContext ctx, MlirType rankedTensorType,
@@ -65,16 +65,16 @@ void populateTTModule(py::module &m) {
                 .withElementType(unwrap(ctx), unwrap(elementType));
           })
       .def("getLayout",
-           [](MlirType &type) -> std::variant<tt::MetalLayoutAttr, py::object> {
+           [](MlirType &type) -> std::variant<tt::MetalLayoutAttr, nb::object> {
              // Make sure that this is operating on a RankedTensorType object
              if (not isa<RankedTensorType>(unwrap(type))) {
-               return py::none();
+               return nb::none();
              }
              RankedTensorType tensor =
                  mlir::cast<RankedTensorType>(unwrap(type));
              // Make sure that this Tensor has an encoding value
              if (not tensor.getEncoding()) {
-               return py::none();
+               return nb::none();
              }
              tt::MetalLayoutAttr layout =
                  mlir::cast<tt::MetalLayoutAttr>(tensor.getEncoding());
@@ -82,31 +82,29 @@ void populateTTModule(py::module &m) {
            })
       .def("wrapped",
            [](tt::MetalLayoutAttr const &self) { return wrap(self); })
-      .def_property_readonly("stride",
-                             [](tt::MetalLayoutAttr const &self,
-                                std::vector<int64_t> logicalShape) {
-                               auto stride = self.getStride(logicalShape);
-                               return std::vector<std::int64_t>(stride.begin(),
-                                                                stride.end());
-                             })
-      .def_property_readonly("oobval", &tt::MetalLayoutAttr::getOobVal)
-      .def_property_readonly("oobval_as_int",
-                             [](tt::MetalLayoutAttr la) {
-                               return static_cast<uint32_t>(la.getOobVal());
-                             })
-      .def_property_readonly("grid_attr", &tt::MetalLayoutAttr::getGrid)
-      .def_property_readonly(
+      .def_prop_ro("stride",
+                   [](tt::MetalLayoutAttr const &self,
+                      std::vector<int64_t> logicalShape) {
+                     auto stride = self.getStride(logicalShape);
+                     return std::vector<std::int64_t>(stride.begin(),
+                                                      stride.end());
+                   })
+      .def_prop_ro("oobval", &tt::MetalLayoutAttr::getOobVal)
+      .def_prop_ro("oobval_as_int",
+                   [](tt::MetalLayoutAttr la) {
+                     return static_cast<uint32_t>(la.getOobVal());
+                   })
+      .def_prop_ro("grid_attr", &tt::MetalLayoutAttr::getGrid)
+      .def_prop_ro(
           "memref",
           [](tt::MetalLayoutAttr self) { return wrap(self.getMemref()); })
-      .def_property_readonly("memory_space",
-                             &tt::MetalLayoutAttr::getMemorySpace)
-      .def_property_readonly("memory_space_as_int",
-                             [](tt::MetalLayoutAttr la) {
-                               return static_cast<uint32_t>(
-                                   la.getMemorySpace());
-                             })
-      .def_property_readonly("shard_shape", &tt::MetalLayoutAttr::getShardShape)
-      .def_property_readonly("linear", [](tt::MetalLayoutAttr self) {
+      .def_prop_ro("memory_space", &tt::MetalLayoutAttr::getMemorySpace)
+      .def_prop_ro("memory_space_as_int",
+                   [](tt::MetalLayoutAttr la) {
+                     return static_cast<uint32_t>(la.getMemorySpace());
+                   })
+      .def_prop_ro("shard_shape", &tt::MetalLayoutAttr::getShardShape)
+      .def_prop_ro("linear", [](tt::MetalLayoutAttr self) {
         return wrap(self.getLinear());
       });
 
@@ -115,8 +113,8 @@ void populateTTModule(py::module &m) {
                   [](MlirContext ctx, std::vector<int64_t> shape) {
                     return wrap(tt::GridAttr::get(unwrap(ctx), shape));
                   })
-      .def_property_readonly(
-          "shape", [](tt::GridAttr const &ga) { return ga.getShape().vec(); });
+      .def_prop_ro("shape",
+                   [](tt::GridAttr const &ga) { return ga.getShape().vec(); });
 
   tt_attribute_class<tt::ChipCapabilityAttr>(m, "ChipCapabilityAttr")
       .def_static(
@@ -125,10 +123,9 @@ void populateTTModule(py::module &m) {
             return wrap(tt::ChipCapabilityAttr::get(
                 unwrap(ctx), static_cast<tt::ChipCapability>(chipCapability)));
           })
-      .def_property_readonly("capability_as_int",
-                             [](tt::ChipCapabilityAttr self) {
-                               return static_cast<uint32_t>(self.getValue());
-                             });
+      .def_prop_ro("capability_as_int", [](tt::ChipCapabilityAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
 
   tt_attribute_class<tt::ArchAttr>(m, "ArchAttr")
       .def_static("get",
@@ -136,7 +133,7 @@ void populateTTModule(py::module &m) {
                     return wrap(tt::ArchAttr::get(unwrap(ctx),
                                                   static_cast<tt::Arch>(arch)));
                   })
-      .def_property_readonly("arch_as_int", [](tt::ArchAttr self) {
+      .def_prop_ro("arch_as_int", [](tt::ArchAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
 
@@ -147,7 +144,7 @@ void populateTTModule(py::module &m) {
             return wrap(tt::DataTypeAttr::get(
                 unwrap(ctx), static_cast<tt::DataType>(*supportedDataTypes)));
           })
-      .def_property_readonly("data_type_as_int", [](tt::DataTypeAttr self) {
+      .def_prop_ro("data_type_as_int", [](tt::DataTypeAttr self) {
         return static_cast<uint16_t>(self.getValue());
       });
 
@@ -174,51 +171,47 @@ void populateTTModule(py::module &m) {
                 mlir::cast<tt::TileSizeAttr>(unwrap(supportedTileSizes)),
                 numCBs));
           })
-      .def_property_readonly("usable_l1_size",
-                             &tt::ChipDescAttr::getUsableL1Size)
-      .def_property_readonly("usable_dram_channel_size",
-                             &tt::ChipDescAttr::getUsableDramChannelSize)
-      .def_property_readonly("arch", &tt::ChipDescAttr::getArch)
-      .def_property_readonly(
-          "grid", [](tt::ChipDescAttr self) { return self.getGrid().vec(); })
-      .def_property_readonly("l1_size", &tt::ChipDescAttr::getL1Size)
-      .def_property_readonly("num_dram_channels",
-                             &tt::ChipDescAttr::getNumDramChannels)
-      .def_property_readonly("dram_channel_size",
-                             &tt::ChipDescAttr::getDramChannelSize)
-      .def_property_readonly("noc_l1_address_align_bytes",
-                             &tt::ChipDescAttr::getNocL1AddressAlignBytes)
-      .def_property_readonly("pcie_address_align_bytes",
-                             &tt::ChipDescAttr::getPcieAddressAlignBytes)
-      .def_property_readonly("noc_dram_address_align_bytes",
-                             &tt::ChipDescAttr::getNocDRAMAddressAlignBytes)
-      .def_property_readonly("l1_unreserved_base",
-                             &tt::ChipDescAttr::getL1UnreservedBase)
-      .def_property_readonly("erisc_l1_unreserved_base",
-                             &tt::ChipDescAttr::getEriscL1UnreservedBase)
-      .def_property_readonly("dram_unreserved_base",
-                             &tt::ChipDescAttr::getDramUnreservedBase)
-      .def_property_readonly("dram_unreserved_end",
-                             &tt::ChipDescAttr::getDramUnreservedEnd)
-      .def_property_readonly("chip_physical_cores",
-                             &tt::ChipDescAttr::getChipPhysicalCores)
-      .def_property_readonly("supported_data_types",
-                             [](tt::ChipDescAttr self) {
-                               return self.getSupportedDataTypes().vec();
-                             })
-      .def_property_readonly("supported_tile_sizes",
-                             [](tt::ChipDescAttr self) {
-                               return self.getSupportedTileSizes().vec();
-                             })
-      .def_property_readonly("num_cbs", &tt::ChipDescAttr::getNumCBs);
+      .def_prop_ro("usable_l1_size", &tt::ChipDescAttr::getUsableL1Size)
+      .def_prop_ro("usable_dram_channel_size",
+                   &tt::ChipDescAttr::getUsableDramChannelSize)
+      .def_prop_ro("arch", &tt::ChipDescAttr::getArch)
+      .def_prop_ro("grid",
+                   [](tt::ChipDescAttr self) { return self.getGrid().vec(); })
+      .def_prop_ro("l1_size", &tt::ChipDescAttr::getL1Size)
+      .def_prop_ro("num_dram_channels", &tt::ChipDescAttr::getNumDramChannels)
+      .def_prop_ro("dram_channel_size", &tt::ChipDescAttr::getDramChannelSize)
+      .def_prop_ro("noc_l1_address_align_bytes",
+                   &tt::ChipDescAttr::getNocL1AddressAlignBytes)
+      .def_prop_ro("pcie_address_align_bytes",
+                   &tt::ChipDescAttr::getPcieAddressAlignBytes)
+      .def_prop_ro("noc_dram_address_align_bytes",
+                   &tt::ChipDescAttr::getNocDRAMAddressAlignBytes)
+      .def_prop_ro("l1_unreserved_base", &tt::ChipDescAttr::getL1UnreservedBase)
+      .def_prop_ro("erisc_l1_unreserved_base",
+                   &tt::ChipDescAttr::getEriscL1UnreservedBase)
+      .def_prop_ro("dram_unreserved_base",
+                   &tt::ChipDescAttr::getDramUnreservedBase)
+      .def_prop_ro("dram_unreserved_end",
+                   &tt::ChipDescAttr::getDramUnreservedEnd)
+      .def_prop_ro("chip_physical_cores",
+                   &tt::ChipDescAttr::getChipPhysicalCores)
+      .def_prop_ro("supported_data_types",
+                   [](tt::ChipDescAttr self) {
+                     return self.getSupportedDataTypes().vec();
+                   })
+      .def_prop_ro("supported_tile_sizes",
+                   [](tt::ChipDescAttr self) {
+                     return self.getSupportedTileSizes().vec();
+                   })
+      .def_prop_ro("num_cbs", &tt::ChipDescAttr::getNumCBs);
 
   tt_attribute_class<tt::TileSizeAttr>(m, "TileSizeAttr")
       .def_static("get",
                   [](MlirContext ctx, int64_t y, int64_t x) {
                     return wrap(tt::TileSizeAttr::get(unwrap(ctx), y, x));
                   })
-      .def_property_readonly("y", &tt::TileSizeAttr::getY)
-      .def_property_readonly("x", &tt::TileSizeAttr::getX);
+      .def_prop_ro("y", &tt::TileSizeAttr::getY)
+      .def_prop_ro("x", &tt::TileSizeAttr::getX);
 
   tt_attribute_class<tt::ChipPhysicalCoresAttr>(m, "ChipPhysicalCoresAttr")
       .def_static("get",
@@ -229,27 +222,26 @@ void populateTTModule(py::module &m) {
                     return wrap(tt::ChipPhysicalCoresAttr::get(
                         unwrap(ctx), worker, dram, eth, eth_inactive));
                   })
-      .def_property_readonly(
+      .def_prop_ro(
           "worker",
           [](tt::ChipPhysicalCoresAttr self) { return self.getWorker().vec(); })
-      .def_property_readonly(
+      .def_prop_ro(
           "dram",
           [](tt::ChipPhysicalCoresAttr self) { return self.getDram().vec(); })
-      .def_property_readonly(
+      .def_prop_ro(
           "eth",
           [](tt::ChipPhysicalCoresAttr self) { return self.getEth().vec(); })
-      .def_property_readonly("eth_inactive",
-                             [](tt::ChipPhysicalCoresAttr self) {
-                               return self.getEthInactive().vec();
-                             });
+      .def_prop_ro("eth_inactive", [](tt::ChipPhysicalCoresAttr self) {
+        return self.getEthInactive().vec();
+      });
 
   tt_attribute_class<tt::CoreCoordAttr>(m, "CoreCoordAttr")
       .def_static("get",
                   [](MlirContext ctx, int64_t y, int64_t x) {
                     return wrap(tt::CoreCoordAttr::get(unwrap(ctx), y, x));
                   })
-      .def_property_readonly("y", &tt::CoreCoordAttr::getY)
-      .def_property_readonly("x", &tt::CoreCoordAttr::getX);
+      .def_prop_ro("y", &tt::CoreCoordAttr::getY)
+      .def_prop_ro("x", &tt::CoreCoordAttr::getX);
 
   tt_attribute_class<tt::ChipCoordAttr>(m, "ChipCoordAttr")
       .def_static("get",
@@ -258,10 +250,10 @@ void populateTTModule(py::module &m) {
                     return wrap(
                         tt::ChipCoordAttr::get(unwrap(ctx), rack, shelf, y, x));
                   })
-      .def_property_readonly("rack", &tt::ChipCoordAttr::getRack)
-      .def_property_readonly("shelf", &tt::ChipCoordAttr::getShelf)
-      .def_property_readonly("y", &tt::ChipCoordAttr::getY)
-      .def_property_readonly("x", &tt::ChipCoordAttr::getX);
+      .def_prop_ro("rack", &tt::ChipCoordAttr::getRack)
+      .def_prop_ro("shelf", &tt::ChipCoordAttr::getShelf)
+      .def_prop_ro("y", &tt::ChipCoordAttr::getY)
+      .def_prop_ro("x", &tt::ChipCoordAttr::getX);
 
   tt_attribute_class<tt::ChipChannelAttr>(m, "ChipChannelAttr")
       .def_static(
@@ -273,16 +265,15 @@ void populateTTModule(py::module &m) {
                                                  ethernetCoreCoord0, deviceId1,
                                                  ethernetCoreCoord1));
           })
-      .def_property_readonly("device_id0", &tt::ChipChannelAttr::getDeviceId0)
-      .def_property_readonly("ethernet_core_coord0",
-                             [](tt::ChipChannelAttr self) {
-                               return self.getEthernetCoreCoord0().vec();
-                             })
-      .def_property_readonly("device_id1", &tt::ChipChannelAttr::getDeviceId1)
-      .def_property_readonly("ethernet_core_coord1",
-                             [](tt::ChipChannelAttr self) {
-                               return self.getEthernetCoreCoord1().vec();
-                             });
+      .def_prop_ro("device_id0", &tt::ChipChannelAttr::getDeviceId0)
+      .def_prop_ro("ethernet_core_coord0",
+                   [](tt::ChipChannelAttr self) {
+                     return self.getEthernetCoreCoord0().vec();
+                   })
+      .def_prop_ro("device_id1", &tt::ChipChannelAttr::getDeviceId1)
+      .def_prop_ro("ethernet_core_coord1", [](tt::ChipChannelAttr self) {
+        return self.getEthernetCoreCoord1().vec();
+      });
 
   tt_attribute_class<tt::SystemDescAttr>(m, "SystemDescAttr")
       .def_static("get_default",
@@ -327,21 +318,21 @@ void populateTTModule(py::module &m) {
                 chipDescIndices, chipCapabilitiesUnwrapped, chipCoordsUnwrapped,
                 chipChannelsUnwrapped));
           })
-      .def_property_readonly(
+      .def_prop_ro(
           "chip_descs",
           [](tt::SystemDescAttr self) { return self.getChipDescs().vec(); })
-      .def_property_readonly("chip_desc_indices",
-                             [](tt::SystemDescAttr self) {
-                               return self.getChipDescIndices().vec();
-                             })
-      .def_property_readonly("chip_capabilities",
-                             [](tt::SystemDescAttr self) {
-                               return self.getChipCapabilities().vec();
-                             })
-      .def_property_readonly(
+      .def_prop_ro("chip_desc_indices",
+                   [](tt::SystemDescAttr self) {
+                     return self.getChipDescIndices().vec();
+                   })
+      .def_prop_ro("chip_capabilities",
+                   [](tt::SystemDescAttr self) {
+                     return self.getChipCapabilities().vec();
+                   })
+      .def_prop_ro(
           "chip_coords",
           [](tt::SystemDescAttr self) { return self.getChipCoords().vec(); })
-      .def_property_readonly("chip_channels", [](tt::SystemDescAttr self) {
+      .def_prop_ro("chip_channels", [](tt::SystemDescAttr self) {
         return self.getChipChannels().vec();
       });
 
@@ -352,10 +343,9 @@ void populateTTModule(py::module &m) {
             return wrap(tt::MemorySpaceAttr::get(
                 unwrap(ctx), static_cast<tt::MemorySpace>(memorySpace)));
           })
-      .def_property_readonly("memory_space_as_int",
-                             [](tt::MemorySpaceAttr self) {
-                               return static_cast<uint32_t>(self.getValue());
-                             });
+      .def_prop_ro("memory_space_as_int", [](tt::MemorySpaceAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
 
   tt_attribute_class<tt::OOBValAttr>(m, "OOBValAttr")
       .def_static("get",
@@ -363,7 +353,7 @@ void populateTTModule(py::module &m) {
                     return wrap(tt::OOBValAttr::get(
                         unwrap(ctx), static_cast<tt::OOBVal>(oobVal)));
                   })
-      .def_property_readonly("oob_val_as_int", [](tt::OOBValAttr self) {
+      .def_prop_ro("oob_val_as_int", [](tt::OOBValAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
 
@@ -374,10 +364,9 @@ void populateTTModule(py::module &m) {
             return wrap(tt::IteratorTypeAttr::get(
                 unwrap(ctx), static_cast<tt::IteratorType>(iteratorType)));
           })
-      .def_property_readonly("iterator_type_as_int",
-                             [](tt::IteratorTypeAttr self) {
-                               return static_cast<uint32_t>(self.getValue());
-                             });
+      .def_prop_ro("iterator_type_as_int", [](tt::IteratorTypeAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
 
   tt_type_class<tt::DeviceType>(m, "DeviceType")
       .def_static(
@@ -386,9 +375,8 @@ void populateTTModule(py::module &m) {
             return wrap(tt::DeviceType::get(
                 unwrap(ctx), mlir::cast<tt::DeviceAttr>(unwrap(deviceAttr))));
           })
-      .def_property_readonly("device_attr", [](tt::DeviceType const &self) {
-        return self.getDesc();
-      });
+      .def_prop_ro("device_attr",
+                   [](tt::DeviceType const &self) { return self.getDesc(); });
 
   tt_attribute_class<tt::DeviceAttr>(m, "DeviceAttr")
       .def_static("from_system_desc",
@@ -414,16 +402,15 @@ void populateTTModule(py::module &m) {
            [](MlirAttribute const &self) {
              return mlir::cast<tt::DeviceAttr>(unwrap(self));
            })
-      .def_property_readonly("grid_attr", &tt::DeviceAttr::getWorkerGrid)
-      .def_property_readonly(
-          "l1_map", [](tt::DeviceAttr self) { return wrap(self.getL1Map()); })
-      .def_property_readonly(
-          "dram_map",
-          [](tt::DeviceAttr self) { return wrap(self.getDramMap()); })
-      .def_property_readonly(
+      .def_prop_ro("grid_attr", &tt::DeviceAttr::getWorkerGrid)
+      .def_prop_ro("l1_map",
+                   [](tt::DeviceAttr self) { return wrap(self.getL1Map()); })
+      .def_prop_ro("dram_map",
+                   [](tt::DeviceAttr self) { return wrap(self.getDramMap()); })
+      .def_prop_ro(
           "mesh_shape",
           [](tt::DeviceAttr const &self) { return self.getMeshShape().vec(); })
-      .def_property_readonly("chip_ids", [](tt::DeviceAttr const &self) {
+      .def_prop_ro("chip_ids", [](tt::DeviceAttr const &self) {
         return self.getChipIds().vec();
       });
 
@@ -435,11 +422,11 @@ void populateTTModule(py::module &m) {
                         unwrap(ctx), SmallVector<std::int64_t>{height, width},
                         static_cast<tt::DataType>(dataType)));
                   })
-      .def_property_readonly("data_type_as_int",
-                             [](tt::TileType self) {
-                               return static_cast<uint32_t>(self.getDataType());
-                             })
-      .def_property_readonly("shape", [](tt::TileType const &tile) {
+      .def_prop_ro("data_type_as_int",
+                   [](tt::TileType self) {
+                     return static_cast<uint32_t>(self.getDataType());
+                   })
+      .def_prop_ro("shape", [](tt::TileType const &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
       });
 }
