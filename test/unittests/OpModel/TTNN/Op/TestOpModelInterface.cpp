@@ -327,35 +327,53 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
 }
 
 TEST_F(OpModelBase, toLayoutOp) {
-  // create ReshapeOp
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
   auto tensor = builder.create<OnesOp>(
       builder.getUnknownLoc(), rankedTensorType,
       ShapeAttr::get(&context, tensorShape), nullptr,
       LayoutAttr::get(&context, Layout::RowMajor), nullptr, nullptr);
-  std::cout << "1\n";
-  auto toLayout = builder.create<ToLayoutOp>(
+
+  DeviceAttr deviceAttr = getFakeDeviceAttr();
+  // Need to pass a GetDeviceOp to make sure the layout change happens on the
+  // device
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(deviceAttr),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
+  ToLayoutOp toLayout = builder.create<ToLayoutOp>(
       builder.getUnknownLoc(), tensor.getType(), tensor, Layout::Tile, nullptr,
-      nullptr, nullptr);
-  std::cout << "2\n";
-  toLayout->setAttr(DeviceAttr::name, getFakeDeviceAttr());
-  std::cout << "3\n";
-  // test toLayout Op interface
-  auto constraintsExp = getOpConstraints(toLayout.getOperation());
-  std::cout << "4\n";
+      nullptr, deviceOp);
+  toLayout->setAttr(DeviceAttr::name, deviceAttr);
+
+  // Manually create the operand layouts for calling the backend to make sure
+  // the layouts are propagated all the way
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAMRowMajor =
+      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                           mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAMTiled =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+
+  OpModel backend = dyn_cast<OpModel>(toLayout.getOperation());
+  if (!backend) {
+    FAIL() << "Could not cast op to OpModel";
+  }
+
+  auto constraintsExp = backend.getOpConstraints(
+      std::vector{layoutDRAMRowMajor}, layoutDRAMTiled);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto &[cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 262144);
-    EXPECT_EQ(peak_size, 4096);
-    EXPECT_EQ(output_size, 2048);
+    EXPECT_EQ(cb_size, 131072);
+    EXPECT_EQ(peak_size, 0);
+    EXPECT_EQ(output_size, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  auto runtimeExp = getOpRuntime(toLayout.getOperation());
+  auto runtimeExp =
+      backend.getOpRuntime(std::vector{layoutDRAMRowMajor}, layoutDRAMTiled);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
