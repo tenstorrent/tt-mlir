@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from ttmlir.ir import Context, Module, OpView, Type
+from ttmlir.ir import Context, Module, OpAttributeMap, OpView, Type
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class Result:
 class OpWrapper:
     """Convenience wrapper around MLIR op."""
 
-    def __init__(self, op: OpView) -> None:
+    def __init__(self, op: OpView, attrs: Optional[OpAttributeMap] = None) -> None:
         self._op = op
         self._operands = [
             Operand(operand.get_name(), operand.type) for operand in op.operands
@@ -38,6 +38,7 @@ class OpWrapper:
             if len(op.results) > 0
             else None
         )
+        self._attributes = attrs
 
     def __str__(self) -> str:
         return str(self._op)
@@ -47,7 +48,9 @@ class OpWrapper:
 
     def as_module_str(self) -> str:
         """Returns self wrapped in a MLIR module str."""
-        return wrap_in_module_str(self._op, self._operands, self._result)
+        return wrap_in_module_str(
+            self._op, self._operands, self._result, self._attributes
+        )
 
 
 def parse_module_str(module_str: str, ctx: Context) -> Module:
@@ -67,7 +70,10 @@ def parse_module_str(module_str: str, ctx: Context) -> Module:
 
 
 def wrap_in_module_str(
-    op: OpWrapper, operands: List[Operand], result: Optional[Result] = None
+    op: OpWrapper,
+    operands: List[Operand],
+    result: Optional[Result] = None,
+    attributes: OpAttributeMap = None,
 ) -> str:
     """
     Wraps `op` in a MLIR `func` and then in a MLIR `module` and returns string
@@ -76,6 +82,7 @@ def wrap_in_module_str(
     unpacked_operands = ", ".join(
         f"{operand.name}: {operand.type}" for operand in operands
     )
+
     # Handle special case of ops that don't return anything.
     if result is not None:
         fn_return_type = result.type
@@ -84,8 +91,14 @@ def wrap_in_module_str(
         fn_return_type = "()"
         return_stmt = "return"
 
+    # Handle special case of modules that carry attributes.
+    if attributes is not None:
+        attrs = "{" + ",\n".join(f"{a.name} = {a.attr}" for a in attributes) + "}"
+    else:
+        attrs = "{}"
+
     return (
-        f"module {{ \n"
+        f"module attributes {attrs} {{ \n"
         f"\tfunc.func @main({unpacked_operands}) -> {fn_return_type} {{ \n"
         f"\t\t{op} \n"
         f"\t\t{return_stmt} \n"

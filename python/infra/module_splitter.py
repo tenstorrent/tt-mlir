@@ -5,10 +5,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 
 from ttmlir.dialects import func
-from ttmlir.ir import Module
+from ttmlir.ir import Module, OpAttributeMap
 
 from .utils import OpWrapper
 
@@ -80,11 +80,16 @@ class ModuleSplitter(ABC):
     # ----- Protected methods -----
 
     def __init__(self, module: Module) -> None:
-        self.__module: Module = module
+        # Store original module and its attributes.
+        self.__module = module
+        self.__module_attributes = self.__get_module_attributes()
+
+        # Container for sub operations of original module.
         self.__sub_ops: List[OpWrapper] = []
         # Maps function names to the functions themselves, for easier retrieval.
         self.__func_map = {}
 
+        # Right upon creation split the module into constituent ops.
         self.__split()
 
     @staticmethod
@@ -97,6 +102,14 @@ class ModuleSplitter(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     # ----- Private methods -----
+
+    def __get_module_attributes(self) -> Optional[OpAttributeMap]:
+        """Returns original module attributes if any, otherwise None."""
+        return (
+            self.__module.operation.attributes
+            if len(self.__module.operation.attributes) > 0
+            else None
+        )
 
     def __split(self) -> None:
         """Splits the original module into constituent operations."""
@@ -132,8 +145,8 @@ class ModuleSplitter(ABC):
                 if op.name == "func.call":
                     self.__process_call_op(op)
                 else:
-                    # Store captured op.
-                    self.__sub_ops.append(OpWrapper(op))
+                    # Store captured op along with attributes from original module.
+                    self.__sub_ops.append(OpWrapper(op, self.__module_attributes))
 
     def __process_call_op(self, call_op: func.CallOp):
         """Processes a func.call operation by processing the function it is calling."""

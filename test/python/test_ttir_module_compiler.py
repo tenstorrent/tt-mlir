@@ -49,6 +49,8 @@ def test_compile_op_by_op(print_results: bool = False):
     compiler = TTIRModuleCompiler.create_from_module_str(ttir_module_str)
     fbs = compiler.compile_op_by_op()
 
+    assert len(fbs) == 8, "Compiler isn't working as expected"
+
     if print_results:
         for fb in fbs:
             fb.print()
