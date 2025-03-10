@@ -17,12 +17,13 @@ struct Env {
 #endif
   get(bool swapBinaryOperands = true,
       bool readUpdateIndexFromDeviceForKVCache = true,
-      bool toLayoutAPIAssumeSingleChip = true)
+      bool toLayoutAPIAssumeSingleChip = true,
+      bool manualDeviceStorageFromBorrowedStorage = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true);
+    return Env(true, true, true, true);
   }
 #endif
   // TODO(bug #1124): We're currently swapping the operands for binary ops
@@ -45,14 +46,23 @@ struct Env {
   // grid information to the tensorDesc.
   bool toLayoutAPIAssumeSingleChip;
 
+  // TODO(bug tenstorrent/tt-metal#18842) ReplicateTensorToMesh api currently
+  // has a bug where it can only accept device storage tensors, not borrowed
+  // storage. This workaround manually creates a device storage tensor if the
+  // tensor is of borrowed storage.
+  bool manualDeviceStorageFromBorrowedStorage;
+
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool toLayoutAPIAssumeSingleChip)
+                bool toLayoutAPIAssumeSingleChip,
+                bool manualDeviceStorageFromBorrowedStorage)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
-        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip) {}
+        toLayoutAPIAssumeSingleChip(toLayoutAPIAssumeSingleChip),
+        manualDeviceStorageFromBorrowedStorage(
+            manualDeviceStorageFromBorrowedStorage) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -65,6 +75,9 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "toLayoutAPIAssumeSingleChip: " << env.toLayoutAPIAssumeSingleChip
      << "\n";
+  os << "\t"
+     << "manualDeviceStorageFromBorrowedStorage: "
+     << env.manualDeviceStorageFromBorrowedStorage << "\n";
   os << "}";
   return os;
 }

@@ -141,6 +141,13 @@ class Run:
             help="disable runtime to_layout api assume single chip workaround",
         )
         Run.register_arg(
+            name="--disable-manual-device-storage-from-borrowed-storage",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable converting a borrowed storage tensor to device storage tensor workaround",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -410,6 +417,7 @@ class Run:
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-to-layout-api-assume-single-chip"],
+                not self["--disable-manual-device-storage-from-borrowed-storage"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
