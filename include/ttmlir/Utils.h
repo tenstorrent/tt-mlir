@@ -62,6 +62,26 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
   return result;
 }
 
+inline mlir::AffineMap
+replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
+  assert(map.getNumSymbols() == symbols.size());
+
+  mlir::SmallVector<mlir::AffineExpr> symReplacements;
+  for (unsigned i = 0; i < map.getNumSymbols(); ++i) {
+    symReplacements.push_back(
+        getAffineConstantExpr(symbols[i], map.getContext()));
+  }
+
+  mlir::SmallVector<mlir::AffineExpr> dimReplacements;
+  for (unsigned i = 0; i < map.getNumDims(); ++i) {
+    dimReplacements.push_back(getAffineDimExpr(i, map.getContext()));
+  }
+
+  unsigned numResultSyms = 0;
+  return map.replaceDimsAndSymbols(dimReplacements, symReplacements,
+                                   map.getNumDims(), numResultSyms);
+}
+
 template <typename IntType>
 IntType volume(mlir::ArrayRef<IntType> shape) {
   IntType result = 1;
