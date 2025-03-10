@@ -3,19 +3,24 @@ description: "Composite action for building, testing, and uploading artifacts fo
 inputs:
   enable-perf:
     description: "Enable performance tracing"
-    required: true
+    default: "OFF"
+    required: false
   enable-op-model:
     description: "Enable op model interface tests"
-    required: true
+    default: "OFF"
+    required: false
   enable-emitc:
     description: "Enable EmitC tests"
-    required: true
+    default: "OFF"
+    required: false
   enable-async:
     description: "Enable async ttnn tests"
-    required: true
+    default: "OFF"
+    required: false
   enable-runtime-debug:
     description: "Enable runtime debug"
-    required: true
+    default: "OFF"
+    required: false
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
