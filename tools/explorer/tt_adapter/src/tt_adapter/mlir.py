@@ -464,6 +464,218 @@ def parse_ttnn_ttnn_layout(attr):
             },
         )
     )
+
+    return result
+
+
+@AttrHandler.register_handler("conv2d_config")
+def parse_conv2d_config(attr):
+    conv2d_config = ttnn.ir.Conv2dConfigAttr.maybe_downcast(attr)
+    result = []
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="dtype",
+                value=str(tt.DataType(conv2d_config.dtype)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in tt.DataType],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="weights_dtype",
+                value=str(tt.DataType(conv2d_config.weights_dtype)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in tt.DataType],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="activation",
+                value=conv2d_config.activation,
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["relu"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="input_channels_alignment",
+                value=str(conv2d_config.input_channels_alignment),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["32", "16"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="deallocate_activation",
+                value=str(conv2d_config.deallocate_activation),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="reallocate_halo_output",
+                value=str(conv2d_config.reallocate_halo_output),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="act_block_h_override",
+                value=str(conv2d_config.act_block_h_override),
+            ),
+            editable={
+                "input_type": "int_list",
+                "min_value": 0,
+                "max_value": 100 * 32,
+                "step": 32,
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="act_block_w_div",
+                value=str(conv2d_config.act_block_w_div),
+            ),
+            editable={"input_type": "int_list", "min_value": 0, "step": 1},
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="reshard_if_not_optimal",
+                value=str(conv2d_config.reshard_if_not_optimal),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="override_sharding_config",
+                value=str(conv2d_config.override_sharding_config),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="shard_layout",
+                value=str(ttnn.TensorMemoryLayout(conv2d_config.shard_layout)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in ttnn.TensorMemoryLayout],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="transpose_shards",
+                value=str(conv2d_config.transpose_shards),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="output_layout",
+                value=str(ttnn.Layout(conv2d_config.output_layout)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in ttnn.Layout],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_act_double_buffer",
+                value=str(conv2d_config.enable_act_double_buffer),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_weights_double_buffer",
+                value=str(conv2d_config.enable_weights_double_buffer),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_split_reader",
+                value=str(conv2d_config.enable_split_reader),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_subblock_padding",
+                value=str(conv2d_config.enable_subblock_padding),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+
     return result
 
 
