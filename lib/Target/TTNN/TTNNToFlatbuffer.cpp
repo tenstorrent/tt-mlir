@@ -556,7 +556,7 @@ createOp(FlatbufferObjectCache &cache, ConstructTensorOp op) {
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
 
-  auto output = getOperandThroughDPSOps(op.getResult());
+  auto output = op.getResult();
 
   return ::tt::target::ttnn::CreateConstructTensorOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,

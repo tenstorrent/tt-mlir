@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -25,31 +25,31 @@ void run(const ::tt::target::ttnn::ConstructTensorOp *op,
   const uint32_t size = shape.volume();
 
   // Create buffer based on dtype
-  ::tt::tt_metal::OwnedBuffer owned_buffer;
+  ::tt::tt_metal::OwnedBuffer ownedBuffer;
   switch (dtype) {
   case ::ttnn::DataType::FLOAT32:
-    owned_buffer = tt::tt_metal::owned_buffer::create<float>(size);
+    ownedBuffer = tt::tt_metal::owned_buffer::create<float>(size);
     break;
   case ::ttnn::DataType::UINT8:
-    owned_buffer = tt::tt_metal::owned_buffer::create<uint8_t>(size);
+    ownedBuffer = tt::tt_metal::owned_buffer::create<uint8_t>(size);
     break;
   case ::ttnn::DataType::UINT16:
-    owned_buffer = tt::tt_metal::owned_buffer::create<uint16_t>(size);
+    ownedBuffer = tt::tt_metal::owned_buffer::create<uint16_t>(size);
     break;
   case ::ttnn::DataType::INT32:
-    owned_buffer = tt::tt_metal::owned_buffer::create<int32_t>(size);
+    ownedBuffer = tt::tt_metal::owned_buffer::create<int32_t>(size);
     break;
   case ::ttnn::DataType::UINT32:
-    owned_buffer = tt::tt_metal::owned_buffer::create<uint32_t>(size);
+    ownedBuffer = tt::tt_metal::owned_buffer::create<uint32_t>(size);
     break;
   case ::ttnn::DataType::BFLOAT16:
-    owned_buffer = tt::tt_metal::owned_buffer::create<bfloat16>(size);
+    ownedBuffer = tt::tt_metal::owned_buffer::create<bfloat16>(size);
     break;
   default:
     LOG_FATAL("Unsupported data type");
   }
 
-  ::ttnn::Tensor out(::tt::tt_metal::OwnedStorage{owned_buffer}, shape, dtype,
+  ::ttnn::Tensor out(::tt::tt_metal::OwnedStorage{ownedBuffer}, shape, dtype,
                      ::ttnn::Layout::ROW_MAJOR);
 
   tensorPool.insertAndValidate(op->out(), out);

@@ -525,28 +525,38 @@ namespace mlir::tt::ttnn {
   // Check that the attributes of the op match the attributes of the output
   // tensor type.
   //
-  assert(::llvm::isa<RankedTensorType>(getResult().getType()));
   RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
 
-  assert(::llvm::isa<TTNNLayoutAttr>(output.getEncoding()));
   TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
 
   // Shape
   //
-  assert(output.getShape() == getShape().getShape());
+  if (output.getShape() != getShape().getShape()) {
+    return emitOpError() << "Output tensor shape must be "
+                         << getShape().getShape() << ", but got "
+                         << output.getShape();
+  }
 
   // DataType and Layout
   //
-  assert(getLayout() == layoutAttr.getLayout());
-  assert(getDtype() == layoutAttr.getDataType());
+  if (getLayout() != layoutAttr.getLayout()) {
+    return emitOpError("Layout mismatch between op and layoutAttr.");
+  }
+  if (getDtype() != layoutAttr.getDataType()) {
+    return emitOpError("Data type mismatch between op and layoutAttr.");
+  }
 
   // MemoryConfig
   // Compare internal attrs with output tensor attrs.
   //
-  assert(getMemoryConfig().getBufferType().getValue() ==
-         layoutAttr.getBufferType());
-  assert(getMemoryConfig().getTensorMemoryLayout() ==
-         layoutAttr.getMemLayout());
+  if (getMemoryConfig().getBufferType().getValue() !=
+      layoutAttr.getBufferType()) {
+    return emitOpError("Buffer type mismatch between op and layoutAttr.");
+  }
+  if (getMemoryConfig().getTensorMemoryLayout() != layoutAttr.getMemLayout()) {
+    return emitOpError(
+        "Tensor memory layout mismatch between op and layoutAttr.");
+  }
 
   return success();
 }
@@ -560,20 +570,29 @@ namespace mlir::tt::ttnn {
   // Check that the attributes of the op match the attributes of the output
   // tensor type.
   //
-  assert(::llvm::isa<RankedTensorType>(getResult().getType()));
   RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
 
-  assert(::llvm::isa<TTNNLayoutAttr>(output.getEncoding()));
   TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
 
   // Shape
   //
-  assert(output.getShape() == getShape().getShape());
-
+  if (output.getShape() != getShape().getShape()) {
+    return emitOpError() << "Output tensor shape must be "
+                         << getShape().getShape() << ", but got "
+                         << output.getShape();
+  }
   // DataType and Layout
   //
-  assert(getLayout() == layoutAttr.getLayout());
-  assert(getDtype() == layoutAttr.getDataType());
+  if (getLayout() != layoutAttr.getLayout()) {
+    return emitOpError("Layout mismatch between op and layoutAttr.");
+  }
+  // CPU tensors must be RowMajor currently.
+  if (getLayout() != mlir::tt::ttnn::Layout::RowMajor) {
+    return emitOpError("ConstructTensorOp must have row-major layout.");
+  }
+  if (getDtype() != layoutAttr.getDataType()) {
+    return emitOpError("Data type mismatch between op and layoutAttr.");
+  }
 
   return success();
 }
