@@ -18,6 +18,7 @@ module {
     return %1 : tensor<1x1024x512xf32>
   }
 
+  // Test a different ordering of dimensions
   func.func public @conv1d_test2(%arg0: tensor<1x7x768xbf16>, %arg1: tensor<1x192x768xbf16>) -> (tensor<1x7x768xbf16>) {
     %0 = tensor.empty() : tensor<1x7x768xbf16>
     // CHECK: "ttnn.reshape"
