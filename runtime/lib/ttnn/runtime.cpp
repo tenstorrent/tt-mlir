@@ -11,6 +11,7 @@
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Constants.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
@@ -214,7 +215,8 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
   LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid{
       1, static_cast<uint32_t>(deviceIds.size())};
-  size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
+  size_t l1SmallSizeValue =
+      l1SmallSize.value_or(mlir::tt::ttnn::constants::L1_SMALL_SIZE);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid,
                                                     .offset = {}},

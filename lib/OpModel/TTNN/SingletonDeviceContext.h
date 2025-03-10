@@ -29,6 +29,7 @@ namespace mlir::tt::op_model::ttnn {
 class SingletonDeviceContext {
 public:
   static SingletonDeviceContext &getInstance();
+  static void resetInstance();
 
   ::tt::tt_metal::v0::IDevice *getDevice() { return m_device; }
 
@@ -41,6 +42,8 @@ private:
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
   ::tt::tt_metal::IDevice *m_device;
+
+  void resetDevice(const size_t trace_region_size = DEFAULT_TRACE_REGION_SIZE);
 };
 } // namespace mlir::tt::op_model::ttnn
 
