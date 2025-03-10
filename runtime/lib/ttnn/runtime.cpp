@@ -555,16 +555,120 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
                 DeviceRuntime::TTNN);
 }
 
-std::vector<float> getTensorData(Tensor tensor) {
-  const ::ttnn::Tensor *nnTensor =
-      static_cast<::ttnn::Tensor *>(tensor.handle.get());
-  if (nnTensor == nullptr) {
+std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  void *dataPtr = nullptr;
+  std::vector<std::byte> dataVec(getTensorElementSize(tensor) *
+                                 getTensorVolume(tensor));
+
+  // Need to `memcpy` in each case because the vector will go out of scope if we
+  // wait until after the switch case
+  switch (getTensorDataType(tensor)) {
+  case target::DataType::BFP_BFloat4: {
+    dataVec.resize(sizeof(float) * getTensorVolume(tensor));
+    auto vec = ttnnTensor.to_vector<float>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, dataVec.size());
+    return dataVec;
+  }
+  case target::DataType::BFP_BFloat8: {
+    dataVec.resize(sizeof(float) * getTensorVolume(tensor));
+    auto vec = ttnnTensor.to_vector<float>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, dataVec.size());
+    return dataVec;
+  }
+  case target::DataType::Float32: {
+    auto vec = ttnnTensor.to_vector<float>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, dataVec.size());
+    return dataVec;
+  }
+  case target::DataType::BFloat16: {
+    auto vec = ttnnTensor.to_vector<bfloat16>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, dataVec.size());
+    return dataVec;
+  }
+  case target::DataType::Int32: {
+    auto vec = ttnnTensor.to_vector<std::int32_t>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, dataVec.size());
+    return dataVec;
+  }
+  case target::DataType::UInt32: {
+    auto vec = ttnnTensor.to_vector<std::uint32_t>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, dataVec.size());
+    return dataVec;
+  }
+  case target::DataType::UInt16: {
+    auto vec = ttnnTensor.to_vector<std::uint16_t>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, dataVec.size());
+    return dataVec;
+  }
+  case target::DataType::UInt8: {
+    auto vec = ttnnTensor.to_vector<std::uint8_t>();
+    dataPtr = vec.data();
+    LOG_ASSERT(dataPtr != nullptr);
+    std::memcpy(dataVec.data(), dataPtr, dataVec.size());
+    return dataVec;
+  }
+  default:
+    LOG_ERROR("Unsupported datatype for underlying TTNN tensor, returning "
+              "empty data vector");
     return {};
   }
+}
 
-  void *dataPtr = ::tt::tt_metal::get_raw_host_data_ptr(*nnTensor);
-  return std::vector<float>(static_cast<float *>(dataPtr),
-                            static_cast<float *>(dataPtr) + nnTensor->volume());
+std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::vector<std::uint32_t> shape;
+  for (size_t i = 0; i < ttnnTensor.logical_shape().size(); ++i) {
+    shape.push_back(ttnnTensor.logical_shape()[i]);
+  }
+  return shape;
+}
+
+std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::vector<std::uint32_t> stride;
+  for (size_t i = 0; i < ttnnTensor.strides().size(); ++i) {
+    stride.push_back(ttnnTensor.strides()[i]);
+  }
+  return stride;
+}
+
+std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  return ttnnTensor.element_size();
+}
+
+std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  return ttnnTensor.volume();
+}
+
+TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
+  TensorDesc desc;
+  desc.dataType = getTensorDataType(tensor);
+  desc.itemsize = getTensorElementSize(tensor);
+  desc.stride = getTensorStride(tensor);
+  desc.shape = getTensorShape(tensor);
+  return desc;
 }
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
