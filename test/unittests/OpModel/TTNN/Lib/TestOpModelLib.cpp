@@ -335,6 +335,9 @@ TEST_F(OpModelTest, ToLayout) {
   const mlir::tt::ttnn::TTNNLayoutAttr layoutDRAMRowMajor =
       CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                            mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr layoutL1RowMajorHS =
+      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                           mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
   auto legalExp = Device::getDeviceConstraints(workerGrid);
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
@@ -350,6 +353,16 @@ TEST_F(OpModelTest, ToLayout) {
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = ToLayoutOpInterface::getOpConstraints(
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS, true);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  runtimeExp = ToLayoutOpInterface::getOpRuntime(
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS, true);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
 }
 
 TEST_F(OpModelTest, Transpose) {
