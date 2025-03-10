@@ -213,11 +213,6 @@ public:
       return failure();
     }
 
-    // Not currently supporting spatial dims other than 2 for the 1D case.
-    if (op.getConvolutionLayout().getInputSpatialDimensions()[0] != 2) {
-      return failure();
-    }
-
     // The shapes that the convolution currently operates with have are 3D, and
     // we need to add another dimension for it to match the conv2d signature, so
     // adding a dimension of size 1 to the end of input and output shapes.

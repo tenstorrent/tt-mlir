@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "dff46752a7abdaccd6ce9ef4a9d8e7d078ceddce")
+set(TT_METAL_VERSION "ac732b7e003dc1a8fb756e8922a6c1c2bb2b01b7")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -73,12 +73,16 @@ if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
 endif()
 
 if (TTMLIR_ENABLE_RUNTIME)
+set(TTMETAL_BUILD_TYPE "Release")
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(TTMETAL_BUILD_TYPE "Debug")
+endif()
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
   CMAKE_GENERATOR Ninja
   CMAKE_ARGS
-    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
     -DCMAKE_INSTALL_PREFIX=${METAL_INSTALL_PREFIX}
     -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}

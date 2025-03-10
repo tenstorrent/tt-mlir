@@ -959,10 +959,19 @@ createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
 createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
+  std::vector<uint8_t> rawVector;
+  if (auto data =
+          mlir::dyn_cast<mlir::DenseResourceElementsAttr>(op.getValue())) {
+    ArrayRef<char> rawData = data.getData();
+    rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+  } else if (auto data =
+                 mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue())) {
+    ArrayRef<char> rawData = data.getRawData();
+    rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+  } else {
+    llvm_unreachable("Unknown constant value attribute type");
+  }
 
-  auto rawData =
-      mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue()).getRawData();
-  auto rawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
   return ::tt::target::ttnn::CreateConstantOpDirect(*cache.fbb, output,
                                                     &rawVector);
 }
@@ -1099,6 +1108,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Tan;
   } else if constexpr (std::is_same_v<EltwiseOp, TanhOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Tanh;
+  } else if constexpr (std::is_same_v<EltwiseOp, AtanOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Atan;
   } else if constexpr (std::is_same_v<EltwiseOp, PowerOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Power;
   } else {
@@ -1348,14 +1359,21 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
 
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+
   auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateMaxPool2dOp(
       *cache.fbb, in, out, cache.at<::tt::target::DeviceRef>(device),
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), op.getKernelHeight(), op.getKernelWidth(),
-      op.getStrideHeight(), op.getStrideWidth(), op.getDilationHeight(),
-      op.getDilationWidth(), op.getCeilMode(), op.getPaddingHeight(),
-      op.getPaddingWidth());
+      op.getChannels(), kernelSize, stride, padding, dilation,
+      op.getCeilMode());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
@@ -1749,6 +1767,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
     return createOperation(cache, createEltwiseOp(cache, tanhOp), debugString,
+                           locInfo);
+  }
+  if (auto atanOp = dyn_cast<AtanOp>(op); atanOp) {
+    return createOperation(cache, createEltwiseOp(cache, atanOp), debugString,
                            locInfo);
   }
   if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {
