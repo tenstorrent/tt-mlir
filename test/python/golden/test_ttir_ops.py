@@ -393,6 +393,17 @@ def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
+        (64, 64),
+        (64, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_power(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.power(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
         (32, 64),
         (64, 128),
     ],
@@ -404,12 +415,42 @@ def test_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
+        (64, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_sum(in0: Operand, builder: TTIRBuilder):
+    return builder.sum(in0)
+
+
+@compile_to_flatbuffer(
+    [
         (128, 128),
     ],
     targets=["ttnn"],
 )
 def test_mean(in0: Operand, builder: TTIRBuilder):
     return builder.mean(in0)
+
+
+@compile_to_flatbuffer(
+    [
+        (64, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_max(in0: Operand, builder: TTIRBuilder):
+    return builder.max(in0)
+
+
+@compile_to_flatbuffer(
+    [
+        (64, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_min(in0: Operand, builder: TTIRBuilder):
+    return builder.min(in0)
 
 
 @compile_to_flatbuffer(

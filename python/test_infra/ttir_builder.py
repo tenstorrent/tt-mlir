@@ -11,6 +11,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttir, tt, tensor
 from ttmlir.passes import GoldenTensor, DataType
 import torch
+import array
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -416,8 +417,13 @@ class TTIRBuilder:
 
         with self._ctx, self._loc:
             # Compute the golden
-            golden = Golden(
-                op_golden_function(*(organize_golden_args(inputs)), **golden_kwargs)
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+            golden = (
+                Golden(golden_output[0])
+                if not isinstance(golden_output, torch.Tensor)
+                else Golden(golden_output)
             )
 
             # Use the golden output to determine proper output shape unless otherwise specified
@@ -578,6 +584,25 @@ class TTIRBuilder:
     def minimum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.minimum, ttir.MinimumOp, [in0, in1])
 
+    def power(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.pow, ttir.PowerOp, [in0, in1])
+
+    def sum(
+        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+    ) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.sum,
+            ttir.SumOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
     def mean(
         self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
     ) -> OpView:
@@ -588,6 +613,34 @@ class TTIRBuilder:
         return self.op_proxy(
             torch.mean,
             ttir.MeanOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def max(self, in0: Operand, dim_arg: int = 0, keep_dim: bool = True) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": [dim_arg], "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.max,
+            ttir.MaxOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def min(self, in0: Operand, dim_arg: int = 0, keep_dim: bool = True) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": [dim_arg], "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.min,
+            ttir.MinOp,
             [in0],
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
