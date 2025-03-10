@@ -17,13 +17,8 @@ namespace mlir::tt::op_model::ttnn {
 
 namespace conversion {
 
-::tt::tt_metal::DataType
-getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
-  return getDataType(layout.getDataType());
-}
-
-::tt::tt_metal::DataType getDataType(mlir::tt::DataType dtype) {
-  switch (dtype) {
+::tt::tt_metal::DataType getDataType(const DataType dataType) {
+  switch (dataType) {
   case tt::DataType::Float32:
     return ::tt::tt_metal::DataType::FLOAT32;
   case tt::DataType::BFloat16:
@@ -128,9 +123,9 @@ getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   }
 }
 
-::tt::tt_metal::TensorMemoryLayout
-getTensorMemoryLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
-  auto tensorMemoryLayout = layout.getMemLayout().getValue();
+::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
+    const mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  auto tensorMemoryLayout = memLayoutAttr.getValue();
 
   switch (tensorMemoryLayout) {
   case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
@@ -148,8 +143,7 @@ getTensorMemoryLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
-
-  auto tensorMemoryLayout = getTensorMemoryLayout(layout);
+  auto tensorMemoryLayout = getTensorMemoryLayout(layout.getMemLayout());
   auto bufferType = getBufferType(layout);
 
   auto shardSpec = getShardSpec(layout);
@@ -159,8 +153,9 @@ getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 ::tt::tt_metal::TensorLayout
 getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
-  return ::tt::tt_metal::TensorLayout(
-      getDataType(layout), getPageLayout(layout), getMemoryConfig(layout));
+  return ::tt::tt_metal::TensorLayout(getDataType(layout.getDataType()),
+                                      getPageLayout(layout),
+                                      getMemoryConfig(layout));
 }
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
@@ -171,6 +166,60 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 ::ttnn::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttnn::SmallVector<int>(vec.begin(), vec.end());
+}
+
+std::array<uint32_t, 2>
+convertArrayRefToArray(const llvm::ArrayRef<int32_t> array) {
+  assert(array.size() == 2);
+  std::array<uint32_t, 2> result;
+  for (size_t i = 0; i < 2; ++i) {
+    result[i] = static_cast<uint32_t>(array[i]);
+  }
+  return result;
+}
+
+std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
+    const std::optional<mlir::tt::ttnn::Conv2dConfigAttr> &conv2dConfig) {
+  if (!conv2dConfig) {
+    return std::nullopt;
+  }
+
+  // TODO(#2130): config.core_grid is hardcoded to nullopt until we add
+  // CoreRangeSet as an IR attribute.
+  assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
+
+  ::ttnn::operations::conv::conv2d::Conv2dConfig config;
+  config.dtype = getDataType(conv2dConfig->getDtype());
+  config.weights_dtype = getDataType(conv2dConfig->getWeightsDtype());
+  config.activation = conv2dConfig->getActivation().str();
+  config.input_channels_alignment =
+      conv2dConfig->getInputChannelsAlignment().getInt();
+  config.deallocate_activation =
+      conv2dConfig->getDeallocateActivation().getValue();
+  config.reallocate_halo_output =
+      conv2dConfig->getReallocateHaloOutput().getValue();
+  config.act_block_h_override = conv2dConfig->getActBlockHOverride().getInt();
+  config.act_block_w_div = conv2dConfig->getActBlockWDiv().getInt();
+  config.reshard_if_not_optimal =
+      conv2dConfig->getReshardIfNotOptimal().getValue();
+  config.override_sharding_config =
+      conv2dConfig->getOverrideShardingConfig().getValue();
+  config.shard_layout = conv2dConfig->getShardLayout()
+                            ? std::make_optional(getTensorMemoryLayout(
+                                  conv2dConfig->getShardLayout()))
+                            : std::nullopt;
+  config.core_grid = std::nullopt;
+  config.transpose_shards = conv2dConfig->getTransposeShards().getValue();
+  config.output_layout = getPageLayout(conv2dConfig->getOutputLayout());
+  config.enable_act_double_buffer =
+      conv2dConfig->getEnableActDoubleBuffer().getValue();
+  config.enable_weights_double_buffer =
+      conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
+  config.enable_split_reader = conv2dConfig->getEnableSplitReader().getValue();
+  config.enable_subblock_padding =
+      conv2dConfig->getEnableSubblockPadding().getValue();
+
+  return config;
 }
 
 } // namespace conversion

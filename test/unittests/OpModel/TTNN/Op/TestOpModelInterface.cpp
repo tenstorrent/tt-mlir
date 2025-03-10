@@ -4,6 +4,7 @@
 
 #include "OpModelFixture.h"
 
+#include "../lib/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -12,7 +13,6 @@
 #include "gtest/gtest.h"
 
 #include <cstdint>
-#include <optional>
 
 namespace mlir::tt::ttnn {
 
@@ -43,6 +43,9 @@ public:
 
     for (size_t i = 0; i < limit; i++) {
       auto operand = op->getOperand(i);
+      if (!operand || !mlir::isa<RankedTensorType>(operand.getType())) {
+        continue;
+      }
       auto inputShape =
           mlir::cast<RankedTensorType>(operand.getType()).getShape();
       auto inputLayout = CreateTiledLayout(inputShape, BufferType::L1,
@@ -448,6 +451,52 @@ TEST_F(OpModelBase, typecastOp) {
   auto runtimeExp = getOpRuntime(typecast.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, Conv2dInterface) {
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  DeviceAttr deviceAttr = getFakeDeviceAttr();
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(deviceAttr),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+
+  conv2d->setAttr(DeviceAttr::name, deviceAttr);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  // test Conv2dOp interface
+  auto constraintsExp = getOpConstraints(conv2d.getOperation());
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  if (!constraintsExp) {
+    std::string error = llvm::toString(constraintsExp.takeError());
+    EXPECT_TRUE(error.find("Mismatch!! L1 Allocation Pre Op"));
+  }
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(conv2d.getOperation());
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }

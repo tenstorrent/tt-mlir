@@ -417,4 +417,69 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape, output);
 }
 
+//===----------------------------------------------------------------------===//
+// Conv2dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 2 || inputs.size() == 3);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+  const auto weightShape =
+      mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape =
+        mlir::cast<RankedTensorType>(getOperand(2).getType()).getShape();
+    biasLayout = inputs[2];
+  }
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  return op_model::ttnn::Conv2dOpInterface::getOpConstraints(
+      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(),
+      getDilation(), getGroups(), getConv2dConfig(), outputShape, output);
+}
+
+llvm::Expected<size_t>
+Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 2 || inputs.size() == 3);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+  const auto weightShape =
+      mlir::cast<RankedTensorType>(getOperand(1).getType()).getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape =
+        mlir::cast<RankedTensorType>(getOperand(2).getType()).getShape();
+    biasLayout = inputs[2];
+  }
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::Conv2dOpInterface::getOpRuntime(
+      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(),
+      getDilation(), getGroups(), getConv2dConfig(), outputShape, output);
+}
+
 } // namespace mlir::tt::ttnn
