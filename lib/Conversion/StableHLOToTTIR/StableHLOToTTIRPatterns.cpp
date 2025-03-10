@@ -1039,7 +1039,7 @@ private:
     }
 
     // Check for splat padding (all zeroes expected).
-    if (llvm::all_equal(padding)) {
+    if (llvm::all_equal(padding.asArrayRef())) {
       if (padding[0] != 0) {
         return false;
       }
