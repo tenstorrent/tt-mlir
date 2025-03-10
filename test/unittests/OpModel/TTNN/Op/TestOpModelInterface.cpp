@@ -359,4 +359,43 @@ TEST_F(OpModelBase, transposeOp) {
   }
 }
 
+TEST_F(OpModelBase, typecastOp) {
+  // create TransposeOp
+  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+
+  RankedTensorType rankedTensorTypeBF16 =
+      RankedTensorType::get(tensorShape, builder.getBF16Type());
+
+  auto input =
+      builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorTypeBF16,
+                             ShapeAttr::get(&context, tensorShape),
+                             DataTypeAttr::get(&context, DataType::BFloat16),
+                             nullptr, nullptr, nullptr);
+  RankedTensorType rankedTensorTypeF32 =
+      RankedTensorType::get(tensorShape, builder.getF32Type());
+
+  auto typecast = builder.create<TypecastOp>(
+      builder.getUnknownLoc(), rankedTensorTypeF32, input, DataType::Float32);
+  typecast->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(typecast.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 12288);
+    EXPECT_EQ(peak_size, 4096);
+    EXPECT_EQ(output_size, 4096);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(typecast.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn

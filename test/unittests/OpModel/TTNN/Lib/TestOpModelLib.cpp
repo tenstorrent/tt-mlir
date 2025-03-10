@@ -370,12 +370,12 @@ TEST_F(OpModelTest, Transpose) {
 
   constraintsExp = TransposeOpInterface::getOpConstraints(
       tensorShape, layoutL1Interleaved, 0, 1, layoutL1WSharded);
-  EXPECT_TRUE(!static_cast<bool>(constraintsExp));
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
   runtimeExp = TransposeOpInterface::getOpRuntime(
       tensorShape, layoutL1Interleaved, 0, 1, layoutL1WSharded);
-  EXPECT_TRUE(!static_cast<bool>(runtimeExp));
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 }
 
@@ -421,6 +421,54 @@ TEST_F(OpModelTest, SoftmaxSharded) {
       tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
+TEST_F(OpModelTest, Typecast) {
+  const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
+                                                  32};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayoutDRAMIBF16 =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+                        mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayoutL1HSBF16 =
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+                        mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayoutDRAMIF32 = CreateTiledLayout(
+      tensorShape, mlir::tt::ttnn::BufferType::DRAM,
+      mlir::tt::ttnn::TensorMemoryLayout::Interleaved, std::nullopt,
+      GetPhysicalGridSize(), builder.getF32Type());
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = TypecastOpInterface::getOpConstraints(
+      tensorShape, inputLayoutDRAMIBF16,
+      DataTypeAttr::get(&context, DataType::Float32), tensorShape,
+      inputLayoutDRAMIF32);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  auto runtimeExp = TypecastOpInterface::getOpRuntime(
+      tensorShape, inputLayoutDRAMIBF16,
+      DataTypeAttr::get(&context, DataType::Float32), tensorShape,
+      inputLayoutDRAMIF32);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = TypecastOpInterface::getOpConstraints(
+      tensorShape, inputLayoutDRAMIBF16,
+      DataTypeAttr::get(&context, DataType::Float32), tensorShape,
+      inputLayoutL1HSBF16);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+  runtimeExp = TypecastOpInterface::getOpRuntime(
+      tensorShape, inputLayoutDRAMIBF16,
+      DataTypeAttr::get(&context, DataType::Float32), tensorShape,
+      inputLayoutL1HSBF16);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
 }
 
 enum class OpType { Add, Mul };

@@ -14,6 +14,8 @@ namespace conversion {
 ::tt::tt_metal::DataType
 getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout);
 
+::tt::tt_metal::DataType getDataType(mlir::tt::DataType dtype);
+
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape);
 
 const std::array<uint32_t, 2>
