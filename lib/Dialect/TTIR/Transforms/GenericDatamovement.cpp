@@ -53,63 +53,6 @@ public:
     return semaphore;
   }
 
-  static SmallVector<Value> buildStreamIndex(OpBuilder &builder, Location loc,
-                                             ArrayRef<int64_t> shardShape,
-                                             AffineMap operandIndexingMap,
-                                             AffineMap gridIndexingMap) {
-    assert(operandIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
-    assert(operandIndexingMap.getNumResults() ==
-           gridIndexingMap.getNumResults());
-    assert(operandIndexingMap.getNumResults() == shardShape.size());
-
-    SmallVector<Value> streamIndex;
-    streamIndex.reserve(operandIndexingMap.getNumResults());
-    for (unsigned result = 0; result < operandIndexingMap.getNumResults();
-         result++) {
-      unsigned dim = operandIndexingMap.getDimPosition(result);
-      std::optional<unsigned> gridResult = gridIndexingMap.getResultPosition(
-          operandIndexingMap.getResult(result));
-      //
-      // The following assert is pretty subtle. If this operand dimension
-      // participates in the grid, for now we must assert that the relative grid
-      // result is the same as the operand result. This protects against
-      // permutations of the grid, ie. transposes.  For example, let's consider
-      // a matmul case:
-      //   operandIndexingMap: (m, n, k) -> (m, k)
-      //   gridIndexingMap:    (m, n, k) -> (m, n)
-      //                                     ^
-      // This assert ensures that the m's line up. A counter example would be:
-      //   operandIndexingMap: (m, n, k) -> (m, k)
-      //   gridIndexingMap:    (m, n, k) -> (n, m)
-      //
-      // Not currently supported.
-      //
-      assert(!gridResult || *gridResult == result);
-      bool isGridDim = gridResult.has_value();
-      Value iterIndex = builder.create<IterIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
-      Value index;
-      if (isGridDim) {
-        // gridI * dimI + iterI
-        AffineExpr gridExpr = builder.getAffineDimExpr(0);
-        AffineExpr iterExpr = builder.getAffineDimExpr(1);
-        AffineExpr shardDimExpr =
-            builder.getAffineConstantExpr(shardShape[result]);
-        AffineMap shardMap =
-            AffineMap::get(2, 0, {gridExpr * shardDimExpr + iterExpr});
-        Value coreIndex = builder.create<CoreIndexOp>(
-            loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
-        index = builder.create<affine::AffineApplyOp>(
-            loc, builder.getIndexType(), shardMap,
-            ValueRange{coreIndex, iterIndex});
-      } else {
-        index = iterIndex;
-      }
-      streamIndex.push_back(index);
-    }
-    return streamIndex;
-  }
-
   static SmallVector<IteratorType>
   calculateMcastIterators(GridAttr grid, DeviceAttr device,
                           AffineMap operandIndexingMap,
@@ -244,8 +187,7 @@ public:
   static LogicalResult
   buildDatamovementBlock(OpBuilder &builder, Location loc, Value genericOperand,
                          Value blockOperand, GridAttr grid, DeviceAttr device,
-                         AffineMap operandIndexingMap,
-                         AffineMap gridIndexingMap, ArrayAttr iteratorTypes,
+                         AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
                          bool isOutput) {
     if (isOutput) {
       // Wait for compute
@@ -254,10 +196,6 @@ public:
 
     if (isStream(genericOperand.getType())) {
       assert(!isOutput && "Output streaming is not currently supported");
-      // MemRefType memrefType = mlir::cast<MemRefType>(blockOperand.getType());
-      // SmallVector<Value> streamIndex =
-      //     buildStreamIndex(builder, loc, memrefType.getShape(),
-      //                      operandIndexingMap, gridIndexingMap);
       Value src = isOutput ? blockOperand : genericOperand;
       Value dst = isOutput ? genericOperand : blockOperand;
       SmallVector<IteratorType> mcastIterators = calculateMcastIterators(
@@ -298,11 +236,6 @@ public:
     // Insert the new data movement regions.
     auto [outputOperandsIndex, outputOperandsLength] =
         generic.getODSOperandIndexAndLength(1);
-    // The output and the grid indexing must always be aligned.
-    AffineMap gridIndexingMap =
-        mlir::cast<AffineMapAttr>(
-            generic.getIndexingMaps()[outputOperandsIndex])
-            .getValue();
     auto device = getCurrentScopeDevice(generic);
     for (OpOperand &operand : generic->getOpOperands()) {
       Block *datamovementBlock =
@@ -323,7 +256,7 @@ public:
           blockBuilder, generic->getLoc(),
           generic->getOperand(operand.getOperandNumber()),
           datamovementBlock->getArgument(operand.getOperandNumber()),
-          generic.getGrid(), device, operandIndexingMap, gridIndexingMap,
+          generic.getGrid(), device, operandIndexingMap,
           generic.getIteratorTypes(), isOutput);
       if (failed(result)) {
         return result;

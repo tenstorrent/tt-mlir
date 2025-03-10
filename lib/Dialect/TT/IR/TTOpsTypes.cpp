@@ -1019,7 +1019,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   AffineMap affineMap = memrefType.getLayout().getAffineMap();
   switch (memorySpace) {
   case MemorySpace::DeviceL1: {
-    SmallVector<int64_t> symbols = {static_cast<int64_t>(pageSize)};
+    SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
     return ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols)
         .compose(affineMap);
   }

@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Constant.cpp
         GenericLinearizeMemref.cpp
         GenericDatamovement.cpp
+        GenericLowerAffineDMAs.cpp
         HoistCPUOps.cpp
         Layout.cpp
         Transforms.cpp
