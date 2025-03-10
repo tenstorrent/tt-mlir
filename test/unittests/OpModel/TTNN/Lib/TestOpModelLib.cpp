@@ -370,12 +370,12 @@ TEST_F(OpModelTest, Transpose) {
 
   constraintsExp = TransposeOpInterface::getOpConstraints(
       tensorShape, layoutL1Interleaved, 0, 1, layoutL1WSharded);
-  EXPECT_TRUE(!static_cast<bool>(constraintsExp));
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
   runtimeExp = TransposeOpInterface::getOpRuntime(
       tensorShape, layoutL1Interleaved, 0, 1, layoutL1WSharded);
-  EXPECT_TRUE(!static_cast<bool>(runtimeExp));
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 }
 
@@ -461,13 +461,13 @@ TEST_F(OpModelTest, Typecast) {
       tensorShape, inputLayoutDRAMIBF16,
       DataTypeAttr::get(&context, DataType::Float32), tensorShape,
       inputLayoutL1HSBF16);
-  EXPECT_TRUE(!static_cast<bool>(constraintsExp));
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
   runtimeExp = TypecastOpInterface::getOpRuntime(
       tensorShape, inputLayoutDRAMIBF16,
       DataTypeAttr::get(&context, DataType::Float32), tensorShape,
       inputLayoutL1HSBF16);
-  EXPECT_TRUE(!static_cast<bool>(runtimeExp));
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 }
 
