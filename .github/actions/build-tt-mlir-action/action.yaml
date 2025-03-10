@@ -72,13 +72,6 @@ runs:
         source env/activate
         cmake --build ${{ inputs.build-output-dir }} -- ttrt
 
-    - name: Generate and set system descriptor
-      shell: bash
-      if: inputs.enable-op-model == 'ON'
-      run: |
-        source env/activate
-        ttrt query --save-artifacts
-
     - name: Compile dylibs for EmitC
       shell: bash
       if: inputs.enable-emitc == 'ON'
@@ -106,18 +99,6 @@ runs:
         fi
         cmake --build ${{ inputs.build-output-dir }} -- check-ttmlir
         cp build/test/report.xml ${{ inputs.test_report_path }}
-
-    - name: Run OpModelInterface Tests
-      shell: bash
-      if: inputs.enable-op-model == 'ON'
-      run: |
-        source env/activate
-        if [ -f "${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
-          export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
-        fi
-        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
-        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
-        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4

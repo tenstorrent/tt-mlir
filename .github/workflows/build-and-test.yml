@@ -49,7 +49,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_async: ON, name: "speedy", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_async: ON, enable_op_model: ON, enable_emitc: ON, name: "speedy", ttrt_flags: ""},
           {runs-on: ubuntu-latest, enable_perf: ON,  enable_emitc: ON, name: "tracy", ttrt_flags: ""},
         ]
 
@@ -126,7 +126,7 @@ jobs:
             {runs-on: n150,   name: "run",  build_name: "emitc",          image: "tracy",  type: "ttrt", path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
             {runs-on: n150,   name: "run",  build_name: "async",          image: "speedy", type: "ttrt", path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
             {runs-on: n150,   name: "run",  build_name: "runtime_debug",  image: "tracy",  type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150,   name: "run",  build_name: "op_model",       image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150,   name: "run",  build_name: "op_model",       image: "speedy", type: "op_m", path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
             {runs-on: n300,   name: "run",  build_name: "run",            image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
             {runs-on: n300,   name: "perf", build_name: "perf",           image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
             # {runs-on: llmbox, name: "run",  build_name: "run",            image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
@@ -243,7 +243,7 @@ jobs:
 
     # TTRT test runner
     - name: Run TTRT tests
-      if: matrix.build.type == 'ttrt'
+      if: matrix.build.type == 'ttrt' || matrix.build.type == 'op_m'
       shell: bash
       run: |
         source env/activate
@@ -261,6 +261,19 @@ jobs:
         source env/activate
         pytest -ssv runtime/${{ matrix.build.path }} \
         --junit-xml=${{ steps.strings.outputs.test_report_path }}
+
+    # op-model tests
+    - name: Run OpModelInterface Tests
+      shell: bash
+      if: matrix.build.type == 'op_m'
+      run: |
+        source env/activate
+        if [ -f "${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
+          export SYSTEM_DESC_PATH="${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
+        fi
+        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
+        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
 
     - name: Collect and Upload Perf Reports
       if: matrix.build.name == 'perf'
@@ -296,7 +309,7 @@ jobs:
     needs:
       - build-image
       - build-ttmlir
-    timeout-minutes: 60
+    timeout-minutes: 120
     # Force upload of artifacts
     continue-on-error: true
     strategy:
