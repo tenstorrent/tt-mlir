@@ -39,7 +39,44 @@ PYBIND11_MODULE(_C, m) {
       .def("get_memory_view", &tt::runtime::detail::getMemoryView,
            py::arg("device_id") = 0);
   py::class_<tt::runtime::Event>(m, "Event");
-  py::class_<tt::runtime::Tensor>(m, "Tensor");
+  py::class_<tt::runtime::TensorDesc>(m, "TensorDesc")
+      .def_readonly("shape", &tt::runtime::TensorDesc::shape)
+      .def_readonly("stride", &tt::runtime::TensorDesc::stride)
+      .def_readonly("item_size", &tt::runtime::TensorDesc::itemsize)
+      .def_readonly("dtype", &tt::runtime::TensorDesc::dataType);
+  py::class_<tt::runtime::Tensor>(m, "Tensor")
+      .def("get_shape",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorShape(self);
+           })
+      .def("get_stride",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorStride(self);
+           })
+      .def("get_volume",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorVolume(self);
+           })
+      .def("get_dtype",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorDataType(self);
+           })
+      .def("get_element_size",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorElementSize(self);
+           })
+      .def("get_tensor_desc",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorDesc(self);
+           })
+      .def(
+          "get_data_buffer",
+          [](tt::runtime::Tensor self) {
+            std::vector<std::byte> vec = tt::runtime::getTensorDataBuffer(self);
+            return py::bytes(reinterpret_cast<const char *>(vec.data()),
+                             vec.size());
+          },
+          py::return_value_policy::take_ownership);
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
@@ -177,9 +214,11 @@ PYBIND11_MODULE(_C, m) {
          tt::runtime::CallbackContext &programContextHandle) {
         tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
             opContextHandle, programContextHandle);
-        return tt::runtime::getTensorData(tensor);
+        return tensor.handle.get() == nullptr
+                   ? std::nullopt
+                   : std::optional<tt::runtime::Tensor>(tensor);
       },
-      "Get the input tensor of the op");
+      "Get the output tensor of the op");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

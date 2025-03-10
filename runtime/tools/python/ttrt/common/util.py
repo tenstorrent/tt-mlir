@@ -53,8 +53,12 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
         return torch.uint16
     elif dtype == DataType.UInt8:
         return torch.uint8
+    elif dtype == DataType.BFloat16:
+        return torch.bfloat16
     else:
-        raise ValueError("Only F32 and unsigned integers are supported in the runtime")
+        raise ValueError(
+            "Only F32, BF16, and unsigned integers are supported in the runtime"
+        )
 
 
 def get_ttrt_metal_home_path():

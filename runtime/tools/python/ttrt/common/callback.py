@@ -212,15 +212,17 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
     op_output_tensor = ttrt.runtime.get_op_output_tensor(op_context, program_context)
 
-    if len(op_output_tensor) == 0:
+    if op_output_tensor is None:
         logging.debug("Output tensor is empty - skipping golden comparison")
         return
 
+    rt_buffer = op_output_tensor.get_data_buffer()
     dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
+    assert ttrt_datatype_to_torch_dtype(op_output_tensor.get_dtype()) == dtype
 
     golden_tensor_torch = torch.frombuffer(op_golden_tensor, dtype=dtype).flatten()
 
-    output_tensor_torch = torch.tensor(op_output_tensor, dtype=dtype).flatten()
+    output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
 
     if callback_runtime_config.save_golden_tensors:
         torch.save(
