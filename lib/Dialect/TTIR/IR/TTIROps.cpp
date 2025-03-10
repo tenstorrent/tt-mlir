@@ -26,9 +26,6 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
-#include <llvm/Support/Casting.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/BuiltinAttributeInterfaces.h>
 #include <numeric>
 #include <string>
 
@@ -756,16 +753,22 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
+
   if (getType() == getOperand(0).getType()) {
     return getOperand(0);
   }
+
+  ElementsAttr foldedAttr;
   if (auto value = dyn_cast_or_null<DenseElementsAttr>(adaptor.getInput())) {
-    return value.reshape(getType());
+    foldedAttr = value.reshape(getType());
   } else if (auto value = dyn_cast_or_null<DenseResourceElementsAttr>(
                  adaptor.getInput())) {
-    return DenseResourceElementsAttr::get(getType(), value.getRawHandle());
+    foldedAttr =
+        DenseResourceElementsAttr::get(getType(), value.getRawHandle());
+  } else {
+    return nullptr;
   }
-  return nullptr;
+  return foldedAttr;
 }
 
 //===----------------------------------------------------------------------===//
