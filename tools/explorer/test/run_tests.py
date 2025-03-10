@@ -230,6 +230,16 @@ def test_execute_model_invalid_policy():
         )
 
 
+def test_execute_and_check_memory_data_exists():
+    execute_command_and_wait(
+        MNIST_SHARDING_PATH,
+        {"optimizationPolicy": "Optimizer Disabled"},
+        timeout=300,
+    )
+    result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    assert "display_type" in str(result)
+
+
 def test_execute_and_check_accuracy_data_exists():
     # Get the test_mnist path
     test_mnist_path = GET_TTNN_TEST()

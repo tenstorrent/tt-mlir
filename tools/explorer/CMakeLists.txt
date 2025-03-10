@@ -4,6 +4,7 @@ set(TT_EXPLORER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/run.py)
 set(TTMLIR_BUILD_BIN_DIR ${TTMLIR_BINARY_DIR}/bin)
 
 set(MODEL_EXPLORER_VERSION "main")
+
 ExternalProject_Add(
   model-explorer
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer
@@ -20,6 +21,18 @@ set(PIP_EDITABLE_FLAG "")
 #if (TT_EXPLORER_EDITABLE)
   set(PIP_EDITABLE_FLAG "-e")
 #endif()
+
+set(EXPLORER_REQ_FLAGS
+  TT_RUNTIME_DEBUG
+  TT_RUNTIME_ENABLE_PERF_TRACE
+  TTMLIR_ENABLE_RUNTIME
+)
+
+foreach(RUNTIME_OPT ${EXPLORER_REQ_FLAGS})
+  if(NOT ${RUNTIME_OPT})
+    message(WARNING "${RUNTIME_OPT} must be enabled to execute model as intended in tt-explorer.")
+  endif()
+endforeach()
 
 add_custom_target(explorer
   COMMENT "Building tt-explorer... ${TTMLIR_BIN_DIR}"
