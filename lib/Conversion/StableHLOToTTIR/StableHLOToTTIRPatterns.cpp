@@ -30,6 +30,7 @@
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Diagnostics.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Support/LogicalResult.h>
@@ -1489,6 +1490,20 @@ static llvm::ErrorOr<ReduceType> getReduceType(SrcOpT srcOp) {
       std::make_error_code(std::errc::operation_not_supported));
 }
 
+// Determines whether the CCL op is ineffective based on the replica groups
+// attribute. Assumes that the last dimension of the tensor represents the
+// replica group size. Returns std::nullopt if the shape is empty.
+static std::optional<bool>
+isCclOpIneffective(::mlir::DenseIntElementsAttr replicaGroups) {
+  auto replicaGroupsShape = replicaGroups.getType().getShape();
+  if (replicaGroupsShape.empty()) {
+    // An empty shape means there's no information to determine group size.
+    return std::nullopt;
+  }
+  // The CCL op is ineffective if the last dimension (group size) equals 1.
+  return replicaGroupsShape.back() == 1;
+}
+
 static LogicalResult
 determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
                      uint32_t &clusterAxis) {
@@ -1714,6 +1729,18 @@ public:
     if (failed(determineClusterAxis(adaptor.getReplicaGroups(), clusterAxis))) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllGather cannot specify cluster axis.");
+    }
+
+    // If this op is ineffective, remove it.
+    std::optional<bool> ineffectiveness =
+        isCclOpIneffective(adaptor.getReplicaGroups());
+    if (ineffectiveness.has_value() && ineffectiveness == true) {
+      emitWarning(srcOp.getLoc())
+          << "Performing a CCL operation across a single mesh device is "
+             "ineffective. Check your replica_groups : "
+          << adaptor.getReplicaGroups();
+      rewriter.replaceOp(srcOp, adaptor.getOperands()[0]);
+      return success();
     }
 
     ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllGatherOp>(

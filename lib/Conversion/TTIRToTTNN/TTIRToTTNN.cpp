@@ -18,6 +18,7 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -1414,6 +1415,16 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto resultType = device.getResult().getType();
+    ::llvm::ArrayRef<int64_t> meshShape = resultType.getDesc().getMeshShape();
+    if (meshShape[adaptor.getClusterAxis()] == 1) {
+      emitWarning(op->getLoc())
+          << "Performing a CCL operation across a single mesh device is "
+             "ineffective. Check your mesh_shape : ("
+          << meshShape << ") and cluster_axis = " << adaptor.getClusterAxis();
+      rewriter.replaceOp(op, adaptor.getOperands()[0]);
+      return success();
+    }
 
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
