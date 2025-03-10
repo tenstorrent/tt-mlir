@@ -13,11 +13,13 @@ using namespace mlir::tt::ttnn;
 
 class OutputLayoutOverrideTest : public ::testing::Test {
 protected:
-  llvm::cl::opt<std::string> OverrideOutputLayoutOption{
-      "override-output-layout"};
+  static llvm::cl::opt<std::string> OverrideOutputLayoutOption;
   OutputLayoutOverrideParser parser{OverrideOutputLayoutOption};
   llvm::StringMap<OutputLayoutOverrideParams> parsedOverride;
 };
+
+llvm::cl::opt<std::string> OutputLayoutOverrideTest::OverrideOutputLayoutOption{
+    "override-output-layout"};
 
 TEST_F(OutputLayoutOverrideTest, ParseFullOutputLayoutOverride) {
   std::string arg = "op1=2x2:dram:interleaved:tile:f32";
