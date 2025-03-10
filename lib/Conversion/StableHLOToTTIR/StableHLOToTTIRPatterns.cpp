@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <llvm/ADT/STLExtras.h>
 #include <vector>
 
 #include "mlir/Dialect/Traits.h"
@@ -27,6 +26,7 @@
 #include "ttmlir/Utils.h"
 
 #include <llvm/ADT/APFloat.h>
+#include <llvm/ADT/STLExtras.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -1038,13 +1038,9 @@ private:
       return false;
     }
 
-    auto paddingElems = padding.asArrayRef();
-    auto first = paddingElems[0];
-
     // Check for splat padding (all zeroes expected).
-    if (llvm::all_of(paddingElems,
-                     [first](int value) { return value == first; })) {
-      if (first != 0) {
+    if (llvm::all_equal(padding)) {
+      if (padding[0] != 0) {
         return false;
       }
       if (!llvm::all_of(windowDimensions,
@@ -1081,7 +1077,6 @@ private:
                                int64_t &dimension) const {
     int64_t dimArgValue = -1;
     int64_t idx = -1;
-    auto paddingValues = padding.asArrayRef();
 
     // Determine dimension attribute.
     for (int64_t windowDim : windowDimensions) {
@@ -1103,10 +1098,10 @@ private:
 
     for (int64_t i = 0; i < padding.size(); ++i) {
       if (i == (dimension * 2)) {
-        if (paddingValues[i] != (dimArgValue - 1)) {
+        if (padding[i] != (dimArgValue - 1)) {
           return false;
         }
-      } else if (paddingValues[i] != 0) {
+      } else if (padding[i] != 0) {
         return false;
       }
     }
