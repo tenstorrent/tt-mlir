@@ -613,10 +613,10 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   // TODO (azecevic): Add ShardSpec once it's modeled in the `MemoryConfigAttr`.
   std::string buf;
   llvm::raw_string_ostream rso(buf);
-  rso << "::ttnn::MemoryConfig(";
-  rso << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << convert(attr.getBufferType());
-  rso << ")";
+  rso << "::ttnn::MemoryConfig{";
+  rso << ".memory_layout = " << convert(attr.getTensorMemoryLayout()) << ", ";
+  rso << ".buffer_type = " << convert(attr.getBufferType());
+  rso << "}";
   return buf;
 }
 
@@ -792,6 +792,17 @@ public:
     return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, opConversionPattern.convertOpName(op),
         rewriter.getArrayAttr(args), nullptr, operands);
+  }
+
+  mlir::Attribute memoryConfig(mlir::RankedTensorType tensorType) {
+    auto layout =
+        mlir::cast<tt::ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+    auto memoryConfig = tt::ttnn::MemoryConfigAttr::get(
+        rewriter.getContext(),
+        tt::ttnn::BufferTypeAttr::get(rewriter.getContext(),
+                                      layout.getBufferType()),
+        nullptr, layout.getMemLayout());
+    return rewriter.getType<emitc::OpaqueAttr>(convert(memoryConfig));
   }
 
 private:

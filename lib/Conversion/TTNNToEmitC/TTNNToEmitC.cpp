@@ -527,7 +527,9 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(std::nullopt),
+        /*conv_config=*/emitter.emit(std::nullopt),
+        /*compute_config=*/emitter.emit(std::nullopt),
+        /*memory_config=*/emitter.memoryConfig(srcOp.getResult().getType()),
     };
 
     emitter.replaceOp(*this, args);
@@ -555,7 +557,8 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit<std::vector<int32_t>>(srcOp.getShape()),
-        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.memoryConfig(srcOp.getResult().getType()),
     };
 
     emitter.replaceOp(*this, args);
