@@ -44,11 +44,12 @@ std::vector<WrappedTensor> packTensors(
     for (size_t j = 0; j < rank; ++j) {
       sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
-    std::vector<int64_t> strides = tt::runtime::utils::calculateStride(sizes);
+    std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
     allSizesAndStrides.emplace_back(2 * rank);
     std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
-    std::copy(strides.begin(), strides.end(),
-              allSizesAndStrides.back().begin() + rank);
+    std::transform(strides.begin(), strides.end(),
+                   allSizesAndStrides.back().begin() + rank,
+                   [](uint32_t s) -> int64_t { return s; });
 
     float *rawDataPtr = static_cast<float *>(get_raw_host_data_ptr(tens));
     packedTensors.emplace_back(rawDataPtr, rawDataPtr, 0,
