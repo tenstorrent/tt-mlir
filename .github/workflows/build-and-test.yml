@@ -49,8 +49,8 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_async: ON, name: "speedy", ttrt_flags: ""},
-          {runs-on: n150, enable_perf: ON,  enable_emitc: ON, name: "tracy", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_async: ON, name: "speedy", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: ON,  enable_emitc: ON, name: "tracy", ttrt_flags: ""},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
@@ -123,7 +123,7 @@ jobs:
         build: [
             {runs-on: n150,   name: "run",  build_name: "run",            image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
             {runs-on: n150,   name: "perf", build_name: "perf",           image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150,   name: "run",  build_name: "emitc",          image: "speedy", type: "ttrt", path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+            {runs-on: n150,   name: "run",  build_name: "emitc",          image: "tracy",  type: "ttrt", path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
             {runs-on: n150,   name: "run",  build_name: "async",          image: "speedy", type: "ttrt", path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
             {runs-on: n150,   name: "run",  build_name: "runtime_debug",  image: "tracy",  type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
             {runs-on: n150,   name: "run",  build_name: "op_model",       image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
