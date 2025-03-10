@@ -206,7 +206,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
-    static tt::SystemDescAttr getDefault(MLIRContext *context);
+    static tt::SystemDescAttr getDefault(MLIRContext *context, const llvm::SmallVector<int64_t> &meshShape = {1});
     static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
     unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const;
