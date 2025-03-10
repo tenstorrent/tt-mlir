@@ -3,7 +3,7 @@ include(ExternalProject)
 set(TT_EXPLORER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/run.py)
 set(TTMLIR_BUILD_BIN_DIR ${TTMLIR_BINARY_DIR}/bin)
 
-set(MODEL_EXPLORER_VERSION "5be0dda742f81a7dcc8aeec90afd40198cc686a2")
+set(MODEL_EXPLORER_VERSION "main")
 ExternalProject_Add(
   model-explorer
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer
@@ -17,9 +17,9 @@ ExternalProject_Add(
 
 set(PIP_EDITABLE_FLAG "")
 
-if (TT_EXPLORER_EDITABLE)
+#if (TT_EXPLORER_EDITABLE)
   set(PIP_EDITABLE_FLAG "-e")
-endif()
+#endif()
 
 add_custom_target(explorer
   COMMENT "Building tt-explorer... ${TTMLIR_BIN_DIR}"
