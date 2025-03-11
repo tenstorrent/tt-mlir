@@ -638,9 +638,25 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
                 # Store the full result here, just need to parse the loc accordingly
                 loc_to_accuracy[loc] = res
 
+    module_op = OpHandler(module.operation)
+    module_attrs = module_op.get_attributes()
+    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+
+    # Add module attributes to the graph as "namespace attributes"
+    if not graph.groupNodeAttributes:
+        graph.groupNodeAttributes = {}
+
+    # Add this module's namespace attributes
+    namespace = module_op.get_namespace()
+    if namespace not in graph.groupNodeAttributes:
+        graph.groupNodeAttributes[namespace] = module_attrs
+    else:
+        # Merge with existing attributes if namespace already exists
+        graph.groupNodeAttributes[namespace].update(module_attrs)
+
     # Process the module hierarchy recursively
-    process_module(
-        module,
+    process_operations(
+        module.body.operations,
         graph,
         op_to_graph_node,
         operands_in_graph,
@@ -684,64 +700,6 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
 
     OpHandler.schedule = 0
     return graph, overlays
-
-
-def process_module(
-    module,
-    graph,
-    op_to_graph_node,
-    operands_in_graph,
-    output_connections,
-    loc_to_perf,
-    loc_to_accuracy,
-    perf_node_data,
-    memory_data,
-    accuracy_node_data,
-):
-    """
-    Process a module's operations.  Only works on top-level module, any nested modules won't have a body so they need to directly call process_operations instead.
-
-    Args:
-        module: The module to process
-        graph: The graph being built
-        op_to_graph_node: Mapping from operations to graph nodes
-        operands_in_graph: Set of operands already added to graph
-        output_connections: Tracking of output connections
-        loc_to_perf: Mapping from locations to performance data
-        loc_to_accuracy: Locs to Golden Results
-        perf_node_data: Performance data for nodes
-        memory_data: Memory usage for nodes
-        accuracy_node_data: Acccuracy Node Data
-    """
-    module_op = OpHandler(module.operation)
-    module_attrs = module_op.get_attributes()
-    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
-
-    # Add module attributes to the graph as "namespace attributes"
-    if not graph.groupNodeAttributes:
-        graph.groupNodeAttributes = {}
-
-    # Add this module's namespace attributes
-    namespace = module_op.get_namespace()
-    if namespace not in graph.groupNodeAttributes:
-        graph.groupNodeAttributes[namespace] = module_attrs
-    else:
-        # Merge with existing attributes if namespace already exists
-        graph.groupNodeAttributes[namespace].update(module_attrs)
-
-    # Process operations in this module
-    process_operations(
-        module.body.operations,
-        graph,
-        op_to_graph_node,
-        operands_in_graph,
-        output_connections,
-        loc_to_perf,
-        loc_to_accuracy,
-        perf_node_data,
-        memory_data,
-        accuracy_node_data,
-    )
 
 
 def process_operations(
@@ -861,7 +819,7 @@ def process_operations(
                 )
             )
 
-        if not op.name == "func.func":
+        if not op.operation.name == "func.func":
             graph_node = operation.make_graph_node(extra_attrs)
 
             if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
@@ -891,7 +849,7 @@ def process_operations(
     # Second pass: create all edges
     for op in operations:
         # Skip module + func operations as they've been processed recursively
-        if is_module_op(op) or op.name == "func.func":
+        if is_module_op(op):
             continue
 
         # Process regions in the operation
@@ -979,4 +937,6 @@ def is_module_op(op):
         bool: True if the operation is a module, False otherwise
     """
     # Check for tt.device_module or builtin.module operations
-    return op.name == "tt.device_module" or op.name == "builtin.module"
+    return (
+        op.operation.name == "tt.device_module" or op.operation.name == "builtin.module"
+    )
