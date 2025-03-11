@@ -236,7 +236,10 @@ void populateTTNNModule(nb::module_ &m) {
                    })
       // TODO(vkovacevic): parse core_grid
       .def_prop_ro("core_grid",
-                   [](tt::ttnn::Conv2dConfigAttr self) { return nb::none(); })
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     assert(!self.getCoreGrid());
+                     return nb::none();
+                   })
       .def_prop_ro("transpose_shards",
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return self.getTransposeShards().getValue();

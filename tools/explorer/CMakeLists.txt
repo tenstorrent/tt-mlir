@@ -18,9 +18,9 @@ ExternalProject_Add(
 
 set(PIP_EDITABLE_FLAG "")
 
-#if (TT_EXPLORER_EDITABLE)
+if (TT_EXPLORER_EDITABLE)
   set(PIP_EDITABLE_FLAG "-e")
-#endif()
+endif()
 
 set(EXPLORER_REQ_FLAGS
   TT_RUNTIME_DEBUG

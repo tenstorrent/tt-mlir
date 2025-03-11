@@ -496,15 +496,18 @@ def parse_conv2d_config(attr):
             },
         )
     )
+    activation = str(conv2d_config.activation)
+    if len(activation) == 0:
+        activation = "none"
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="activation",
-                value=conv2d_config.activation,
+                value=activation,
             ),
             editable={
                 "input_type": "value_list",
-                "options": ["relu"],
+                "options": ["relu", "none"],
             },
         )
     )
@@ -515,8 +518,9 @@ def parse_conv2d_config(attr):
                 value=str(conv2d_config.input_channels_alignment),
             ),
             editable={
-                "input_type": "value_list",
-                "options": ["32", "16"],
+                "input_type": "int_list",
+                "min_value": 0,
+                "step": 8,
             },
         )
     )
@@ -553,7 +557,6 @@ def parse_conv2d_config(attr):
             editable={
                 "input_type": "int_list",
                 "min_value": 0,
-                "max_value": 100 * 32,
                 "step": 32,
             },
         )
@@ -564,7 +567,7 @@ def parse_conv2d_config(attr):
                 key="act_block_w_div",
                 value=str(conv2d_config.act_block_w_div),
             ),
-            editable={"input_type": "int_list", "min_value": 0, "step": 1},
+            editable={"input_type": "int_list", "min_value": 1, "step": 1},
         )
     )
     result.append(
@@ -601,6 +604,12 @@ def parse_conv2d_config(attr):
                 "input_type": "value_list",
                 "options": [str(o) for o in ttnn.TensorMemoryLayout],
             },
+        )
+    )
+    result.append(
+        graph_builder.KeyValue(
+            key="core_grid",
+            value=str(conv2d_config.core_grid),
         )
     )
     result.append(
