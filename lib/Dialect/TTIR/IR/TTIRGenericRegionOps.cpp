@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 
+#include "ttmlir/Utils.h"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"
 
@@ -115,6 +117,16 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
   }
 
   return success();
+}
+
+int64_t mlir::tt::ttir::DMAOp::getNumElems() {
+  if (getOptNumElems()) {
+    return *getOptNumElems();
+  }
+
+  ArrayRef<int64_t> txShape =
+      getSrcMemRefType().getShape().drop_front(getSrcIndices().size());
+  return ttmlir::utils::volume(txShape);
 }
 
 void mlir::tt::ttir::DMAOp::getAsmResultNames(
