@@ -7,8 +7,9 @@
 import inspect
 import torch
 
-from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
-from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute
+from ttmlir.test_utils import compile_to_flatbuffer
+from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
+from ttmlir.dialects import ttir
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection
 """
@@ -501,6 +502,24 @@ def test_arbitrary_op_chain(
     add = builder.add(in0, in1)
     exp = builder.exp(in2)
     return builder.multiply(add, exp)
+
+
+@compile_to_flatbuffer(
+    [
+        (64, 128),
+        (64, 128),
+    ],
+    targets=["ttnn"],
+)
+def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    # Use op_proxy directly since it accepts ttir_kwargs
+    return builder.op_proxy(
+        torch.add,
+        ttir.AddOp,
+        [in0, in1],
+        unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
+        use_zeros=True,
+    )
 
 
 if __name__ == "__main__":
