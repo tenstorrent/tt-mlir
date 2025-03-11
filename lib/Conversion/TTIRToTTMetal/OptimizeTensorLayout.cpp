@@ -65,7 +65,6 @@ RankedTensorType calculateOptimalLayoutForTensorType(PatternRewriter &rewriter,
 namespace {
 struct TTIRGenericTensorLayoutRewriter
     : public OpRewritePattern<ttir::GenericOp> {
-public:
   using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
@@ -101,7 +100,6 @@ public:
 
 namespace {
 struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
-public:
   using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
@@ -137,7 +135,6 @@ public:
 namespace {
 struct TTIRFuncOperandsTensorLayoutRewriter
     : public OpRewritePattern<func::FuncOp> {
-public:
   using OpRewritePattern<func::FuncOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(func::FuncOp op,
@@ -177,7 +174,6 @@ public:
 namespace {
 struct TTIRFuncReturnTensorLayoutRewriter
     : public OpRewritePattern<func::ReturnOp> {
-public:
   using OpRewritePattern<func::ReturnOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(func::ReturnOp op,
