@@ -187,16 +187,17 @@ def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
 
     let arguments = (ins AnyNon0RankedMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
                          AnyNon0RankedMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
-                         Optional<Index>:$numElems, Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
+                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
-    let assemblyFormat = [{ $src ($srcAffineMap^)? (`[` $srcIndices^ `]`)? `,` $dst ($dstAffineMap^)? (`[` $dstIndices^ `]`)? (`,` $numElems^)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src ($srcAffineMap^)? (`[` $srcIndices^ `]`)? `,` $dst ($dstAffineMap^)? (`[` $dstIndices^ `]`)? (`,` $optNumElems^)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      int64_t getNumElems();
       bool isSrcLocal() {
         Block *block = getSrc().getParentBlock();
         Block::BlockArgListType blockArgs = block->getArguments();
@@ -213,6 +214,11 @@ def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
       bool isDstRemote() { return !isDstLocal(); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return getSrcAffineMap() || getDstAffineMap(); }
+      bool isFullyIndexed() {
+        return static_cast<int64_t>(getSrcIndices().size()) == getSrcMemRefType().getRank() &&
+               static_cast<int64_t>(getDstIndices().size()) == getDstMemRefType().getRank() &&
+               getOptNumElems();;
+      }
     }];
 }
 
