@@ -363,6 +363,19 @@ TEST_F(OpModelTest, ToLayout) {
       tensorShape, layoutDRAMTiled, std::nullopt, layoutL1RowMajorHS, true);
   EXPECT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
+
+  constraintsExp = ToLayoutOpInterface::getOpConstraints(
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  EXPECT_EQ(cb_size, 262144);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  runtimeExp = ToLayoutOpInterface::getOpRuntime(
+      tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
 TEST_F(OpModelTest, Transpose) {
