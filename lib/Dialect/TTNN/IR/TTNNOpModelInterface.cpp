@@ -262,6 +262,45 @@ TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ToLayoutOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+  assert(output.getLayout() == getLayout());
+
+  const auto inputShape = getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  auto deviceOperand = getDevice();
+  const bool passDevicePtr = !deviceOperand;
+
+  return op_model::ttnn::ToLayoutOpInterface::getOpConstraints(
+      inputShape, inputs[0], getDtype(), output, passDevicePtr);
+}
+
+llvm::Expected<size_t>
+ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+  assert(output.getLayout() == getLayout());
+
+  const auto inputShape = getInput().getType().getShape();
+
+  auto deviceOperand = getDevice();
+  const bool passDevicePtr = !deviceOperand;
+
+  return op_model::ttnn::ToLayoutOpInterface::getOpRuntime(
+      inputShape, inputs[0], getDtype(), output, passDevicePtr);
+}
+
+//===----------------------------------------------------------------------===//
 // TransposeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

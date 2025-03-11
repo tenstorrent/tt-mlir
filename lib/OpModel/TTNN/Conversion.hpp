@@ -24,6 +24,8 @@ getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 ::tt::tt_metal::Layout
 getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
+::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::Layout layout);
+
 ::tt::tt_metal::CoreRangeSet
 getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 

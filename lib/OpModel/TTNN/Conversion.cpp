@@ -75,6 +75,17 @@ getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
                           : ::tt::tt_metal::Layout::ROW_MAJOR;
 }
 
+::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::Layout layout) {
+  switch (layout) {
+  case ::mlir::tt::ttnn::Layout::RowMajor:
+    return ::tt::tt_metal::Layout::ROW_MAJOR;
+  case ::mlir::tt::ttnn::Layout::Tile:
+    return ::tt::tt_metal::Layout::TILE;
+  case ::mlir::tt::ttnn::Layout::Invalid:
+    return ::tt::tt_metal::Layout::INVALID;
+  }
+}
+
 ::tt::tt_metal::CoreRangeSet
 getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;

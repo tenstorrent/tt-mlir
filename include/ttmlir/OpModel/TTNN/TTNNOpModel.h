@@ -141,6 +141,26 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }; // namespace TypecastOpInterface
 
 //===----------------------------------------------------------------------===//
+// ToLayoutOp
+//===----------------------------------------------------------------------===//
+
+namespace ToLayoutOpInterface {
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 std::optional<mlir::tt::DataType> outputDtype,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                 bool passDevicePtr);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             std::optional<mlir::tt::DataType> outputDtype,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr);
+
+}; // namespace ToLayoutOpInterface
+
+//===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
 
