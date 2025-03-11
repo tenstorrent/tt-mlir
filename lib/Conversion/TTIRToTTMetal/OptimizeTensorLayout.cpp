@@ -13,7 +13,7 @@
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRTENSORLAYOUT
+#define GEN_PASS_DEF_TTIROPTIMIZETENSORLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
@@ -201,9 +201,11 @@ public:
 };
 } // namespace
 
-class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
+class TTIROptimizeTensorLayout
+    : public impl::TTIROptimizeTensorLayoutBase<TTIROptimizeTensorLayout> {
 
-  using impl::TTIRTensorLayoutBase<TTIRTensorLayout>::TTIRTensorLayoutBase;
+  using impl::TTIROptimizeTensorLayoutBase<
+      TTIROptimizeTensorLayout>::TTIROptimizeTensorLayoutBase;
 
   void runOnOperation() final {
     {
