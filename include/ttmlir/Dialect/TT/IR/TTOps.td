@@ -139,4 +139,48 @@ def TT_DeviceOp : TT_Op<"device", [Symbol]> {
   let assemblyFormat = "$sym_name `=` $device_attr attr-dict";
 }
 
+def TT_LoadCachedOp : TT_Op<"load_cached", [
+    DeclareOpInterfaceMethods<CallOpInterface>
+]> {
+  let summary = "Load cached results from a previously computed function";
+  let description = [{
+    The load_cached operation calls a precomputed function with given arguments
+    and returns its results. This is typically used to load constant or hoisted
+    computation results.
+
+    Example:
+    ```mlir
+    %0, %1, %2 = "tt.load_cached"(@forward_const_eval_1, [%arg0, %arg2])
+    ```
+  }];
+
+  let arguments = (ins
+    FlatSymbolRefAttr:$callee,
+    Variadic<AnyType>:$inputs
+  );
+
+  let results = (outs
+    Variadic<AnyType>:$results
+  );
+
+  let assemblyFormat = [{
+    `(` $callee `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $results)
+  }];
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    // CallOpInterface method implementations
+    StringAttr getCallableForCallee() { return getCalleeAttr(); }
+
+    // Set the callee name
+    void setCalleeFromCallable(CallInterfaceCallable callable) {
+      setCalleeAttr(cast<FlatSymbolRefAttr>(callable));
+    }
+
+    // Get the argument operands passed to the called function
+    ArrayRef<Value> getArgOperands() { return getInputs(); }
+  }];
+}
+
 #endif
