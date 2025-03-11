@@ -10,7 +10,7 @@
 namespace tt::runtime::workaround {
 
 struct Env {
-#if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static const Env &
 #else
   constexpr static Env
@@ -19,7 +19,7 @@ struct Env {
       bool readUpdateIndexFromDeviceForKVCache = true,
       bool toLayoutAPIAssumeSingleChip = true,
       bool manualDeviceStorageFromBorrowedStorage = true)
-#if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
   {
