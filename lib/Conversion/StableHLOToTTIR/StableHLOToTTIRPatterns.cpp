@@ -40,6 +40,77 @@
 using namespace mlir;
 using namespace mlir::tt;
 
+// Typical initialization values for reduction ops.
+enum TypicalInitReductionValue {
+  NEG_INF, // It is also used for minimum integer value.
+  ZERO,
+};
+
+// Check if the constant op is initialized with the desired init value.
+static bool checkInitValue(stablehlo::ConstantOp initValueOp,
+                           TypicalInitReductionValue desired) {
+  if (initValueOp.getValueAttr().size() != 1) {
+    return false;
+  }
+
+  float desiredF32;
+  double desiredF64;
+  uint16_t desiredBF16;
+  int32_t desiredI32;
+  int64_t desiredI64;
+  bool desiredI1;
+  if (desired == TypicalInitReductionValue::NEG_INF) {
+    desiredF32 = -std::numeric_limits<float>::infinity();
+    desiredF64 = -std::numeric_limits<double>::infinity();
+    desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
+    desiredI32 = std::numeric_limits<int32_t>::min();
+    desiredI64 = std::numeric_limits<int64_t>::min();
+    desiredI1 = false;
+  } else if (desired == TypicalInitReductionValue::ZERO) {
+    desiredF32 = 0.0;
+    desiredF64 = 0.0;
+    desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
+    desiredI32 = 0;
+    desiredI64 = 0;
+    desiredI1 = false;
+  } else {
+    return false;
+  }
+
+  // Comparing actual bits in case of bfloat16.
+  if (initValueOp.getResult().getType().getElementType().isBF16()) {
+    // Collect the values into a vector
+    std::vector<mlir::Attribute> values;
+    for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
+      values.push_back(
+          initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
+    }
+
+    auto denseValues = ::mlir::DenseElementsAttr::get(
+        initValueOp.getValueAttr().getShapedType(), values);
+    uint16_t bfloatBits =
+        static_cast<uint16_t>(*denseValues.getRawData().data());
+    return bfloatBits == desiredBF16;
+  }
+  if (initValueOp.getResult().getType().getElementType().isF32()) {
+    return *initValueOp.getValue().value_begin<float>() == desiredF32;
+  }
+  if (initValueOp.getResult().getType().getElementType().isF64()) {
+    return *initValueOp.getValue().value_begin<double>() == desiredF64;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(32)) {
+    return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(64)) {
+    return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
+    return *initValueOp.getValue().value_begin<bool>() == desiredI1;
+  }
+
+  return false;
+}
+
 namespace {
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
@@ -113,12 +184,6 @@ public:
   }
 
 private:
-  // Typical initialization values for reduction ops.
-  enum TypicalInitReductionValue {
-    NEG_INF, // It is also used for minimum integer value.
-    ZERO,
-  };
-
   LogicalResult checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp,
                                    mlir::stablehlo::ReduceOp::Adaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
@@ -428,75 +493,6 @@ private:
     if (!checkInitValue(initValueOp, desired)) {
       return false;
     }
-    return true;
-  }
-
-  // Check if the constant op is initialized with the desired init value.
-  bool checkInitValue(stablehlo::ConstantOp initValueOp,
-                      TypicalInitReductionValue desired) const {
-    if (initValueOp.getValueAttr().size() != 1) {
-      return false;
-    }
-
-    float desiredF32;
-    double desiredF64;
-    uint16_t desiredBF16;
-    int32_t desiredI32;
-    int64_t desiredI64;
-    bool desiredI1;
-    if (desired == TypicalInitReductionValue::NEG_INF) {
-      desiredF32 = -std::numeric_limits<float>::infinity();
-      desiredF64 = -std::numeric_limits<double>::infinity();
-      desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
-      desiredI32 = std::numeric_limits<int32_t>::min();
-      desiredI64 = std::numeric_limits<int64_t>::min();
-      desiredI1 = false;
-    } else if (desired == TypicalInitReductionValue::ZERO) {
-      desiredF32 = 0.0;
-      desiredF64 = 0.0;
-      desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
-      desiredI32 = 0;
-      desiredI64 = 0;
-      desiredI1 = false;
-    } else {
-      return false;
-    }
-
-    // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we actually have I must compare the raw
-    // bits
-    if (initValueOp.getResult().getType().getElementType().isBF16()) {
-      // Collect the values into a vector
-      std::vector<mlir::Attribute> values;
-      for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
-        values.push_back(
-            initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
-      }
-
-      auto denseValues = ::mlir::DenseElementsAttr::get(
-          initValueOp.getValueAttr().getShapedType(), values);
-      uint16_t bfloat_bits =
-          static_cast<uint16_t>(*denseValues.getRawData().data());
-      if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF32()) {
-      return *initValueOp.getValue().value_begin<float>() == desiredF32;
-    } else if (initValueOp.getResult().getType().getElementType().isF64()) {
-      return *initValueOp.getValue().value_begin<double>() == desiredF64;
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   32)) {
-      return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   64)) {
-      return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   1)) {
-      return *initValueOp.getValue().value_begin<bool>() == desiredI1;
-    } else {
-      return false;
-    }
-
     return true;
   }
 };
@@ -1104,83 +1100,6 @@ private:
       } else if (padding[i] != 0) {
         return false;
       }
-    }
-
-    return true;
-  }
-
-  enum TypicalInitReductionValue {
-    NEG_INF, // used for max pooling
-    ZERO,    // used for sum pooling
-  };
-
-  // Using the value enum rather than actual values because of different data
-  // types the init value could be
-  bool checkInitValue(stablehlo::ConstantOp initValueOp,
-                      TypicalInitReductionValue desired) const {
-    if (initValueOp.getValueAttr().size() != 1) {
-      return false;
-    }
-
-    float desiredF32;
-    double desiredF64;
-    uint16_t desiredBF16;
-    int32_t desiredI32;
-    int64_t desiredI64;
-    if (desired == TypicalInitReductionValue::NEG_INF) {
-      desiredF32 = -std::numeric_limits<float>::infinity();
-      desiredF64 = -std::numeric_limits<double>::infinity();
-      desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
-      desiredI32 = std::numeric_limits<int32_t>::min();
-      desiredI64 = std::numeric_limits<int64_t>::min();
-    } else if (desired == TypicalInitReductionValue::ZERO) {
-      desiredF32 = 0.0;
-      desiredF64 = 0.0;
-      desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
-      desiredI32 = 0;
-      desiredI64 = 0;
-    } else {
-      return false;
-    }
-
-    // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we actually have I must compare the raw
-    // bits
-    if (initValueOp.getResult().getType().getElementType().isBF16()) {
-      // Collect the values into a vector
-      std::vector<mlir::Attribute> values;
-      for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
-        values.push_back(
-            initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
-      }
-
-      auto denseValues = ::mlir::DenseElementsAttr::get(
-          initValueOp.getValueAttr().getShapedType(), values);
-      uint16_t bfloat_bits =
-          static_cast<uint16_t>(*denseValues.getRawData().data());
-      if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF32()) {
-      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF64()) {
-      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   32)) {
-      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   64)) {
-      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
-        return false;
-      }
-    } else {
-      return false;
     }
 
     return true;
