@@ -49,8 +49,8 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_async: ON, enable_op_model: ON, enable_emitc: ON, name: "speedy", ttrt_flags: ""},
-          {runs-on: builder, enable_perf: ON,  enable_emitc: ON, name: "tracy", ttrt_flags: ""},
+          {runs-on: [builder,ubuntu-latest], enable_op_model: ON, enable_emitc: ON, name: "speedy"},
+          {runs-on: [builder,ubuntu-latest], enable_perf: ON, enable_emitc: ON, enable_explorer: ON, name: "tracy"},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
@@ -93,7 +93,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-emitc-${{ matrix.build.enable_emitc }}-async-${{ matrix.build.enable_async }}-runtime_debug-${{ matrix.build.enable_runtime_debug}}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.name }}-${{ env.SDK_VERSION }}
 
     - name: Run build and test tt-mlir
       uses: ./.github/actions/build-tt-mlir-action
@@ -101,7 +101,7 @@ jobs:
         enable-perf: ${{ matrix.build.enable_perf }}
         enable-op-model: ${{ matrix.build.enable_op_model }}
         enable-emitc: ${{ matrix.build.enable_emitc }}
-        enable-async: ${{ matrix.build.enable_async }}
+        enable-explorer: ${{ matrix.build.enable_explorer }}
         enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
@@ -121,22 +121,24 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-            {runs-on: n150,   name: "run",  build_name: "run",            image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150,   name: "perf", build_name: "perf",           image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150,   name: "run",  build_name: "emitc",          image: "tracy",  type: "ttrt", path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150,   name: "run",  build_name: "async",          image: "speedy", type: "ttrt", path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150,   name: "run",  build_name: "runtime_debug",  image: "tracy",  type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150,   name: "run",  build_name: "op_model",       image: "speedy", type: "op_m", path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n300,   name: "run",  build_name: "run",            image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n300,   name: "perf", build_name: "perf",           image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
-            # {runs-on: llmbox, name: "run",  build_name: "run",            image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-            # {runs-on: llmbox, name: "perf", build_name: "perf",           image: "tracy",  type: "ttrt", path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-            # {runs-on: tg,     name: "run",  build_name: "run",            image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-            # {runs-on: tg,     name: "perf", build_name: "perf",           image: "tracy",  type: "ttrt", path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-            {runs-on: n150,   name: "perf", build_name: "perf",           image: "tracy",  type: "pytest", path: "tools/python/test", container-options: "--device /dev/tenstorrent/0"},
-            {runs-on: n150,   name: "run",  build_name: "run",            image: "speedy", type: "pytest", path: "/test/python/ttnn/test_runtime_api.py", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "unit",          image: "speedy", type: "unit", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "unit",          image: "tracy",  type: "unit", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "emitc",         image: "tracy",  type: "ttrt", path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "async",         image: "speedy", type: "ttrt", path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "runtime_debug", image: "tracy",  type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
+          # {runs-on: llmbox, name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: llmbox, name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: tg,     name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: tg,     name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: n150,   name: "perf", suite: "perf",          image: "tracy",  type: "pytest", path: "runtime/tools/python/test", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "run",           image: "speedy", type: "pytest", path: "runtime/test/python/ttnn/test_runtime_api.py", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "perf", suite: "explorer",      image: "tracy",  type: "pytest", path: "tools/explorer/test/run_tests.py", container-options: "--device /dev/tenstorrent/0"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.build_name }},${{ matrix.build.type}})"
+    name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type}})"
 
     runs-on:
       - in-service
@@ -161,7 +163,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.build_name }},${{ matrix.build.type}})"
+        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type}})"
 
     - name: Set reusable strings
       id: strings
@@ -178,7 +180,7 @@ jobs:
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
-    - name: Use build artifacts
+    - name: Use install artifacts
       uses: actions/download-artifact@v4
       with:
         name: install-artifacts-${{ matrix.build.image }}
@@ -211,6 +213,19 @@ jobs:
           pip install pytest
         fi
 
+    - name: Download Build Artifacts
+      uses: actions/download-artifact@v4
+      if: ${{ matrix.build.type }}" == "unit" || ${{ matrix.build.suite }}" == "explorer"
+      with:
+        name: build-artifacts-${{ matrix.build.image }}
+        path: ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: 'Untar build directory'
+      if: ${{ matrix.build.type }}" == "unit" || ${{ matrix.build.suite }}" == "explorer"
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: tar xvf artifact.tar
+
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
       shell: bash
@@ -233,7 +248,7 @@ jobs:
 
     - name: Generate EmitC tests
       shell: bash
-      if: matrix.build.build_name == 'emitc'
+      if: matrix.build.suite == 'emitc'
       run: |
         source env/activate
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
@@ -241,9 +256,28 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
 
+    # Unit test runner
+    - name: Run unit tests
+      shell: bash
+      if: matrix.build.type == 'unit'
+      run: |
+        source env/activate
+        if [ -f "${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
+          export SYSTEM_DESC_PATH="${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
+        fi
+        cmake --build ${{ steps.strings.outputs.work-dir.build-output-dir }} -- check-ttmlir
+        cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
+
+        # op-model tests -- ???is this needed??? -- need to check
+        if [ "${{ matrix.build.image }}" == "speedy" ]; then
+          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
+          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
+        fi
+
     # TTRT test runner
     - name: Run TTRT tests
-      if: matrix.build.type == 'ttrt' || matrix.build.type == 'op_m'
+      if: matrix.build.type == 'ttrt'
       shell: bash
       run: |
         source env/activate
@@ -259,21 +293,9 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        pytest -ssv runtime/${{ matrix.build.path }} \
-        --junit-xml=${{ steps.strings.outputs.test_report_path }}
-
-    # op-model tests
-    - name: Run OpModelInterface Tests
-      shell: bash
-      if: matrix.build.type == 'op_m'
-      run: |
-        source env/activate
-        if [ -f "${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
-          export SYSTEM_DESC_PATH="${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
-        fi
-        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
-        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
-        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
+        export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
+        export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
+        pytest -ssv ${{ matrix.build.path }} --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
     - name: Collect and Upload Perf Reports
       if: matrix.build.name == 'perf'
@@ -281,20 +303,20 @@ jobs:
       with:
         reports_dir: ttrt-artifacts
         perf_report_path: ${{ steps.strings.outputs.perf_report_path }}
-        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.build_name }}
+        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}
 
     - name: Upload ttrt test report json
       if: (success() || failure()) && matrix.build.type == 'ttrt'
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.build_name }}_results.json
-        path: ${{ matrix.build.build_name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}_results.json
+        path: ${{ matrix.build.suite }}_results.json
 
     - name: Upload Test Report xml
       uses: actions/upload-artifact@v4
       if: success() || failure()
       with:
-        name: test-reports-${{ matrix.build.type }}-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ matrix.build.build_name }}-${{ steps.fetch-job-id.outputs.job_id }}
+        name: test-reports-${{ matrix.build.type }}-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ matrix.build.suite }}-${{ steps.fetch-job-id.outputs.job_id }}
         path: ${{ steps.strings.outputs.test_report_path }}
 
     - name: Show Test Report
@@ -302,102 +324,8 @@ jobs:
       if: success() || failure()
       with:
         report_paths: ${{ steps.strings.outputs.test_report_path }}
-        check_name: ${{ matrix.build.type }} ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ matrix.build.build_name }} Tests
+        check_name: ${{ matrix.build.type }} ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ matrix.build.suite }} Tests
 
-
-  build-and-test-explorer:
-    needs:
-      - build-image
-      - build-ttmlir
-    timeout-minutes: 120
-    # Force upload of artifacts
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        build: [
-          {runs-on: n150, enable_perf: ON, enable_runtime_debug: ON, enable_op_model: ON, image: "tracy"},
-        ]
-
-    name: Build and test tt-explorer
-    runs-on: ${{ matrix.build.runs-on }}
-
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
-      options: --device /dev/tenstorrent/0
-      volumes:
-        - /dev/hugepages:/dev/hugepages
-        - /dev/hugepages-1G:/dev/hugepages-1G
-        - /etc/udev/rules.d:/etc/udev/rules.d
-        - /lib/modules:/lib/modules
-        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
-
-    steps:
-
-    - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0
-
-    - name: Set reusable strings
-      id: strings
-      shell: bash
-      run: |
-        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-
-    - name: Git safe dir
-      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
-
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ env.SDK_VERSION }}
-
-    - name: Download Build Artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: build-artifacts-${{ matrix.build.image }}
-        path: ${{ steps.strings.outputs.build-output-dir }}
-
-    - name: 'Untar build directory'
-      shell: bash
-      working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: tar xvf artifact.tar
-
-    - name: Configure CMake
-      shell: bash
-      run: |
-        source env/activate
-        cmake -G Ninja \
-        -B ${{ steps.strings.outputs.build-output-dir }} \
-        -DCMAKE_CXX_COMPILER=clang++-17 \
-        -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        -DTTMLIR_ENABLE_RUNTIME=ON \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
-        -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
-        -DTTMLIR_ENABLE_STABLEHLO=ON \
-        -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
-        -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \
-        -S ${{ steps.strings.outputs.work-dir }}
-
-    - name: Build tt-explorer
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
-
-    - name: Run tt-explorer tests
-      shell: bash
-      run: |
-        source env/activate
-        export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        pytest tools/explorer/test/run_tests.py
-        # collect results
 
   lint:
     if: github.event_name == 'pull_request'
@@ -480,13 +408,14 @@ jobs:
     strategy:
       fail-fast: false
     name: Debug Build
-    runs-on: ubuntu-latest
+    runs-on: [builder,ubuntu-latest]
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
 
     - name: Maximize space
+      if: ${{ matrix.build.runs-on }} == 'ubuntu-latest'
       uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
     - uses: actions/checkout@v4
@@ -502,6 +431,12 @@ jobs:
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        create-symlink: true
+        key: debug-${{ env.SDK_VERSION }}
 
     - name: Configure CMake
       shell: bash
