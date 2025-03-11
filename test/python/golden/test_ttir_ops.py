@@ -7,9 +7,9 @@
 import inspect
 import torch
 
-from ttmlir.test_utils import compile_to_flatbuffer
-from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
-from ttmlir.dialects import ttir
+from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
+from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute
+
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection
 """
@@ -88,6 +88,11 @@ def test_cos(in0: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_tan(in0: Operand, builder: TTIRBuilder):
     return builder.tan(in0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_atan(in0: Operand, builder: TTIRBuilder):
+    return builder.atan(in0)
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
@@ -490,6 +495,58 @@ def test_transpose(in0: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
+        (2, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_repeat(in0: Operand, builder: TTIRBuilder):
+    return builder.repeat(in0, [2, 2])
+
+
+@compile_to_flatbuffer(
+    [
+        (2, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_repeat_interleave(in0: Operand, builder: TTIRBuilder):
+    return builder.repeat_interleave(in0, repeats=2, dim=1)
+
+
+@compile_to_flatbuffer(
+    [
+        (32, 32),
+    ],
+    targets=["ttnn"],
+)
+def test_pad(in0: Operand, builder: TTIRBuilder):
+    return builder.pad(in0, padding=[0, 2, 1, 0], value=0)
+
+
+@compile_to_flatbuffer(
+    [
+        (32, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_index(in0: Operand, builder: TTIRBuilder):
+    return builder.index(in0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_zeros(in0: Operand, builder: TTIRBuilder):
+    shapes = [128, 128]
+    return builder.zeros(shapes)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_ones(in0: Operand, builder: TTIRBuilder):
+    shapes = [128, 128]
+    return builder.ones(shapes)
+
+
+@compile_to_flatbuffer(
+    [
         (32, 32),
         (32, 32),
         (32, 32),
@@ -502,24 +559,6 @@ def test_arbitrary_op_chain(
     add = builder.add(in0, in1)
     exp = builder.exp(in2)
     return builder.multiply(add, exp)
-
-
-@compile_to_flatbuffer(
-    [
-        (64, 128),
-        (64, 128),
-    ],
-    targets=["ttnn"],
-)
-def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    # Use op_proxy directly since it accepts ttir_kwargs
-    return builder.op_proxy(
-        torch.add,
-        ttir.AddOp,
-        [in0, in1],
-        unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
-        use_zeros=True,
-    )
 
 
 if __name__ == "__main__":
