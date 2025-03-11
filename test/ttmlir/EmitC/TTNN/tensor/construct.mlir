@@ -1,3 +1,4 @@
+// RUN:
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %s > %basename_t.ttnn
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %s > %t.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t.mlir > %basename_t.cpp

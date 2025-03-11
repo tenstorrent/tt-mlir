@@ -936,14 +936,25 @@ public:
     // 1. Create tt::ttnn::Shape from ShapeAttr
     emitc::CallOpaqueOp shapeOp = tt::ttnn_to_emitc::utils::createShapeOp(
         rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
+    shapeOp.getResult(0).getType().dump();
 
-    // 2. Get volume of the shape
+    // 2. Get a pointer to the member function
     auto volumeTy = emitc::OpaqueType::get(rewriter.getContext(), "uint32_t");
     auto volumeOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), volumeTy, "volume", nullptr, nullptr,
-        ValueRange{shapeOp.getResult(0)});
+        srcOp.getLoc(), volumeTy, "std::invoke", nullptr, nullptr,
+        ValueRange{
+            // Create a member function pointer inline
+            rewriter
+                .create<emitc::CallOpaqueOp>(
+                    srcOp.getLoc(),
+                    emitc::OpaqueType::get(rewriter.getContext(),
+                                           "decltype(&ttnn::Shape::volume)"),
+                    "&ttnn::Shape::volume", nullptr, nullptr, ValueRange{})
+                .getResult(0),
+            // The object instance
+            shapeOp.getResult(0)});
 
-    // 3. Create owned_buffer with proper template based on data type
+    // . Create owned_buffer with proper template based on data type
     auto dtype = srcOp.getDtypeAttr().getValue();
 
     TypeAttr templateTypeAttr;
