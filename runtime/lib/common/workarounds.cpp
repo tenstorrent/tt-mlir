@@ -5,14 +5,14 @@
 #include "tt/runtime/detail/workarounds.h"
 
 namespace tt::runtime::workaround {
-#if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 const Env &Env::get(bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
                     bool toLayoutAPIAssumeSingleChip,
                     bool manualDeviceStorageFromBorrowedStorage) {
   static const Env config(
       swapBinaryOperands, readUpdateIndexFromDeviceForKVCache,
-      toLayoutAPIAssumeSingleChip, bool manualDeviceStorageFromBorrowedStorage);
+      toLayoutAPIAssumeSingleChip, manualDeviceStorageFromBorrowedStorage);
   return config;
 }
 #endif
