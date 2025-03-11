@@ -527,7 +527,9 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(std::nullopt),
+        /*conv2d_config=*/emitter.emit(std::nullopt),
+        /*compute_config=*/emitter.emit(std::nullopt),
+        /*memory_config=*/emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);
@@ -1239,10 +1241,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Pooling ops
   //
+  patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+
+  // Convolution ops
+  //
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<tt::ttnn::ConvTranspose2dOp>>(
       typeConverter, ctx);
-  patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
 
   // Other ops
   //

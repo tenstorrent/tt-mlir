@@ -689,8 +689,7 @@ public:
     }
 
     mlir::OpOperand *opOperand =
-        std::find_if(std::next(op->getOpOperands().begin(), operands.size()),
-                     op->getOpOperands().end(),
+        std::find_if(op->getOpOperands().begin(), op->getOpOperands().end(),
                      [&](OpOperand &operand) { return operand.get() == val; });
 
     unsigned index = opOperand->getOperandNumber();
@@ -766,6 +765,11 @@ public:
   template <typename OpConversionPatternTy>
   emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
                                 llvm::ArrayRef<mlir::Attribute> args) {
+    // Special handling for Conv2dOp and ConvTranspose2dOp. These ops have a
+    // different return type than the other TTNN ops. They return
+    // `std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
+    // std::optional<::ttnn::Tensor>>`, but we want to return only the first
+    // element of the tuple.
     if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv2dOp> ||
                   std::is_same_v<TTNNOp, tt::ttnn::ConvTranspose2dOp>) {
       using ReturnTy =
