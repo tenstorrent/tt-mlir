@@ -18,8 +18,8 @@ namespace mlir::tt::ttir {
 
 namespace {
 GridAttr getOptimalGrid(PatternRewriter &rewriter,
-                               ArrayRef<int64_t> memrefShape,
-                               ArrayRef<int64_t> deviceGridShape) {
+                        ArrayRef<int64_t> memrefShape,
+                        ArrayRef<int64_t> deviceGridShape) {
   std::vector<int64_t> gridShape;
   for (size_t i = 0; i < memrefShape.size(); i++) {
     int64_t dim = memrefShape[i];
@@ -33,9 +33,9 @@ GridAttr getOptimalGrid(PatternRewriter &rewriter,
   return rewriter.getAttr<GridAttr>(gridShape);
 }
 
-RankedTensorType
-calculateOptimalLayoutForTensorType(PatternRewriter &rewriter, Value tensor,
-                                    DeviceAttr &device) {
+RankedTensorType calculateOptimalLayoutForTensorType(PatternRewriter &rewriter,
+                                                     Value tensor,
+                                                     DeviceAttr &device) {
   RankedTensorType resultType = mlir::cast<RankedTensorType>(tensor.getType());
   auto resultEncoding =
       mlir::cast_if_present<MetalLayoutAttr>(resultType.getEncoding());
@@ -106,22 +106,27 @@ public:
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-
-    Block *genericBlock = &op.getRegion().front();
-    assert(genericBlock->getNumArguments() == op->getNumOperands() &&
-           "Number of block arguments should match the number of generic op "
-           "operands");
     bool modified = false;
-    for (size_t i = 0; i < genericBlock->getNumArguments(); i++) {
-      auto arg = genericBlock->getArgument(i);
-      auto operand = mlir::cast<RankedTensorType>(op->getOperand(i).getType());
-      auto operandEncoding = mlir::cast<MetalLayoutAttr>(operand.getEncoding());
-      if (arg.getType() == operandEncoding.getMemref()) {
-        continue;
+    for (auto &region : op->getRegions()) {
+      assert(region.getBlocks().size() == 1 &&
+             "Only one block per region is supported.");
+      Block &genericBlock = region.front();
+      assert(genericBlock.getNumArguments() == op->getNumOperands() &&
+             "Number of block arguments should match the number of generic op "
+             "operands");
+      for (size_t i = 0; i < genericBlock.getNumArguments(); i++) {
+        auto arg = genericBlock.getArgument(i);
+        auto operand =
+            mlir::cast<RankedTensorType>(op->getOperand(i).getType());
+        auto operandEncoding =
+            mlir::cast<MetalLayoutAttr>(operand.getEncoding());
+        if (arg.getType() == operandEncoding.getMemref()) {
+          continue;
+        }
+        modified = true;
+        rewriter.modifyOpInPlace(
+            op, [&]() { arg.setType(operandEncoding.getMemref()); });
       }
-      modified = true;
-      rewriter.modifyOpInPlace(
-          op, [&]() { arg.setType(operandEncoding.getMemref()); });
     }
 
     return modified ? success() : failure();
@@ -162,7 +167,7 @@ public:
       auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
           op->getLoc(), emptyOp.getType(), operand, emptyOp);
       rewriter.replaceAllUsesExcept(
-          operand, toLayoutOp.getResult(),
+          operand, toLayoutOp.getResult(0),
           llvm::SmallPtrSet<Operation *, 2>{op, toLayoutOp});
     }
     return modified ? success() : failure();
@@ -189,13 +194,12 @@ public:
     auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
         op->getLoc(), returnTensorType, op->getOperand(0), emptyOp);
     rewriter.modifyOpInPlace(
-        op, [&]() { op->setOperand(0, toLayoutOp.getResult()); });
+        op, [&]() { op->setOperand(0, toLayoutOp.getResult(0)); });
 
     return success();
   }
 };
 } // namespace
-
 
 class TTIRTensorLayout : public impl::TTIRTensorLayoutBase<TTIRTensorLayout> {
 

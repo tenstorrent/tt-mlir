@@ -17,7 +17,7 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
         grid = #tt.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
-        operandSegmentSizes = array<i32: 2, 0, 1>
+        operandSegmentSizes = array<i32: 2, 1>
         }> ({
         // CHECK: ^bb0(%arg2: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
         // CHECK-SAME: %arg3: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
@@ -57,7 +57,7 @@ func.func @reduce_prime(%arg0: tensor<32x608xf32, #layout1>, %arg1: tensor<32x60
         grid = #tt.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
-        operandSegmentSizes = array<i32: 2, 0, 1>
+        operandSegmentSizes = array<i32: 2, 1>
         }> ({
         // CHECK: ^bb0(%arg2: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
         // CHECK-SAME: %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
