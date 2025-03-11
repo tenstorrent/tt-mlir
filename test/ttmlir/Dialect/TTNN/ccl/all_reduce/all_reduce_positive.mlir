@@ -30,3 +30,33 @@ module attributes {} {
 // CHECK: "ttnn.reduce_scatter"
 // CHECK: "ttnn.all_gather"
 // CHECK-NOT: = "ttnn.reshape"
+
+// Verify op folding for single mesh device communication
+module attributes {} {
+  func.func @all_reduce_positive_with_reshapes_folding(%arg0: tensor<4096x16384xf32>) -> tensor<4096x16384xf32> {
+    %0 = tensor.empty() : tensor<4096x16384xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 0 : ui32, reduce_type = #tt.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<4096x16384xf32>, tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
+    return %1 : tensor<4096x16384xf32>
+  }
+}
+// CHECK-NOT: = "ttnn.reshape"
+// CHECK-NOT: "ttnn.reduce_scatter"
+// CHECK-NOT: "ttnn.all_gather"
+// CHECK-NOT: "ttnn.all_reduce"
+// CHECK-NOT: = "ttnn.reshape"
+
+// -----
+
+// Verify op folding for single mesh device communication
+module attributes {} {
+  func.func @all_reduce_positive_without_reshapes_folding(%arg0: tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32> {
+    %0 = tensor.empty() : tensor<1x1x4096x16384xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{all_gather_dim = 0 : si32, cluster_axis = 0 : ui32, reduce_type = #tt.reduce_type<sum>, scatter_dim = 0 : si32}> : (tensor<1x1x4096x16384xf32>, tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
+    return %1 : tensor<1x1x4096x16384xf32>
+  }
+}
+// CHECK-NOT: = "ttnn.reshape"
+// CHECK-NOT: "ttnn.reduce_scatter"
+// CHECK-NOT: "ttnn.all_gather"
+// CHECK-NOT: "ttnn.all_reduce"
+// CHECK-NOT: = "ttnn.reshape"

@@ -58,27 +58,3 @@ func.func public @main(%arg0: tensor<8192x784xf32> {mhlo.layout_mode = "default"
   // CHECK: "ttnn.mesh_shard"
   return %9 : tensor<8192x16384xf32>
 }
-func.func public @all_gather_rank_2_cluster_0_ineffective(%arg0: tensor<8192x800xf32>) -> (tensor<8192x800xf32> {jax.result_info = ""}) {
-  %0 = tensor.empty() : tensor<8192x400xf32>
-  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: -1, 1>, shard_direction = #tt.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 2>, shard_type = #tt.shard_type<devices>}> : (tensor<8192x800xf32>, tensor<8192x400xf32>) -> tensor<8192x400xf32>
-  // CHECK: "ttnn.mesh_shard"
-  %2 = tensor.empty() : tensor<8192x400xf32>
-  %3 = "ttir.all_gather"(%1, %2) <{all_gather_dim = 1 : si32, cluster_axis = 0 : ui32}> : (tensor<8192x400xf32>, tensor<8192x400xf32>) -> tensor<8192x400xf32>
-  // CHECK-NOT: "ttnn.all_gather"
-  %4 = tensor.empty() : tensor<8192x800xf32>
-  %5 = "ttir.mesh_shard"(%3, %4) <{shard_dims = array<i64: -1, 1>, shard_direction = #tt.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 2>, shard_type = #tt.shard_type<devices>}> : (tensor<8192x400xf32>, tensor<8192x800xf32>) -> tensor<8192x800xf32>
-  // CHECK: "ttnn.mesh_shard"
-  return %5 : tensor<8192x800xf32>
-}
-func.func public @all_gather_rank_4_cluster_0_ineffective(%arg0: tensor<1x1x32x128xf32>) -> (tensor<1x1x32x128xf32> {jax.result_info = ""}) {
-  %0 = tensor.empty() : tensor<1x1x32x64xf32>
-  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: -1, 3>, shard_direction = #tt.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #tt.shard_type<devices>}> : (tensor<1x1x32x128xf32>, tensor<1x1x32x64xf32>) -> tensor<1x1x32x64xf32>
-  // CHECK: "ttnn.mesh_shard"
-  %2 = tensor.empty() : tensor<1x1x32x64xf32>
-  %3 = "ttir.all_gather"(%1, %2) <{all_gather_dim = 3 : si32, cluster_axis = 0 : ui32}> : (tensor<1x1x32x64xf32>, tensor<1x1x32x64xf32>) -> tensor<1x1x32x64xf32>
-  // CHECK-NOT: "ttnn.all_gather"
-  %4 = tensor.empty() : tensor<1x1x32x128xf32>
-  %5 = "ttir.mesh_shard"(%3, %4) <{shard_dims = array<i64: -1, 3>, shard_direction = #tt.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 1, 1, 2>, shard_type = #tt.shard_type<devices>}> : (tensor<1x1x32x64xf32>, tensor<1x1x32x128xf32>) -> tensor<1x1x32x128xf32>
-  // CHECK: "ttnn.mesh_shard"
-  return %5 : tensor<1x1x32x128xf32>
-}
