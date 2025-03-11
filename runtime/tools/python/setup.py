@@ -34,7 +34,6 @@ enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
 enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "ON"
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
-configure_workarounds_runtime = os.environ.get("TT_RUNTIME_WORKAROUNDS", "OFF") == "ON"
 
 ext_modules = [
     Pybind11Extension(
@@ -245,10 +244,6 @@ if enable_runtime:
             define_macros=[
                 ("VERSION_INFO", __version__),
                 ("TT_RUNTIME_DEBUG", "1" if debug_runtime else "0"),
-                (
-                    "TT_RUNTIME_WORKAROUNDS",
-                    "1" if configure_workarounds_runtime else "0",
-                ),
                 ("TTMLIR_ENABLE_RUNTIME_TESTS", "1" if enable_runtime_tests else "0"),
             ],
         )

@@ -48,7 +48,9 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [HasMemoryConfigTrait]> 
     let hasVerifier = 1;
 }
 
-def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
+def TTNN_ToLayoutOp : TTNN_Op<"to_layout",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ToLayout op.";
     let description = [{
       This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
@@ -67,7 +69,9 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     let hasCanonicalizer = 1;
 }
 
-def TTNN_TypecastOp : TTNN_Op<"typecast"> {
+def TTNN_TypecastOp : TTNN_Op<"typecast",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Typecast op.";
     let description = [{
       This op converts the data type of the input tensor based on the given data type.

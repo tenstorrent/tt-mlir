@@ -74,7 +74,8 @@ public:
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
       const std::optional<llvm::SmallVector<int64_t>> &virtualGrid =
           std::nullopt,
-      const llvm::SmallVector<int64_t> physicalGrid = GetPhysicalGridSize()) {
+      const llvm::SmallVector<int64_t> physicalGrid = GetPhysicalGridSize(),
+      const std::optional<mlir::FloatType> dtype = std::nullopt) {
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
@@ -84,10 +85,11 @@ public:
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
                              : mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                    &context, tensorMemoryLayout);
-
+    const auto dtypeSelected =
+        dtype.has_value() ? dtype.value() : builder.getBF16Type();
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape,
-        mlir::tt::TileType::get(&context, builder.getBF16Type()), bufferType,
+        &context, tensorShape, mlir::tt::TileType::get(&context, dtypeSelected),
+        bufferType,
         CreateGrid(&context, tensorMemoryLayout, virtualGridSelected,
                    physicalGrid),
         memLayoutAttr);

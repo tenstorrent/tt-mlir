@@ -8,6 +8,7 @@
 // ANCHOR: standalone_includes
 #include "core.hpp"
 #include "device.hpp"
+#include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/copy.hpp"
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"

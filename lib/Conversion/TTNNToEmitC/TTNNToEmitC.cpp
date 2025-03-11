@@ -496,6 +496,48 @@ public:
   }
 };
 
+// Conv2d op conversion pattern
+//
+class Conv2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::Conv2dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::Conv2dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::Conv2dOp srcOp, tt::ttnn::Conv2dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::Conv2dOp> emitter(srcOp, adaptor,
+                                                                rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getBias()),
+        /*conv2d_config=*/emitter.emit(std::nullopt),
+        /*compute_config=*/emitter.emit(std::nullopt),
+        /*memory_config=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+
 // ReshapeOp conversion pattern
 //
 class ReshapeOpConversionPattern
@@ -1108,8 +1150,9 @@ public:
     // SubscriptOp also returns an emitc::LValueType, so we wrap the
     // OpaqueType with LValueType.
     //
-    emitc::LValueType lvalueReturnType = emitc::LValueType::get(
-        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Tensor"));
+    emitc::LValueType lvalueReturnType =
+        emitc::LValueType::get(emitc::OpaqueType::get(
+            rewriter.getContext(), ttnn_to_emitc::TypeNameV<::ttnn::Tensor>));
     Value subscript = rewriter.create<emitc::SubscriptOp>(
         getTupleElementOp->getLoc(), lvalueReturnType, adaptor.getOperand(),
         indexAsVal);
@@ -1118,7 +1161,9 @@ public:
     // OpaqueType - this is done by invoking the emitc::LoadOp.
     //
     rewriter.replaceOpWithNewOp<emitc::LoadOp>(
-        getTupleElementOp, emitc::OpaqueType::get(getContext(), "ttnn::Tensor"),
+        getTupleElementOp,
+        emitc::OpaqueType::get(getContext(),
+                               ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
         subscript);
     return success();
   }
@@ -1298,11 +1343,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Pooling ops
   //
-  patterns.add<DefaultOpConversionPattern<tt::ttnn::Conv2dOp>>(typeConverter,
-                                                               ctx);
+  patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+
+  // Convolution ops
+  //
+  patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<tt::ttnn::ConvTranspose2dOp>>(
       typeConverter, ctx);
-  patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
 
   // Other ops
   //

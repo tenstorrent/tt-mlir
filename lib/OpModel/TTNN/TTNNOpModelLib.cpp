@@ -593,6 +593,171 @@ ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// TypecastOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+TypecastOpInterface::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, mlir::tt::DataTypeAttr dtype,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto typecastOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                            mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                            mlir::tt::DataTypeAttr dtype,
+                            llvm::ArrayRef<int64_t> outputShape,
+                            mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout),
+        std::make_tuple(outputShape, outputLayout));
+
+    // run op constraint query
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::typecast, device, inputSpec,
+        conversion::getDataType(dtype.getValue()),
+        outputSpec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpConstraints("typecastOpInterface", typecastOpQuery,
+                                     inputShape, inputLayout, dtype,
+                                     outputShape, outputLayout);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+TypecastOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                  mlir::tt::DataTypeAttr dtype,
+                                  llvm::ArrayRef<int64_t> outputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto typecastOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                            mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                            mlir::tt::DataTypeAttr dtype,
+                            llvm::ArrayRef<int64_t> outputShape,
+                            mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout),
+        std::make_tuple(outputShape, outputLayout));
+
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::typecast, device, inputSpec,
+        conversion::getDataType(dtype.getValue()),
+        outputSpec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpRuntime("TypecastOpInterface", typecastOpQuery,
+                                 inputShape, inputLayout, dtype, outputShape,
+                                 outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ToLayoutOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+ToLayoutOpInterface::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    std::optional<mlir::tt::DataType> outputDtype,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto toLayoutOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                            mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                            std::optional<mlir::tt::DataType> outputDtype,
+                            mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                            bool passDevicePtr) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    auto [inputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout));
+
+    std::optional<::tt::tt_metal::DataType> dtype;
+    if (outputDtype) {
+      dtype = conversion::getDataType(outputDtype.value());
+    } else {
+      dtype = std::nullopt;
+    }
+
+    std::optional<::tt::tt_metal::MemoryConfig> memoryConfig =
+        std::make_optional(conversion::getMemoryConfig(outputLayout));
+
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::to_layout, device, inputSpec,
+        conversion::getPageLayout(outputLayout.getLayout()), dtype,
+        memoryConfig, passDevicePtr ? device : nullptr);
+  };
+
+  return operation::getOpConstraints("ToLayoutOpInterface", toLayoutOpQuery,
+                                     inputShape, inputLayout, outputDtype,
+                                     outputLayout, passDevicePtr);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                  std::optional<mlir::tt::DataType> outputDtype,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                                  bool passDevicePtr) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto toLayoutOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                            mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                            std::optional<mlir::tt::DataType> outputDtype,
+                            mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
+                            bool passDevicePtr) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::v0::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    auto [inputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout));
+
+    std::optional<::tt::tt_metal::DataType> dtype;
+    if (outputDtype) {
+      dtype = conversion::getDataType(outputDtype.value());
+    } else {
+      dtype = std::nullopt;
+    }
+
+    std::optional<::tt::tt_metal::MemoryConfig> memoryConfig =
+        std::make_optional(conversion::getMemoryConfig(outputLayout));
+
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::to_layout, device, inputSpec,
+        conversion::getPageLayout(outputLayout.getLayout()), dtype,
+        memoryConfig, passDevicePtr ? device : nullptr);
+  };
+
+  return operation::getOpRuntime("ToLayoutOpInterface", toLayoutOpQuery,
+                                 inputShape, inputLayout, outputDtype,
+                                 outputLayout, passDevicePtr);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<std::tuple<size_t, size_t, size_t>>

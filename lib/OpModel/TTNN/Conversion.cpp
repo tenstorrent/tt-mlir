@@ -19,9 +19,11 @@ namespace conversion {
 
 ::tt::tt_metal::DataType
 getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
-  auto dataType = layout.getDataType();
+  return getDataType(layout.getDataType());
+}
 
-  switch (dataType) {
+::tt::tt_metal::DataType getDataType(mlir::tt::DataType dtype) {
+  switch (dtype) {
   case tt::DataType::Float32:
     return ::tt::tt_metal::DataType::FLOAT32;
   case tt::DataType::BFloat16:
@@ -71,6 +73,17 @@ getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return layout.isTiled() ? ::tt::tt_metal::Layout::TILE
                           : ::tt::tt_metal::Layout::ROW_MAJOR;
+}
+
+::tt::tt_metal::Layout getPageLayout(mlir::tt::ttnn::Layout layout) {
+  switch (layout) {
+  case ::mlir::tt::ttnn::Layout::RowMajor:
+    return ::tt::tt_metal::Layout::ROW_MAJOR;
+  case ::mlir::tt::ttnn::Layout::Tile:
+    return ::tt::tt_metal::Layout::TILE;
+  case ::mlir::tt::ttnn::Layout::Invalid:
+    return ::tt::tt_metal::Layout::INVALID;
+  }
 }
 
 ::tt::tt_metal::CoreRangeSet

@@ -52,6 +52,13 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   mlir::stablehlo::registerAllDialects(registry);
   mlir::sdy::registerAllDialects(registry);
 #endif
+}
+
+void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
+  // Both the inliner for TTIRDialect and FuncDialect must be registered
+  // since we use a combination of TTIRDialect and FuncDialect in the IR.
+  mlir::func::registerInlinerExtension(registry);
+  LLVM::registerInlinerInterface(registry);
   // Registering BufferizableOpInterface for each dialect (including
   // intermediate dialects) is required to convert types to memrefs during
   // lowering.
@@ -62,13 +69,6 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       registry);
   tensor::registerBufferizableOpInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
-  LLVM::registerInlinerInterface(registry);
-}
-
-void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
-  // Both the inliner for TTIRDialect and FuncDialect must be registered
-  // since we use a combination of TTIRDialect and FuncDialect in the IR.
-  mlir::func::registerInlinerExtension(registry);
 }
 
 void mlir::tt::registerAllPasses() {
