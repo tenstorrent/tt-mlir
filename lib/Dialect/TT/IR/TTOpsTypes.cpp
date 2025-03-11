@@ -422,12 +422,12 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   int64_t rank = getStride().size();
   SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
 
-  for (int i = 0; i < rank; i++) {
+  for (int64_t i = 0; i < rank; i++) {
     mapExprs[i] = getAffineDimExpr(i, context);
   }
 
   mapExprs[rank] = getAffineConstantExpr(0, context);
-  for (int i = rank - 1; i >= 0; i--) {
+  for (int64_t i = rank - 1; i >= 0; i--) {
     mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
     mlir::AffineExpr stride = getAffineConstantExpr(getStride()[i], context);
     mapExprs[rank] = shardDim * stride + mapExprs[rank];
@@ -655,7 +655,7 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::getShardStride() const {
       getShardShape(/*convertTileToScalar=*/false);
   SmallVector<int64_t> shardStride(shardShape.size());
   shardStride[shardStride.size() - 1] = getElementSizeBytes();
-  for (int64_t i = shardStride.size() - 2; i >= 0; i--) {
+  for (int64_t i = static_cast<int64_t>(shardStride.size()) - 2; i >= 0; i--) {
     shardStride[i] = shardShape[i + 1] * shardStride[i + 1];
   }
   return shardStride;
