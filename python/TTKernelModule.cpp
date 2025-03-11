@@ -12,8 +12,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
 namespace mlir::ttmlir::python {
-void populateTTKernelModule(py::module &m) {
-  py::class_<tt::ttkernel::CBType>(m, "CBType")
+void populateTTKernelModule(nb::module_ &m) {
+  tt_type_class<tt::ttkernel::CBType>(m, "CBType")
       .def_static("get",
                   [](MlirContext ctx, uint64_t address, uint64_t port,
                      MlirType memrefType) {
@@ -24,10 +24,10 @@ void populateTTKernelModule(py::module &m) {
                   [](MlirType &ty) {
                     return mlir::cast<tt::ttkernel::CBType>(unwrap(ty));
                   })
-      .def_property_readonly("shape",
-                             [](tt::ttkernel::CBType &cb) {
-                               return std::vector<int64_t>(cb.getShape());
-                             })
-      .def_property_readonly("memref", &tt::ttkernel::CBType::getMemref);
+      .def_prop_ro("shape",
+                   [](tt::ttkernel::CBType &cb) {
+                     return std::vector<int64_t>(cb.getShape());
+                   })
+      .def_prop_ro("memref", &tt::ttkernel::CBType::getMemref);
 }
 } // namespace mlir::ttmlir::python

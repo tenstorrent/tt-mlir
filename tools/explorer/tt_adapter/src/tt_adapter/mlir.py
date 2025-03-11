@@ -554,12 +554,15 @@ class OpHandler:
 
         return result
 
-    def make_graph_node(self):
+    def make_graph_node(self, extra_attrs=None):
+        attrs = self.get_attributes()
+        if extra_attrs is not None:
+            attrs.extend(extra_attrs)
         return graph_builder.GraphNode(
             id=self.id,
             label=str(self.op.name),
             namespace=self.get_namespace(),
-            attrs=self.get_attributes(),
+            attrs=attrs,
         )
 
     def make_constant_node(self, constant_name):
@@ -582,7 +585,7 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(module, perf_trace=None, golden_results=None):
+def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None):
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id="tt-graph")
 
@@ -601,6 +604,29 @@ def build_graph(module, perf_trace=None, golden_results=None):
             if loc not in loc_to_perf:
                 loc_to_perf[loc] = 0
             loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
+
+    memory_data = {}
+    if memory_trace is not None:
+        for node in memory_trace:
+            loc = parse_loc_string(memory_trace[node]["loc"])
+            memory_data[loc] = {}
+            memory_data[loc]["dram"] = round(
+                memory_trace[node]["dram"]["device_0"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["dram"]["device_0"]["total_bytes_per_bank"],
+                4,
+            )
+            memory_data[loc]["l1"] = round(
+                memory_trace[node]["l1"]["device_0"]["total_bytes_allocated_per_bank"]
+                / memory_trace[node]["l1"]["device_0"]["total_bytes_per_bank"],
+                4,
+            )
+            memory_data[loc]["l1_small"] = round(
+                memory_trace[node]["l1_small"]["device_0"][
+                    "total_bytes_allocated_per_bank"
+                ]
+                / memory_trace[node]["l1_small"]["device_0"]["total_bytes_per_bank"],
+                4,
+            )
 
     accuracy_node_data = {}
     loc_to_accuracy = {}
@@ -638,6 +664,7 @@ def build_graph(module, perf_trace=None, golden_results=None):
         loc_to_perf,
         loc_to_accuracy,
         perf_node_data,
+        memory_data,
         accuracy_node_data,
     )
 
@@ -684,6 +711,7 @@ def process_operations(
     loc_to_perf,
     loc_to_accuracy,
     perf_node_data,
+    memory_data,
     accuracy_node_data,
 ):
     """
@@ -716,6 +744,7 @@ def process_operations(
                 loc_to_perf,
                 loc_to_accuracy,
                 perf_node_data,
+                memory_data,
                 accuracy_node_data,
             )
             continue
@@ -733,6 +762,7 @@ def process_operations(
                     loc_to_perf,
                     loc_to_accuracy,
                     perf_node_data,
+                    memory_data,
                     accuracy_node_data,
                 )
 
@@ -754,6 +784,39 @@ def process_operations(
             accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
                 loc_to_accuracy[operation.named_location]["actual_pcc"]
                 - loc_to_accuracy[operation.named_location]["expected_pcc"]
+            )
+
+        extra_attrs = []
+        if memory_data and operation.named_location in memory_data:
+            extra_attrs.append(
+                utils.add_to_dataclass(
+                    graph_builder.KeyValue(
+                        key="dram_memory",
+                        value=str(memory_data[operation.named_location]["dram"]),
+                    ),
+                    "display_type",
+                    "memory",
+                )
+            )
+            extra_attrs.append(
+                utils.add_to_dataclass(
+                    graph_builder.KeyValue(
+                        key="l1_memory",
+                        value=str(memory_data[operation.named_location]["l1"]),
+                    ),
+                    "display_type",
+                    "memory",
+                )
+            )
+            extra_attrs.append(
+                utils.add_to_dataclass(
+                    graph_builder.KeyValue(
+                        key="l1_small_memory",
+                        value=str(memory_data[operation.named_location]["l1_small"]),
+                    ),
+                    "display_type",
+                    "memory",
+                )
             )
 
         if not op.operation.name == "func.func":

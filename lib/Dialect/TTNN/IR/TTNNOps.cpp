@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
 
+#include <cstdint>
 #include <numeric>
 #include <optional>
 
@@ -88,7 +89,7 @@ namespace mlir::tt::ttnn {
     return emitOpError("Weight must be a 4D tensor");
   }
 
-  if (bias.has_value()) {
+  if (bias) {
     if (bias->getRank() != 4) {
       return emitOpError("Bias must be a 4D tensor");
     }
@@ -96,6 +97,163 @@ namespace mlir::tt::ttnn {
     if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
       return emitOpError("Bias must only have data on the final dimenstion");
     }
+  }
+
+  constexpr unsigned int CHANNEL_DIM = 3;
+  uint32_t inChannels = getInChannels();
+  if (inChannels != inputType.getDimSize(CHANNEL_DIM)) {
+    return emitOpError()
+           << "Expected input channels attribute (" << inChannels
+           << ") to match the last dimension of the input tensor ("
+           << inputType.getDimSize(3) << ")";
+  }
+
+  uint32_t outChannels = getOutChannels();
+  if (bias && outChannels != bias->getDimSize(CHANNEL_DIM)) {
+    return emitOpError() << "Expected output channels attribute ("
+                         << outChannels
+                         << ") to match the last dimension of the bias tensor ("
+                         << bias->getDimSize(3) << ")";
+  }
+  if (outChannels != outputType.getDimSize(CHANNEL_DIM)) {
+    return emitOpError()
+           << "Expected output channels attribute (" << outChannels
+           << ") to match the last dimension of the output tensor ("
+           << outputType.getDimSize(3) << ")";
+  }
+
+  uint32_t batchSize = getBatchSize();
+  uint32_t inputHeight = getInputHeight();
+  uint32_t inputWidth = getInputWidth();
+  if (batchSize * inputHeight * inputWidth != inputType.getDimSize(2)) {
+    return emitOpError()
+           << "Input is flattened, so batch_size * input_height * input_width ("
+           << (batchSize * inputHeight * inputWidth)
+           << ") must match the third dimension of the input tensor ("
+           << inputType.getDimSize(2) << "). Got batch_size = " << batchSize
+           << ", input_height = " << inputHeight
+           << ", input_width = " << inputWidth;
+  }
+
+  llvm::ArrayRef<int32_t> stride = getStride();
+  if (stride.size() != 2) {
+    return emitOpError() << "Stride attribute must have two values, got: "
+                         << stride.size();
+  }
+  if (!llvm::all_of(stride, [](int32_t value) { return value >= 1; })) {
+    return emitOpError() << "Stride attribute (" << stride[0] << ", "
+                         << stride[1] << ") must be greater than 0";
+  }
+
+  llvm::ArrayRef<int32_t> padding = getPadding();
+  if (padding.size() != 2) {
+    return emitOpError() << "Padding attribute must have two values, got: "
+                         << padding.size();
+  }
+  if (!llvm::all_of(padding, [](int32_t value) { return value >= 0; })) {
+    return emitOpError() << "Padding attribute (" << padding[0] << ", "
+                         << padding[1]
+                         << ") must be greater than or equal to 0";
+  }
+
+  llvm::ArrayRef<int32_t> dilation = getDilation();
+  if (dilation.size() != 2) {
+    return emitOpError() << "Dilation attribute must have two values, got: "
+                         << dilation.size();
+  }
+  if (!llvm::all_of(dilation, [](int32_t value) { return value >= 1; })) {
+    return emitOpError() << "Dilation attribute (" << dilation[0] << ", "
+                         << dilation[1] << ") must be greater than 0";
+  }
+
+  constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 0, WEIGHT_IN_CHANNEL_DIM = 1;
+  constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 2,
+                         WEIGHT_KERNEL_WIDTH_DIM = 3;
+  llvm::ArrayRef<int32_t> kernelSize = getKernelSize();
+  if (kernelSize.size() != 2) {
+    return emitOpError() << "Kernel size attribute must have two values, got: "
+                         << kernelSize.size();
+  }
+  if (kernelSize[0] != weightType.getDimSize(WEIGHT_KERNEL_HEIGHT_DIM) ||
+      kernelSize[1] != weightType.getDimSize(WEIGHT_KERNEL_WIDTH_DIM)) {
+    return emitOpError()
+           << "Kernel size attribute (" << kernelSize[0] << ", "
+           << kernelSize[1]
+           << ") must match the last two dimensions of the weight tensor ("
+           << weightType.getDimSize(2) << ", " << weightType.getDimSize(3)
+           << ")";
+  }
+
+  llvm::SmallVector<uint32_t, 2> paddedInputSize{inputHeight + 2 * padding[0],
+                                                 inputWidth + 2 * padding[1]};
+  llvm::SmallVector<uint32_t, 2> effectiveKernelSize{
+      static_cast<uint32_t>(kernelSize[0] +
+                            (kernelSize[0] - 1) * (dilation[0] - 1)),
+      static_cast<uint32_t>(kernelSize[1] +
+                            (kernelSize[1] - 1) * (dilation[1] - 1))};
+  if (paddedInputSize[0] < effectiveKernelSize[0] ||
+      paddedInputSize[1] < effectiveKernelSize[1]) {
+    return emitOpError()
+           << "Calculated padded input size per channel: ("
+           << paddedInputSize[0] << ", " << paddedInputSize[1]
+           << "). Kernel size: (" << effectiveKernelSize[0] << ", "
+           << effectiveKernelSize[1]
+           << "). Kernel size can't be greater than actual input size";
+  }
+
+  uint32_t groups = getGroups();
+  if (inChannels % groups != 0) {
+    return emitOpError() << "Number of input channels (" << inChannels
+                         << ") must be divisible by the number of groups ("
+                         << groups << ")";
+  }
+
+  if (outChannels % groups != 0) {
+    return emitOpError() << "Number of output channels (" << outChannels
+                         << ") must be divisible by the number of groups ("
+                         << groups << ")";
+  }
+
+  llvm::ArrayRef<std::int64_t> weightShape = weightType.getShape();
+  if (outChannels != weightShape[WEIGHT_OUT_CHANNEL_DIM]) {
+    return emitOpError()
+           << "Number of output channels (" << outChannels
+           << ") must match the first dimension of the weight tensor ("
+           << weightShape[0] << ")";
+  }
+
+  if (inChannels / groups != weightShape[WEIGHT_IN_CHANNEL_DIM]) {
+    return emitOpError()
+           << "Number of input channels per group (" << (inChannels / groups)
+           << ") must match the second dimension of the weight tensor ("
+           << weightShape[1] << ")";
+  }
+
+  int32_t calculatedHOut =
+      (inputHeight + 2 * padding[0] - dilation[0] * (kernelSize[0] - 1) - 1) /
+          stride[0] +
+      1;
+  int32_t calculatedWOut =
+      (inputWidth + 2 * padding[1] - dilation[1] * (kernelSize[1] - 1) - 1) /
+          stride[1] +
+      1;
+  if (calculatedHOut < 0 || calculatedWOut < 0) {
+    return emitOpError() << "Given input size per channel: (" << inputHeight
+                         << " x " << inputWidth << "). "
+                         << "Calculated output size per channel: ("
+                         << calculatedHOut << " x " << calculatedWOut << "). "
+                         << "Output size is too small";
+  }
+
+  if (batchSize * calculatedHOut * calculatedWOut != outputType.getDimSize(2)) {
+    return emitOpError()
+           << "Output is flattened, so batch_size * output_height * "
+              "output_width ("
+           << (batchSize * calculatedHOut * calculatedWOut)
+           << ") must match the third dimension of the output tensor ("
+           << outputType.getDimSize(2) << "). Got batch_size = " << batchSize
+           << ", output_height = " << calculatedHOut
+           << ", output_width = " << calculatedWOut;
   }
 
   return success();

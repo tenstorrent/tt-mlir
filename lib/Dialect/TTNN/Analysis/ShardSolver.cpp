@@ -277,12 +277,9 @@ bool ShardSolver::preprocessFirstOp() {
             .withGrid(firstOp->getContext(), firstOpInputTensorType,
                       firstOpLayout.getGrid());
 
-    uint64_t firstInputL1Usage = firstOpInputShardedLayout.getTensorSizeInBytes(
-        firstOpInputTensorType.getShape(), deviceAttr);
-    uint64_t firstOpL1OutputUsage = firstOpLayout.getTensorSizeInBytes(
-        mlir::cast<RankedTensorType>(firstOp->getResult(0).getType())
-            .getShape(),
-        deviceAttr);
+    uint64_t firstInputL1Usage =
+        firstOpInputShardedLayout.getShardSizeInBytes();
+    uint64_t firstOpL1OutputUsage = firstOpLayout.getShardSizeInBytes();
 
     if ((firstInputL1Usage + firstOpL1OutputUsage) >=
         tensorL1UsageCap * usableL1CacheSize) {
@@ -726,10 +723,7 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
                    << outputTensorUsage << "\n";
     }
 
-    RankedTensorType producerTensorType =
-        mlir::cast<RankedTensorType>(producerOperand.getType());
-    uint64_t producerL1OutputUsage = producerLayout.getTensorSizeInBytes(
-        producerTensorType.getShape(), deviceAttr);
+    uint64_t producerL1OutputUsage = producerLayout.getShardSizeInBytes();
 
     bool l1UsageValid = (producerL1OutputUsage + outputTensorUsage +
                          cBUsagePeak) < tensorL1UsageCap * usableL1CacheSize;
@@ -751,18 +745,12 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
 
     uint64_t producerL1OutputUsage = 0;
     if (producerLayout.hasL1BufferType()) {
-      RankedTensorType producerTensorType =
-          mlir::cast<RankedTensorType>(producerOperand.getType());
-      producerL1OutputUsage = producerLayout.getTensorSizeInBytes(
-          producerTensorType.getShape(), deviceAttr);
+      producerL1OutputUsage = producerLayout.getShardSizeInBytes();
     }
 
     uint64_t consumerL1OutputUsage = 0;
     if (consumerLayout.hasL1BufferType()) {
-      RankedTensorType consumerTensorType =
-          mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType());
-      consumerL1OutputUsage = consumerLayout.getTensorSizeInBytes(
-          consumerTensorType.getShape(), deviceAttr);
+      consumerL1OutputUsage = consumerLayout.getShardSizeInBytes();
     }
 
     bool l1UsageValid = (producerL1OutputUsage + consumerL1OutputUsage) <

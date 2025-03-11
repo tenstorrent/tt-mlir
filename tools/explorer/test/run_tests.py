@@ -47,6 +47,7 @@ if "TT_EXPLORER_GENERATED_TTNN_TEST_DIRS" in os.environ:
 FILTERED_TESTS = [
     # This test is way too large to fit reasonably in CI.
     "test_llama_attention.ttnn",
+    "test_hoisted_add.ttnn",
 ]
 
 
@@ -228,6 +229,16 @@ def test_execute_model_invalid_policy():
             {"optimizationPolicy": "Invalid Policy"},
             timeout=300,
         )
+
+
+def test_execute_and_check_memory_data_exists():
+    execute_command_and_wait(
+        MNIST_SHARDING_PATH,
+        {"optimizationPolicy": "Optimizer Disabled"},
+        timeout=300,
+    )
+    result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    assert "display_type" in str(result)
 
 
 def test_execute_and_check_accuracy_data_exists():

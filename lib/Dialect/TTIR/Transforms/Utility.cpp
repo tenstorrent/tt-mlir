@@ -60,7 +60,8 @@ public:
                       tt::SystemDescAttr::getFromPath(&getContext(), path));
     } else if (not module->hasAttr(tt::SystemDescAttr::name)) {
       module->setAttr(tt::SystemDescAttr::name,
-                      tt::SystemDescAttr::getDefault(&getContext()));
+                      tt::SystemDescAttr::getDefault(
+                          &getContext(), llvm::to_vector(meshShape)));
     }
   }
 };

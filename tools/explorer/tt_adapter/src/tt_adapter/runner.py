@@ -141,6 +141,21 @@ class ModelRunner:
 
         return pd.read_csv(op_perf_file)
 
+    def get_memory_usage(self, model_path):
+        memory_trace = {}
+        mem_file = f"{self.model_state[model_path].model_output_dir}/run/program_0/memory_results.json"
+        if not os.path.exists(mem_file):
+            error = (
+                "Error while fetching memory file,",
+                mem_file,
+                "may not have been created ... Continuing Explorer Execution",
+            )
+            self.log(error, severity=logging.error)
+        else:
+            with open(mem_file, "r") as file:
+                memory_trace = json.load(file)
+        return memory_trace
+
     def get_golden_results(self, model_path):
         accuracy_res = f"{self.model_state[model_path].model_output_dir}/run/program_0/golden_results.json"
 
@@ -311,6 +326,7 @@ class ModelRunner:
             "perf",
             flatbuffer_file,
             f"--artifact-dir={self._explorer_artifacts_dir}",
+            "--memory",
         ]
 
         ttrt_process = self.run_in_subprocess(ttrt_perf_command)

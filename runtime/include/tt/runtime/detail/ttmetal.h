@@ -30,6 +30,12 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor);
+std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
+std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
+std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
+std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
+std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
+TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
 
 size_t getNumAvailableDevices();
 
@@ -64,8 +70,6 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
-
-std::vector<float> getTensorData(Tensor tensor);
 
 using InputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,

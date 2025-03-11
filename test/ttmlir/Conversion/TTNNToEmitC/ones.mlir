@@ -6,13 +6,13 @@
 
 module  {
   func.func @ones_4d_irregular_shapes() -> tensor<13x24x56x42xbf16, #ttnn_layout> {
-    // CHECK: %{{[0-9]+}} = emitc.call_opaque "ttnn::ones"{{.*}} -> !emitc.opaque<"ttnn::Tensor">
+    // CHECK: %{{[0-9]+}} = emitc.call_opaque "ttnn::ones"{{.*}} -> !emitc.opaque<"::ttnn::Tensor">
     %0 = "ttnn.ones"() <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, shape = #ttnn.shape<13x24x56x42>}> : () -> tensor<13x24x56x42xbf16, #ttnn_layout>
     return %0 : tensor<13x24x56x42xbf16, #ttnn_layout>
   }
 
   func.func @ones_f32() -> tensor<32x64x128xf32, #ttnn_layout1> {
-    // CHECK: %{{[0-9]+}} = emitc.call_opaque "ttnn::ones"{{.*}} -> !emitc.opaque<"ttnn::Tensor">
+    // CHECK: %{{[0-9]+}} = emitc.call_opaque "ttnn::ones"{{.*}} -> !emitc.opaque<"::ttnn::Tensor">
     %0 = "ttnn.ones"() <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, shape = #ttnn.shape<32x64x128>}> : () -> tensor<32x64x128xf32, #ttnn_layout1>
     return %0 : tensor<32x64x128xf32, #ttnn_layout1>
   }
