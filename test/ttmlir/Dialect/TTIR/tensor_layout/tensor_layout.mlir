@@ -20,8 +20,8 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
         operandSegmentSizes = array<i32: 2, 0, 1>
         }> ({
         // CHECK: ^bb0(%arg2: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK: %arg3: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK: %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
+        // CHECK-SAME: %arg3: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
+        // CHECK-SAME: %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
         ^bb0(%arg2: memref<8x12x!tt.tile<32x32, f32>, #l1_>,
             %arg3: memref<8x12x!tt.tile<32x32, f32>, #l1_>,
             %arg4: memref<8x1x!tt.tile<32x32, f32>, #l1_>):
@@ -60,8 +60,8 @@ func.func @reduce_prime(%arg0: tensor<32x608xf32, #layout1>, %arg1: tensor<32x60
         operandSegmentSizes = array<i32: 2, 0, 1>
         }> ({
         // CHECK: ^bb0(%arg2: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK: %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK: %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
+        // CHECK-SAME: %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
+        // CHECK-SAME: %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
         ^bb0(%arg2: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
             %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
             %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
