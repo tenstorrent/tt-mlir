@@ -49,8 +49,8 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: [builder,ubuntu-latest], enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          {runs-on: [builder,ubuntu-latest], enable_perf: ON, enable_emitc: ON, enable_explorer: ON, name: "tracy"},
+          {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_explorer: ON, name: "tracy"},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
@@ -408,7 +408,7 @@ jobs:
     strategy:
       fail-fast: false
     name: Debug Build
-    runs-on: [builder,ubuntu-latest]
+    runs-on: ubuntu-latest
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
 
