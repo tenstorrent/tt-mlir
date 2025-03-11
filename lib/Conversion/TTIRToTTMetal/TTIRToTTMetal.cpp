@@ -40,6 +40,7 @@
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <cstdint>
+#include <numeric>
 #include <utility>
 
 namespace mlir::tt::ttmetal {
@@ -586,48 +587,37 @@ public:
 } // namespace
 
 namespace {
-class TTIRToTTMetalDMARewriter : public OpRewritePattern<ttir::DMAOp> {
+class TTIRToTTMetalDMARewriter : public OpConversionPattern<ttir::DMAOp> {
 public:
-  using OpRewritePattern<ttir::DMAOp>::OpRewritePattern;
+  using OpConversionPattern<ttir::DMAOp>::OpConversionPattern;
 
-  AffineMap createTrivialLinear(MemRefType memref) const {
-    assert(memref.getRank() % 2 == 0 && "Expected even number of dimensions");
-    mlir::MLIRContext *context = memref.getContext();
-    unsigned rank = memref.getRank() / 2;
-    SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
-    ArrayRef<int64_t> shardShape = memref.getShape().drop_front(rank);
-    mlir::AffineExpr shardVolume = getAffineConstantExpr(1, context);
-
-    for (int i = 0; i < (int)rank; i++) {
-      mapExprs[i] = getAffineDimExpr(i, context);
+  static size_t getElementSizeBytes(MemRefType memref) {
+    mlir::Type elementType = memref.getElementType();
+    if (mlir::isa<TileType>(elementType)) {
+      auto tileType = mlir::cast<TileType>(elementType);
+      return tileType.getSizeBytes();
     }
-
-    mapExprs[rank] = getAffineConstantExpr(0, context);
-    for (int i = rank - 1; i >= 0; i--) {
-      mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
-      mlir::AffineExpr shardSize = getAffineConstantExpr(shardShape[i], context);
-      mapExprs[rank] = shardDim * shardVolume + mapExprs[rank];
-      shardVolume = shardVolume * shardSize;
-    }
-
-    return mlir::AffineMap::get(memref.getRank(), 0, mapExprs, context);
+    return elementType.getIntOrFloatBitWidth() / 8;
   }
 
-  std::tuple<AffineMap, AffineMap, AffineMap> getPhysicalMap(MemRefType memref, tt::DeviceAttr device,
-                           OpBuilder &builder) const {
-    ArrayRef<int64_t> shape = memref.getShape();
-    assert(shape.size() % 2 == 0 && "Expected even number of dimensions");
-    AffineMap memoryMapWithSymbols = device.getMemoryMap(memref, 8192, 0);
-    // mlir::cast<tt::MemorySpaceAttr>(memref.getMemorySpace())
-    //     .getValue());
-    AffineMap memoryMap =
-        ttmlir::utils::replaceAffineMapSymbols(memoryMapWithSymbols, shape);
-    auto physicalMap = memoryMap.compose(createTrivialLinear(memref))
-                           .dropResult(0); // drop the device index
-    assert(physicalMap.getNumResults() == 3);
-    auto gridY = physicalMap.dropResults({1, 2});
-    auto gridX = physicalMap.dropResults({0, 2});
-    auto offset = physicalMap.dropResults({0, 1});
+  static size_t getMemRefShardSizeBytes(MemRefType memref) {
+    ArrayRef<int64_t> memrefShardShape =
+        memref.getShape().drop_front(memref.getRank() / 2);
+    return std::accumulate(memrefShardShape.begin(), memrefShardShape.end(),
+                           getElementSizeBytes(memref),
+                           std::multiplies<int64_t>());
+  }
+
+  std::tuple<AffineMap, AffineMap, AffineMap>
+  getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
+                          OpBuilder &builder) const {
+    size_t pageSize = getMemRefShardSizeBytes(memref);
+    AffineMap memoryMap = device.getMemoryMap(memref, pageSize, 0)
+                              .dropResult(0); // drop the device index
+    assert(memoryMap.getNumResults() == 3);
+    auto gridY = memoryMap.dropResults({1, 2});
+    auto gridX = memoryMap.dropResults({0, 2});
+    auto offset = memoryMap.dropResults({0, 1});
     return std::make_tuple(gridY, gridX, offset);
   }
 
@@ -656,47 +646,46 @@ public:
     return std::make_tuple(lbs, ubs, step);
   }
 
-  LogicalResult matchAndRewrite(ttir::DMAOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ttir::DMAOp op, ttir::DMAOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (!op.isFullyIndexed()) {
+      return failure();
+    }
 #if 1
     llvm::errs() << "DMAOp\n";
     llvm::errs() << "  isSrcLocal: " << op.isSrcLocal() << "\n";
     llvm::errs() << "  isDstLocal: " << op.isDstLocal() << "\n";
     op.dump();
-    // assert(op.isSrcRemote() != op.isDstRemote() &&
-    //        "Expected exactly one remote operand");
+
     bool isRead = op.isSrcRemote();
-    if (isRead) {
-      ValueRange srcOuterIndex = op.getSrcIndices();
-      AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
-      std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) = getPhysicalMap(
-          op.getSrcMemRefType(), getCurrentScopeDevice(op), rewriter);
-
-      auto [lbs, ubs, steps] =
-          getLoopBounds(rewriter, op.getLoc(), op.getDstMemRefType());
-
-      auto applyMap = [](OpBuilder &builder, Location loc, AffineMap map,
-                         ValueRange index) {
-        auto apply = builder.create<affine::AffineApplyOp>(loc, map, index);
-        return builder.create<arith::IndexCastOp>(loc, builder.getI32Type(),
-                                                  apply);
-      };
-
-      scf::LoopNest loopNest = scf::buildLoopNest(
-          rewriter, op.getLoc(), lbs, ubs, steps,
-          [&](OpBuilder &builder, Location loc, ValueRange iters) {
-            SmallVector<Value> srcIndex =
-                llvm::to_vector(llvm::concat<Value>(srcOuterIndex, iters));
-            auto srcGridY = applyMap(builder, loc, srcGridYMap, srcIndex);
-            auto srcGridX = applyMap(builder, loc, srcGridXMap, srcIndex);
-            auto srcOffset = applyMap(builder, loc, srcOffsetMap, srcIndex);
-            auto size = constant<IntegerType>(builder, loc, 1);
-            auto srcRemote = rewriter.create<ttkernel::GetNocAddrXYOp>(
-                loc, srcGridX, srcGridY, srcOffset);
-            builder.create<ttkernel::NocAsyncReadOp>(loc, srcRemote, size,
-                                                     size);
-          });
+    if (!isRead) {
+      return success();
     }
+
+    auto device = getCurrentScopeDevice(op);
+    AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
+    std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
+        getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
+
+    auto applyMap = [](OpBuilder &builder, Location loc, AffineMap map,
+                       ValueRange index) {
+      auto apply = builder.create<affine::AffineApplyOp>(loc, map, index);
+      apply.dump();
+      return builder.create<arith::IndexCastOp>(loc, builder.getI32Type(),
+                                                apply);
+    };
+
+    auto loc = op.getLoc();
+    auto srcGridY = applyMap(rewriter, loc, srcGridYMap, op.getSrcIndices());
+    auto srcGridX = applyMap(rewriter, loc, srcGridXMap, op.getSrcIndices());
+    auto srcOffset = applyMap(rewriter, loc, srcOffsetMap, op.getSrcIndices());
+    auto size = constant<IntegerType>(
+        rewriter, loc,
+        op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
+    auto srcRemote = rewriter.create<ttkernel::GetNocAddrXYOp>(
+        loc, srcGridX, srcGridY, srcOffset);
+    rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcRemote, size, size);
     rewriter.eraseOp(op);
     return success();
 #else
@@ -707,12 +696,46 @@ public:
 } // namespace
 
 namespace {
-class TTIRToTTMetalDMAWaitRewriter : public OpRewritePattern<ttir::DMAWaitOp> {
+class TTIRToTTMetalDMAFullyIndexedRewriter
+    : public OpConversionPattern<ttir::DMAOp> {
 public:
-  using OpRewritePattern<ttir::DMAWaitOp>::OpRewritePattern;
+  using OpConversionPattern<ttir::DMAOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(ttir::DMAWaitOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ttir::DMAOp op, ttir::DMAOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.isFullyIndexed()) {
+      return failure();
+    }
+
+    SmallVector<Value> srcIndices(op.getSrcIndices());
+    SmallVector<Value> dstIndices(op.getDstIndices());
+    Value zero = rewriter.create<arith::ConstantOp>(
+        op.getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    while (srcIndices.size() < (size_t)op.getSrcMemRefType().getRank()) {
+      srcIndices.push_back(zero);
+    }
+    while (dstIndices.size() < (size_t)op.getDstMemRefType().getRank()) {
+      dstIndices.push_back(zero);
+    }
+    rewriter.replaceOpWithNewOp<ttir::DMAOp>(
+        op, op.getResult().getType(), op.getSrc(), nullptr, srcIndices,
+        op.getDst(), nullptr, dstIndices,
+        rewriter.getI64IntegerAttr(op.getNumElems()), op.getDstCoreIndex(),
+        op.getMcastShape());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTIRToTTMetalDMAWaitRewriter : public OpConversionPattern<ttir::DMAWaitOp> {
+public:
+  using OpConversionPattern<ttir::DMAWaitOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DMAWaitOp op, ttir::DMAWaitOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     // TODO determine if read or write
     rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
     rewriter.eraseOp(op);
@@ -738,6 +761,7 @@ void populateTTIRToTTMetalPatternsNew(MLIRContext *ctx,
                                       RewritePatternSet &patterns,
                                       TypeConverter & /*typeConverter*/) {
   patterns.add<ttmetal::TTIRToTTMetalDMARewriter,
+               ttmetal::TTIRToTTMetalDMAFullyIndexedRewriter,
                ttmetal::TTIRToTTMetalDMAWaitRewriter>(ctx);
 }
 
