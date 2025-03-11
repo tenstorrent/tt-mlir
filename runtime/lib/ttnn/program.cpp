@@ -77,21 +77,25 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 namespace {
 class ProgramExecutor {
 public:
-  ProgramExecutor(
-      const Binary &executableHandle,
-      const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-      const std::vector<uint32_t> &programInputs,
-      const std::vector<uint32_t> &programOutputs,
-      common::DylibManager &&dylibManager, ::ttnn::MeshDevice *meshDevice)
-      : executableHandle(executableHandle),
-        context(ProgramContext(liveTensors, programInputs, programOutputs,
-                               std::move(dylibManager), meshDevice)) {}
+  ProgramExecutor(const ::tt::target::ttnn::Program *program,
+                  const Binary &executableHandle,
+                  const std::vector<uint32_t> &programInputIds,
+                  const std::vector<uint32_t> &programOutputIds,
+                  std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
+                  common::DylibManager &&dylibManager,
+                  ::ttnn::MeshDevice *meshDevice)
+      : program(program), executableHandle(executableHandle),
+        context(ProgramContext(programInputIds, programOutputIds,
+                               std::move(liveTensors), std::move(dylibManager),
+                               meshDevice)) {
+    LOG_ASSERT(program, "Program must be provided for execution");
+  }
 
   void runCallback(Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
-  void execute(const ::tt::target::ttnn::Program *program) {
+  void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
@@ -107,6 +111,7 @@ public:
   }
 
 private:
+  const ::tt::target::ttnn::Program *program;
   Binary executableHandle;
   ProgramContext context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
@@ -322,10 +327,11 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
     programOutputs.push_back(output->global_id());
   }
-  ProgramExecutor executor(
-      executableHandle, liveTensors, programInputs, programOutputs,
-      common::DylibManager(program->dylibs()), &meshDevice);
-  executor.execute(program);
+  ProgramExecutor executor(program, executableHandle, programInputs,
+                           programOutputs, std::move(liveTensors),
+                           common::DylibManager(program->dylibs()),
+                           &meshDevice);
+  executor.execute();
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;
 }
