@@ -820,7 +820,7 @@ def process_operations(
             )
 
         if not op.operation.name == "func.func":
-            graph_node = operation.make_graph_node()
+            graph_node = operation.make_graph_node(extra_attrs)
 
             if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
                 append_later.append(graph_node)
