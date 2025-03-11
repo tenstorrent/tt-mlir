@@ -269,7 +269,7 @@ llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
-  assert(output.getLayout() == getLayoutAttr().getValue());
+  assert(output.getLayout() == getLayout());
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -278,8 +278,8 @@ ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     return check.takeError();
   }
 
-  auto deviceOperand = getODSOperands(1);
-  const bool passDevicePtr = !deviceOperand.empty();
+  auto deviceOperand = getDevice();
+  const bool passDevicePtr = !deviceOperand;
 
   return op_model::ttnn::ToLayoutOpInterface::getOpConstraints(
       inputShape, inputs[0], getDtype(), output, passDevicePtr);
@@ -289,12 +289,12 @@ llvm::Expected<size_t>
 ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                          const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
-  assert(output.getLayout() == getLayoutAttr().getValue());
+  assert(output.getLayout() == getLayout());
 
   const auto inputShape = getInput().getType().getShape();
 
-  auto deviceOperand = getODSOperands(1);
-  const bool passDevicePtr = !deviceOperand.empty();
+  auto deviceOperand = getDevice();
+  const bool passDevicePtr = !deviceOperand;
 
   return op_model::ttnn::ToLayoutOpInterface::getOpRuntime(
       inputShape, inputs[0], getDtype(), output, passDevicePtr);
