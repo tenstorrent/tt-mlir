@@ -37,7 +37,6 @@ if "TT_EXPLORER_GENERATED_TTNN_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_TTNN_TEST_DIRS"].split(","):
         if os.path.exists(path):
             TEST_LOAD_MODEL_PATHS.append(path + "/**/*.ttnn")
-            TEST_EXECUTE_MODEL_PATHS.append(path + "/**/*.ttnn")
         else:
             logging.error(
                 "Path %s provided in TT_EXPLORER_GENERED_TTNN_TEST_DIRS doesn't exist. Tests not added.",
@@ -63,7 +62,7 @@ def get_test_files(paths):
 
 
 def GET_TTNN_TEST():
-    for test in get_test_files(TEST_EXECUTE_MODEL_PATHS):
+    for test in get_test_files(TEST_LOAD_MODEL_PATHS):
         if test.endswith("test_mnist.ttnn"):
             return test
     return None
