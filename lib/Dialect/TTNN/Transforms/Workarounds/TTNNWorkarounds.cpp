@@ -391,7 +391,7 @@ public:
           /* memory_config */ nullptr);
 
       // Determine new dimension since entire tensor shape got shifted.
-      dimension = dimension + requiredOnesInput;
+      dimension = clusterAxis + requiredOnesInput;
 
       // Determine the shape of its input tensor. The new tensor
       // shape at the scatter_dim will be tensor_shape[scatter_dim] =
