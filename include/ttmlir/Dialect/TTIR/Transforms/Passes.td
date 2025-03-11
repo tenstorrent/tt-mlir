@@ -80,7 +80,7 @@ def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::M
 def TTIRTensorLayout: Pass<"ttir-tensor-layout", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
-    Analyze the graph and select optimal layouts, insert reinterpret_layout where needed.
+    Analyze the graph and select optimal layouts, insert to_layout where needed.
   }];
 }
 
