@@ -938,21 +938,19 @@ public:
         rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
     shapeOp.getResult(0).getType().dump();
 
-    // 2. Get a pointer to the member function
+    // 2. Create a variable to hold the member function pointer
+    auto memberFuncPtrTy = emitc::OpaqueType::get(
+        rewriter.getContext(), "decltype(&ttnn::Shape::volume)");
+    auto memberFuncPtrAttr =
+        emitc::OpaqueAttr::get(rewriter.getContext(), "&ttnn::Shape::volume");
+    auto memberFuncPtrOp = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(), memberFuncPtrTy, memberFuncPtrAttr);
+
+    // 3. Call std::invoke with the member function pointer and shape
     auto volumeTy = emitc::OpaqueType::get(rewriter.getContext(), "uint32_t");
     auto volumeOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(), volumeTy, "std::invoke", nullptr, nullptr,
-        ValueRange{
-            // Create a member function pointer inline
-            rewriter
-                .create<emitc::CallOpaqueOp>(
-                    srcOp.getLoc(),
-                    emitc::OpaqueType::get(rewriter.getContext(),
-                                           "decltype(&ttnn::Shape::volume)"),
-                    "&ttnn::Shape::volume", nullptr, nullptr, ValueRange{})
-                .getResult(0),
-            // The object instance
-            shapeOp.getResult(0)});
+        ValueRange{memberFuncPtrOp.getResult(), shapeOp.getResult(0)});
 
     // . Create owned_buffer with proper template based on data type
     auto dtype = srcOp.getDtypeAttr().getValue();
