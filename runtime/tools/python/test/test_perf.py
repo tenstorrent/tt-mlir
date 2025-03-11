@@ -142,3 +142,38 @@ def test_device_perf():
 def test_device_cmd_perf():
     command = f"ttrt perf {PERF_BINARY_FILE_PATH} --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
+
+
+def test_location_present_perf():
+    # Is there any way to prove if an Op is relevant? Well for now we know that it's MNIST.
+    # Since it's an MNIST module, ignore and all of the locations from the `deallocate` op calls.
+
+    # Need to get MLIR module from flatbuffer using ttrt read
+    API.initialize_apis()
+    reader = API.Read()
+    # Load Perf Binary
+    reader.load_binaries_from_path(PERF_BINARY_FILE_PATH)
+    # Unwrap MLIR from read result
+    module_mlir = reader.mlir()[0][0]["ttnn"]
+
+    # Parse MLIR Module and populate locs_to_find with all relevant locations
+
+    from ttmlir.dialects import ttnn, tt
+    from ttmlir import ir, util
+
+    with ir.Context() as ctx:
+        tt.register_dialect(ctx)
+        ttnn.register_dialect(ctx)
+        module = ir.Module.parse(module_mlir, ctx)
+
+    locs_to_find = {}
+
+    for op in module.body.operations:
+        for region in op.regions:
+            for block in region.blocks:
+                for op in block.operations:
+                    if op.operation.name == "ttnn.deallocate":
+                        # Don't register the locations of the deallocate ops
+                        continue
+                    locs_to_find[util.get_loc_name(op.location)] = True
+                    print(op, op.operation.name)
