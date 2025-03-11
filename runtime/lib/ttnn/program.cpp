@@ -7,6 +7,7 @@
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv_transpose2d.h"
+#include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
 #include "operations/creation/empty.h"
@@ -46,6 +47,7 @@
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
@@ -72,6 +74,7 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
+namespace {
 class ProgramExecutor {
 public:
   ProgramExecutor(
@@ -79,10 +82,10 @@ public:
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputs,
       const std::vector<uint32_t> &programOutputs,
-      ::ttnn::MeshDevice *meshDevice)
+      common::DylibManager &&dylibManager, ::ttnn::MeshDevice *meshDevice)
       : executableHandle(executableHandle),
         context(ProgramContext(liveTensors, programInputs, programOutputs,
-                               meshDevice)) {}
+                               std::move(dylibManager), meshDevice)) {}
 
   void runCallback(Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
@@ -109,6 +112,7 @@ private:
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
+} // namespace
 
 void ProgramExecutor::runCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
@@ -283,6 +287,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), context);
   }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    return operations::cpu::run(op->type_as_CpuOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     return operations::creation::run(op->type_as_ConstantOp(), context);
   }
@@ -315,8 +322,9 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
     programOutputs.push_back(output->global_id());
   }
-  ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                           programOutputs, &meshDevice);
+  ProgramExecutor executor(
+      executableHandle, liveTensors, programInputs, programOutputs,
+      common::DylibManager(program->dylibs()), &meshDevice);
   executor.execute(program);
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;

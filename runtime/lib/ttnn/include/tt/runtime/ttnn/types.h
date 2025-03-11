@@ -5,15 +5,17 @@
 #ifndef TT_RUNTIME_TTNN_TYPES_H
 #define TT_RUNTIME_TTNN_TYPES_H
 
+#include "tt/runtime/detail/dylib.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/types.h"
+
 #include <optional>
 #include <unordered_map>
 
 namespace tt::runtime::ttnn {
 using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
                                    std::reference_wrapper<::ttnn::MeshDevice>>;
-
 struct LayoutDesc {
   ::ttnn::StorageType storageType;
   ::ttnn::Layout layout;
@@ -138,9 +140,15 @@ class ProgramContext {
 public:
   ProgramContext(
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-      const std::vector<uint32_t> &programInputIds,
-      const std::vector<uint32_t> &programOutputIds,
-      ::ttnn::MeshDevice *parentMesh);
+      const std::vector<uint32_t> &programInputs,
+      const std::vector<uint32_t> &programOutputs,
+      common::DylibManager &&programDylibManager,
+      ::ttnn::MeshDevice *parentMesh)
+      : tensorPool(
+            ProgramTensorPool(liveTensors, programInputs, programOutputs)),
+        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh) {
+    LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
+  }
   ProgramContext(const ProgramContext &) = delete;
   ProgramContext &operator=(const ProgramContext &) = delete;
   ProgramContext(ProgramContext &&) = default;
@@ -171,6 +179,10 @@ public:
 
   DeviceVariant getTargetDevice(uint32_t meshId);
 
+  void *tryGetDylibHandle(const uint32_t dylibId) {
+    return dylibManager.getHandle(dylibId);
+  }
+
   //
   // Tensor Pool Operations
   //
@@ -180,6 +192,7 @@ public:
 private:
   ProgramTensorPool tensorPool;
 
+  common::DylibManager dylibManager;
   // Contains all devices borrowed from the user that are available to the
   // program
   ::ttnn::MeshDevice *parentMesh = nullptr;

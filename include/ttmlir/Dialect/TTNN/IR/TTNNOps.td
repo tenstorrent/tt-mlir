@@ -67,7 +67,9 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     let hasCanonicalizer = 1;
 }
 
-def TTNN_TypecastOp : TTNN_Op<"typecast"> {
+def TTNN_TypecastOp : TTNN_Op<"typecast",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Typecast op.";
     let description = [{
       This op converts the data type of the input tensor based on the given data type.

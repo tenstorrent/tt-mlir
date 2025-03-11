@@ -11,6 +11,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttir, tt, tensor
 from ttmlir.passes import GoldenTensor, DataType
 import torch
+import array
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -345,6 +346,42 @@ class TTIRBuilder:
 
             return op
 
+    def zeros(
+        self,
+        shape: Shape,
+        data_type: Optional[Type] = None,
+    ) -> OpView:
+        """Convenience wrapper constructing `ttir.ZerosOp`."""
+        dtype = data_type if data_type is not None else self._default_dtype
+        with self._ctx, self._loc:
+            # Create the result type
+            result_type = self.ranked_tensor_type(shape, dtype)
+
+            # Convert shape to a list if it's a tuple
+            shape_list = list(shape) if isinstance(shape, tuple) else shape
+
+            # Create the shape attribute
+            from ttmlir.ir import DenseI32ArrayAttr
+
+            shape_attr = DenseI32ArrayAttr.get(shape_list, context=self._ctx)
+
+            # Create the operation
+            from ttmlir.ir import Operation
+
+            # Create the operation directly using the low-level API to ensure it matches the IR format
+            op = Operation.create(
+                "ttir.zeros",  # Operation name
+                results=[result_type],  # Result types
+                operands=[],  # No operands
+                attributes={"shape": shape_attr},  # Shape attribute
+                loc=self._loc,  # Location
+            )
+
+            # Generate and store random golden tensor
+            self.generate_and_store_random_golden(op)
+
+            return op
+
     # ----- TTIR op factories -----
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output: OpView, output_shape: Optional[Shape]
@@ -359,11 +396,13 @@ class TTIRBuilder:
         op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
+        unit_attrs: List[str] = None,
         organize_ttir_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
+        use_zeros: bool = False,
     ) -> Any:
         """
         Provides a general interface for proxy-ing OPs and creating them.
@@ -416,13 +455,21 @@ class TTIRBuilder:
 
         with self._ctx, self._loc:
             # Compute the golden
-            golden = Golden(
-                op_golden_function(*(organize_golden_args(inputs)), **golden_kwargs)
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+            golden = (
+                Golden(golden_output[0])
+                if not isinstance(golden_output, torch.Tensor)
+                else Golden(golden_output)
             )
 
             # Use the golden output to determine proper output shape unless otherwise specified
             output_shape = golden.tensor.shape if not output_shape else output_shape
-            output = self.empty(output_shape)
+            if use_zeros:
+                output = self.zeros(output_shape)
+            else:
+                output = self.empty(output_shape)
 
             id = self.get_next_global_id()
             loc = get_loc_of_extra_file_callee(id=id)
@@ -432,6 +479,13 @@ class TTIRBuilder:
                 loc=loc,
                 **ttir_kwargs,
             )
+
+            # Add unit attributes if specified
+            if unit_attrs:
+                from ttmlir.ir import UnitAttr
+
+                for attr_name in unit_attrs:
+                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
@@ -578,6 +632,25 @@ class TTIRBuilder:
     def minimum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.minimum, ttir.MinimumOp, [in0, in1])
 
+    def power(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.pow, ttir.PowerOp, [in0, in1])
+
+    def sum(
+        self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
+    ) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.sum,
+            ttir.SumOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
     def mean(
         self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
     ) -> OpView:
@@ -588,6 +661,34 @@ class TTIRBuilder:
         return self.op_proxy(
             torch.mean,
             ttir.MeanOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def max(self, in0: Operand, dim_arg: int = 0, keep_dim: bool = True) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": [dim_arg], "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.max,
+            ttir.MaxOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def min(self, in0: Operand, dim_arg: int = 0, keep_dim: bool = True) -> OpView:
+
+        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+        ttir_kwargs = {"dim_arg": [dim_arg], "keep_dim": keep_dim}
+
+        return self.op_proxy(
+            torch.min,
+            ttir.MinOp,
             [in0],
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,

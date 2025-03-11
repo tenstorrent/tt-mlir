@@ -94,6 +94,13 @@ inline Tensor createTensor(Device device, Layout layout,
 
 tt::target::DataType getTensorDataType(Tensor tensor);
 
+std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
+std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
+std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
+std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
+std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
+TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
+
 size_t getNumAvailableDevices();
 
 Device
@@ -136,8 +143,6 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
-
-std::vector<float> getTensorData(Tensor tensor);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
