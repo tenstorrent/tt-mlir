@@ -155,8 +155,7 @@ public:
       if (mlir::cast<MetalLayoutAttr>(optimalLayout.getEncoding())
                   .getGrid()
                   .getShape() == encoding.getGrid().getShape() ||
-          (std::distance(operand.getUses().begin(), operand.getUses().end()) ==
-               1 &&
+          (operand.hasOneUse() &&
            mlir::isa<ttir::ToLayoutOp>(operand.getUses().begin().getUser()))) {
         continue;
       }
