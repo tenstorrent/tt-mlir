@@ -904,26 +904,32 @@ public:
     // 3. Create owned_buffer with proper template based on data type
     auto dtype = srcOp.getDtypeAttr().getValue();
 
-    std::string templateArg;
+    TypeAttr templateTypeAttr;
 
     switch (dtype) {
     case tt::DataType::Float32:
-      templateArg = "float";
+      templateTypeAttr =
+          TypeAttr::get(emitc::OpaqueType::get(rewriter.getContext(), "float"));
       break;
     case tt::DataType::UInt8:
-      templateArg = "uint8_t";
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "uint8_t"));
       break;
     case tt::DataType::UInt16:
-      templateArg = "uint16_t";
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "uint16_t"));
       break;
     case tt::DataType::Int32:
-      templateArg = "int32_t";
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "int32_t"));
       break;
     case tt::DataType::UInt32:
-      templateArg = "uint32_t";
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "uint32_t"));
       break;
     case tt::DataType::BFloat16:
-      templateArg = "bfloat16";
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "bfloat16"));
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -932,9 +938,10 @@ public:
 
     auto bufferTy = emitc::OpaqueType::get(rewriter.getContext(),
                                            "::tt::tt_metal::OwnedBuffer");
+
     auto bufferOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(), bufferTy, "::tt::tt_metal::owned_buffer::create",
-        nullptr, rewriter.getArrayAttr({rewriter.getStringAttr(templateArg)}),
+        nullptr, rewriter.getArrayAttr({templateTypeAttr}),
         ValueRange{volumeOp.getResult(0)});
 
     // 4. Create owned_storage from buffer

@@ -525,7 +525,7 @@ namespace mlir::tt::ttnn {
   // Check that the attributes of the op match the attributes of the output
   // tensor type.
   //
-  RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
+  RankedTensorType output = getResult().getType();
 
   TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
 
@@ -570,7 +570,7 @@ namespace mlir::tt::ttnn {
   // Check that the attributes of the op match the attributes of the output
   // tensor type.
   //
-  RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
+  RankedTensorType output = getResult().getType();
 
   TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
 
