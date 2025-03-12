@@ -44,7 +44,7 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
 
   }];
 
-  let dependentDialects = ["::mlir::tt::TTDialect"];
+  // let dependentDialects = ["::mlir::tt::TTDialect"];
 }
 
 #endif
