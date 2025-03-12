@@ -505,6 +505,26 @@ struct EmitCTypeConverter<std::variant<First, Rest...>> {
   }
 };
 
+// This template struct is used to retrieve the single most relevant C++ type in
+// TTNN for a given template type.
+template <typename T>
+struct TTNNTarget {
+  using type = T;
+};
+
+template <typename T>
+using TTNNTargetT = typename TTNNTarget<T>::type;
+
+template <>
+struct TTNNTarget<llvm::StringRef> {
+  using type = std::string;
+};
+
+template <>
+struct TTNNTarget<llvm::APFloat> {
+  using type = float;
+};
+
 inline std::string convert(ttnn::ShapeAttr attr) {
   if (!attr) {
     return "::std::nullopt";
@@ -745,21 +765,6 @@ public:
     }
   }
 
-  mlir::Attribute emit(mlir::StringAttr attr) {
-    return rewriter.getType<emitc::OpaqueAttr>(
-        EmitCTypeConverter<std::string>::convert(attr));
-  }
-
-  mlir::Attribute emit(llvm::StringRef attr) {
-    return rewriter.getType<emitc::OpaqueAttr>(
-        EmitCTypeConverter<std::string>::convert(attr));
-  }
-
-  mlir::Attribute emit(std::string attr) {
-    return rewriter.getType<emitc::OpaqueAttr>(
-        EmitCTypeConverter<std::string>::convert(attr));
-  }
-
   // Handles the case when source type is convertible to mlir::Attribute type
   // and source and target types are in many-to-many relationship (i.e.
   // {mlir::ArrayAttr, mlir::DenseI32ArrayAttr} to {std::vector<uint32_t>,
@@ -779,14 +784,15 @@ public:
   // llvm::ArrayRef<T> to std::vector<U>). For convenience, by default
   // `TargetTy` is the same as `SourceTy`, for cases where we already have an
   // appropriate C++ type.
-  // TODO (azecevic): See if we can simplify the condition for this overload
-  // instantiation.
-  template <typename SourceTy, typename TargetTy = std::remove_reference_t<
-                                   std::remove_cv_t<SourceTy>>>
+  template <typename TargetTy = void, typename SourceTy>
   std::enable_if_t<!IsMLIRTypeV<SourceTy>, mlir::Attribute>
   emit(SourceTy &&attr) {
-    auto result =
-        EmitCTypeConverter<TargetTy>::convert(std::forward<SourceTy>(attr));
+    using ActualTargetTy = std::conditional_t<
+        std::is_void_v<TargetTy>,
+        TTNNTargetT<std::remove_reference_t<std::remove_cv_t<SourceTy>>>,
+        TargetTy>;
+    auto result = EmitCTypeConverter<ActualTargetTy>::convert(
+        std::forward<SourceTy>(attr));
     // It's assumed that the conversion will always succeed, if the result is
     // `std::optional<std::string>` we assume that it contains the converted
     // value.
