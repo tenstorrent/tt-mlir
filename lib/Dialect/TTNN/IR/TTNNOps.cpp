@@ -1654,7 +1654,6 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   emitWarning() << "Removing this CCL op because performing a CCL operation "
                    "on a single mesh device is semantically meaningless.";
   return getInput();
-  return {};
 }
 
 //===----------------------------------------------------------------------===//
