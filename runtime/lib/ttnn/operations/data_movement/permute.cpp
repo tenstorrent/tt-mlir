@@ -24,6 +24,7 @@ void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
   float padValue = op->pad_value();
 
   ::ttnn::Tensor out = ::ttnn::permute(in, permutation, memoryConfig, padValue);
+  out.print();
 
   tensorPool.insertAndValidate(op->out(), out);
 }
