@@ -20,6 +20,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "shardy/dialect/sdy/ir/constants.h"
@@ -106,32 +107,36 @@ public:
       }
 
       // JAX automatic sharding pre-shards input tensors and provides multiple
-      // buffers. Thus, mesh sharding operations should not shard the tensors
-      // twice if they are function arguments and pre-sharded by frontend.
-      if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(globalOperand)) {
-        auto argNum = blockArg.getArgNumber();
-        meshSharding
-            .checkAndUpdateFuncArgSharding<mlir::sdy::TensorShardingAttr>(
-                rewriter, funcOp, argNum, argSharding,
-                mlir::sdy::kShardingAttr);
+      // buffers. Thus, we have to check if mesh shard op is sharding the
+      // tensors twice. We create dummy mesh shard op if input and output
+      // shapes are different or not create mesh shard op if they are
+      // identical.
+      bool shouldCreateMeshShardOp =
+          meshSharding.checkAndUpdateShardyArgSharding(
+              rewriter, funcOp, globalOperand, argSharding);
+      if (shouldCreateMeshShardOp) {
+        auto outputType = mlir::cast<mlir::RankedTensorType>(
+            getTypeConverter()->convertType(localArgType));
+
+        auto meshShardOp =
+            ttmlir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+                rewriter, loc, outputType, globalOperand,
+                meshSharding.getShardType(), meshSharding.getShardDirection(),
+                meshSharding.getShardShape(), meshSharding.getShardDims());
+
+        fullToShardResults.push_back(meshShardOp.getResult());
+      } else {
+        // Do not create mesh shard op if input and output shapes are
+        // identical: frontend provides sharded input and shard type is
+        // replicate.
+        fullToShardResults.push_back(globalOperand);
       }
-
-      auto outputType = mlir::cast<mlir::RankedTensorType>(
-          getTypeConverter()->convertType(localArgType));
-
-      auto meshShardOp =
-          ttmlir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
-              rewriter, loc, outputType, globalOperand,
-              meshSharding.getShardType(), meshSharding.getShardDirection(),
-              meshSharding.getShardShape(), meshSharding.getShardDims());
-
-      fullToShardResults.push_back(meshShardOp.getResult());
     }
 
     // Add mesh_shard (ShardToFullShape) for outputs.
     rewriter.setInsertionPointAfter(srcOp);
     mlir::Operation *sdyReturn = getBodyTerminator(srcOp);
-    for (auto [retNum, args] : llvm::enumerate(llvm::zip_equal(
+    for (auto [retIdx, args] : llvm::enumerate(llvm::zip_equal(
              sdyReturn->getOpOperands(), srcOp.getOutShardings().getShardings(),
              srcOp.getResults()))) {
       auto [returnOperand, outSharding, opResult] = args;
@@ -142,30 +147,36 @@ public:
         return rewriter.notifyMatchFailure(srcOp, llvm::toString(std::move(e)));
       }
 
-      // JAX automatic sharding may expect pre-sharded output tensors. Thus,
-      // mesh sharding operations should not concat the tensors twice if
-      // frontent expects pre-sharded tensor.
-      meshSharding
-          .checkAndUpdateFuncReturnSharding<mlir::sdy::TensorShardingAttr>(
-              rewriter, funcOp, retNum, outSharding, mlir::sdy::kShardingAttr);
+      // JAX automatic sharding may expect pre-sharded output tensors. We should
+      // check and update mesh shard op to match frontend's expectation. We may
+      // create dummy mesh shard op even though frontend expect sharded return
+      // in case input and output shapes of mesh shard op are different.
+      bool shouldCreateMeshShardOp =
+          meshSharding.checkAndUpdateShardyRetSharding(rewriter, funcOp, retIdx,
+                                                       outSharding);
+      if (shouldCreateMeshShardOp) {
+        auto inputOperand = returnOperand.get();
+        auto inputType = mlir::cast<mlir::RankedTensorType>(
+            getTypeConverter()->convertType(inputOperand.getType()));
+        if (inputType != inputOperand.getType()) {
+          inputOperand.setType(inputType);
+        }
 
-      auto inputOperand = returnOperand.get();
-      auto inputType = mlir::cast<mlir::RankedTensorType>(
-          getTypeConverter()->convertType(inputOperand.getType()));
-      if (inputType != inputOperand.getType()) {
-        inputOperand.setType(inputType);
+        auto outputType = mlir::cast<mlir::RankedTensorType>(
+            getTypeConverter()->convertType(opResult.getType()));
+
+        auto meshShardOp =
+            ttmlir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+                rewriter, loc, outputType, inputOperand,
+                meshSharding.getShardType(), meshSharding.getShardDirection(),
+                meshSharding.getShardShape(), meshSharding.getShardDims());
+
+        rewriter.replaceAllUsesWith(opResult, meshShardOp.getResult());
+      } else {
+        // Do not create mesh shard op if input and output shapes are identical:
+        // frontend expects sharded return and shard type is replicate.
+        rewriter.replaceAllUsesWith(opResult, returnOperand.get());
       }
-
-      auto outputType = mlir::cast<mlir::RankedTensorType>(
-          getTypeConverter()->convertType(opResult.getType()));
-
-      auto meshShardOp =
-          ttmlir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
-              rewriter, loc, outputType, inputOperand,
-              meshSharding.getShardType(), meshSharding.getShardDirection(),
-              meshSharding.getShardShape(), meshSharding.getShardDims());
-
-      rewriter.replaceAllUsesWith(opResult, meshShardOp.getResult());
     }
 
     // Inline inner block ops.
@@ -186,8 +197,8 @@ public:
   llvm::LogicalResult
   matchAndRewrite(mlir::sdy::MeshOp srcOp, mlir::sdy::MeshOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    // The goal of this conversion is to extract hardware mesh information from
-    // sdy.mesh op and store it as module attribute.
+    // The main goal of this conversion is to extract hardware mesh information
+    // from sdy.mesh op and store it as module attribute.
     auto module = srcOp->getParentOfType<mlir::ModuleOp>();
     if (!module) {
       llvm_unreachable(
@@ -202,7 +213,36 @@ public:
     }
     mlir::tt::utils::addMeshToModuleAttribute(rewriter, module, meshName,
                                               meshShape);
+
+    // Before erasing MeshOp, visit public functions and erase argument sharding
+    // attributes that are not refered by ManualComputationOp. Ones that are
+    // refered by ManualComputationOp are properly handled by
+    // ShardyToTTIRManualComputationOpConversionPattern.
+    module->walk([&](mlir::func::FuncOp funcOp) {
+      if (funcOp.isPublic()) {
+        for (auto arg : funcOp.getArguments()) {
+          auto argIdx = arg.getArgNumber();
+          auto argShardingAttr =
+              funcOp.getArgAttrOfType<mlir::sdy::TensorShardingAttr>(
+                  argIdx, mlir::sdy::kShardingAttr);
+          if (!argShardingAttr) {
+            continue;
+          }
+          if (llvm::any_of(arg.getUsers(), [&](mlir::Operation *user) {
+                return mlir::dyn_cast_if_present<
+                    mlir::sdy::ManualComputationOp>(*user);
+              })) {
+            continue;
+          }
+          rewriter.modifyOpInPlace(funcOp, [&]() {
+            funcOp.removeArgAttr(argIdx, mlir::sdy::kShardingAttr);
+          });
+        }
+      }
+    });
+
     rewriter.eraseOp(srcOp);
+
     return llvm::success();
   }
 };

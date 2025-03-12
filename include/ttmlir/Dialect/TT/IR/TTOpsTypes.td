@@ -453,6 +453,14 @@ def TT_MeshShardDirectionAttr : EnumAttr<TT_Dialect, TT_MeshShardDirection, "sha
 }
 
 def TT_MeshShardTypeAttr : EnumAttr<TT_Dialect, TT_MeshShardType, "shard_type"> {
+  let summary = "MeshShard shard_type attribute in TT dialect";
+  let description = [{
+    Define sharded tensor data of mesh_shard op.
+    - Identity: input and output tensors are pre-sharded (same data) and no sharding is required.
+    - Replicate: all of the devices has full tensor (same data).
+    - Maximal: one or part of the devcices has full tensor (same data).
+    - Devices: all or part of the devices has sharded (partial) tensor (different data).
+  }];
   let assemblyFormat = "`<` $value `>`";
 }
 
