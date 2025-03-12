@@ -124,9 +124,9 @@ void wait(Tensor tensor);
 
 void wait(std::vector<Tensor> const &tensors);
 
-std::vector<Tensor> toHostShardAware(Tensor tensor, bool untilize = false);
+std::vector<Tensor> toHost(Tensor tensor, bool untilize = false);
 
-Tensor toHost(Tensor tensor, bool untilize = false);
+Tensor toHostSingleTensor(Tensor tensor, bool untilize = false);
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout);
 

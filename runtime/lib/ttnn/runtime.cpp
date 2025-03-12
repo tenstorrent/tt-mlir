@@ -307,7 +307,7 @@ void wait(std::vector<Tensor> const &tensors) {
   }
 }
 
-std::vector<Tensor> toHostShardAware(Tensor tensor, bool untilize) {
+std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
   const ::ttnn::Tensor &multiDeviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
   std::vector<Tensor> host_tensors;
@@ -317,18 +317,19 @@ std::vector<Tensor> toHostShardAware(Tensor tensor, bool untilize) {
     std::vector<::ttnn::Tensor> single_tensors =
         ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
     for (auto &tensor : single_tensors) {
-      host_tensors.push_back(::tt::runtime::ttnn::toHost(
+      host_tensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
           Tensor(std::make_shared<::ttnn::Tensor>(tensor), nullptr,
                  DeviceRuntime::TTNN),
           untilize));
     }
   } else {
-    host_tensors.push_back(::tt::runtime::ttnn::toHost(tensor, untilize));
+    host_tensors.push_back(
+        ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
   }
   return host_tensors;
 }
 
-Tensor toHost(Tensor tensor, bool untilize) {
+Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
   const ::ttnn::Tensor &deviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
   std::shared_ptr<::ttnn::Tensor> hostTensor =

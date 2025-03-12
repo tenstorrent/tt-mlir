@@ -337,22 +337,7 @@ void wait(std::vector<Tensor> const &tensors) {
   LOG_FATAL("runtime is not enabled");
 }
 
-std::vector<Tensor> toHostShardAware(Tensor tensor, bool untilize) {
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::toHostShardAware(tensor, untilize);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    LOG_FATAL("not implemented");
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
-Tensor toHost(Tensor tensor, bool untilize) {
+std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::toHost(tensor, untilize);
