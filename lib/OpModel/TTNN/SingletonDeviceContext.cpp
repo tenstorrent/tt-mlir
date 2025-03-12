@@ -5,9 +5,9 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "SingletonDeviceContext.h"
 
+#include "Constants.h"
 #include "MetalHeaders.h"
 
-#include "ttmlir/Dialect/TTNN/Utils/Constants.h"
 namespace mlir::tt::op_model::ttnn {
 
 // todo(arminaleTT): look into dynamically adjusting this
