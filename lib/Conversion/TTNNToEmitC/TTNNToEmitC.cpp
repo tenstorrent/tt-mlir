@@ -153,6 +153,7 @@ public:
 // Currently, it has to insert nullopts for some parameters that are not
 // modelled in the dialect (parameter, memcfg).
 //
+namespace {
 template <typename SourceOp>
 class EltwiseUnaryWithFastAndApproximateModeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
@@ -179,12 +180,47 @@ public:
     return success();
   }
 };
+} // namespace
 
-// EltwiseUnaryCompositeOp conversion pattern
+// ElementwiseUnaryWithFloatParameterOp conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
 // modelled in the dialect (parameter, memcfg).
 //
+namespace {
+template <typename SourceOp>
+class ElementwiseUnaryWithFloatParameterOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputs()[0]),
+        /*parameter=*/emitter.emit(srcOp.getParameter()),
+        /*memory_config=*/emitter.emit(std::nullopt)};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// EltwiseUnaryCompositeOp conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
 template <typename SourceOp>
 class EltwiseUnaryCompositeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
@@ -210,6 +246,39 @@ public:
     return success();
   }
 };
+} // namespace
+
+// ClampOpConversionPattern conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+class ClampOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ClampOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::ClampOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename tt::ttnn::ClampOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::ClampOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ClampOp> emitter(srcOp, adaptor,
+                                                               rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputs()[0]), emitter.emit(srcOp.getMin()),
+        emitter.emit(srcOp.getMax()),
+        /*memory_config=*/emitter.emit(std::nullopt)};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
 
 // Eltwise Binary op conversion pattern
 //
@@ -246,8 +315,41 @@ public:
 };
 } // namespace
 
+// Eltwise Binary Composite op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseBinaryCompositeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputs()[0]), emitter.emit(srcOp.getInputs()[1]),
+        /*memory_config=*/emitter.emit(std::nullopt)};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Linear op conversion pattern
 //
+namespace {
 class LinearOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::LinearOp> {
 
@@ -276,6 +378,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Matmul op conversion pattern
 //
@@ -315,6 +418,7 @@ public:
 
 // MaxPool2d op conversion pattern
 //
+namespace {
 class MaxPool2dOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::MaxPool2dOp> {
 
@@ -350,9 +454,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Upsample op conversion pattern
 //
+namespace {
 class UpsampleOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::UpsampleOp> {
 
@@ -381,9 +487,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Softmax op conversion pattern
 //
+namespace {
 class SoftmaxOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::SoftmaxOp> {
 
@@ -410,9 +518,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Embedding op conversion pattern
 //
+namespace {
 class EmbeddingOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::EmbeddingOp> {
 
@@ -438,9 +548,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Moreh CumSum op conversion pattern
 //
+namespace {
 class MorehCumSumOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::MorehCumSumOp> {
 
@@ -468,9 +580,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Reduction ops conversion pattern
 //
+namespace {
 template <typename ReductionOp>
 class ReductionOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ReductionOp> {
@@ -499,9 +613,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Argmax op conversion pattern
 //
+namespace {
 class ArgMaxOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ArgMaxOp> {
 
@@ -529,9 +645,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Prod op conversion pattern
 //
+namespace {
 class ProdOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ProdOp> {
 
@@ -559,9 +677,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Conv2d op conversion pattern
 //
+namespace {
 class Conv2dOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::Conv2dOp> {
 
@@ -601,9 +721,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ReshapeOp conversion pattern
 //
+namespace {
 class ReshapeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ReshapeOp> {
 
@@ -629,9 +751,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // TransposeOp conversion pattern
 //
+namespace {
 class TransposeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::TransposeOp> {
 
@@ -658,9 +782,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // ConcatOp conversion pattern
 //
+namespace {
 class ConcatOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ConcatOp> {
 
@@ -686,9 +812,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // Repeat op conversion pattern
 //
+namespace {
 class RepeatOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::RepeatOp> {
 public:
@@ -712,9 +840,11 @@ public:
     return success();
   }
 };
+} // namespace
 
 // RepeatInterleave op conversion pattern
 //
+namespace {
 class RepeatInterleaveOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::RepeatInterleaveOp> {
 public:
@@ -741,6 +871,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // GetDeviceOp conversion pattern
 //
@@ -982,6 +1113,7 @@ public:
 
 // ZerosOp conversion pattern
 //
+namespace {
 class ZerosOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ZerosOp> {
 
@@ -1007,6 +1139,7 @@ public:
     return success();
   }
 };
+} // namespace
 
 // OnesOp conversion pattern
 //
@@ -1354,14 +1487,15 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<EltwiseUnaryOpConversionPattern<tt::ttnn::AbsOp>,
                EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::CbrtOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::ClampOp>,
+               ClampOpConversionPattern,
                EltwiseUnaryOpConversionPattern<tt::ttnn::FloorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::IsFiniteOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::LogicalNotOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::BitwiseNotOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::NegOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::ReluOp>,
-               EltwiseUnaryOpConversionPattern<tt::ttnn::LeakyReluOp>,
+               ElementwiseUnaryWithFloatParameterOpConversionPattern<
+                   tt::ttnn::LeakyReluOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
                    tt::ttnn::GeluOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::SqrtOp>,
@@ -1385,28 +1519,29 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Eltwise binary ops
   //
-  patterns.add<EltwiseBinaryOpConversionPattern<tt::ttnn::AddOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::SubtractOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::MultiplyOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalAndOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalOrOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalXorOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::BitwiseAndOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::BitwiseOrOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::BitwiseXorOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::EqualOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::NotEqualOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterEqualOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterThanOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::LessEqualOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::LessThanOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::MaximumOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::MinimumOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::DivOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::ScatterOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::RemainderOp>,
-               EltwiseBinaryOpConversionPattern<tt::ttnn::PowerOp>>(
-      typeConverter, ctx);
+  patterns
+      .add<EltwiseBinaryOpConversionPattern<tt::ttnn::AddOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::SubtractOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::MultiplyOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalAndOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalOrOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::LogicalXorOp>,
+           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseAndOp>,
+           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseOrOp>,
+           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::BitwiseXorOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::EqualOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::NotEqualOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterEqualOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::GreaterThanOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::LessEqualOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::LessThanOp>,
+           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::MaximumOp>,
+           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::MinimumOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::DivideOp>,
+           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::ScatterOp>,
+           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::RemainderOp>,
+           EltwiseBinaryOpConversionPattern<tt::ttnn::PowerOp>>(typeConverter,
+                                                                ctx);
 
   // Tensor manipulation ops
   //
