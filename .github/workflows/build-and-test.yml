@@ -288,7 +288,7 @@ jobs:
         fi
 
     - name: Prepare tt-explorer Test
-      if: ${{ matrix.build.suite }} == "explorer"
+      if: matrix.build.suite == 'explorer'
       shell: bash
       run: |
         source env/activate
