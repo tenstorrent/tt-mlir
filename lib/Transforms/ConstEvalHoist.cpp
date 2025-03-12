@@ -33,6 +33,8 @@ struct ConstEvalSubgraph {
   llvm::SmallPtrSet<mlir::Value, 4> values;
 };
 
+// Helper class to wrap variadic list of ops and get if a given op is one of
+// these types.
 template <typename... OpTypes>
 class OpTypeChecker {
 public:
@@ -273,7 +275,11 @@ private:
   // Process a single function for const-eval hoisting
   void processFunction(func::FuncOp funcOp) {
     // Run the analysis to identify const-eval subgraphs
-    TTIRConstEvalAnalyze analyzer(funcOp);
+    TTIRConstEvalAnalyze analyzer(
+        funcOp,
+        OpTypeChecker<tensor::EmptyOp, ttir::ZerosOp, ttir::OnesOp,
+                      ttir::ArangeOp, ttir::ConstantOp>(),
+        OpTypeChecker<>());
     auto constEvalOpSets = analyzer.getAnalysisResults();
 
     if (constEvalOpSets.empty()) {
