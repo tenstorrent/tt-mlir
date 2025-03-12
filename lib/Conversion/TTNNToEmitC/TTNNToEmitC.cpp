@@ -1125,6 +1125,105 @@ public:
 };
 } // namespace
 
+// MeshShardOp conversion pattern
+//
+namespace {
+class MeshShardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::MeshShardOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::MeshShardOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::MeshShardOp srcOp,
+                  tt::ttnn::MeshShardOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.create<emitc::VerbatimOp>(
+        srcOp.getLoc(),
+        "assert(0 && \"Mesh shard operation is "
+        "not supported in emitc yet.\"); // ::ttnn::mesh_shard");
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::MeshShardOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+    };
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// AllGatherOp conversion pattern
+//
+namespace {
+class AllGatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::AllGatherOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::AllGatherOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::AllGatherOp srcOp,
+                  tt::ttnn::AllGatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::AllGatherOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getAllGatherDim()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getDevice()),
+        /*numLinks=*/emitter.emit(1),
+        /*memoryConfig=*/emitter.emit(std::nullopt),
+        /*numWorkers=*/emitter.emit(std::nullopt),
+        /*numBuffersPerChannel=*/emitter.emit(std::nullopt),
+        /*ttnn::ccl::Topology=*/
+        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// ReduceScatterOp conversion pattern
+//
+namespace {
+class ReduceScatterOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ReduceScatterOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::ReduceScatterOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::ReduceScatterOp srcOp,
+                  tt::ttnn::ReduceScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ReduceScatterOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getScatterDim()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getDevice()),
+        mlir::tt::ttnn_to_emitc::utils::convertReduceType(
+            rewriter, srcOp.getReduceType()),
+        /*numLinks=*/emitter.emit(1),
+        /*memoryConfig=*/emitter.emit(std::nullopt),
+        /*ttnn::ccl::Topology=*/
+        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
+        /*userDefinedNumWorkers=*/emitter.emit(std::nullopt),
+        /*userDefinedNumBuffersPerChannel=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -1258,12 +1357,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // CCL ops
   //
-  patterns.add<DefaultOpConversionPattern<tt::ttnn::AllGatherOp>>(typeConverter,
-                                                                  ctx);
-  patterns.add<DefaultOpConversionPattern<tt::ttnn::ReduceScatterOp>>(
-      typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<tt::ttnn::MeshShardOp>>(typeConverter,
-                                                                  ctx);
+  patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops
   //
