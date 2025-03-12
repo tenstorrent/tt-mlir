@@ -78,7 +78,11 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
     }];
 }
 
-def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, NoTerminator]> {
+def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
+  [ AttrSizedOperandSegments
+  , NoTerminator
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames", "getAsmBlockNames"]>
+  ]> {
     let summary = "Generically dispatch work to a grid of cores.";
     let description = [{
       This generic op carries a region that represents the work each core does. The region is
