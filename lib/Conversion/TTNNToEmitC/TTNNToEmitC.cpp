@@ -469,25 +469,27 @@ public:
   }
 };
 
-// MeanOp conversion pattern
+// Reduction ops conversion pattern
 //
-class MeanOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::MeanOp> {
+template <typename ReductionOp>
+class ReductionOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ReductionOp> {
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::MeanOp>::TTNNToEmitCBaseOpConversionPattern;
+      ReductionOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename ReductionOp::Adaptor;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::MeanOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(ReductionOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::MeanOp> emitter(srcOp, adaptor,
-                                                              rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<ReductionOp> emitter(srcOp, adaptor,
+                                                         rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit<::ttnn::SmallVector<int32_t>>(srcOp.getDimArg()),
+        emitter.template emit<::ttnn::SmallVector<int32_t>>(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         /*memory_config=*/emitter.emit(std::nullopt),
     };
@@ -517,7 +519,38 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
+        /*sub_core_grids=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getUseMulticore()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+
+// Prod op conversion pattern
+//
+class ProdOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ProdOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::ProdOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::ProdOp srcOp, tt::ttnn::ProdOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ProdOp> emitter(srcOp, adaptor,
+                                                              rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getAllDimensions()),
+        emitter.emit<int64_t>(srcOp.getDimArg()),
+        emitter.emit(srcOp.getKeepDim()),
         emitter.emit(srcOp.getMemoryConfig()),
     };
 
@@ -1391,12 +1424,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Reduction ops
   //
-  patterns
-      .add<DefaultOpConversionPattern<tt::ttnn::SumOp>, MeanOpConversionPattern,
-           DefaultOpConversionPattern<tt::ttnn::MaxOp>,
-           DefaultOpConversionPattern<tt::ttnn::MinOp>,
-           DefaultOpConversionPattern<tt::ttnn::ProdOp>,
-           ArgMaxOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ReductionOpConversionPattern<tt::ttnn::SumOp>,
+               ReductionOpConversionPattern<tt::ttnn::MeanOp>,
+               ReductionOpConversionPattern<tt::ttnn::MaxOp>,
+               ReductionOpConversionPattern<tt::ttnn::MinOp>,
+               ProdOpConversionPattern, ArgMaxOpConversionPattern>(
+      typeConverter, ctx);
 
   // Pooling ops
   //
