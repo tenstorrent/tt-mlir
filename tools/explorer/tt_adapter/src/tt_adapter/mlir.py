@@ -476,7 +476,7 @@ def parse_conv2d_config(attr):
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="dtype",
-                value=str(tt.DataType(conv2d_config.dtype)),
+                value=str(tt.DataType(conv2d_config.dtype_as_int)),
             ),
             editable={
                 "input_type": "value_list",
@@ -488,7 +488,7 @@ def parse_conv2d_config(attr):
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="weights_dtype",
-                value=str(tt.DataType(conv2d_config.weights_dtype)),
+                value=str(tt.DataType(conv2d_config.weights_dtype_as_int)),
             ),
             editable={
                 "input_type": "value_list",
@@ -598,7 +598,7 @@ def parse_conv2d_config(attr):
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="shard_layout",
-                value=str(ttnn.TensorMemoryLayout(conv2d_config.shard_layout)),
+                value=str(ttnn.TensorMemoryLayout(conv2d_config.shard_layout_as_int)),
             ),
             editable={
                 "input_type": "value_list",
@@ -628,7 +628,7 @@ def parse_conv2d_config(attr):
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="output_layout",
-                value=str(ttnn.Layout(conv2d_config.output_layout)),
+                value=str(ttnn.Layout(conv2d_config.output_layout_as_int)),
             ),
             editable={
                 "input_type": "value_list",

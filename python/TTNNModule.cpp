@@ -189,11 +189,11 @@ void populateTTNNModule(nb::module_ &m) {
                 enableWeightsDoubleBuffer, enableSplitReader,
                 enableSubblockPadding));
           })
-      .def_prop_ro("dtype",
+      .def_prop_ro("dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return static_cast<uint32_t>(self.getDtype());
                    })
-      .def_prop_ro("weights_dtype",
+      .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return static_cast<uint32_t>(self.getDtype());
                    })
@@ -229,7 +229,7 @@ void populateTTNNModule(nb::module_ &m) {
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return self.getOverrideShardingConfig().getValue();
                    })
-      .def_prop_ro("shard_layout",
+      .def_prop_ro("shard_layout_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return static_cast<uint32_t>(
                          self.getShardLayout().getValue());
@@ -244,7 +244,7 @@ void populateTTNNModule(nb::module_ &m) {
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return self.getTransposeShards().getValue();
                    })
-      .def_prop_ro("output_layout",
+      .def_prop_ro("output_layout_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return static_cast<uint32_t>(self.getOutputLayout());
                    })
