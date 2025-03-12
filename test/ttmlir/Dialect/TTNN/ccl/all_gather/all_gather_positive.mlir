@@ -5,6 +5,7 @@
 
 // Verify lowering of ttir all_gather to ttnn ops
 module attributes {} {
+  // CHECK-LABEL: all_gather_positive
   func.func @all_gather_positive(%arg0: tensor<1x1x32x32xbf16>) -> tensor<1x1x32x128xbf16> {
     %0 = tensor.empty() : tensor<1x1x32x128xbf16>
     %1 = "ttir.all_gather"(%arg0, %0) <{all_gather_dim = 3 : si32, cluster_axis = 1 : ui32}> : (tensor<1x1x32x32xbf16>, tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16>
@@ -15,6 +16,7 @@ module attributes {} {
 
 // Verify op folding for single mesh device communication
 module attributes {} {
+  // CHECK-LABEL: all_gather_positive_folding
   func.func @all_gather_positive_folding(%arg0: tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16> {
     %0 = tensor.empty() : tensor<1x1x32x128xbf16>
     %1 = "ttir.all_gather"(%arg0, %0) <{all_gather_dim = 3 : si32, cluster_axis = 0 : ui32}> : (tensor<1x1x32x128xbf16>, tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16>
