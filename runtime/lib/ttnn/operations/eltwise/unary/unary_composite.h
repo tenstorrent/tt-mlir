@@ -14,6 +14,7 @@ inline bool isUnaryCompositeOp(const ::tt::target::ttnn::EltwiseOp *op) {
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseOpType::Cbrt:
   case ::tt::target::ttnn::EltwiseOpType::Clamp:
+  case ::tt::target::ttnn::EltwiseOpType::ClampTensor:
   case ::tt::target::ttnn::EltwiseOpType::Log1p:
     return true;
   default:

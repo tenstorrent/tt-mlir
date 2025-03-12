@@ -58,6 +58,30 @@ static void runEltwiseUnaryCompositeClampOp(
   tensorPool.insertAndValidate(op->out(), out);
 }
 
+static void
+runEltwiseUnaryCompositeClampTensorOp(const ::tt::target::ttnn::EltwiseOp *op,
+                                      ProgramTensorPool &tensorPool) {
+  ::ttnn::Tensor *in = nullptr;
+
+  getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
+
+  ::ttnn::Tensor min =
+      tensorPool.getAndValidate(op->params_as_ClampTensorOpParams()->min());
+  ::ttnn::Tensor max =
+      tensorPool.getAndValidate(op->params_as_ClampTensorOpParams()->max());
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  ::ttnn::Tensor out = ::ttnn::clamp(*in, min, max, outputMemoryConfig);
+
+  tensorPool.insertAndValidate(op->out(), out);
+}
+
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
@@ -67,6 +91,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Clamp: {
     runEltwiseUnaryCompositeClampOp(op, tensorPool, ::ttnn::clamp);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::ClampTensor: {
+    runEltwiseUnaryCompositeClampTensorOp(op, tensorPool);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Log1p: {
