@@ -5,7 +5,7 @@
 import os
 import inspect
 import torch
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from ttmlir.dialects import func
 from ttmlir.ir import *
@@ -169,6 +169,7 @@ def ttir_to_ttnn(
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
+    mesh_shape: Optional[Tuple[int, int]] = None,
 ):
     """
     Converts TTIR module to TTNN module and optionally dumps to file.
@@ -192,9 +193,16 @@ def ttir_to_ttnn(
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
+    # Generate override string
+    overridings = []
+    if system_desc_path:
+        overridings.append(f"system-desc-path={system_desc_path}")
+    if mesh_shape and len(mesh_shape) == 2:
+        overridings.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+
     # Now, pass it through the TTIR to TTNN pipeline. Module gets
     # modified in place.
-    ttir_to_ttnn_backend_pipeline(module, f"system-desc-path={system_desc_path}")
+    ttir_to_ttnn_backend_pipeline(module, " ".join(overridings))
 
     print("`ttir_to_ttnn_backend_pipeline` passed successfully.")
 
@@ -300,6 +308,7 @@ def compile_to_flatbuffer(
     inputs_types: Optional[List[torch.dtype]] = None,
     test_name: Optional[str] = None,
     targets: List[str] = ["ttmetal", "ttnn"],
+    mesh_shape: Tuple[int, int] = None,
     module_dump: bool = False,
 ):
     """
@@ -331,6 +340,11 @@ def compile_to_flatbuffer(
         A list that can only contain the following strings: 'ttnn' or
         'ttmetal'. Inclusion in this list will signal this decorator to execute
         their respective backend paths. Either, neither, or both are valid inputs.
+
+    mesh_shape: Tuple[int, int]
+        A list that contains shape of the mesh to be applied on ttir to ttnn
+        conversion path.
+
 
     module_dump: bool
         Set to True to print out generated TTIR MLIR module.
@@ -384,7 +398,9 @@ def compile_to_flatbuffer(
 
                 module_logger = MLIRModuleLogger()
                 module_logger.attach_context(module.context)
-                module = ttir_to_ttnn(module, module_dump, test_base + "_ttnn.mlir")
+                module = ttir_to_ttnn(
+                    module, module_dump, test_base + "_ttnn.mlir", mesh_shape=mesh_shape
+                )
                 ttnn_to_flatbuffer(
                     module, builder, test_base + ".ttnn", module_logger.module_log
                 )
