@@ -487,7 +487,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   if (!constraintsExp) {
     std::string error = llvm::toString(constraintsExp.takeError());
-    EXPECT_TRUE(error.find("Mismatch!! L1 Allocation Pre Op"));
+    EXPECT_TRUE(error.find("Mismatch!! L1 Allocation Pre Op") !=
+                std::string::npos);
   }
 
   // Device hangs otherwise.

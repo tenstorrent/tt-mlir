@@ -977,7 +977,6 @@ Conv2dOpInterface::getOpConstraints(
          llvm::ArrayRef<int64_t> outputShape,
          mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
         // open device device, will close it at the end of function
-
         ::tt::tt_metal::v0::IDevice *device =
             SingletonDeviceContext::getInstance().getDevice();
 
