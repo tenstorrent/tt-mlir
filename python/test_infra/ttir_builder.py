@@ -359,11 +359,13 @@ class TTIRBuilder:
         op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
+        unit_attrs: List[str] = None,
         organize_ttir_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
+        use_zeros: bool = False,
     ) -> Any:
         """
         Provides a general interface for proxy-ing OPs and creating them.
@@ -412,7 +414,6 @@ class TTIRBuilder:
 
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
-
         with self._ctx, self._loc:
             # Compute the golden
             golden_output = op_golden_function(
@@ -426,7 +427,10 @@ class TTIRBuilder:
 
             # Use the golden output to determine proper output shape unless otherwise specified
             output_shape = golden.tensor.shape if not output_shape else output_shape
-            output = self.empty(output_shape)
+            if use_zeros:
+                output = self.zeros(output_shape)
+            else:
+                output = self.empty(output_shape)
             id = self.get_next_global_id()
             loc = get_loc_of_extra_file_callee(id=id)
             if organize_ttir_args(inputs, output, output_shape) == 0:
@@ -437,6 +441,13 @@ class TTIRBuilder:
                     loc=loc,
                     **ttir_kwargs,
                 )
+
+            # Add unit attributes if specified
+            if unit_attrs:
+                from ttmlir.ir import UnitAttr
+
+                for attr_name in unit_attrs:
+                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
@@ -857,4 +868,16 @@ class TTIRBuilder:
             golden_kwargs={"pad": golden_padding, "mode": "constant", "value": value},
             ttir_kwargs={"padding": padding, "value": value},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
+        )
+
+    def argmax(
+        self, in0: Operand, dim_arg: List[int], keep_dim: bool = False
+    ) -> OpView:
+        return self.op_proxy(
+            torch.argmax,
+            ttir.ArgMaxOp,
+            [in0],
+            golden_kwargs={"dim": dim_arg[0], "keepdim": keep_dim},
+            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
