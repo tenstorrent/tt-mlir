@@ -1549,6 +1549,26 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   return success();
 }
 
+::mlir::OpFoldResult mlir::tt::ttnn::AllGatherOp::fold(FoldAdaptor adaptor) {
+  llvm::SmallVector<int64_t> meshShape{
+      getDevice().getType().getDesc().getMeshShape()};
+  // AllGather Op is semantically meaningless when gathering across a single
+  // mesh device.
+  if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
+    return {};
+  }
+  // The input and output shapes must be identical in order to fold this op as
+  // a no-op.
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+  if (inputShape != outputShape) {
+    return {};
+  }
+  emitWarning() << "Removing this CCL op because performing a CCL operation "
+                   "on a single mesh device is semantically meaningless.";
+  return getInput();
+}
+
 //===----------------------------------------------------------------------===//
 // ReduceScatterOp
 //===----------------------------------------------------------------------===//
@@ -1578,6 +1598,27 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   return success();
 }
 
+::mlir::OpFoldResult
+mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
+  llvm::SmallVector<int64_t> meshShape{
+      getDevice().getType().getDesc().getMeshShape()};
+  // ReduceScatter Op is semantically meaningless when gathering across a single
+  // mesh device.
+  if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
+    return {};
+  }
+  // The input and output shapes must be identical in order to fold this op as
+  // a no-op.
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+  if (inputShape != outputShape) {
+    return {};
+  }
+  emitWarning() << "Removing this CCL op because performing a CCL operation "
+                   "on a single mesh device is semantically meaningless.";
+  return getInput();
+}
+
 //===----------------------------------------------------------------------===//
 // AllReduceOp
 //===----------------------------------------------------------------------===//
@@ -1593,6 +1634,26 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+::mlir::OpFoldResult mlir::tt::ttnn::AllReduceOp::fold(FoldAdaptor adaptor) {
+  llvm::SmallVector<int64_t> meshShape{
+      getDevice().getType().getDesc().getMeshShape()};
+  // AllReduce Op is semantically meaningless when gathering across a single
+  // mesh device.
+  if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
+    return {};
+  }
+  // The input and output shapes must be identical in order to fold this op as
+  // a no-op.
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+  if (inputShape != outputShape) {
+    return {};
+  }
+  emitWarning() << "Removing this CCL op because performing a CCL operation "
+                   "on a single mesh device is semantically meaningless.";
+  return getInput();
 }
 
 //===----------------------------------------------------------------------===//

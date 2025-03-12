@@ -1472,6 +1472,8 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
@@ -1490,6 +1492,8 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
@@ -1507,6 +1511,8 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
