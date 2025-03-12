@@ -215,8 +215,7 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
   LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid{
       1, static_cast<uint32_t>(deviceIds.size())};
-  size_t l1SmallSizeValue =
-      l1SmallSize.value_or(mlir::tt::ttnn::constants::L1_SMALL_SIZE);
+  size_t l1SmallSizeValue = l1SmallSize.value_or(tt::constants::L1_SMALL_SIZE);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid,
                                                     .offset = {}},

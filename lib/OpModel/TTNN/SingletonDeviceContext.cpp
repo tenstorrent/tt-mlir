@@ -49,7 +49,7 @@ void SingletonDeviceContext::resetDevice(const size_t traceRegionSize) {
                                    : ::tt::tt_metal::DispatchCoreType::ETH;
   m_device = ::tt::tt_metal::CreateDevice(
       0, /* num_hw_cqs = */ 1,
-      /* l1_small_size = */ mlir::tt::ttnn::constants::L1_SMALL_SIZE,
+      /* l1_small_size = */ ::tt::constants::L1_SMALL_SIZE,
       /* trace_region_size = */ traceRegionSize, dispatchCoreType);
 }
 
