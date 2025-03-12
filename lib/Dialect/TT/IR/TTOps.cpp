@@ -5,7 +5,9 @@
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/SymbolTable.h"
 
 using namespace mlir;
 
@@ -113,51 +115,54 @@ LogicalResult DeviceModuleOp::verify() { return verifyModuleWrapper(*this); }
 
 LogicalResult CPUModuleOp::verify() { return verifyModuleWrapper(*this); }
 
-LogicalResult verifyTTLoadCachedOp(TT_LoadCachedOp op) {
+LogicalResult LoadCachedOp::verify() {
   // Verify that the callee exists and has the right type
-  SymbolRefAttr calleeAttr = op.getCalleeAttr();
-  Operation *callee = SymbolTable::lookupNearestSymbolFrom(op, calleeAttr);
+  FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
+  Operation *callee = SymbolTable::lookupNearestSymbolFrom(*this, calleeAttr);
   if (!callee)
-    return op.emitOpError() << "'" << calleeAttr.getValue()
-                            << "' does not reference a valid function";
+    return emitOpError() << "'" << calleeAttr.getValue()
+                         << "' does not reference a valid function";
 
-  auto fnType = dyn_cast<FunctionType>(
-      callee->getAttrOfType<TypeAttr>("function_type").getValue());
-  if (!fnType)
-    return op.emitOpError("callee does not have function type");
+  auto funcOp = dyn_cast<func::FuncOp>(callee);
+  if (!funcOp)
+    return emitOpError() << "'" << calleeAttr.getValue()
+                         << "' does not reference a function";
+
+  FunctionType fnType = funcOp.getFunctionType();
 
   // Verify input arity
-  if (fnType.getNumInputs() != op.getInputs().size())
-    return op.emitOpError("incorrect number of arguments for callee");
+  if (fnType.getNumInputs() != this->getInputs().size())
+    return emitOpError("incorrect number of arguments for callee");
 
   // Verify input types
   for (unsigned i = 0; i < fnType.getNumInputs(); ++i) {
-    if (op.getInputs()[i].getType() != fnType.getInput(i))
-      return op.emitOpError("argument type mismatch at index ") << i;
+    if (this->getInputs()[i].getType() != fnType.getInput(i))
+      return emitOpError("argument type mismatch at index ") << i;
   }
 
   // Verify result types by checking that the function returns a tuple
   // and the tuple elements match our result types
-  // This assumes you have a TT_TupleOp defined elsewhere
 
   // Look for a return op with tt.tuple
   bool foundTupleReturn = false;
-  func::FuncOp funcOp = cast<func::FuncOp>(callee);
   for (Block &block : funcOp.getBody()) {
     if (auto returnOp =
             dyn_cast_or_null<func::ReturnOp>(block.getTerminator())) {
       if (returnOp.getNumOperands() == 1) {
-        if (auto tupleOp = dyn_cast_or_null<TT_TupleOp>(
-                returnOp.getOperand(0).getDefiningOp())) {
+        // Get the operand of the return
+        Value returnVal = returnOp.getOperands()[0];
+        // Check if this is the result of a tt.tuple operation
+        if (auto tupleOp =
+                dyn_cast_or_null<TupleOp>(returnVal.getDefiningOp())) {
           foundTupleReturn = true;
 
-          if (tupleOp.getNumResults() != op.getNumResults())
-            return op.emitOpError(
+          if (tupleOp.getNumOperands() != this->getNumResults())
+            return emitOpError(
                 "callee returns tuple with wrong number of elements");
 
-          for (unsigned i = 0; i < op.getNumResults(); ++i) {
-            if (op.getResult(i).getType() != tupleOp.getOperand(i).getType())
-              return op.emitOpError("result type mismatch at index ") << i;
+          for (unsigned i = 0; i < this->getNumResults(); ++i) {
+            if (this->getResult(i).getType() != tupleOp.getOperand(i).getType())
+              return emitOpError("result type mismatch at index ") << i;
           }
         }
       }
@@ -165,7 +170,7 @@ LogicalResult verifyTTLoadCachedOp(TT_LoadCachedOp op) {
   }
 
   if (!foundTupleReturn)
-    return op.emitOpError("callee does not return a tuple");
+    return emitOpError("callee does not return a tuple");
 
   return success();
 }

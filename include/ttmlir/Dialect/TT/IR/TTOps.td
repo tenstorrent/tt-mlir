@@ -129,6 +129,7 @@ def TT_CPUModuleOp : TT_Op<"cpu_module", [
   let hasVerifier = 1;
 }
 
+<<<<<<< HEAD
 def TT_DeviceOp : TT_Op<"device", [Symbol]> {
   let summary = "Named device";
   let description = [{
@@ -142,6 +143,9 @@ def TT_DeviceOp : TT_Op<"device", [Symbol]> {
 def TT_LoadCachedOp : TT_Op<"load_cached", [
     DeclareOpInterfaceMethods<CallOpInterface>
 ]> {
+=======
+def TT_LoadCachedOp : TT_Op<"load_cached", []> {
+>>>>>>> 13dc77d1e (buildable)
   let summary = "Load cached results from a previously computed function";
   let description = [{
     The load_cached operation calls a precomputed function with given arguments
@@ -169,18 +173,18 @@ def TT_LoadCachedOp : TT_Op<"load_cached", [
 
   let hasVerifier = 1;
 
-  let extraClassDeclaration = [{
-    // CallOpInterface method implementations
-    StringAttr getCallableForCallee() { return getCalleeAttr(); }
+  // You can add any custom methods that are relevant to your operation
+  // let extraClassDeclaration = [{
+  //   // Get the reference to the cached function
+  //   FlatSymbolRefAttr getCalleeAttr() {
+  //     return (*this)->getAttrOfType<FlatSymbolRefAttr>("callee");
+  //   }
 
-    // Set the callee name
-    void setCalleeFromCallable(CallInterfaceCallable callable) {
-      setCalleeAttr(cast<FlatSymbolRefAttr>(callable));
-    }
-
-    // Get the argument operands passed to the called function
-    ArrayRef<Value> getArgOperands() { return getInputs(); }
-  }];
+  //   // Get the function name as a string
+  //   StringRef getCallee() {
+  //     return getCalleeAttr().getValue();
+  //   }
+  // }];
 }
 
 #endif
