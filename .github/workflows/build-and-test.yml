@@ -50,7 +50,7 @@ jobs:
       matrix:
         build: [
           {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_explorer: ON, name: "tracy"},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, name: "tracy"},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
@@ -95,7 +95,7 @@ jobs:
         create-symlink: true
         key: ${{ matrix.build.name }}-${{ env.SDK_VERSION }}
 
-    - name: Run build and test tt-mlir
+    - name: Run tt-mlir build
       uses: ./.github/actions/build-tt-mlir-action
       with:
         enable-perf: ${{ matrix.build.enable_perf }}
@@ -215,13 +215,13 @@ jobs:
 
     - name: Download Build Artifacts
       uses: actions/download-artifact@v4
-      if: ${{ matrix.build.type }}" == "unit" || ${{ matrix.build.suite }}" == "explorer"
+      if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
       with:
         name: build-artifacts-${{ matrix.build.image }}
         path: ${{ steps.strings.outputs.build-output-dir }}
 
     - name: 'Untar build directory'
-      if: ${{ matrix.build.type }}" == "unit" || ${{ matrix.build.suite }}" == "explorer"
+      if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
       shell: bash
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
       run: tar xvf artifact.tar
@@ -265,7 +265,7 @@ jobs:
         if [ -f "${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
           export SYSTEM_DESC_PATH="${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
         fi
-        cmake --build ${{ steps.strings.outputs.work-dir.build-output-dir }} -- check-ttmlir
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
         cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
 
         # op-model tests -- ???is this needed??? -- need to check
@@ -286,6 +286,15 @@ jobs:
           # collect ops_perf_results.csv
           cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
         fi
+
+    - name: Prepare tt-explorer Test
+      if: ${{ matrix.build.suite }} == "explorer"
+      shell: bash
+      run: |
+        source env/activate
+        pip uninstall -y ai-edge-model-explorer
+        pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/tt_adapter*.whl
+        pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/ai_edge_model_explorer*.whl
 
     # pytest runner
     - name: Run pytest ttrt tests
