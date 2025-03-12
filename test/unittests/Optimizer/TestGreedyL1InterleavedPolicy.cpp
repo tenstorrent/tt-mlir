@@ -14,6 +14,7 @@
 #include "mlir/IR/MLIRContext.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -33,7 +34,7 @@ public:
   mlir::tt::DeviceAttr deviceAttr;
 
   using OpMemSpec = GreedyL1InterleavedPolicy::OpMemSpec;
-  using OpConfig = GreedyL1InterleavedPolicy::OpConfig;
+  using GreedyPolicyChoice = GreedyL1InterleavedPolicy::GreedyPolicyChoice;
   using L1Usage = GreedyL1InterleavedPolicy::L1Usage;
 
   void SetUp() override {
@@ -80,20 +81,19 @@ public:
     return func;
   }
 
-  void addLayoutForOp(mlir::Operation *op,
-                      llvm::DenseMap<mlir::Operation *,
-                                     std::vector<TTNNLayoutAttr>> &legalLayouts,
-                      BufferType memorySpace,
-                      TensorMemoryLayout tensorMemoryLayout) {
+  void addConfigForOp(
+      mlir::Operation *op,
+      llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> &legalConfigs,
+      BufferType memorySpace, TensorMemoryLayout tensorMemoryLayout) {
     TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
         TensorMemoryLayoutAttr::get(&context, tensorMemoryLayout);
-    if (legalLayouts.find(op) == legalLayouts.end()) {
-      legalLayouts[op] = std::vector<TTNNLayoutAttr>{TTNNLayoutAttr::get(
+    if (legalConfigs.find(op) == legalConfigs.end()) {
+      legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
           mlir::tt::TileType::get(&context, builder.getF32Type()), memorySpace,
           mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr)};
     } else {
-      legalLayouts[op].push_back(TTNNLayoutAttr::get(
+      legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
           mlir::tt::TileType::get(&context, builder.getF32Type()), memorySpace,
           mlir::tt::GridAttr::get(&context, {8, 8}), tensorMemoryLayoutAttr));
@@ -102,15 +102,14 @@ public:
 
   void prepareOpForGreedyConfigPicker(
       mlir::Operation *op, uint64_t outputL1Usage, uint64_t requiredL1Usage,
-      llvm::DenseMap<mlir::Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts,
+      llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> &legalConfigs,
       llvm::DenseMap<mlir::Operation *, L1Usage> &opsL1Usage) {
 
-    // Add two legal layouts for the op with different buffer
+    // Add two legal configs for the op with different buffer
     // types: DRAM and L1.
-    addLayoutForOp(op, legalLayouts, BufferType::DRAM,
+    addConfigForOp(op, legalConfigs, BufferType::DRAM,
                    TensorMemoryLayout::Interleaved);
-    addLayoutForOp(op, legalLayouts, BufferType::L1,
+    addConfigForOp(op, legalConfigs, BufferType::L1,
                    TensorMemoryLayout::Interleaved);
 
     L1Usage l1Usage;
@@ -124,7 +123,7 @@ public:
 
 TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   std::vector<L1ChainConfig> l1ChainConfigs;
-  llvm::DenseMap<mlir::Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
+  llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
   llvm::DenseMap<mlir::func::FuncOp, llvm::SmallVector<mlir::Operation *>>
       schedule;
   llvm::DenseMap<mlir::Operation *, L1Usage> opsL1Usage;
@@ -138,7 +137,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   uint64_t outputL1Usage = 2;
   uint64_t requiredL1Usage = 8;
   prepareOpForGreedyConfigPicker(opA, outputL1Usage, requiredL1Usage,
-                                 legalLayouts, opsL1Usage);
+                                 legalConfigs, opsL1Usage);
 
   // Create operand B
   lhs = func.getBody().getBlocks().front().getArgument(0);
@@ -148,7 +147,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   outputL1Usage = 3;
   requiredL1Usage = 7;
   prepareOpForGreedyConfigPicker(opB, outputL1Usage, requiredL1Usage,
-                                 legalLayouts, opsL1Usage);
+                                 legalConfigs, opsL1Usage);
 
   // Create operand C
   lhs = func.getBody().getBlocks().front().getArgument(0);
@@ -158,7 +157,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   outputL1Usage = 1;
   requiredL1Usage = 9;
   prepareOpForGreedyConfigPicker(opC, outputL1Usage, requiredL1Usage,
-                                 legalLayouts, opsL1Usage);
+                                 legalConfigs, opsL1Usage);
 
   // Create base op D
   lhs = func.getBody().getBlocks().front().getArgument(0);
@@ -168,21 +167,22 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   outputL1Usage = 4;
   requiredL1Usage = 0;
   prepareOpForGreedyConfigPicker(opD, outputL1Usage, requiredL1Usage,
-                                 legalLayouts, opsL1Usage);
+                                 legalConfigs, opsL1Usage);
 
   // Run greedy config picker policy
   GreedyL1InterleavedPolicy l1InterleavedPolicy(
-      nullptr, l1ChainConfigs, legalLayouts, schedule, usableL1CacheSize);
-  OpConfig greedyConfig = l1InterleavedPolicy.getGreedyConfig(opD, opsL1Usage);
+      nullptr, l1ChainConfigs, legalConfigs, schedule, usableL1CacheSize);
+  GreedyPolicyChoice greedyConfig =
+      l1InterleavedPolicy.getGreedyConfig(opD, opsL1Usage);
 
   // Sanity checks
   ASSERT_TRUE(greedyConfig.baseOp == opD);
-  ASSERT_TRUE(greedyConfig.layouts.size() == 4);
+  ASSERT_TRUE(greedyConfig.configs.size() == 4);
   ASSERT_TRUE(greedyConfig.precedence.size() == 3);
 
   // All layouts should be using L1 buffer type
-  for (const auto &[op, layout] : greedyConfig.layouts) {
-    ASSERT_TRUE(layout.hasL1BufferType());
+  for (const auto &[op, config] : greedyConfig.configs) {
+    ASSERT_TRUE(config.outputLayout.hasL1BufferType());
   }
 
   // Precedence order for op D should be: C, A, B

@@ -7,7 +7,9 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
 #include <algorithm>
 #include <bitset>
 #include <unordered_map>
@@ -19,19 +21,19 @@ namespace mlir::tt::ttnn {
 struct OpL1MemSpec;
 
 struct ShardSolverSolution {
-  llvm::DenseMap<Operation *, TTNNLayoutAttr> selectedOpLayout;
+  llvm::DenseMap<Operation *, OpConfig> selectedOpConfig;
   std::unordered_set<Edge> memReconfigEdges;
 
   ShardSolverSolution(
-      const llvm::DenseMap<Operation *, TTNNLayoutAttr> &selectedOpLayout,
+      const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,
       const std::unordered_set<Edge> &memReconfigEdges)
-      : selectedOpLayout(selectedOpLayout), memReconfigEdges(memReconfigEdges) {
+      : selectedOpConfig(selectedOpConfig), memReconfigEdges(memReconfigEdges) {
   }
 };
 
-// Reconcile adjacent shard specs by using constraints on top of legal layouts.
-// Generate reshard specs where needed.
-// Provides a valid solution to the shard chain.
+// Reconcile adjacent shard specs by using constraints on top of legal op
+// configs. Generate reshard specs where needed. Provides a valid solution to
+// the shard chain.
 //
 class ShardSolver {
 private:
@@ -41,10 +43,10 @@ private:
   static constexpr Bitset kBitsetNone = Bitset{};
 
 public:
-  struct RemainingLayoutAttrs {
+  struct RemainingConfigAttrs {
     class Iterator {
       std::uint64_t i = 0;
-      std::vector<TTNNLayoutAttr> const *p = nullptr;
+      std::vector<OpConfig> const *p = nullptr;
       Bitset mask = 0;
 
     private:
@@ -63,12 +65,12 @@ public:
 
     public:
       using iterator_category = std::input_iterator_tag;
-      using value_type = const TTNNLayoutAttr;
-      using difference_type = const TTNNLayoutAttr;
-      using pointer = const TTNNLayoutAttr *;
-      using reference = const TTNNLayoutAttr &;
+      using value_type = const OpConfig;
+      using difference_type = const OpConfig;
+      using pointer = const OpConfig *;
+      using reference = const OpConfig &;
 
-      Iterator(std::vector<TTNNLayoutAttr> const *p, const Bitset &mask,
+      Iterator(std::vector<OpConfig> const *p, const Bitset &mask,
                std::uint64_t i = 0)
           : i(i), p(p), mask(mask) {
         nextValid();
@@ -95,8 +97,7 @@ public:
       std::uint64_t index() const { return i; }
     };
 
-    RemainingLayoutAttrs(std::vector<TTNNLayoutAttr> const &p,
-                         const Bitset &mask)
+    RemainingConfigAttrs(std::vector<OpConfig> const &p, const Bitset &mask)
         : p(&p), mask(mask) {}
 
     Iterator begin() const { return Iterator(p, mask); }
@@ -105,7 +106,7 @@ public:
     }
     size_t size() const { return mask.count(); }
 
-    std::vector<TTNNLayoutAttr> const *p = nullptr;
+    std::vector<OpConfig> const *p = nullptr;
     Bitset mask = 0;
   };
 
@@ -253,8 +254,7 @@ private:
     Paths paths;
   };
 
-  const std::vector<TTNNLayoutAttr> &
-  getLegalLayouts(Operation *operation) const;
+  const std::vector<OpConfig> &getLegalConfigs(Operation *operation) const;
   void reset();
 
   PathSet *getPathSetPt(const Edge &edge);
@@ -277,29 +277,29 @@ private:
   bool preprocessFirstOp();
   llvm::Expected<bool> checkShardCompatible(
       Value producerOperand, TTNNLayoutAttr const &producerLayout,
-      Operation *consumerOp, TTNNLayoutAttr const &consumerLayout) const;
+      Operation *consumerOp, OpConfig const &consumerConfig) const;
 
 public:
-  ShardSolver(const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-                  &legalLayouts,
-              const std::vector<OpL1MemSpec> &shardSpecs,
-              const llvm::DenseSet<Operation *> &shardedOps,
-              const unsigned usableL1CacheSize,
-              const std::unordered_set<Edge> &overrideReshardEdges,
-              std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *,
-                                 TTNNLayoutAttr)>
-                  customCheckShardCompatible = nullptr);
-  RemainingLayoutAttrs at(Operation *operation) const;
-  void set(Operation *operation, TTNNLayoutAttr const &layout);
+  ShardSolver(
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
+      const std::vector<OpL1MemSpec> &shardSpecs,
+      const llvm::DenseSet<Operation *> &shardedOps,
+      const unsigned usableL1CacheSize,
+      const std::unordered_set<Edge> &overrideReshardEdges,
+      std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *,
+                         OpConfig)>
+          customCheckShardCompatible = nullptr);
+  RemainingConfigAttrs at(Operation *operation) const;
+  void set(Operation *operation, OpConfig const &config);
   bool supportsInterleavedInputShardedOutput(Operation *op,
-                                             TTNNLayoutAttr outputLayout);
+                                             OpConfig outputConfig);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
   ShardSolverSolution finish() const;
   bool resolve();
   bool earlyExit = false;
 
 private:
-  const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> *legalLayouts;
+  const llvm::DenseMap<Operation *, std::vector<OpConfig>> *legalConfigs;
   const std::vector<OpL1MemSpec> *shardSpecs;
   const llvm::DenseSet<Operation *> *shardedOps;
   unsigned usableL1CacheSize;
@@ -312,10 +312,9 @@ private:
   std::unordered_map<Edge, PathSetId> pathSetIds;
   std::unordered_map<Operation *, BitsetId> bitsetIds;
 
-  llvm::DenseMap<Operation *, TTNNLayoutAttr> selectedOpLayout;
+  llvm::DenseMap<Operation *, OpConfig> selectedOpConfig;
   std::unordered_set<Edge> memReconfigEdges;
-  std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *,
-                     TTNNLayoutAttr)>
+  std::function<bool(mlir::Value, TTNNLayoutAttr, mlir::Operation *, OpConfig)>
       customCheckShardCompatible;
 };
 
