@@ -4,14 +4,17 @@
 
 # RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
 
+import pytest
 import inspect
 import torch
 import numpy as np
+from typing import Callable, List, Optional
 
-from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
-from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
+from ttmlir.test_utils import compile_to_flatbuffer, set_output_path, compile_as_mlir_module, ttir_to_ttmetal, ttir_to_ttnn, ttmetal_to_flatbuffer, ttnn_to_flatbuffer
+from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr, Shape
 from ttmlir.dialects import ttir
 from ttmlir.ir import *
+from ttmlir.passes import  MLIRModuleLogger
 
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371
@@ -29,34 +32,27 @@ def test_unsqueeze(in0: Operand, builder: TTIRBuilder):
     return builder.unsqueeze(in0, 0)
 """
 
-
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_exp(in0: Operand, builder: TTIRBuilder):
+def exp(in0: Operand, builder: TTIRBuilder):
     return builder.exp(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_expm1(in0: Operand, builder: TTIRBuilder):
+def expm1(in0: Operand, builder: TTIRBuilder):
     return builder.expm1(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_ceil(in0: Operand, builder: TTIRBuilder):
+def ceil(in0: Operand, builder: TTIRBuilder):
     return builder.ceil(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_floor(in0: Operand, builder: TTIRBuilder):
+def floor(in0: Operand, builder: TTIRBuilder):
     return builder.floor(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_abs(in0: Operand, builder: TTIRBuilder):
+def abs(in0: Operand, builder: TTIRBuilder):
     return builder.abs(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_logical_not(in0: Operand, builder: TTIRBuilder):
+def logical_not(in0: Operand, builder: TTIRBuilder):
     return builder.logical_not(in0)
 
 
@@ -69,28 +65,23 @@ def test_bitwise_not(in0: Operand, builder: TTIRBuilder):
 """
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_neg(in0: Operand, builder: TTIRBuilder):
+def neg(in0: Operand, builder: TTIRBuilder):
     return builder.neg(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_sign(in0: Operand, builder: TTIRBuilder):
+def sign(in0: Operand, builder: TTIRBuilder):
     return builder.sign(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_sin(in0: Operand, builder: TTIRBuilder):
+def sin(in0: Operand, builder: TTIRBuilder):
     return builder.sin(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_cos(in0: Operand, builder: TTIRBuilder):
+def cos(in0: Operand, builder: TTIRBuilder):
     return builder.cos(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_tan(in0: Operand, builder: TTIRBuilder):
+def tan(in0: Operand, builder: TTIRBuilder):
     return builder.tan(in0)
 
 
@@ -99,68 +90,55 @@ def test_atan(in0: Operand, builder: TTIRBuilder):
     return builder.atan(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_tanh(in0: Operand, builder: TTIRBuilder):
+def tanh(in0: Operand, builder: TTIRBuilder):
     return builder.tanh(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_log(in0: Operand, builder: TTIRBuilder):
+def log(in0: Operand, builder: TTIRBuilder):
     return builder.log(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_log1p(in0: Operand, builder: TTIRBuilder):
+def log1p(in0: Operand, builder: TTIRBuilder):
     return builder.log1p(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_relu(in0: Operand, builder: TTIRBuilder):
+def relu(in0: Operand, builder: TTIRBuilder):
     return builder.relu(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_gelu(in0: Operand, builder: TTIRBuilder):
+def gelu(in0: Operand, builder: TTIRBuilder):
     return builder.gelu(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_clamp(in0: Operand, builder: TTIRBuilder):
+def clamp(in0: Operand, builder: TTIRBuilder):
     return builder.clamp(in0, max_arg=1.0, min_arg=0.0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_leaky_relu(in0: Operand, builder: TTIRBuilder):
+def leaky_relu(in0: Operand, builder: TTIRBuilder):
     return builder.leaky_relu(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_sqrt(in0: Operand, builder: TTIRBuilder):
+def sqrt(in0: Operand, builder: TTIRBuilder):
     return builder.sqrt(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_cbrt(in0: Operand, builder: TTIRBuilder):
+def cbrt(in0: Operand, builder: TTIRBuilder):
     return builder.cbrt(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_rsqrt(in0: Operand, builder: TTIRBuilder):
+def rsqrt(in0: Operand, builder: TTIRBuilder):
     return builder.rsqrt(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_sigmoid(in0: Operand, builder: TTIRBuilder):
+def sigmoid(in0: Operand, builder: TTIRBuilder):
     return builder.sigmoid(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_reciprocal(in0: Operand, builder: TTIRBuilder):
+def reciprocal(in0: Operand, builder: TTIRBuilder):
     return builder.reciprocal(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_is_finite(in0: Operand, builder: TTIRBuilder):
+def is_finite(in0: Operand, builder: TTIRBuilder):
     return builder.is_finite(in0)
 
 
@@ -192,25 +170,11 @@ def test_concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     return builder.concat([in0, in1, in2])
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 128),
-        (64, 128),
-    ],
-    targets=["ttnn"],
-)
-def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.add(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.multiply(in0, in1)
 
 
@@ -295,186 +259,70 @@ def test_bitwise_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
 """
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_subtract(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def subtract(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.subtract(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_eq(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def eq(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.eq(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_ne(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def ne(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.ne(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_ge(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def ge(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.ge(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_gt(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def gt(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.gt(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_le(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def le(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.le(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_lt(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def lt(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.lt(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_div(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def div(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.div(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_remainder(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def remainder(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.remainder(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_maximum(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def maximum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.maximum(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.minimum(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_power(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def power(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.power(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (32, 64),
-        (64, 128),
-    ],
-    targets=["ttnn"],
-)
-def test_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.matmul(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_sum(in0: Operand, builder: TTIRBuilder):
+def sum(in0: Operand, builder: TTIRBuilder):
     return builder.sum(in0)
 
 
-@compile_to_flatbuffer(
-    [
-        (128, 128),
-    ],
-    targets=["ttnn"],
-)
-def test_mean(in0: Operand, builder: TTIRBuilder):
+def mean(in0: Operand, builder: TTIRBuilder):
     return builder.mean(in0)
 
-
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_max(in0: Operand, builder: TTIRBuilder):
+def max(in0: Operand, builder: TTIRBuilder):
     return builder.max(in0)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_min(in0: Operand, builder: TTIRBuilder):
+def min(in0: Operand, builder: TTIRBuilder):
     return builder.min(in0)
 
 
@@ -758,14 +606,7 @@ def test_arbitrary_op_chain(
     return builder.multiply(add, exp)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 128),
-        (64, 128),
-    ],
-    targets=["ttnn"],
-)
-def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     # Use op_proxy directly since it accepts ttir_kwargs
     return builder.op_proxy(
         torch.add,
@@ -775,27 +616,58 @@ def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
         use_zeros=True,
     )
 
+unary_ops = [exp, expm1, floor, abs, logical_not, neg, sign, cos, sin, tan,
+             tanh, log,log1p, relu, gelu, clamp, leaky_relu, sqrt, cbrt, rsqrt,
+             sigmoid, reciprocal, is_finite, ceil, sum, mean, max, min]
 
-if __name__ == "__main__":
-    import argparse, os
+@pytest.mark.parametrize("shape", [(128,128)], ids=str)
+@pytest.mark.parametrize("test_fn", unary_ops)
+def test_unary_ops_to_flatbuffer(
+    test_fn: Callable,
+    shape: Shape,
+    request):
+    _compile_to_flatbuffer(test_fn, inputs_shapes=[shape], test_name=request.node.name)
 
-    parser = argparse.ArgumentParser(description="Run TTIR Builder Op tests")
-    parser.add_argument(
-        "--path",
-        type=str,
-        help="Optional output path for the flatbuffer. Creates path if supplied path doesn't exist",
+
+@pytest.mark.parametrize("shape", [(128,128)], ids=str)
+@pytest.mark.parametrize("test_fn", [add, multiply, subtract, eq, ne, le, lt,
+                                     ge, gt, div, remainder, maximum, minimum,
+                                     power, matmul, hoisted_add])
+def test_binary_ops_to_flatbuffer(
+    test_fn: Callable,
+    shape: Shape,
+    request):
+    """ NOTE: this function is _only_ for binary ops that take the same shape arguments
+    """
+    _compile_to_flatbuffer(test_fn, inputs_shapes=[shape, shape], test_name=request.node.name)
+
+
+def _compile_to_flatbuffer(
+    test_fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[torch.dtype]] = None,
+    test_name: Optional[str] = None,
+    module_dump: bool = False,
+):
+    # Snoop the name of `test_fn` if no override to the test name is provided
+    if test_name is None:
+        test_base = test_fn.__name__
+    else:
+        test_base = test_name
+
+    module, builder = compile_as_mlir_module(
+        test_fn, inputs_shapes, inputs_types
     )
-    args = parser.parse_args()
 
-    if args.path and os.path.exists(args.path):
-        if not os.path.exists(args.path):
-            os.makedirs(args.path)
-        set_output_path(args.path)
+    if module_dump:
+        with open(test_base + "_ttir.mlir", "w") as f:
+            f.write(str(module))
 
-    test_functions = inspect.getmembers(
-        inspect.getmodule(inspect.currentframe()), inspect.isfunction
+    module_logger = MLIRModuleLogger()
+    module_logger.attach_context(module.context)
+    module = ttir_to_ttnn(module, module_dump, test_base + "_ttnn.mlir")
+    ttnn_to_flatbuffer(
+        module, builder, test_base + ".ttnn", module_logger.module_log
     )
 
-    for function_name, func in test_functions:
-        if function_name.startswith("test_"):
-            func()
+    # TODO: execute the flatbuffer here to check goldens
