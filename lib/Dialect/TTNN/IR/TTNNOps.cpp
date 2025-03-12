@@ -1554,19 +1554,19 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
       getDevice().getType().getDesc().getMeshShape()};
   // AllGather Op is semantically meaningless when gathering across a single
   // mesh device.
-  if (!meshShape.empty() && meshShape[getClusterAxis()] == 1) {
-    // The input and output shapes must be identical in order to fold this op as
-    // a no-op.
-    llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
-    llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
-    if (inputShape == outputShape) {
-      emitWarning()
-          << "Removing this CCL op because performing a CCL operation "
-             "on a single mesh device is semantically meaningless.";
-      return getOperand(0);
-    }
+  if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
+    return {};
   }
-  return {};
+  // The input and output shapes must be identical in order to fold this op as
+  // a no-op.
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+  if (inputShape != outputShape) {
+    return {};
+  }
+  emitWarning() << "Removing this CCL op because performing a CCL operation "
+                   "on a single mesh device is semantically meaningless.";
+  return getInput();
 }
 
 //===----------------------------------------------------------------------===//
