@@ -180,6 +180,26 @@ struct EmitCTypeConverter<bool> {
   static std::string convert(bool value) { return value ? "true" : "false"; }
 };
 
+template <>
+struct EmitCTypeConverter<std::string> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto strAttr = mlir::dyn_cast_if_present<mlir::StringAttr>(attr)) {
+      return convert(strAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::StringAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(mlir::StringRef attr) {
+    return convert(attr.str());
+  }
+
+  static std::string convert(std::string value) { return "\"" + value + "\""; }
+};
+
 // Converter for integral types.
 template <typename T>
 struct EmitCTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
@@ -723,6 +743,21 @@ public:
       return rewriter.getType<emitc::OpaqueAttr>(
           "static_cast<" + TypeNameV<TargetTy> + " *>(nullptr)");
     }
+  }
+
+  mlir::Attribute emit(mlir::StringAttr attr) {
+    return rewriter.getType<emitc::OpaqueAttr>(
+        EmitCTypeConverter<std::string>::convert(attr));
+  }
+
+  mlir::Attribute emit(llvm::StringRef attr) {
+    return rewriter.getType<emitc::OpaqueAttr>(
+        EmitCTypeConverter<std::string>::convert(attr));
+  }
+
+  mlir::Attribute emit(std::string attr) {
+    return rewriter.getType<emitc::OpaqueAttr>(
+        EmitCTypeConverter<std::string>::convert(attr));
   }
 
   // Handles the case when source type is convertible to mlir::Attribute type

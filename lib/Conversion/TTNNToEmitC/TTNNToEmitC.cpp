@@ -351,6 +351,37 @@ public:
   }
 };
 
+// Upsample op conversion pattern
+//
+class UpsampleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::UpsampleOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::UpsampleOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::UpsampleOp srcOp,
+                  tt::ttnn::UpsampleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::UpsampleOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<int32_t>(srcOp.getScaleFactor()) |
+            emitter.emit<std::array<uint32_t, 2>>(srcOp.getScaleFactor()),
+        emitter.emit(srcOp.getMode()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+
 // Softmax op conversion pattern
 //
 class SoftmaxOpConversionPattern
@@ -1341,6 +1372,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Pooling ops
   //
   patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
   // Convolution ops
   //
