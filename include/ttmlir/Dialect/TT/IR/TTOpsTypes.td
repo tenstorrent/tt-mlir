@@ -216,43 +216,45 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   }];
 }
 
-def TT_StreamModeAttr : EnumAttr<TT_Dialect, TT_StreamMode, "stream_mode"> {
-  let description = [{
-    Describes mode of a data stream:
-    - Alias: Data stream is a buffer that aliases data directly in L1. No data movement is necessary
-             to co-locate data with kernel calculations.
-    - Stream: Data stream references remote memory (e.g., in DRAM or another core's L1). Data movement
-              is necessary to get remote data into local buffer(s), possibly via a sequence of steps that use
-              local buffer(s) as temporary destination(s).
-  }];
-  let assemblyFormat = "$value";
-}
-
 def TT_StreamLayoutAttr : TT_Attr<"StreamLayout", "stream", [MemRefLayoutAttrInterface]> {
   let summary = "Stream layout attribute in TT dialect";
   let description = [{
-    Describes stream mode- and buffering-aware layout of a memref buffer.
+    Describes a stream layout of a memref buffer.
     - AffineMap: Provides affine map indexing into the associated data stream.
-    - StreamMode: Encodes 'Alias' or 'Stream' mode.
-    - NumBuffers: Number of back buffers used for double buffering, I/O latency hiding, etc
-                  (always 1 in 'Alias' stream mode).
-  }];
-  let parameters = (ins "AffineMap":$affineMap,
-                        AttrParameter<"StreamMode", "Encodes 'Alias' or 'Stream' mode.">:$streamMode,
-                        DefaultValuedParameter<"uint32_t", "1">:$numBuffers);
 
-  let assemblyFormat = "`<` $affineMap`,` $streamMode(`,` $numBuffers^)? `>`";
+    Only the stream_layout op should return memref's with this attribute.  The stream layout
+    attribute is necessary for two reasons:
+      - It provides a way to reblock the data stream into a different shape (via affine map).
+        Usually this would be some subblock of the original backing memory to chunk the data
+        into smaller pieces.
+      - The type itself is a signal to datamovement passes that the memref is a stream and
+        should be treated as such.
+  }];
+
+  let parameters = (ins "AffineMap":$affineMap);
+
+  let assemblyFormat = "`<` $affineMap `>`";
+}
+
+def TT_ShardLayoutAttr : TT_Attr<"ShardLayout", "shard", [MemRefLayoutAttrInterface]> {
+  let summary = "Shard layout attribute in TT dialect";
+  let description = [{
+    Describes shard layout of a memref buffer.
+    - Stride: Stride of each dim in bytes.
+    - Buffers: Number of back buffers used for double buffering, I/O latency hiding, etc
+
+    The shard layout attribute is a description of how each shard of a memref is laid out in
+    memory. Memref's with this layout type implicitly mean their data is distributed across
+    a grid of cores.
+  }];
+  let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
+                        DefaultValuedParameter<"uint32_t", "1">:$buffers);
+
+  let assemblyFormat = "`<` custom<DimensionList>($stride) (`,` $buffers^)? `>`";
 
   let extraClassDeclaration = [{
-      static constexpr std::tuple<StreamMode, uint32_t> getDefaults(MemorySpace memorySpace) {
-        switch (memorySpace) {
-          case MemorySpace::DeviceL1: return { StreamMode::Alias, 1 };
-          default: return { StreamMode::Stream, 1 };
-        }
-      };
+    AffineMap getAffineMap() const;
   }];
-
-  let genVerifyDecl = 1;
 }
 
 def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
@@ -351,11 +353,6 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       MetalLayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
       MetalLayoutAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
       MetalLayoutAttr withStreamLayout(::mlir::MLIRContext *context, StreamLayoutAttr stream);
-      MetalLayoutAttr withStreamMode(::mlir::MLIRContext *context, StreamMode streamMode, std::uint32_t numBuffers);
-      MetalLayoutAttr withOuterScale(::mlir::MLIRContext *context,
-                          llvm::ArrayRef<int64_t> outerScale,
-                          StreamMode streamMode,
-                          std::uint32_t numBuffers);
 
       uint64_t getMemrefSizeBytes() const;
       MemorySpace getMemorySpace() const;
@@ -368,7 +365,7 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape(bool convertTileToScalar = true) const;
-      StreamMode getStreamMode() const;
+      llvm::SmallVector<int64_t> getShardStride() const;
       AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
       AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap) const;
       AffineMap getIdentityTileLinearMap() const;
@@ -404,16 +401,8 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
   let extraClassDeclaration = [{
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds);
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {});
-      AffineMap getMapForMemorySpace(MemorySpace memorySpace) const {
-        switch (memorySpace) {
-        case MemorySpace::DeviceL1:
-          return getL1Map();
-        case MemorySpace::DeviceDRAM:
-          return getDramMap();
-        default:
-          llvm_unreachable("Unsupported memory space");
-        }
-      }
+      AffineMap getMemoryMap(MemRefType memrefType, size_t pageSize, size_t baseOffset = 0) const;
+      size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize) const;
 
       // Returns the footprint size in bytes of the tensor layout distributed across the given memory space.
       // The resulting size is a function of the memory space, roughly speaking this ends up being:

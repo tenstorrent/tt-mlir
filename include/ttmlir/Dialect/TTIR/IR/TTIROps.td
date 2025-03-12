@@ -94,9 +94,9 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, N
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
         operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
       ({
-      ^bb0(%arg2: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, alias>>,
-           %arg3: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, stream>>,
-           %arg4: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, alias>>):
+      ^bb0(%arg2: memref<64x128xf32, #l1_>,
+           %arg3: memref<64x128xf32, #l1_>,
+           %arg4: memref<64x128xf32, #l1_>):
           // Region body, would contain some computation that represents the work each core does.
       }) : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
@@ -175,7 +175,7 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
       ```llvm
       %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
       %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3), stream>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3)>, #l1_>
       ```
     }];
 
