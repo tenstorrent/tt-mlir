@@ -314,11 +314,6 @@ std::vector<Tensor> toHostShardAware(Tensor tensor, bool untilize) {
   if (multiDeviceTensor.storage_type() ==
           ::ttnn::StorageType::MULTI_DEVICE_HOST ||
       multiDeviceTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE) {
-    std::cerr << "MULTIAAA" << std::endl;
-    std::cerr << "----------------------" << std::endl;
-    std::cerr << multiDeviceTensor.get_logical_shape() << std::endl;
-    multiDeviceTensor.print();
-    std::cerr << "----------------------" << std::endl;
     std::vector<::ttnn::Tensor> single_tensors =
         ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
     for (auto &tensor : single_tensors) {
@@ -328,12 +323,6 @@ std::vector<Tensor> toHostShardAware(Tensor tensor, bool untilize) {
           untilize));
     }
   } else {
-    const ::ttnn::Tensor &singleDeviceTensor =
-    tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-    std::cerr << "----------------------" << std::endl;
-    std::cerr << singleDeviceTensor.get_logical_shape() << std::endl;
-    singleDeviceTensor.print();
-    std::cerr << "----------------------" << std::endl;
     host_tensors.push_back(::tt::runtime::ttnn::toHost(tensor, untilize));
   }
   return host_tensors;
