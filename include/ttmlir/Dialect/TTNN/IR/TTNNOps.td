@@ -1339,6 +1339,27 @@ def TTNN_ClampOp : TTNN_Op<"clamp"> {
     let hasVerifier = 1;
 }
 
+def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
+  let summary = "Clamp op.";
+  let description = [{
+    Clamp tensor values to a specified range using min/max as tensor.
+
+    Example:
+      min: [[2, 2, 2, 3, 3, 3, 0, 0]]
+      input: [[0, 1, 2, 3, 4, 5, 6, 7]]
+      max: [[5, 5, 5, 9, 9, 9, 6, 6]]
+
+      "ttnn.clamp_tensor"(%input, %min, %max)
+      -> %out = [[2, 2, 2, 3, 4, 5, 6, 6]]
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       AnyRankedTensor:$min,
+                       AnyRankedTensor:$max);
+
+  let results = (outs Variadic<AnyRankedTensor>:$result);
+}
+
 def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let summary = "Empty op.";
     let description = [{

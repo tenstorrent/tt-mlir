@@ -941,8 +941,13 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
     auto min = op.getMin().convertToFloat();
     auto max = op.getMax().convertToFloat();
     return ::tt::target::ttnn::CreateClampOpParams(*cache.fbb, min, max);
-  }
-  if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
+  } else if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
+    auto min = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMin()));
+    auto max = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMax()));
+    return ::tt::target::ttnn::CreateClampTensorOpParams(*cache.fbb, min, max);
+  } else if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
     auto parameter = op.getParameter().convertToFloat();
     return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
                                                               parameter);
@@ -1005,6 +1010,13 @@ createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Clamp;
     paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampOpParams;
     params = createEltwiseOpParams<ClampOp, ::tt::target::ttnn::ClampOpParams>(
+                 cache, op)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::ClampTensor;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampTensorOpParams;
+    params = createEltwiseOpParams<ClampTensorOp,
+                                   ::tt::target::ttnn::ClampTensorOpParams>(
                  cache, op)
                  .Union();
   } else {
@@ -1706,6 +1718,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto clampOp = dyn_cast<ClampOp>(op); clampOp) {
     return createOperation(cache, createNonDPSEltwiseOp(cache, clampOp),
+                           debugString, locInfo);
+  }
+  if (auto clampTensorOp = dyn_cast<ClampTensorOp>(op); clampTensorOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, clampTensorOp),
                            debugString, locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {

@@ -1898,9 +1898,9 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    if (std::optional<float> minValue = getConstantValue(srcOp.getMin()),
-        maxValue = getConstantValue(srcOp.getMax());
-        minValue && maxValue) {
+    std::optional<float> minValue = getConstantValue(srcOp.getMin());
+    std::optional<float> maxValue = getConstantValue(srcOp.getMax());
+    if (minValue && maxValue) {
       ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(),
           mlir::APFloat(*minValue), mlir::APFloat(*maxValue));
@@ -1908,15 +1908,14 @@ public:
       return success();
     }
 
-    mlir::Value min =
+    mlir::Value minTensor =
         broadcastAttr(adaptor.getMin(), outputType, srcOp, rewriter);
-    mlir::Value max =
+    mlir::Value maxTensor =
         broadcastAttr(adaptor.getMax(), outputType, srcOp, rewriter);
 
-    ttir::MaximumOp maximumOp = ttmlir::utils::createDPSOp<ttir::MaximumOp>(
-        rewriter, srcOp->getLoc(), outputType, min, adaptor.getOperand());
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::MinimumOp>(
-        rewriter, srcOp, outputType, maximumOp.getResult(0), max);
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), minTensor,
+        maxTensor);
 
     return success();
   }
@@ -1933,25 +1932,30 @@ private:
       return std::nullopt;
     }
 
-    if (auto constantOp = mlir::dyn_cast<stablehlo::ConstantOp>(op)) {
-      auto attr = constantOp.getValueAttr();
-      if (!attr.isSplat()) {
-        return std::nullopt;
-      }
-      mlir::Type elementType = attr.getElementType();
-      mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
-      if (isa<IntegerType>(elementType)) {
-        fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
-                                   attr.getElementType().isSignedInteger(),
-                                   llvm::RoundingMode::TowardZero);
-        return fillValue.convertToFloat();
-      }
-      if (isa<FloatType>(elementType)) {
-        return static_cast<float>(
-            attr.getSplatValue<mlir::APFloat>().convertToDouble());
-      }
-      assert(false && "Unsupported data type.");
+    auto constantOp = mlir::dyn_cast<stablehlo::ConstantOp>(op);
+
+    if (!constantOp) {
+      return std::nullopt;
     }
+
+    mlir::ElementsAttr attr = constantOp.getValueAttr();
+    if (!attr.isSplat()) {
+      return std::nullopt;
+    }
+
+    mlir::Type elementType = attr.getElementType();
+    mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
+    if (isa<IntegerType>(elementType)) {
+      fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
+                                 attr.getElementType().isSignedInteger(),
+                                 llvm::RoundingMode::TowardZero);
+      return fillValue.convertToFloat();
+    }
+    if (isa<FloatType>(elementType)) {
+      return static_cast<float>(
+          attr.getSplatValue<mlir::APFloat>().convertToDouble());
+    }
+
     return std::nullopt;
   }
 

@@ -1571,6 +1571,28 @@ def TTIR_ClampOp : TTIR_NamedOp<"clamp"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
+  let summary = "Clamp op.";
+  let description = [{
+    Clamp tensor values to a specified range using min/max as tensor.
+
+    Example:
+      min: [[2, 2, 2, 3, 3, 3, 0, 0]]
+      input: [[0, 1, 2, 3, 4, 5, 6, 7]]
+      max: [[5, 5, 5, 9, 9, 9, 6, 6]]
+
+      "ttir.clamp_tensor"(%input, %min, %max)
+      -> %out = [[2, 2, 2, 3, 4, 5, 6, 6]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$min,
+                       AnyRankedTensor:$max,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTIR_ArangeOp : TTIR_Op<"arange"> {
   let summary = "Arange operation.";
   let description = [{

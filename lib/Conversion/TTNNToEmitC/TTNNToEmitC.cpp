@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -259,15 +260,16 @@ public:
 // modelled in the dialect (memcfg).
 //
 namespace {
+template <typename SourceOp>
 class ClampOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ClampOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::ClampOp>::TTNNToEmitCBaseOpConversionPattern;
-  using Adaptor = typename tt::ttnn::ClampOp::Adaptor;
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::ClampOp srcOp, Adaptor adaptor,
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ClampOp> emitter(srcOp, adaptor,
@@ -1710,7 +1712,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<EltwiseUnaryOpConversionPattern<tt::ttnn::AbsOp>,
                EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::CbrtOp>,
-               ClampOpConversionPattern,
+               ClampOpConversionPattern<tt::ttir::ClampOp>,
+               ClampOpConversionPattern<tt::ttir::ClampTensorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::FloorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::IsFiniteOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::LogicalNotOp>,

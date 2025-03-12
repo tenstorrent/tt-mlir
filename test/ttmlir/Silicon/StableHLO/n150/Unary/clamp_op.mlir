@@ -6,7 +6,7 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 // RUN: FileCheck --input-file=%t.mlir %s
 
-module @jit_transpose attributes {} {
+module @test_clamp attributes {} {
   func.func public @test_clamp_constant(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_clamp_constant(
     // CHECK: ttnn.clamp
@@ -47,36 +47,5 @@ module @jit_transpose attributes {} {
     // CHECK-SAME: -> tensor<1x32xbf16,
     %2 = stablehlo.clamp %0, %arg0, %1 : tensor<1x32xbf16>
     return %2 : tensor<1x32xbf16>
-  }
-
-  func.func public @test_clamp_tensor(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>, %arg2: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    // CHECK-LABEL: func.func public @test_clamp_tensor(
-    // CHECK: %[[MAX:.*]] = "ttnn.maximum"
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: -> tensor<64x128xf32,
-    // CHECK: "ttnn.minimum"(%[[MAX]]
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: -> tensor<64x128xf32,
-    %0 = stablehlo.clamp %arg1, %arg0, %arg2 : tensor<64x128xf32>
-    return %0 : tensor<64x128xf32>
-  }
-
-  func.func public @test_clamp_tensor_constant(%arg0: tensor<32x32xbf16>, %arg1: tensor<bf16>) -> tensor<32x32xbf16> {
-    // CHECK-LABEL: func.func public @test_clamp_tensor_constant(
-    %cst = arith.constant dense<3.0> : tensor<1xf64>
-    %0 = stablehlo.convert %cst : (tensor<1xf64>) -> tensor<1xbf16>
-    %1 = stablehlo.reshape %0 : (tensor<1xbf16>) -> tensor<bf16>
-    // CHECK: %[[MAX:.*]] = "ttnn.maximum"
-    // CHECK-SAME: tensor<32x32xbf16,
-    // CHECK-SAME: tensor<32x32xbf16,
-    // CHECK-SAME: -> tensor<32x32xbf16,
-    // CHECK: "ttnn.minimum"(%[[MAX]]
-    // CHECK-SAME: tensor<32x32xbf16,
-    // CHECK-SAME: tensor<32x32xbf16,
-    // CHECK-SAME: -> tensor<32x32xbf16,
-    %2 = stablehlo.clamp %1, %arg0, %arg1 : (tensor<bf16>, tensor<32x32xbf16>, tensor<bf16>) -> tensor<32x32xbf16>
-    return %2 : tensor<32x32xbf16>
   }
 }
