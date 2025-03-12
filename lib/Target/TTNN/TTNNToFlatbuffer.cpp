@@ -211,6 +211,7 @@ conv2dConfigToFlatbuffer(FlatbufferObjectCache &cache,
 
 flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
+                       tt::TensorMeshShardingAttr tensorMeshSharding,
                        BufferType bufferType,
                        ttnn::TensorMemoryLayoutAttr memLayoutAttr,
                        std::vector<::tt::target::Dim2dRange> coreRangeSet) {
@@ -235,12 +236,16 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
     size *= dim;
   }
 
-  // TODO (jnie): Currently we hardcode to owned or single-device storage
-  // Will need compiler support to correctly/dynamically determine this
-  ::tt::target::ttnn::StorageType storageType =
-      bufferType == ttnn::BufferType::SystemMemory
-          ? ::tt::target::ttnn::StorageType::Owned
-          : ::tt::target::ttnn::StorageType::Device;
+  ::tt::target::ttnn::StorageType storageType;
+  if (tensorMeshSharding) {
+    storageType = bufferType == ttnn::BufferType::SystemMemory
+                      ? ::tt::target::ttnn::StorageType::MultiDeviceHost
+                      : ::tt::target::ttnn::StorageType::MultiDevice;
+  } else {
+    storageType = bufferType == ttnn::BufferType::SystemMemory
+                      ? ::tt::target::ttnn::StorageType::Owned
+                      : ::tt::target::ttnn::StorageType::Device;
+  }
 
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
 
@@ -279,9 +284,9 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // flatbuffer LayoutDescs.
   return ::tt::target::ttnn::CreateLayoutDesc(
       *cache.fbb, toFlatbuffer(cache, OOBVal::Undef),
-      memrefAttrToFlatbuffer(cache, layoutAttr.getMemref(),
-                             layoutAttr.getBufferType(),
-                             layoutAttr.getMemLayout(), coreRangeSet));
+      memrefAttrToFlatbuffer(
+          cache, layoutAttr.getMemref(), layoutAttr.getTensorMeshSharding(),
+          layoutAttr.getBufferType(), layoutAttr.getMemLayout(), coreRangeSet));
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
@@ -483,7 +488,9 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
         distribution);
   };
 
-  if (!deviceValue) {
+  // Skip single device tensors if it includes TensorMeshShardingAttr.
+  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
+  if (!deviceValue || !layoutAttr.isMeshDeviceTensor()) {
     return noneDistributionStrategy();
   }
 
@@ -533,9 +540,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       cache, op.getDevice(), mlir::cast<RankedTensorType>(op.getType()),
       numShards);
   auto output = getOperandThroughDPSOps(op.getResult());
-
   auto device = getOperandThroughDPSOps(op.getDevice());
-
   auto tileShape = getTensorValueTileShape(output);
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, output);
   auto memoryConfig = memoryConfigToFlatbuffer(cache, op.getMemoryConfig(),
