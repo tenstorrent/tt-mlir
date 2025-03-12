@@ -25,29 +25,10 @@ void run(const ::tt::target::ttnn::ConstructTensorOp *op,
   const uint32_t size = shape.volume();
 
   // Create buffer based on dtype
-  ::tt::tt_metal::OwnedBuffer ownedBuffer;
-  switch (dtype) {
-  case ::ttnn::DataType::FLOAT32:
-    ownedBuffer = tt::tt_metal::owned_buffer::create<float>(size);
-    break;
-  case ::ttnn::DataType::UINT8:
-    ownedBuffer = tt::tt_metal::owned_buffer::create<uint8_t>(size);
-    break;
-  case ::ttnn::DataType::UINT16:
-    ownedBuffer = tt::tt_metal::owned_buffer::create<uint16_t>(size);
-    break;
-  case ::ttnn::DataType::INT32:
-    ownedBuffer = tt::tt_metal::owned_buffer::create<int32_t>(size);
-    break;
-  case ::ttnn::DataType::UINT32:
-    ownedBuffer = tt::tt_metal::owned_buffer::create<uint32_t>(size);
-    break;
-  case ::ttnn::DataType::BFLOAT16:
-    ownedBuffer = tt::tt_metal::owned_buffer::create<bfloat16>(size);
-    break;
-  default:
-    LOG_FATAL("Unsupported data type");
-  }
+  ::tt::target::DataType targetDType =
+      op->out()->desc()->layout()->memory_desc()->data_type();
+  ::tt::tt_metal::OwnedBuffer ownedBuffer =
+      utils::createTypedBuffer(targetDType, size);
 
   ::ttnn::Tensor out(::tt::tt_metal::OwnedStorage{ownedBuffer}, shape, dtype,
                      ::ttnn::Layout::ROW_MAJOR);
