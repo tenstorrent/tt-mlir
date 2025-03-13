@@ -581,7 +581,7 @@ class Run:
                                     ):
                                         output_host = ttrt.runtime.to_host(
                                             runtime_output_tensor, untilize=True
-                                        )
+                                        )[0]
                                         ttrt.runtime.memcpy(
                                             total_outputs[loop][i],
                                             output_host,
@@ -618,7 +618,9 @@ class Run:
                                         device,
                                     )
                                     emitc_outs = [
-                                        ttrt.runtime.to_host(emitc_out, untilize=True)
+                                        ttrt.runtime.to_host(emitc_out, untilize=True)[
+                                            0
+                                        ]
                                         for emitc_out in emitc_outs
                                     ]
                                     self.logging.debug(

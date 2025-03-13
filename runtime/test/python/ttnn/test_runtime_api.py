@@ -226,7 +226,7 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
             )
             activations = ttrt.runtime.to_layout(outputs[0], device, activations_layout)
             ttrt.runtime.deallocate_tensor(outputs[0])
-        final_result = ttrt.runtime.to_host(activations, untilize=True)
+        final_result = ttrt.runtime.to_host(activations, untilize=True)[0]
         ttrt.runtime.memcpy(torch_result_tensor.data_ptr(), final_result)
         ttrt.runtime.deallocate_tensor(activations, force=True)
         ttrt.runtime.deallocate_tensor(weights, force=True)
