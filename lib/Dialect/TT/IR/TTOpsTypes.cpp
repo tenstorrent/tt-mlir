@@ -940,7 +940,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
 // flat:
-//   addr = (d0 * s0 * s1) + (d1 * s0 * s1) + d2
+//   addr = (d0 * s2 * s3 * s1) + (d1 * s2 * s3) + d2
 //
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      GridAttr workerGrid, size_t numDramCores,
@@ -965,9 +965,9 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
   }
 
   mlir::AffineExpr pageSizeExpr =
-      getAffineConstantExpr(workerMap.getNumDims() * 2, context);
+      getAffineSymbolExpr(workerMap.getNumDims() * 2, context);
   mlir::AffineExpr baseAddressExpr =
-      getAffineConstantExpr(workerMap.getNumDims() * 2 + 1, context);
+      getAffineSymbolExpr(workerMap.getNumDims() * 2 + 1, context);
   mlir::AffineExpr numDramCoresExpr =
       getAffineConstantExpr(numDramCores, context);
   mlir::SmallVector<mlir::AffineExpr> dramMapResults = {
