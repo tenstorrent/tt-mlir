@@ -77,6 +77,14 @@ def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::M
   }];
 }
 
+def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Analyze the graph and select optimal layouts, insert to_layout where needed.
+  }];
+}
+
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
