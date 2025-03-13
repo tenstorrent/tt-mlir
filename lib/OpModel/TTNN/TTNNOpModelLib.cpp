@@ -162,7 +162,7 @@ template <typename... Args,
                               std::tuple<::llvm::ArrayRef<int64_t>,
                                          ::mlir::tt::ttnn::TTNNLayoutAttr>> &&
                ...)>>
-auto convertToTensorSpec(::tt::tt_metal::v0::IDevice *device, Args... args) {
+auto convertToTensorSpec(::tt::tt_metal::IDevice *device, Args... args) {
   auto transformArg = [device](auto &&arg) {
     const ::ttnn::TensorSpec spec =
         conversion::getTensorSpec(std::get<0>(arg), std::get<1>(arg));
@@ -215,7 +215,7 @@ getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
                    mlir::tt::ttnn::TTNNLayoutAttr bLayout,
                    llvm::ArrayRef<int64_t> outShape,
                    mlir::tt::ttnn::TTNNLayoutAttr outLayout) {
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
     const auto [inputSpecA, inputSpecB, outputSpec] =
         detail::convertToTensorSpec(device, std::make_tuple(aShape, aLayout),
@@ -247,7 +247,7 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
                    mlir::tt::ttnn::TTNNLayoutAttr bLayout,
                    llvm::ArrayRef<int64_t> outShape,
                    mlir::tt::ttnn::TTNNLayoutAttr outLayout) {
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
     const auto [inputSpecA, inputSpecB, outputSpec] =
         detail::convertToTensorSpec(device, std::make_tuple(aShape, aLayout),
@@ -279,7 +279,7 @@ ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                         llvm::ArrayRef<int64_t> outputShape,
                         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -311,7 +311,7 @@ ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                         llvm::ArrayRef<int64_t> outputShape,
                         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -382,7 +382,7 @@ SoftmaxOpInterface::getOpConstraints(
                            llvm::ArrayRef<int64_t> outputShape,
                            mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -417,7 +417,7 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                            llvm::ArrayRef<int64_t> outputShape,
                            mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -454,7 +454,7 @@ MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                         bool keepDim,
                         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -495,7 +495,7 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                         bool keepDim,
                         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -538,7 +538,7 @@ ReshapeOpInterface::getOpConstraints(
                            llvm::ArrayRef<int64_t> outputShape,
                            mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -571,7 +571,7 @@ ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                            llvm::ArrayRef<int64_t> outputShape,
                            mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -608,7 +608,7 @@ TypecastOpInterface::getOpConstraints(
                             llvm::ArrayRef<int64_t> outputShape,
                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -644,7 +644,7 @@ TypecastOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                             llvm::ArrayRef<int64_t> outputShape,
                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -682,7 +682,7 @@ ToLayoutOpInterface::getOpConstraints(
                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                             bool passDevicePtr) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -726,7 +726,7 @@ ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                             mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                             bool passDevicePtr) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -771,7 +771,7 @@ TransposeOpInterface::getOpConstraints(
                              const int dim0, const int dim1,
                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -802,7 +802,7 @@ llvm::Expected<size_t> TransposeOpInterface::getOpRuntime(
                              const int dim0, const int dim1,
                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -842,7 +842,7 @@ MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
                           mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                           bool transposeA, bool transposeB) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -884,7 +884,7 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
                           mlir::tt::ttnn::TTNNLayoutAttr outputLayout,
                           bool transposeA, bool transposeB) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::IDevice *device =
+    ::tt::tt_metal::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
