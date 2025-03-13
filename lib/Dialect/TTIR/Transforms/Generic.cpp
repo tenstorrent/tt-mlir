@@ -98,7 +98,6 @@ void buildLinalgGeneric(::mlir::Location loc, ::mlir::Block *block,
         }
         nestedBuilder.create<mlir::linalg::YieldOp>(nestedLoc, result);
       });
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange());
 }
 
 class TTIRGenericConversionRewriter

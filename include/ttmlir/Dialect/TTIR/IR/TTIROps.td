@@ -1797,7 +1797,7 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul", [TTIR_GenericRegionOpInterface]> {
       // reduction dimensions. Iterator types are parallel for non-reduction dimensions
       // and reduction for reduction dimensions.
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        auto rank = mlir::cast<RankedTensorType>(getA().getType()).getRank();
+        auto rank = mlir::cast<RankedTensorType>(getA().getType()).getRank() / 2;
         auto rank_plus_inner_dim = rank + 1;
 
         // (d0, d1, d2, d3) -> (d0, d1, d2, d3)
