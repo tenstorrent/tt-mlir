@@ -350,7 +350,7 @@ class ConstEvalHoistTransform
     : public impl::ConstEvalHoistTransformBase<ConstEvalHoistTransform> {
 public:
   using impl::ConstEvalHoistTransformBase<
-      ConstEvalHoistTransform>::ConstEvalHoistTransformBase;
+      ConstEvalHoistTransform<IgnoreChecker>>::ConstEvalHoistTransformBase;
 
   void runOnOperation() final {
     mlir::ModuleOp module = this->getOperation();
@@ -377,6 +377,8 @@ private:
       return;
     }
 
+    llvm::errs() << "creating subgraphs\n";
+
     // Create new functions for each subgraph
     for (size_t i = 0; i < subgraphs.size(); ++i) {
       auto &subgraph = subgraphs[i];
@@ -384,6 +386,7 @@ private:
       // Create a new function for this const-eval subgraph
       createConstEvalFunction(funcOp, subgraph, sharedOps, i);
     }
+    llvm::errs() << "created subgraphs\n";
   }
 
   // Create a new function for a const-eval subgraph and replace the original
@@ -449,6 +452,8 @@ private:
     for (auto *op : subgraph.ops) {
       processOp(op, valueMap, builder);
     }
+    llvm::errs() << "cloned ops into funcOp\n";
+    moduleOp.dump();
 
     // Create return operation.
     llvm::SmallVector<mlir::Value, 4> returnValues;
@@ -458,6 +463,9 @@ private:
              "Subgraph did not contain value it should output.");
       returnValues.push_back(it->second);
     }
+
+    llvm::errs() << "created return values\n";
+    moduleOp.dump();
 
     builder.create<func::ReturnOp>(originalFunc.getLoc(), returnValues);
 
