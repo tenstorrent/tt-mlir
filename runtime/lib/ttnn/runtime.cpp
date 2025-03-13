@@ -307,6 +307,22 @@ void wait(std::vector<Tensor> const &tensors) {
   }
 }
 
+static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
+  const ::ttnn::Tensor &deviceTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::shared_ptr<::ttnn::Tensor> hostTensor =
+      std::make_shared<::ttnn::Tensor>(::ttnn::from_device(deviceTensor));
+
+  if (untilize) {
+    hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+        *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
+        static_cast<::ttnn::IDevice *>(nullptr)));
+  }
+
+  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
+                DeviceRuntime::TTNN);
+}
+
 std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
   const ::ttnn::Tensor &multiDeviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
@@ -327,22 +343,6 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
         ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
   }
   return host_tensors;
-}
-
-Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
-  const ::ttnn::Tensor &deviceTensor =
-      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  std::shared_ptr<::ttnn::Tensor> hostTensor =
-      std::make_shared<::ttnn::Tensor>(::ttnn::from_device(deviceTensor));
-
-  if (untilize) {
-    hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
-        *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
-        static_cast<::ttnn::IDevice *>(nullptr)));
-  }
-
-  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-                DeviceRuntime::TTNN);
 }
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout) {

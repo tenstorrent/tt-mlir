@@ -126,8 +126,6 @@ void wait(std::vector<Tensor> const &tensors);
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize = false);
 
-Tensor toHostSingleTensor(Tensor tensor, bool untilize = false);
-
 Tensor toLayout(Tensor tensor, Device device, Layout layout);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
