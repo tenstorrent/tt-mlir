@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         AttachMetalLayout.cpp
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
+        Bufferization.cpp
         Layout.cpp
         Transforms.cpp
         Utility.cpp

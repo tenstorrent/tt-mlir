@@ -21,52 +21,9 @@ namespace mlir::tt::ttmetal {
 //===----------------------------------------------------------------------===//
 
 void createTTIRBufferizationPipeline(OpPassManager &pm) {
+  pm.addPass(mlir::tt::ttir::createTTIRPrepareTensorsForBufferization());
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
-  {
-    bufferizationOptions.bufferizeFunctionBoundaries = true;
-    bufferizationOptions.functionArgTypeConverterFn =
-        [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
-           func::FuncOp funcOp,
-           const bufferization::BufferizationOptions &bufferizationOptions)
-        -> ::mlir::BaseMemRefType {
-      auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-      assert(rankedTensorType.getEncoding());
-      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-          .getBufferType();
-    };
-    bufferizationOptions.defaultMemorySpaceFn =
-        [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
-      auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-      assert(rankedTensorType.getEncoding());
-      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-          .getMemref()
-          .getMemorySpace();
-    };
-    bufferizationOptions.unknownTypeConverterFn =
-        [](Value value, Attribute memorySpace,
-           const bufferization::BufferizationOptions &) -> BaseMemRefType {
-      auto rankedTensorType =
-          mlir::cast<::mlir::RankedTensorType>(value.getType());
-      assert(rankedTensorType.getEncoding());
-      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-          .getBufferType();
-    };
-    bufferizationOptions.allocationFn = [](OpBuilder &builder, Location loc,
-                                           MemRefType type, ValueRange shape,
-                                           unsigned int) -> FailureOr<Value> {
-      auto tileType =
-          builder.getType<mlir::tt::TileType>(type.getElementType());
-      auto tensorGrid = builder.getAttr<GridAttr>(type.getRank() / 2);
-      SmallVector<int64_t> shapeVec(type.getShape());
-      for (int i = type.getRank() / 2; i < type.getRank(); i += 1) {
-        shapeVec[i] *= 32;
-      }
-      auto layout = builder.getAttr<mlir::tt::MetalLayoutAttr>(
-          shapeVec, tileType, tt::MemorySpace::DeviceL1, tensorGrid);
-      auto ty = layout.getBufferType();
-      return builder.create<memref::AllocOp>(loc, ty).getResult();
-    };
-  }
+  mlir::tt::ttir::initializeOneShotBufferizationOptions(bufferizationOptions);
   pm.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
   // TODO(#2246)

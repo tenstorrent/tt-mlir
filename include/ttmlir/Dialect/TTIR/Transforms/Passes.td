@@ -185,6 +185,12 @@ def TTIRConstantAsFill: Pass<"ttir-constant-as-fill", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRPrepareTensorsForBufferization : Pass<"ttir-prepare-tensors-for-bufferization", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   let summary = "Insert allocate/deallocate ops for tensors.";
   let description = [{
