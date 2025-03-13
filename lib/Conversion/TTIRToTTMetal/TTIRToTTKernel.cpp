@@ -26,6 +26,14 @@ Value i32(int32_t value, OpBuilder &builder) {
       .getResult();
 }
 
+Value index(int64_t value, OpBuilder &builder) {
+  return builder
+      .create<arith::ConstantOp>(builder.getUnknownLoc(),
+                                 builder.getIndexType(),
+                                 builder.getIndexAttr(value))
+      .getResult();
+}
+
 namespace {
 class TTIRGenericRewriter : public OpRewritePattern<ttir::GenericOp> {
 public:
@@ -162,13 +170,14 @@ public:
     OpBuilder builder(op);
 
     auto cbId = i32(getCbId(op), builder);
+    auto storeIdx = op.getIndices().front();
     rewriter.create<ttkernel::PackTileOp>(
-        op.getLoc(), i32(0, builder), cbId,
-        i32(0,
-            builder)); // we should lower to a pack loop (or use
-                       // matmul_pack_tile??) if input is not one tile, i.e. for
-                       // matmul_block, we need to loop pack on the whole dst
-                       // output. out_idx is ignore except for out of order pack
+        op.getLoc(), index(0, builder), cbId, storeIdx,
+        rewriter.getBoolAttr(
+            true)); // we should lower to a pack loop (or use
+                    // matmul_pack_tile??) if input is not one tile, i.e. for
+                    // matmul_block, we need to loop pack on the whole dst
+                    // output. out_idx is ignore except for out of order pack
 
     rewriter.eraseOp(op);
     return success();
@@ -265,7 +274,8 @@ public:
     }
 
     if (!erase) {
-      return failure(); // new ttir trait for generic region compute vs generic region "helpers" or something
+      return failure(); // new ttir trait for generic region compute vs generic
+                        // region "helpers" or something
     }
 
     if (first) {

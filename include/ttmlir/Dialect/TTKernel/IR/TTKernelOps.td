@@ -122,7 +122,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
       the reserved section of the circular buffer to the consumer.
     }];
 
-    let arguments = (ins I32:$dst_index, I32:$out_cb, I32:$out_index);
+    let arguments = (ins Index:$dst_index, I32:$out_cb, Index:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
 }
 
 def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
