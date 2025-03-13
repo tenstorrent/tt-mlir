@@ -6,15 +6,17 @@
 #include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Support.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 namespace mlir::tt::ttnn {
 
-MlirAttribute ttmlirTTNNCoreRangeAttrGet(MlirContext ctx, int64_t *offset,
-                                         size_t offsetSize, int64_t *size,
-                                         size_t sizeSize) {
-  return wrap(CoreRangeAttr::get(unwrap(ctx), {offset, offset + offsetSize},
-                                 {size, size + sizeSize}));
+MlirAttribute ttmlirTTNNCoreRangeAttrGet(MlirContext ctx,
+                                         MlirAttribute startCoord,
+                                         MlirAttribute endCoord) {
+  return wrap(CoreRangeAttr::get(unwrap(ctx),
+                                 mlir::cast<CoreCoordAttr>(unwrap(startCoord)),
+                                 mlir::cast<CoreCoordAttr>(unwrap(endCoord))));
 }
 
 MlirAttribute ttmlirTTNNCoreRangeArrayAttrGet(MlirContext ctx,
