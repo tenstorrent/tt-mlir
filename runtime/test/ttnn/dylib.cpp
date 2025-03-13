@@ -16,7 +16,7 @@ namespace tt::runtime::ttnn::test {
 
 static constexpr const char *POTENTIAL_MANGLING_ADDITIONS[] = {
     "",
-    "PNS1_2v07IDeviceE",
+    "PNS1_7IDeviceE",
 };
 
 void *openSo(std::string path) {

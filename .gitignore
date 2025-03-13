@@ -29,3 +29,6 @@ test/lit.site.cfg.py
 
 # Root level mlir files (often used for testing, none should be at root)
 /*.mlir
+
+# Obsidian editor files
+.obsidian/

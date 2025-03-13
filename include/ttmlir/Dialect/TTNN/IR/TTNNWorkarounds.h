@@ -235,7 +235,8 @@ public:
   createFullOpOperandsWorkarounds(RankedTensorType outputType);
 
   // Create workarounds for mesh shard op operands.
-  static TTNNOperandsWorkarounds createMeshShardOpOperandsWorkarounds();
+  static TTNNOperandsWorkarounds
+  createMeshShardOpOperandsWorkarounds(mlir::tt::MeshShardType shardType);
 
   // Create workarounds for concat op operands.
   static TTNNOperandsWorkarounds

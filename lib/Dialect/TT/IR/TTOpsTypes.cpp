@@ -417,17 +417,23 @@ unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
 }
 
-::llvm::LogicalResult StreamLayoutAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    AffineMap affineMap, StreamMode streamMode, uint32_t numBuffers) {
-  if (streamMode == StreamMode::Alias) {
-    if (numBuffers != 1) {
-      emitError() << "'Alias' mode must imply no buffering: numBuffers = "
-                  << numBuffers;
-      return ::mlir::failure();
-    }
+mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
+  auto *context = getContext();
+  int64_t rank = getStride().size();
+  SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
+
+  for (int64_t i = 0; i < rank; i++) {
+    mapExprs[i] = getAffineDimExpr(i, context);
   }
-  return ::mlir::success();
+
+  mapExprs[rank] = getAffineConstantExpr(0, context);
+  for (int64_t i = rank - 1; i >= 0; i--) {
+    mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
+    mlir::AffineExpr stride = getAffineConstantExpr(getStride()[i], context);
+    mapExprs[rank] = shardDim * stride + mapExprs[rank];
+  }
+
+  return mlir::AffineMap::get(getStride().size() * 2, 0, mapExprs, context);
 }
 
 //
@@ -644,11 +650,15 @@ MetalLayoutAttr::getShardShape(bool convertTileToScalar) const {
   return shardShape;
 }
 
-StreamMode MetalLayoutAttr::getStreamMode() const {
-  StreamLayoutAttr layout =
-      llvm::dyn_cast<StreamLayoutAttr>(getMemref().getLayout());
-  assert(layout != nullptr && "expected a StreamLayoutAttr layout");
-  return layout.getStreamMode();
+llvm::SmallVector<int64_t> MetalLayoutAttr::getShardStride() const {
+  SmallVector<int64_t> shardShape =
+      getShardShape(/*convertTileToScalar=*/false);
+  SmallVector<int64_t> shardStride(shardShape.size());
+  shardStride[shardStride.size() - 1] = getElementSizeBytes();
+  for (int64_t i = static_cast<int64_t>(shardStride.size()) - 2; i >= 0; i--) {
+    shardStride[i] = shardShape[i + 1] * shardStride[i + 1];
+  }
+  return shardStride;
 }
 
 mlir::Type MetalLayoutAttr::getElementType() const {
@@ -722,49 +732,6 @@ MetalLayoutAttr::withShardShape(::mlir::MLIRContext *context,
       context, getLinear(), getOobVal(), getGrid(),
       buildMemRef<MemorySpace, MemorySpaceAttr>(
           context, shardShape, getElementType(), getMemorySpace()));
-}
-
-// TODO(vroubtsovTT): remove this, it's difficult/unsafe to use
-MetalLayoutAttr MetalLayoutAttr::withStreamLayout(::mlir::MLIRContext *context,
-                                                  StreamLayoutAttr layout) {
-  return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
-                              buildMemRef<MemorySpace, MemorySpaceAttr>(
-                                  context, getShardShape(true),
-                                  getElementType(), getMemorySpace(), layout));
-}
-
-MetalLayoutAttr MetalLayoutAttr::withStreamMode(::mlir::MLIRContext *context,
-                                                StreamMode streamMode,
-                                                std::uint32_t numBuffers) {
-  return withStreamLayout(
-      context, StreamLayoutAttr::get(context,
-                                     mlir::AffineMap::getMultiDimIdentityMap(
-                                         getShardShape().size(), context),
-                                     streamMode, numBuffers));
-}
-
-MetalLayoutAttr MetalLayoutAttr::withOuterScale(
-    ::mlir::MLIRContext *context, llvm::ArrayRef<int64_t> outerScale,
-    StreamMode streamMode, std::uint32_t numBuffers) {
-
-  auto innerShape = getShardShape();
-  std::size_t innerShapeSize = innerShape.size();
-
-  llvm::SmallVector<int64_t> fullShape(2 * innerShapeSize); // rank doubles
-  for (std::size_t d = 0; d < innerShapeSize; ++d) {
-    fullShape[d] = 1;
-    fullShape[innerShapeSize + d] = innerShape[d];
-  }
-
-  auto fullAffineMap =
-      mlir::AffineMap::getMultiDimIdentityMap(fullShape.size(), context);
-  auto fullLayout =
-      StreamLayoutAttr::get(context, fullAffineMap, streamMode, numBuffers);
-  auto fullMemRef = buildMemRef<MemorySpace, MemorySpaceAttr>(
-      context, fullShape, getElementType(), getMemorySpace(), fullLayout);
-
-  return MetalLayoutAttr::get(context, getLinear(), getOobVal(), getGrid(),
-                              fullMemRef);
 }
 
 MemorySpace MetalLayoutAttr::getMemorySpace() const {
@@ -855,53 +822,41 @@ MetalLayoutAttr::projectOnto(mlir::AffineMap linearMap,
 mlir::MemRefType MetalLayoutAttr::getBufferType() const {
   SmallVector<int64_t> fullMemrefShape;
   auto gridShape = getGrid().getShape();
-  auto shardShape = getShardShape(/*convertTileToScalar*/ true);
+  auto shardShape = getShardShape(/*convertTileToScalar*/ false);
   fullMemrefShape.append(gridShape.begin(), gridShape.end());
   fullMemrefShape.append(shardShape.begin(), shardShape.end());
-  return buildMemRef<MemorySpace, MemorySpaceAttr>(
-      getContext(), fullMemrefShape, getElementType(), getMemorySpace());
+  return MemRefType::get(
+      fullMemrefShape, getElementType(),
+      ShardLayoutAttr::get(getContext(), getShardStride(), /*buffered=*/1),
+      MemorySpaceAttr::get(getContext(), getMemorySpace()));
 }
 
 //
-// This function creates an affine map that represents mapping the tensor's
-// linear layout onto the 2d physical device grid. A typical example will look
-// like:
-//   (d0, d1)[s0, s1] -> ( # Uses affine symbols s0, s1 to represent shard dims
-//     0,                           # Device index
-//     d0 floordiv s0,              # CoreCoordY
-//     d1 floordiv s1,              # CoreCoordX
-//     (d0 mod s0) * s1 + d1 mod s1 # Element offset within shard
+// This function creates an affine map that represents mapping shards onto the
+// 2d physical device grid. A typical example would nearly be identity:
+//   (d0, d1, d2)[s0] -> ( # affine symbol baseOffset
+//     0,                  # Device index
+//     d0,                 # GridDimY
+//     d1,                 # GridDimX
+//     s0 + d2             # L1 offset
 //   )
 //
-static mlir::AffineMap createL1Map(::mlir::MLIRContext *context,
-                                   GridAttr workerGrid,
-                                   SystemDescAttr systemDesc,
-                                   ::llvm::ArrayRef<unsigned> chipIds) {
+//  Note the symbols are only there to maintain a congruent API with
+//  createDramMap which actually does use the shard shape for address
+//  calculation.  Perhaps in the future a more sophisticated mapping might use
+//  them.
+//
+static mlir::AffineMap createL1Map(mlir::MLIRContext *context,
+                                   GridAttr workerGrid) {
   mlir::AffineMap workerMap = workerGrid.getMapping();
-  mlir::SmallVector<mlir::AffineExpr> l1MapResults(workerMap.getNumDims());
-  mlir::AffineExpr shardIndexing = getAffineConstantExpr(0, context);
-  mlir::AffineExpr shardVolumeExpr = getAffineConstantExpr(1, context);
-
-  // Compute the projection of the layout onto its own logical grid.
-  // Simultaneously compute the indexing of shards within each core.
-  for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
-    mlir::AffineExpr linearIdx = getAffineDimExpr(i, context);
-    mlir::AffineExpr shardDim = getAffineSymbolExpr(i, context);
-    l1MapResults[i] = linearIdx.floorDiv(shardDim);
-    shardIndexing = (linearIdx % shardDim) * shardVolumeExpr + shardIndexing;
-    shardVolumeExpr = shardVolumeExpr * shardDim;
-  }
-
-  // Compose the logical grid projection with the device grid mapping, now we
-  // have a projection onto the physical grid.
-  mlir::AffineMap gridProjection = workerMap.compose(mlir::AffineMap::get(
-      workerMap.getNumDims(), workerMap.getNumDims(), l1MapResults, context));
-
-  // Finally we append the indexing of shards within each core.
-  mlir::SmallVector<mlir::AffineExpr> l1Map(gridProjection.getResults());
-  l1Map.push_back(shardIndexing);
-  return mlir::AffineMap::get(workerMap.getNumDims(), workerMap.getNumDims(),
-                              l1Map, context);
+  // Take the workerMap and just add an additional dimension for the L1 shard
+  // offset for each core.
+  mlir::SmallVector<mlir::AffineExpr> workerMapExprs(workerMap.getResults());
+  mlir::AffineExpr baseOffset = getAffineSymbolExpr(0, context);
+  workerMapExprs.push_back(baseOffset +
+                           getAffineDimExpr(workerMap.getNumDims(), context));
+  return mlir::AffineMap::get(workerMap.getNumDims() + 1, 1, workerMapExprs,
+                              context);
 }
 
 static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
@@ -967,61 +922,65 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 
 //
 // This function creates an affine map that represents mapping the tensor's
-// linear layout onto physical dram banks. A typical example will end up looking
-// pretty complicated:
-//   (d0, d1)[s0, s1] -> (
-//     0,                                  # Device index
-//     0,                                  # CoreCoordY
-//     (addr floordiv 8192) mod 12,        # Channel Idx / CoreCoordX
-//     addr floordiv 98304 + addr mod 8192 # Offset within channel
+// linear layout onto physical dram banks. The affine map round robin's the bank
+// in pages of page size.
+//   (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (
+//                |   |   |   |   |   |
+//                |   |   |   |   |   +- Base Address
+//                |   |   |   |   +- Page size
+//                |   |   |   +- Shard Dim X
+//                |   |   +- Shard Dim Y
+//                |   +- Grid Dim X
+//                +- Grid Dim Y
+//     0,                                                 # Device index
+//     0,                                                 # Not Applicable
+//     (addr floordiv s4) mod 12,                         # Channel Idx
+//     (addr floordiv (s4 * 12)) * s4 + addr mod s4 + s5  # Channel Offset
 //   )
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
-// flat.  Then we do some additional calculations to break up the channels into
-// interleaved pages:
-//   addr = (((d0 floordiv s0) * 8 + d1 floordiv s1) * (s1 * s0) +
-//          (d0 mod s0) * s1 + d1 mod s1)
+// flat:
+//   addr = (d0 * s0 * s1) + (d1 * s0 * s1) + d2
 //
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
-                                     GridAttr workerGrid, ArchAttr arch,
-                                     mlir::ArrayRef<CoreCoordAttr> dramCores,
-                                     unsigned dramPageSize) {
+                                     GridAttr workerGrid, size_t numDramCores,
+                                     size_t dramPageSize) {
   mlir::AffineMap workerMap = workerGrid.getMapping();
   assert(workerMap.getNumResults() == PhysGridResultIdx::NumIndices);
-  mlir::AffineExpr addr = getAffineConstantExpr(0, context);
-  mlir::AffineExpr shardIndexing = getAffineConstantExpr(0, context);
-  mlir::AffineExpr shardVolumeExpr = getAffineConstantExpr(1, context);
-  mlir::AffineExpr gridVolumeExpr = getAffineConstantExpr(1, context);
 
+  mlir::AffineExpr shardVolumeExpr = getAffineConstantExpr(1, context);
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
-    mlir::AffineExpr linearIdx = getAffineDimExpr(i, context);
-    mlir::AffineExpr shardDim = getAffineSymbolExpr(i, context);
-    addr = linearIdx.floorDiv(shardDim) * gridVolumeExpr + addr;
-    shardIndexing = (linearIdx % shardDim) * shardVolumeExpr + shardIndexing;
-    shardVolumeExpr = shardVolumeExpr * shardDim;
-    gridVolumeExpr = gridVolumeExpr * workerGrid.getShape()[i];
+    mlir::AffineExpr shardDim =
+        getAffineSymbolExpr(workerMap.getNumDims() + i, context);
+    shardVolumeExpr = shardDim * shardVolumeExpr;
   }
 
-  addr = addr * shardVolumeExpr + shardIndexing;
+  mlir::AffineExpr addr = getAffineDimExpr(workerMap.getNumDims(), context);
+  mlir::AffineExpr gridVolumeExpr = getAffineConstantExpr(1, context);
+  for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
+    mlir::AffineExpr dim = getAffineDimExpr(i, context);
+    mlir::AffineExpr gridDim = getAffineSymbolExpr(i, context);
+    addr = dim * gridVolumeExpr * shardVolumeExpr + addr;
+    gridVolumeExpr = gridVolumeExpr * gridDim;
+  }
 
-  mlir::AffineExpr pageSizeExpr = getAffineConstantExpr(dramPageSize, context);
-  mlir::AffineExpr numDramCores =
-      getAffineConstantExpr(dramCores.size(), context);
+  mlir::AffineExpr pageSizeExpr =
+      getAffineConstantExpr(workerMap.getNumDims() * 2, context);
+  mlir::AffineExpr baseAddressExpr =
+      getAffineConstantExpr(workerMap.getNumDims() * 2 + 1, context);
+  mlir::AffineExpr numDramCoresExpr =
+      getAffineConstantExpr(numDramCores, context);
   mlir::SmallVector<mlir::AffineExpr> dramMapResults = {
-      addr.floorDiv(pageSizeExpr) % numDramCores,
-      addr.floorDiv(pageSizeExpr * numDramCores) + addr % pageSizeExpr,
+      getAffineConstantExpr(0, context),
+      getAffineConstantExpr(0, context),
+      addr.floorDiv(pageSizeExpr) % numDramCoresExpr,
+      addr.floorDiv(pageSizeExpr * numDramCoresExpr) + addr % pageSizeExpr +
+          baseAddressExpr,
   };
 
-  // Dram logical coords are 1d, so constant 0 index for
-  // MemMapResultIdx::CoreCoordY
-  dramMapResults.insert(dramMapResults.begin(),
-                        getAffineConstantExpr(0, context));
-  dramMapResults.insert(dramMapResults.begin(),
-                        workerMap.getResult(MemoryMapResultIdx::DeviceIdx));
-  assert(dramMapResults.size() == MemoryMapResultIdx::NumIndices);
-
-  return mlir::AffineMap::get(workerMap.getNumDims(), workerMap.getNumDims(),
-                              dramMapResults, context);
+  return mlir::AffineMap::get(workerMap.getNumDims() + 1,
+                              workerMap.getNumDims() * 2 + 2, dramMapResults,
+                              context);
 }
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
@@ -1041,7 +1000,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
     assert(dramCores.size() == firstDramCores.size());
   }
 
-  return createDramMap(context, workerGrid, chipDesc.getArch(), firstDramCores,
+  return createDramMap(context, workerGrid, firstDramCores.size(),
                        dramPageSize);
 }
 
@@ -1067,7 +1026,7 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
   }
 
   auto workerGrid = createWorkerGrid(context, chipGrid, meshShape);
-  auto l1Map = createL1Map(context, workerGrid, systemDesc, chipIds);
+  auto l1Map = createL1Map(context, workerGrid);
   constexpr unsigned dramPageSize = 8192;
   auto dramMap =
       createDramMap(context, workerGrid, systemDesc, chipIds, dramPageSize);
@@ -1086,6 +1045,38 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
   return get(context, systemDesc, meshShape, chipIds);
 }
 
+mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
+                                         size_t baseOffset) const {
+  tt::MemorySpace memorySpace =
+      mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
+  AffineMap affineMap = memrefType.getLayout().getAffineMap();
+  switch (memorySpace) {
+  case MemorySpace::DeviceL1: {
+    SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
+    return ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols)
+        .compose(affineMap);
+  }
+  case MemorySpace::DeviceDRAM: {
+    assert(pageSize > 0 && "expected positive page size");
+    SmallVector<int64_t> symbols(memrefType.getShape());
+    symbols.push_back(static_cast<int64_t>(pageSize));
+    symbols.push_back(static_cast<int64_t>(baseOffset));
+    return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
+        .compose(affineMap);
+  }
+  default: {
+    llvm_unreachable("Unsupported memory space");
+  }
+  }
+}
+
+size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
+                                      size_t pageSize) const {
+  // TODO(nsmith): We need to implement this somehow
+  assert(false);
+  return 0;
+}
+
 // Sample the last index in the tensor to get the last addressable element of
 // the tensor to determine its footprint in memory.
 uint64_t DeviceAttr::getLayoutSizeBytes(ArrayRef<int64_t> tensorScalarShape,
@@ -1099,7 +1090,7 @@ uint64_t DeviceAttr::getLayoutSizeBytes(ArrayRef<int64_t> tensorScalarShape,
   mlir::SmallVector<std::int64_t> linearShape =
       ttmlir::utils::evalShape(linearMap, shape);
   AffineMap memoryMap = layout.replaceMemoryMapSymbolsWithShardShape(
-      getMapForMemorySpace(memorySpace));
+      getMemoryMap(layout.getMemref(), 0));
   mlir::SmallVector<std::int64_t> physicalMemory =
       ttmlir::utils::evalShape(memoryMap, linearShape);
   std::int64_t elementSize = layout.getElementSizeBytes();

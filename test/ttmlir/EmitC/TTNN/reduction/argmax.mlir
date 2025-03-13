@@ -2,15 +2,6 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
-//
-// UNSUPPORTED: true
-// These tests are currently failing due to tt-metal restrictions for argmax op.
-// tt-metal specs:
-// https://docs.tenstorrent.com/tt-metal/latest/ttnn/ttnn/api/ttnn.argmax.html
-
-// TODO(mmanzoor): Enable these tests after adding workarounds to overcome these
-// limitations.
-// https://github.com/tenstorrent/tt-mlir/issues/2057
 
 func.func public @argmax_2d(%arg0: tensor<64x64xf32>) -> tensor<64xi32> {
   // CHECK-LABEL: func.func public @argmax_2d(

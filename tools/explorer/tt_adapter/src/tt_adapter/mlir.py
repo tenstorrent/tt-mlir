@@ -464,6 +464,227 @@ def parse_ttnn_ttnn_layout(attr):
             },
         )
     )
+
+    return result
+
+
+@AttrHandler.register_handler("conv2d_config")
+def parse_conv2d_config(attr):
+    conv2d_config = ttnn.ir.Conv2dConfigAttr.maybe_downcast(attr)
+    result = []
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="dtype",
+                value=str(tt.DataType(conv2d_config.dtype_as_int)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in tt.DataType],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="weights_dtype",
+                value=str(tt.DataType(conv2d_config.weights_dtype_as_int)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in tt.DataType],
+            },
+        )
+    )
+    activation = str(conv2d_config.activation)
+    if len(activation) == 0:
+        activation = "none"
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="activation",
+                value=activation,
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["relu", "none"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="input_channels_alignment",
+                value=str(conv2d_config.input_channels_alignment),
+            ),
+            editable={
+                "input_type": "int_list",
+                "min_value": 0,
+                "step": 8,
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="deallocate_activation",
+                value=str(conv2d_config.deallocate_activation),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="reallocate_halo_output",
+                value=str(conv2d_config.reallocate_halo_output),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="act_block_h_override",
+                value=str(conv2d_config.act_block_h_override),
+            ),
+            editable={
+                "input_type": "int_list",
+                "min_value": 0,
+                "step": 32,
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="act_block_w_div",
+                value=str(conv2d_config.act_block_w_div),
+            ),
+            editable={"input_type": "int_list", "min_value": 1, "step": 1},
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="reshard_if_not_optimal",
+                value=str(conv2d_config.reshard_if_not_optimal),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="override_sharding_config",
+                value=str(conv2d_config.override_sharding_config),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="shard_layout",
+                value=str(ttnn.TensorMemoryLayout(conv2d_config.shard_layout_as_int)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in ttnn.TensorMemoryLayout],
+            },
+        )
+    )
+    result.append(
+        graph_builder.KeyValue(
+            key="core_grid",
+            value=str(conv2d_config.core_grid),
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="transpose_shards",
+                value=str(conv2d_config.transpose_shards),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="output_layout",
+                value=str(ttnn.Layout(conv2d_config.output_layout_as_int)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in ttnn.Layout],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_act_double_buffer",
+                value=str(conv2d_config.enable_act_double_buffer),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_weights_double_buffer",
+                value=str(conv2d_config.enable_weights_double_buffer),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_split_reader",
+                value=str(conv2d_config.enable_split_reader),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_subblock_padding",
+                value=str(conv2d_config.enable_subblock_padding),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+
     return result
 
 
@@ -638,9 +859,25 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
                 # Store the full result here, just need to parse the loc accordingly
                 loc_to_accuracy[loc] = res
 
+    module_op = OpHandler(module.operation)
+    module_attrs = module_op.get_attributes()
+    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+
+    # Add module attributes to the graph as "namespace attributes"
+    if not graph.groupNodeAttributes:
+        graph.groupNodeAttributes = {}
+
+    # Add this module's namespace attributes
+    namespace = module_op.get_namespace()
+    if namespace not in graph.groupNodeAttributes:
+        graph.groupNodeAttributes[namespace] = module_attrs
+    else:
+        # Merge with existing attributes if namespace already exists
+        graph.groupNodeAttributes[namespace].update(module_attrs)
+
     # Process the module hierarchy recursively
-    process_module(
-        module,
+    process_operations(
+        module.body.operations,
         graph,
         op_to_graph_node,
         operands_in_graph,
@@ -684,64 +921,6 @@ def build_graph(module, perf_trace=None, memory_trace=None, golden_results=None)
 
     OpHandler.schedule = 0
     return graph, overlays
-
-
-def process_module(
-    module,
-    graph,
-    op_to_graph_node,
-    operands_in_graph,
-    output_connections,
-    loc_to_perf,
-    loc_to_accuracy,
-    perf_node_data,
-    memory_data,
-    accuracy_node_data,
-):
-    """
-    Process a module's operations.  Only works on top-level module, any nested modules won't have a body so they need to directly call process_operations instead.
-
-    Args:
-        module: The module to process
-        graph: The graph being built
-        op_to_graph_node: Mapping from operations to graph nodes
-        operands_in_graph: Set of operands already added to graph
-        output_connections: Tracking of output connections
-        loc_to_perf: Mapping from locations to performance data
-        loc_to_accuracy: Locs to Golden Results
-        perf_node_data: Performance data for nodes
-        memory_data: Memory usage for nodes
-        accuracy_node_data: Acccuracy Node Data
-    """
-    module_op = OpHandler(module.operation)
-    module_attrs = module_op.get_attributes()
-    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
-
-    # Add module attributes to the graph as "namespace attributes"
-    if not graph.groupNodeAttributes:
-        graph.groupNodeAttributes = {}
-
-    # Add this module's namespace attributes
-    namespace = module_op.get_namespace()
-    if namespace not in graph.groupNodeAttributes:
-        graph.groupNodeAttributes[namespace] = module_attrs
-    else:
-        # Merge with existing attributes if namespace already exists
-        graph.groupNodeAttributes[namespace].update(module_attrs)
-
-    # Process operations in this module
-    process_operations(
-        module.body.operations,
-        graph,
-        op_to_graph_node,
-        operands_in_graph,
-        output_connections,
-        loc_to_perf,
-        loc_to_accuracy,
-        perf_node_data,
-        memory_data,
-        accuracy_node_data,
-    )
 
 
 def process_operations(
@@ -861,7 +1040,7 @@ def process_operations(
                 )
             )
 
-        if not op.name == "func.func":
+        if not op.operation.name == "func.func":
             graph_node = operation.make_graph_node(extra_attrs)
 
             if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
@@ -891,7 +1070,7 @@ def process_operations(
     # Second pass: create all edges
     for op in operations:
         # Skip module + func operations as they've been processed recursively
-        if is_module_op(op) or op.name == "func.func":
+        if is_module_op(op):
             continue
 
         # Process regions in the operation
@@ -979,4 +1158,6 @@ def is_module_op(op):
         bool: True if the operation is a module, False otherwise
     """
     # Check for tt.device_module or builtin.module operations
-    return op.name == "tt.device_module" or op.name == "builtin.module"
+    return (
+        op.operation.name == "tt.device_module" or op.operation.name == "builtin.module"
+    )

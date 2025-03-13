@@ -507,7 +507,7 @@ namespace mlir::tt::ttnn {
            << getStart() << ", end=" << getEnd() << ", step=" << getStep();
   }
 
-  std::vector<int64_t> expectedShape = {1, 1, 1, numValues};
+  std::vector<int64_t> expectedShape = {numValues};
   if (getType().getShape().vec() != expectedShape) {
     return emitOpError() << "Output tensor shape must be " << expectedShape
                          << ", but got " << getType().getShape();
@@ -1595,6 +1595,26 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   return success();
 }
 
+::mlir::OpFoldResult mlir::tt::ttnn::AllGatherOp::fold(FoldAdaptor adaptor) {
+  llvm::SmallVector<int64_t> meshShape{
+      getDevice().getType().getDesc().getMeshShape()};
+  // AllGather Op is semantically meaningless when gathering across a single
+  // mesh device.
+  if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
+    return {};
+  }
+  // The input and output shapes must be identical in order to fold this op as
+  // a no-op.
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+  if (inputShape != outputShape) {
+    return {};
+  }
+  emitWarning() << "Removing this CCL op because performing a CCL operation "
+                   "on a single mesh device is semantically meaningless.";
+  return getInput();
+}
+
 //===----------------------------------------------------------------------===//
 // ReduceScatterOp
 //===----------------------------------------------------------------------===//
@@ -1624,6 +1644,27 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   return success();
 }
 
+::mlir::OpFoldResult
+mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
+  llvm::SmallVector<int64_t> meshShape{
+      getDevice().getType().getDesc().getMeshShape()};
+  // ReduceScatter Op is semantically meaningless when gathering across a single
+  // mesh device.
+  if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
+    return {};
+  }
+  // The input and output shapes must be identical in order to fold this op as
+  // a no-op.
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+  if (inputShape != outputShape) {
+    return {};
+  }
+  emitWarning() << "Removing this CCL op because performing a CCL operation "
+                   "on a single mesh device is semantically meaningless.";
+  return getInput();
+}
+
 //===----------------------------------------------------------------------===//
 // AllReduceOp
 //===----------------------------------------------------------------------===//
@@ -1636,6 +1677,70 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
       reduceType != ::mlir::tt::ReduceType::Max &&
       reduceType != ::mlir::tt::ReduceType::Min) {
     return emitOpError("Invalid reduction op for all reduce op.");
+  }
+
+  return success();
+}
+
+::mlir::OpFoldResult mlir::tt::ttnn::AllReduceOp::fold(FoldAdaptor adaptor) {
+  llvm::SmallVector<int64_t> meshShape{
+      getDevice().getType().getDesc().getMeshShape()};
+  // AllReduce Op is semantically meaningless when gathering across a single
+  // mesh device.
+  if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
+    return {};
+  }
+  // The input and output shapes must be identical in order to fold this op as
+  // a no-op.
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+  if (inputShape != outputShape) {
+    return {};
+  }
+  emitWarning() << "Removing this CCL op because performing a CCL operation "
+                   "on a single mesh device is semantically meaningless.";
+  return getInput();
+}
+
+//===----------------------------------------------------------------------===//
+// CollectivePermuteOp
+//===----------------------------------------------------------------------===//
+
+// CollectivePermuteOp verification
+::mlir::LogicalResult CollectivePermuteOp::verify() {
+  auto sourceTargetPairs = getSourceTargetPairs().getValues<int64_t>();
+
+  // Check that the rank of sourceTargetPairs is 2D.
+  llvm::ArrayRef<int64_t> sourceTargetPairsShape =
+      getSourceTargetPairs().getType().getShape();
+  const size_t sourceTargetPairsRank = sourceTargetPairsShape.size();
+
+  if (sourceTargetPairsRank != 2) {
+    return emitOpError("The rank of source target pairs must be 2, got rank = ")
+           << sourceTargetPairsRank;
+  }
+
+  /* Check that the 'src' values and 'dest' values in sourceTargetPairs is
+  unique. Given a 2D rank tensor of source target pairs eg. [['src', 'target'],
+  ['src', 'target'] ...], we need to ensure that each 'src' is unique and each
+  'target' is unique.
+  */
+  auto areElementsUnique = [](const auto &sourceTargetPairs) -> bool {
+    for (size_t i = 0; i < sourceTargetPairs.size(); i++) {
+      int target = sourceTargetPairs[i];
+      for (size_t j = i + 2; j < sourceTargetPairs.size(); j += 2) {
+        if (sourceTargetPairs[j] == target) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
+  if (!areElementsUnique(sourceTargetPairs)) {
+    return emitOpError(
+        "There are duplicate 'src' or 'dest' devices in source target pairs");
   }
 
   return success();
