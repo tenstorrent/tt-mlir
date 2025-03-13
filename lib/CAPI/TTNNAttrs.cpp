@@ -10,13 +10,6 @@
 
 namespace mlir::tt::ttnn {
 
-MlirAttribute ttmlirTTNNCoreRangeAttrGet(MlirContext ctx, int64_t *offset,
-                                         size_t offsetSize, int64_t *size,
-                                         size_t sizeSize) {
-  return wrap(CoreRangeAttr::get(unwrap(ctx), {offset, offset + offsetSize},
-                                 {size, size + sizeSize}));
-}
-
 MlirAttribute ttmlirTTNNCoreRangeArrayAttrGet(MlirContext ctx,
                                               MlirAttribute *coreRangeAttrs,
                                               size_t coreRangeAttrsSize) {

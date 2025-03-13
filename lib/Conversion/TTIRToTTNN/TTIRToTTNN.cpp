@@ -901,7 +901,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB());
+        adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
+        nullptr);
     return success();
   }
 };

@@ -13,3 +13,5 @@ add_mlir_translation_library(TTLLVMToDynamicLib
     LLVMX86AsmParser
     LLVMX86CodeGen
 )
+
+target_include_directories(TTLLVMToDynamicLib PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
