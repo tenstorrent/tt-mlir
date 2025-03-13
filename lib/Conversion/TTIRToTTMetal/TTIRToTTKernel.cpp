@@ -54,20 +54,17 @@ public:
       assert(
           block.getNumArguments() == op.getNumOperands() &&
           "Mismatch between number of operands and block arguments, failing.");
-      llvm::SmallVector<ttkernel::CBType> cbTypes;
       for (uint32_t i = 0; i < block.getNumArguments(); i++) {
         auto memref = mlir::cast<MemRefType>(block.getArgument(i).getType());
         auto cbPort = ttkernel::symbolizeCBPort(i);
         assert(cbPort.has_value() && "Out of CBs, failing.");
-        cbTypes.push_back(ttkernel::CBType::get(rewriter.getContext(),
-                                                cbPort.value(), 0, memref));
-      }
-      for (uint32_t i = 0; i < block.getNumArguments(); i++) {
+        auto cbType = ttkernel::CBType::get(rewriter.getContext(),
+                                            cbPort.value(), 0, memref);
         for (Operation *user : block.getArgument(i).getUsers()) {
           rewriter.eraseOp(user);
         }
         rewriter.modifyOpInPlace(
-            op, [&]() { block.getArgument(i).setType(cbTypes[i]); });
+            op, [&]() { block.getArgument(i).setType(cbType); });
       }
 
       auto enqueueProgramOp = rewriter.create<ttmetal::EnqueueProgramOp>(
