@@ -35,6 +35,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include <mlir/IR/Attributes.h>
 
 namespace mlir::tt {
 
@@ -674,8 +675,31 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
       getOperandThroughDPSOps(op.getB()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
+
+  ::tt::target::ttnn::MatmulProgramConfig matmulProgramConfigType =
+      ::tt::target::ttnn::MatmulProgramConfig::NONE;
+  ::flatbuffers::Offset<void> matmulProgramConfigDesc;
+  if (auto matmulProgramConfig = op.getMatmulProgramConfig()) {
+    if (auto multiCoreReuseConfig =
+            mlir::dyn_cast<MatmulMultiCoreReuseProgramConfigAttr>(
+                matmulProgramConfig)) {
+      matmulProgramConfigType = ::tt::target::ttnn::MatmulProgramConfig::
+          MatmulMultiCoreReuseProgramConfig;
+      matmulProgramConfigDesc =
+          toFlatbuffer(cache, multiCoreReuseConfig).Union();
+    } else if (auto multiCoreReuseMultiCastConfig = mlir::dyn_cast<
+                   MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+                   matmulProgramConfig)) {
+      matmulProgramConfigType = ::tt::target::ttnn::MatmulProgramConfig::
+          MatmulMultiCoreReuseMultiCastProgramConfig;
+      matmulProgramConfigDesc =
+          toFlatbuffer(cache, multiCoreReuseMultiCastConfig).Union();
+    }
+  }
+
   return ::tt::target::ttnn::CreateMatmulOp(
-      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
+      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB(),
+      matmulProgramConfigType, matmulProgramConfigDesc);
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 

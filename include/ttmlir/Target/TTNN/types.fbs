@@ -89,6 +89,124 @@ table Conv2dConfig {
   enable_subblock_padding: bool;
 }
 
+struct CoreCoord {
+  x: uint32;
+  y: uint32;
+}
+
+enum UnaryOpType: uint32 {
+  Exp,
+  Recip,
+  Gelu,
+  Relu,
+  Sqrt,
+  Sigmoid,
+  Log,
+  Tanh,
+  Log2,
+  Log10,
+  Sin,
+  Cos,
+  Abs,
+  AbsInt32,
+  Sign,
+  Square,
+  Eqz,
+  Nez,
+  Gtz,
+  Ltz,
+  Gez,
+  Lez,
+  ReluMax,
+  ReluMin,
+  Power,
+  LeakyRelu,
+  Elu,
+  Exp2,
+  Heaviside,
+  Expm1,
+  Signbit,
+  Asin,
+  Acos,
+  Rsqrt,
+  Relu6,
+  Atan,
+  Erf,
+  Erfc,
+  Isinf,
+  Isposinf,
+  Isneginf,
+  Isnan,
+  LogicalNotUnary,
+  Isfinite,
+  Erfinv,
+  I0,
+  I1,
+  Tan,
+  Rsub,
+  Rdiv,
+  Silu,
+  Softplus,
+  Identity,
+  Neg,
+  AddUnarySfpu,
+  SubUnarySfpu,
+  MulUnarySfpu,
+  DivUnarySfpu,
+  IdentityUint32,
+  UnaryNe,
+  UnaryGt,
+  UnaryLt,
+  TiledProd,
+  Typecast,
+  BitwiseXor,
+  BitwiseNot,
+  BitwiseAnd,
+  BitwiseOr,
+  RightShift,
+  Floor,
+  FloorFloat32,
+  Ceil,
+  CeilFloat32,
+  LeftShift,
+  Remainder,
+  Fmod,
+  Dropout,
+  Fill,
+  PreluSfpu,
+  ZeroPoint
+}
+
+table UnaryWithParam {
+  op_type: UnaryOpType;
+  params: [double];
+}
+
+table MatmulMultiCoreReuseProgramConfig {
+  compute_with_storage_grid_size: CoreCoord;
+  in0_block_w: uint32;
+  out_subblock_h: uint32;
+  out_subblock_w: uint32;
+  per_core_m: uint32;
+  per_core_n: uint32;
+}
+
+table MatmulMultiCoreReuseMultiCastProgramConfig {
+  compute_with_storage_grid_size: CoreCoord;
+  in0_block_w: uint32;
+  out_subblock_h: uint32;
+  out_subblock_w: uint32;
+  out_block_h: uint32;
+  out_block_w: uint32;
+  per_core_m: uint32;
+  per_core_n: uint32;
+  transpose_mcast: bool;
+  fused_activation: UnaryWithParam;
+  fuse_batch: bool;
+}
+
+union MatmulProgramConfig { MatmulMultiCoreReuseProgramConfig, MatmulMultiCoreReuseMultiCastProgramConfig }
+
 table MemoryDesc {
   storage_type: StorageType;
   tile_shape: Dim2d;

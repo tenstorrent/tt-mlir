@@ -952,9 +952,21 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    ttnn::CoreCoordAttr coreCoordAttr = rewriter.getAttr<ttnn::CoreCoordAttr>(
+        rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
+        rewriter.getIntegerAttr(rewriter.getI32Type(), 0));
+    ttnn::MatmulMultiCoreReuseProgramConfigAttr matmulConfigAttr =
+        rewriter.getAttr<ttnn::MatmulMultiCoreReuseProgramConfigAttr>(
+            coreCoordAttr, rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
+            rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
+            rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
+            rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
+            rewriter.getIntegerAttr(rewriter.getI32Type(), 0));
+
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB());
+        adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
+        matmulConfigAttr);
     return success();
   }
 };

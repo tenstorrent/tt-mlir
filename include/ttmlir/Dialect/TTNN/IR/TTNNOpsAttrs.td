@@ -23,6 +23,16 @@ class TTNN_Attr<string name, string attrMnemonic, list<Trait> traits = [],
   let attrName = "ttnn." # attrMnemonic;
 }
 
+def TTNN_CoreCoordAttr : TTNN_Attr<"CoreCoord", "core_coord"> {
+  let summary = "TTNN CoreCoord attribute";
+  let description = [{
+    TTNN CoreCoord attribute
+  }];
+
+  let parameters = (ins "IntegerAttr":$x, "IntegerAttr":$y);
+  let assemblyFormat = "`<` $x `,` $y `>`";
+}
+
 def TTNN_CoreRangeAttr : TTNN_Attr<"CoreRange", "core_range"> {
   let summary = "TTNN grid attribute";
   let description = [{
@@ -94,6 +104,74 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   }];
 
   let genVerifyDecl = 1;
+}
+
+def UnaryWithParamAttr : TTNN_Attr<"UnaryWithParam", "unary_with_param"> {
+  let summary = "TTNN UnaryWithParam attribute";
+  let description = [{
+    TTNN UnaryWithParam attribute
+  }];
+
+  let parameters = (ins
+                        AttrParameter<"UnaryOpType", "">:$opType,
+                        ArrayRefParameter<"FloatAttr">:$params);
+
+  let assemblyFormat = "`<` $opType `,` `[` $params `]` `>`";
+}
+
+def TTNN_MatmulMultiCoreReuseProgramConfigAttr : TTNN_Attr<"MatmulMultiCoreReuseProgramConfig", "matmul_multi_core_reuse_program_config"> {
+  let summary = "TTNN MatmulMultiCoreReuseProgramConfig attribute";
+  let description = [{
+    TTNN MatmulMultiCoreReuseProgramConfig attribute
+  }];
+
+  let parameters = (ins
+                        AttrParameter<"CoreCoordAttr", "">:$computeWithStorageGridSize,
+                        "IntegerAttr":$in0BlockW,
+                        "IntegerAttr":$outSubblockH,
+                        "IntegerAttr":$outSubblockW,
+                        "IntegerAttr":$perCoreM,
+                        "IntegerAttr":$perCoreN);
+
+  let assemblyFormat =
+                     "`<` `computeWithStorageGridSize` `=` $computeWithStorageGridSize `,` "
+                     "`in0BlockW` `=` $in0BlockW `,` "
+                     "`outSubblockH` `=` $outSubblockH `,` "
+                     "`outSubblockW` `=` $outSubblockW `,` "
+                     "`perCoreM` `=` $perCoreM `,` "
+                     "`perCoreN` `=` $perCoreN `>`";
+}
+
+def TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr : TTNN_Attr<"MatmulMultiCoreReuseMultiCastProgramConfig", "matmul_multi_core_reuse_multi_cast_program_config"> {
+  let summary = "TTNN MatmulMultiCoreReuseMultiCastProgramConfig attribute";
+  let description = [{
+    TTNN MatmulMultiCoreReuseProgramConfig attribute
+  }];
+
+  let parameters = (ins
+                        AttrParameter<"CoreCoordAttr", "">:$computeWithStorageGridSize,
+                        "IntegerAttr":$in0BlockW,
+                        "IntegerAttr":$outSubblockH,
+                        "IntegerAttr":$outSubblockW,
+                        "IntegerAttr":$outBlockH,
+                        "IntegerAttr":$outBlockW,
+                        "IntegerAttr":$perCoreM,
+                        "IntegerAttr":$perCoreN,
+                        "BoolAttr":$transposeMcast,
+                        OptionalParameter<"UnaryWithParamAttr", "">:$fusedActivation,
+                        "BoolAttr":$fuseBatch);
+
+  let assemblyFormat = "`<` `computeWithStorageGridSize` `=` $computeWithStorageGridSize `,` "
+                       "`in0BlockW` `=` $in0BlockW `,` "
+                       "`outSubblockH` `=` $outSubblockH `,` "
+                       "`outSubblockW` `=` $outSubblockW `,` "
+                       "`outBlockH` `=` $outBlockH `,` "
+                       "`outBlockW` `=` $outBlockW `,` "
+                       "`perCoreM` `=` $perCoreM `,` "
+                       "`perCoreN` `=` $perCoreN `,` "
+                       "`transposeMcast` `=` $transposeMcast `,` "
+                       "(`fusedActivation` `=` $fusedActivation^ `,`)? "
+                       "`fuseBatch` `=` $fuseBatch `>`";
 }
 
 def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {

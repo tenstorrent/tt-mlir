@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
+#include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
@@ -424,6 +425,233 @@ toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, std::string const &name,
 
   return ::tt::target::CreateMLIRDirect(fbb, name.c_str(), source.c_str());
 }
+
+inline int64_t toFlatbuffer(FlatbufferObjectCache &, mlir::IntegerAttr attr) {
+  return attr.getInt();
+}
+
+inline double toFlatbuffer(FlatbufferObjectCache &, mlir::FloatAttr attr) {
+  return attr.getValueAsDouble();
+}
+
+inline bool toFlatbuffer(FlatbufferObjectCache &, mlir::BoolAttr attr) {
+  return attr.getValue();
+}
+
+inline ::tt::target::ttnn::CoreCoord
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::CoreCoordAttr coreCoordAttr) {
+  return ::tt::target::ttnn::CoreCoord(
+      toFlatbuffer(cache, coreCoordAttr.getX()),
+      toFlatbuffer(cache, coreCoordAttr.getY()));
+}
+
+inline ::tt::target::ttnn::UnaryOpType
+toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
+  switch (unaryOpType) {
+  case ttnn::UnaryOpType::Exp:
+    return ::tt::target::ttnn::UnaryOpType::Exp;
+  case ttnn::UnaryOpType::Recip:
+    return ::tt::target::ttnn::UnaryOpType::Recip;
+  case ttnn::UnaryOpType::Gelu:
+    return ::tt::target::ttnn::UnaryOpType::Gelu;
+  case ttnn::UnaryOpType::Relu:
+    return ::tt::target::ttnn::UnaryOpType::Relu;
+  case ttnn::UnaryOpType::Sqrt:
+    return ::tt::target::ttnn::UnaryOpType::Sqrt;
+  case ttnn::UnaryOpType::Sigmoid:
+    return ::tt::target::ttnn::UnaryOpType::Sigmoid;
+  case ttnn::UnaryOpType::Log:
+    return ::tt::target::ttnn::UnaryOpType::Log;
+  case ttnn::UnaryOpType::Tanh:
+    return ::tt::target::ttnn::UnaryOpType::Tanh;
+  case ttnn::UnaryOpType::Log2:
+    return ::tt::target::ttnn::UnaryOpType::Log2;
+  case ttnn::UnaryOpType::Log10:
+    return ::tt::target::ttnn::UnaryOpType::Log10;
+  case ttnn::UnaryOpType::Sin:
+    return ::tt::target::ttnn::UnaryOpType::Sin;
+  case ttnn::UnaryOpType::Cos:
+    return ::tt::target::ttnn::UnaryOpType::Cos;
+  case ttnn::UnaryOpType::Abs:
+    return ::tt::target::ttnn::UnaryOpType::Abs;
+  case ttnn::UnaryOpType::AbsInt32:
+    return ::tt::target::ttnn::UnaryOpType::AbsInt32;
+  case ttnn::UnaryOpType::Sign:
+    return ::tt::target::ttnn::UnaryOpType::Sign;
+  case ttnn::UnaryOpType::Square:
+    return ::tt::target::ttnn::UnaryOpType::Square;
+  case ttnn::UnaryOpType::Eqz:
+    return ::tt::target::ttnn::UnaryOpType::Eqz;
+  case ttnn::UnaryOpType::Nez:
+    return ::tt::target::ttnn::UnaryOpType::Nez;
+  case ttnn::UnaryOpType::Gtz:
+    return ::tt::target::ttnn::UnaryOpType::Gtz;
+  case ttnn::UnaryOpType::Ltz:
+    return ::tt::target::ttnn::UnaryOpType::Ltz;
+  case ttnn::UnaryOpType::Gez:
+    return ::tt::target::ttnn::UnaryOpType::Gez;
+  case ttnn::UnaryOpType::Lez:
+    return ::tt::target::ttnn::UnaryOpType::Lez;
+  case ttnn::UnaryOpType::ReluMax:
+    return ::tt::target::ttnn::UnaryOpType::ReluMax;
+  case ttnn::UnaryOpType::ReluMin:
+    return ::tt::target::ttnn::UnaryOpType::ReluMin;
+  case ttnn::UnaryOpType::Power:
+    return ::tt::target::ttnn::UnaryOpType::Power;
+  case ttnn::UnaryOpType::LeakyRelu:
+    return ::tt::target::ttnn::UnaryOpType::LeakyRelu;
+  case ttnn::UnaryOpType::Elu:
+    return ::tt::target::ttnn::UnaryOpType::Elu;
+  case ttnn::UnaryOpType::Exp2:
+    return ::tt::target::ttnn::UnaryOpType::Exp2;
+  case ttnn::UnaryOpType::Heaviside:
+    return ::tt::target::ttnn::UnaryOpType::Heaviside;
+  case ttnn::UnaryOpType::Expm1:
+    return ::tt::target::ttnn::UnaryOpType::Expm1;
+  case ttnn::UnaryOpType::Signbit:
+    return ::tt::target::ttnn::UnaryOpType::Signbit;
+  case ttnn::UnaryOpType::Asin:
+    return ::tt::target::ttnn::UnaryOpType::Asin;
+  case ttnn::UnaryOpType::Acos:
+    return ::tt::target::ttnn::UnaryOpType::Acos;
+  case ttnn::UnaryOpType::Rsqrt:
+    return ::tt::target::ttnn::UnaryOpType::Rsqrt;
+  case ttnn::UnaryOpType::Relu6:
+    return ::tt::target::ttnn::UnaryOpType::Relu6;
+  case ttnn::UnaryOpType::Atan:
+    return ::tt::target::ttnn::UnaryOpType::Atan;
+  case ttnn::UnaryOpType::Erf:
+    return ::tt::target::ttnn::UnaryOpType::Erf;
+  case ttnn::UnaryOpType::Erfc:
+    return ::tt::target::ttnn::UnaryOpType::Erfc;
+  case ttnn::UnaryOpType::IsInf:
+    return ::tt::target::ttnn::UnaryOpType::Isinf;
+  case ttnn::UnaryOpType::IsPosInf:
+    return ::tt::target::ttnn::UnaryOpType::Isposinf;
+  case ttnn::UnaryOpType::IsNegInf:
+    return ::tt::target::ttnn::UnaryOpType::Isneginf;
+  case ttnn::UnaryOpType::IsNan:
+    return ::tt::target::ttnn::UnaryOpType::Isnan;
+  case ttnn::UnaryOpType::LogicalNotUnary:
+    return ::tt::target::ttnn::UnaryOpType::LogicalNotUnary;
+  case ttnn::UnaryOpType::IsFinite:
+    return ::tt::target::ttnn::UnaryOpType::Isfinite;
+  case ttnn::UnaryOpType::Erfinv:
+    return ::tt::target::ttnn::UnaryOpType::Erfinv;
+  case ttnn::UnaryOpType::I0:
+    return ::tt::target::ttnn::UnaryOpType::I0;
+  case ttnn::UnaryOpType::I1:
+    return ::tt::target::ttnn::UnaryOpType::I1;
+  case ttnn::UnaryOpType::Tan:
+    return ::tt::target::ttnn::UnaryOpType::Tan;
+  case ttnn::UnaryOpType::Rsub:
+    return ::tt::target::ttnn::UnaryOpType::Rsub;
+  case ttnn::UnaryOpType::Rdiv:
+    return ::tt::target::ttnn::UnaryOpType::Rdiv;
+  case ttnn::UnaryOpType::Silu:
+    return ::tt::target::ttnn::UnaryOpType::Silu;
+  case ttnn::UnaryOpType::SoftPlus:
+    return ::tt::target::ttnn::UnaryOpType::Softplus;
+  case ttnn::UnaryOpType::Identity:
+    return ::tt::target::ttnn::UnaryOpType::Identity;
+  case ttnn::UnaryOpType::Neg:
+    return ::tt::target::ttnn::UnaryOpType::Neg;
+  case ttnn::UnaryOpType::AddUnarySfpu:
+    return ::tt::target::ttnn::UnaryOpType::AddUnarySfpu;
+  case ttnn::UnaryOpType::SubUnarySfpu:
+    return ::tt::target::ttnn::UnaryOpType::SubUnarySfpu;
+  case ttnn::UnaryOpType::MulUnarySfpu:
+    return ::tt::target::ttnn::UnaryOpType::MulUnarySfpu;
+  case ttnn::UnaryOpType::DivUnarySfpu:
+    return ::tt::target::ttnn::UnaryOpType::DivUnarySfpu;
+  case ttnn::UnaryOpType::IdentityUint32:
+    return ::tt::target::ttnn::UnaryOpType::IdentityUint32;
+  case ttnn::UnaryOpType::UnaryNe:
+    return ::tt::target::ttnn::UnaryOpType::UnaryNe;
+  case ttnn::UnaryOpType::UnaryGt:
+    return ::tt::target::ttnn::UnaryOpType::UnaryGt;
+  case ttnn::UnaryOpType::UnaryLt:
+    return ::tt::target::ttnn::UnaryOpType::UnaryLt;
+  case ttnn::UnaryOpType::TiledProd:
+    return ::tt::target::ttnn::UnaryOpType::TiledProd;
+  case ttnn::UnaryOpType::Typecast:
+    return ::tt::target::ttnn::UnaryOpType::Typecast;
+  case ttnn::UnaryOpType::BitwiseXor:
+    return ::tt::target::ttnn::UnaryOpType::BitwiseXor;
+  case ttnn::UnaryOpType::BitwiseNot:
+    return ::tt::target::ttnn::UnaryOpType::BitwiseNot;
+  case ttnn::UnaryOpType::BitwiseAnd:
+    return ::tt::target::ttnn::UnaryOpType::BitwiseAnd;
+  case ttnn::UnaryOpType::BitwiseOr:
+    return ::tt::target::ttnn::UnaryOpType::BitwiseOr;
+  case ttnn::UnaryOpType::RightShift:
+    return ::tt::target::ttnn::UnaryOpType::RightShift;
+  case ttnn::UnaryOpType::Floor:
+    return ::tt::target::ttnn::UnaryOpType::Floor;
+  case ttnn::UnaryOpType::FloorFloat32:
+    return ::tt::target::ttnn::UnaryOpType::FloorFloat32;
+  case ttnn::UnaryOpType::Ceil:
+    return ::tt::target::ttnn::UnaryOpType::Ceil;
+  case ttnn::UnaryOpType::CeilFloat32:
+    return ::tt::target::ttnn::UnaryOpType::CeilFloat32;
+  case ttnn::UnaryOpType::LeftShift:
+    return ::tt::target::ttnn::UnaryOpType::LeftShift;
+  case ttnn::UnaryOpType::Remainder:
+    return ::tt::target::ttnn::UnaryOpType::Remainder;
+  case ttnn::UnaryOpType::Fmod:
+    return ::tt::target::ttnn::UnaryOpType::Fmod;
+  case ttnn::UnaryOpType::Dropout:
+    return ::tt::target::ttnn::UnaryOpType::Dropout;
+  case ttnn::UnaryOpType::Fill:
+    return ::tt::target::ttnn::UnaryOpType::Fill;
+  case ttnn::UnaryOpType::PreluFspu:
+    return ::tt::target::ttnn::UnaryOpType::PreluSfpu;
+  case ttnn::UnaryOpType::ZeroPoint:
+    return ::tt::target::ttnn::UnaryOpType::ZeroPoint;
+  }
+}
+
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::MatmulMultiCoreReuseProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
+  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseProgramConfig(
+      *cache.fbb, &computeWithStorageGridSize,
+      toFlatbuffer(cache, matmulConfigAttr.getIn0BlockW()),
+      toFlatbuffer(cache, matmulConfigAttr.getOutSubblockH()),
+      toFlatbuffer(cache, matmulConfigAttr.getOutSubblockW()),
+      toFlatbuffer(cache, matmulConfigAttr.getPerCoreM()),
+      toFlatbuffer(cache, matmulConfigAttr.getPerCoreN()));
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::UnaryWithParamAttr unaryWithParam) {
+  ::tt::target::ttnn::UnaryOpType opType =
+      toFlatbuffer(cache, unaryWithParam.getOpType());
+  ::flatbuffers::Offset<::flatbuffers::Vector<double>> params =
+      toFlatbuffer(cache, unaryWithParam.getParams());
+  return ::tt::target::ttnn::CreateUnaryWithParam(*cache.fbb, opType, params);
+}
+
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfig>
+toFlatbuffer(
+    FlatbufferObjectCache &cache,
+    ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr matmulConfig) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, matmulConfig.getComputeWithStorageGridSize());
+  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseMultiCastProgramConfig(
+      *cache.fbb, &computeWithStorageGridSize,
+      toFlatbuffer(cache, matmulConfig.getIn0BlockW()),
+      toFlatbuffer(cache, matmulConfig.getOutSubblockH()),
+      toFlatbuffer(cache, matmulConfig.getOutSubblockW()),
+      toFlatbuffer(cache, matmulConfig.getPerCoreM()),
+      toFlatbuffer(cache, matmulConfig.getPerCoreN()));
+}
+
 } // namespace mlir::tt
 
 #endif

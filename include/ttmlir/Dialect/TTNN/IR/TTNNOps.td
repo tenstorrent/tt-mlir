@@ -1105,7 +1105,8 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
-                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
+                         AnyAttrOf<[TTNN_MatmulMultiCoreReuseProgramConfigAttr, TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr]>:$matmul_program_config);
 
     let results = (outs AnyRankedTensor:$result);
 

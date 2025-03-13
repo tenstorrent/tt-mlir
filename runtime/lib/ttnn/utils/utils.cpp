@@ -4,6 +4,8 @@
 
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/detail/logger.h"
+#include "ttmlir/Target/TTNN/types_generated.h"
+#include <ttnn/operations/eltwise/unary/common/unary_op_types.hpp>
 
 namespace tt::runtime::ttnn::utils {
 

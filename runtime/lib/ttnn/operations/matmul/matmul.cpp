@@ -11,8 +11,71 @@
 #include "tt/runtime/ttnn/utils.h"
 
 #include <optional>
+#include <ttnn/operations/eltwise/unary/common/unary_op_types.hpp>
+#include <ttnn/operations/matmul/device/matmul_op.hpp>
 
 namespace tt::runtime::ttnn::operations::matmul {
+
+::ttnn::operations::matmul::MatmulProgramConfig
+createMatmulProgramConfig(const ::tt::target::ttnn::MatmulOp *op) {
+  ::ttnn::operations::matmul::MatmulProgramConfig matmulProgramConfig;
+  if (op->matmul_program_config()) {
+    switch (op->matmul_program_config_type()) {
+    case ::tt::target::ttnn::MatmulProgramConfig::
+        MatmulMultiCoreReuseProgramConfig: {
+      auto *config =
+          op->matmul_program_config_as_MatmulMultiCoreReuseProgramConfig();
+      matmulProgramConfig =
+          ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig{
+              .compute_with_storage_grid_size =
+                  {config->compute_with_storage_grid_size()->x(),
+                   config->compute_with_storage_grid_size()->y()},
+              .in0_block_w = config->in0_block_w(),
+              .out_subblock_h = config->out_subblock_h(),
+              .out_subblock_w = config->out_subblock_w(),
+              .per_core_M = config->per_core_m(),
+              .per_core_N = config->per_core_n(),
+          };
+      break;
+    }
+    case ::tt::target::ttnn::MatmulProgramConfig::
+        MatmulMultiCoreReuseMultiCastProgramConfig: {
+      auto *config =
+          op->matmul_program_config_as_MatmulMultiCoreReuseMultiCastProgramConfig();
+      std::optional<::ttnn::operations::unary::UnaryWithParam> fused_activation;
+      if (config->fused_activation()) {
+        fused_activation = ::ttnn::operations::unary::UnaryWithParam(
+            utils::toTTNNUnaryOpType(config->fused_activation()->op_type()),
+            std::vector<float>(config->fused_activation()->params()->begin(),
+                               config->fused_activation()->params()->end()));
+      }
+
+      matmulProgramConfig = ::ttnn::operations::matmul::
+          MatmulMultiCoreReuseMultiCastProgramConfig{
+              .compute_with_storage_grid_size =
+                  {config->compute_with_storage_grid_size()->x(),
+                   config->compute_with_storage_grid_size()->y()},
+              .in0_block_w = config->in0_block_w(),
+              .out_subblock_h = config->out_subblock_h(),
+              .out_subblock_w = config->out_subblock_w(),
+              .out_block_h = config->out_block_h(),
+              .out_block_w = config->out_block_w(),
+              .per_core_M = config->per_core_m(),
+              .per_core_N = config->per_core_n(),
+              .transpose_mcast = config->transpose_mcast(),
+              .fused_activation = fused_activation,
+              .fuse_batch = config->fuse_batch(),
+          };
+      break;
+    }
+    default:
+      LOG_ERROR("Unsupported MatmulProgramConfig type");
+      break;
+    }
+  }
+  return matmulProgramConfig;
+}
+
 // ANCHOR: adding_an_op_matmul_runtime_operations
 void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -27,6 +90,12 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
              "Memory config must exist for device tensors");
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
+
+  std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+      matmulProgramConfig;
+  if (op->matmul_program_config()) {
+    matmulProgramConfig = createMatmulProgramConfig(op);
+  }
 
   ::ttnn::Tensor output = ::ttnn::matmul(
       lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
