@@ -507,7 +507,7 @@ namespace mlir::tt::ttnn {
            << getStart() << ", end=" << getEnd() << ", step=" << getStep();
   }
 
-  std::vector<int64_t> expectedShape = {1, 1, 1, numValues};
+  std::vector<int64_t> expectedShape = {numValues};
   if (getType().getShape().vec() != expectedShape) {
     return emitOpError() << "Output tensor shape must be " << expectedShape
                          << ", but got " << getType().getShape();
