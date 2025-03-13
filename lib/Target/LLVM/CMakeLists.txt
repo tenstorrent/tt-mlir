@@ -15,3 +15,4 @@ add_mlir_translation_library(TTLLVMToDynamicLib
 )
 
 target_link_libraries(TTLLVMToDynamicLib PUBLIC coverage_config)
+target_include_directories(TTLLVMToDynamicLib PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

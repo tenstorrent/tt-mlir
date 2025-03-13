@@ -545,3 +545,143 @@ MemoryConfigAttr::withMemoryLayout(::mlir::MLIRContext *context,
   // TODO(#2140): Once we complete #1628, we should add a verifier for
   // ShardSpecAttr. ShardSpecAttr is only valid if the buffer type is L1.
 }
+
+::llvm::LogicalResult CoreCoordAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, IntegerAttr x,
+    IntegerAttr y) {
+  if (x.getValue().isNegative()) {
+    return emitError() << "Core coordinate x must be non-negative.";
+  }
+
+  if (y.getValue().isNegative()) {
+    return emitError() << "Core coordinate y must be non-negative.";
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult MatmulMultiCoreReuseProgramConfigAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    CoreCoordAttr computeWithStorageGridSize, IntegerAttr in0BlockW,
+    IntegerAttr outSubblockH, IntegerAttr outSubblockW, IntegerAttr perCoreM,
+    IntegerAttr perCoreN) {
+  if (outSubblockH.getValue().isNegative()) {
+    return emitError() << "Parameter out_subblock_h must be non-negative.";
+  }
+
+  if (outSubblockW.getValue().isNegative()) {
+    return emitError() << "Parameter out_subblock_w must be non-negative.";
+  }
+
+  if (perCoreM.getValue().isNegative()) {
+    return emitError() << "Parameter per_core_m must be non-negative.";
+  }
+
+  if (perCoreN.getValue().isNegative()) {
+    return emitError() << "Parameter per_core_n must be non-negative.";
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult MatmulMultiCoreReuseMultiCastProgramConfigAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    CoreCoordAttr computeWithStorageGridSize, IntegerAttr in0BlockW,
+    IntegerAttr outSubblockH, IntegerAttr outSubblockW, IntegerAttr outBlockH,
+    IntegerAttr outBlockW, IntegerAttr perCoreM, IntegerAttr perCoreN,
+    BoolAttr transposeMcast, UnaryWithParamAttr fusedActivation,
+    BoolAttr fuseBatch) {
+  if (in0BlockW.getValue().isNegative()) {
+    return emitError() << "Parameter in0_block_w must be non-negative.";
+  }
+
+  if (outBlockH.getValue().isNegative()) {
+    return emitError() << "Parameter out_block_h must be non-negative.";
+  }
+
+  if (outBlockW.getValue().isNegative()) {
+    return emitError() << "Parameter out_block_w must be non-negative.";
+  }
+
+  if (outSubblockH.getValue().isNegative()) {
+    return emitError() << "Parameter out_subblock_h must be non-negative.";
+  }
+
+  if (outSubblockW.getValue().isNegative()) {
+    return emitError() << "Parameter out_subblock_w must be non-negative.";
+  }
+
+  if (perCoreM.getValue().isNegative()) {
+    return emitError() << "Parameter per_core_m must be non-negative.";
+  }
+
+  if (perCoreN.getValue().isNegative()) {
+    return emitError() << "Parameter per_core_n must be non-negative.";
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    CoreCoordAttr computeWithStorageGridSize, IntegerAttr in0BlockW,
+    IntegerAttr outSubblockH, IntegerAttr outSubblockW, IntegerAttr outBlockH,
+    IntegerAttr outBlockW, IntegerAttr perCoreM, IntegerAttr perCoreN,
+    BoolAttr fuseBatch, UnaryWithParamAttr fusedActivation, BoolAttr mcastIn0,
+    BoolAttr gatherIn0, CoreRangeSetAttr hopCores,
+    IntegerAttr numGlobalCbReceivers) {
+  if (in0BlockW.getValue().isNegative()) {
+    return emitError() << "Parameter in0_block_w must be non-negative.";
+  }
+
+  if (outBlockH.getValue().isNegative()) {
+    return emitError() << "Parameter out_block_h must be non-negative.";
+  }
+
+  if (outBlockW.getValue().isNegative()) {
+    return emitError() << "Parameter out_block_w must be non-negative.";
+  }
+
+  if (outSubblockH.getValue().isNegative()) {
+    return emitError() << "Parameter out_subblock_h must be non-negative.";
+  }
+
+  if (outSubblockW.getValue().isNegative()) {
+    return emitError() << "Parameter out_subblock_w must be non-negative.";
+  }
+
+  if (perCoreM.getValue().isNegative()) {
+    return emitError() << "Parameter per_core_m must be non-negative.";
+  }
+
+  if (perCoreN.getValue().isNegative()) {
+    return emitError() << "Parameter per_core_n must be non-negative.";
+  }
+
+  if (numGlobalCbReceivers.getValue().isNegative()) {
+    return emitError()
+           << "Parameter num_global_cb_receivers must be non-negative.";
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult
+MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    IntegerAttr in0BlockW, IntegerAttr perCoreM, IntegerAttr perCoreN,
+    UnaryWithParamAttr fusedActivation) {
+  if (in0BlockW.getValue().isNegative()) {
+    return emitError() << "Parameter in0_block_w must be non-negative.";
+  }
+
+  if (perCoreM.getValue().isNegative()) {
+    return emitError() << "Parameter per_core_m must be non-negative.";
+  }
+
+  if (perCoreN.getValue().isNegative()) {
+    return emitError() << "Parameter per_core_n must be non-negative.";
+  }
+
+  return ::llvm::success();
+}
