@@ -1,6 +1,7 @@
 // RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-generic-datamovement %s | FileCheck %s
 
 #l1_ = #tt.memory_space<l1>
+#dram = #tt.memory_space<dram>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #tt.iterator_type<parallel>
 
@@ -139,6 +140,51 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, 
   ^bb0(%cb0: memref<4x6x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!tt.tile<32x32, f32>, #l1_>):
     "ttir.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<4x6x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<4x8x!tt.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 6 * 4096 + d3 * 4096)>, #l1_>, memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 8 * 4096 + d3 * 4096)>, #l1_>, memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>) -> ()
+  return %alloc : memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>
+}
+
+func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<4x4x6x8x!tt.tile<32x32, f32>, #dram>) -> memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_> {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>
+  %cb0_alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
+  %cb1_alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x6x8x!tt.tile<32x32, f32>, #l1_>
+  %0 = "ttir.stream_layout"(%arg0, %cb0_alloc) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 6 * 4096 + d3 * 4096)>, #l1_>
+  %1 = "ttir.stream_layout"(%arg1, %cb1_alloc) : (memref<4x4x6x8x!tt.tile<32x32, f32>, #dram>, memref<2x4x6x8x!tt.tile<32x32, f32>, #l1_>) -> memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 8 * 4096 + d3 * 4096)>, #dram>
+  // CHECK: "ttir.generic"([[lhs:%[a-z0-9_]+]], [[rhs:%[a-z0-9_]+]], [[out:%[a-z0-9_]+]])
+  "ttir.generic"(%0, %1, %alloc) <{grid = #tt.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>, operand_cb_mapping = array<i64>}> ({
+  // Look for 4 regions, one for each operand and one for the compute
+  // Operand 0 (input)
+  // CHECK: ^datamovement0
+  // CHECK: ttir.dma [[lhs]] #map1, %cb0
+  // CHECK-NEXT: ttir.dma_wait
+  // CHECK-NEXT: ttir.semaphore_wait [[reader_ready_lhs:%[a-z0-9]+]]
+  // CHECK-NEXT: ttir.dma %cb0, %cb0
+  // CHECK-NEXT: ttir.dma_wait
+  // CHECK-NEXT: ttir.semaphore_set [[writer_done_lhs:%[a-z0-9]+]]
+  // CHECK-NEXT: else
+  // CHECK-NEXT: ttir.semaphore_inc [[reader_ready_lhs]]
+  // CHECK-NEXT: ttir.semaphore_wait [[writer_done_lhs]]
+  // Operand 1 (input)
+  // CHECK: ^datamovement1
+  // CHECK: ttir.dma [[rhs]] #map2, %cb1
+  // CHECK-NEXT: ttir.dma_wait
+  // CHECK-NEXT: ttir.semaphore_wait [[reader_ready_rhs:%[a-z0-9]+]]
+  // CHECK-NEXT: ttir.dma %cb1, %cb1
+  // CHECK-NEXT: ttir.dma_wait
+  // CHECK-NEXT: ttir.semaphore_set [[writer_done_rhs:%[a-z0-9]+]]
+  // CHECK-NEXT: else
+  // CHECK-NEXT: ttir.semaphore_inc [[reader_ready_rhs]]
+  // CHECK-NEXT: ttir.semaphore_wait [[writer_done_rhs]]
+  // Operand 2 (output)
+  // CHECK: ^datamovement2
+  // CHECK-NEXT: ttir.await
+  // Compute
+  // CHECK: ^compute
+  // CHECK: ttir.await
+  // CHECK: ttir.tile_matmul_block
+  // CHECK: ttir.yield
+  ^bb0(%cb0: memref<4x6x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!tt.tile<32x32, f32>, #l1_>):
+    "ttir.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<4x6x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<4x8x!tt.tile<32x32, f32>, #l1_>) -> ()
+  }) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 6 * 4096 + d3 * 4096)>, #l1_>, memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 8 * 4096 + d3 * 4096)>, #dram>, memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>) -> ()
   return %alloc : memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>
 }
 

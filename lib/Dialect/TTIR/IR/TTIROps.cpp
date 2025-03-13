@@ -1641,13 +1641,19 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
   auto storageResultVerification =
       verifyLayoutOp(*this, getStorage().getType(), getResult().getType(),
                      /*allowFormatChange*/ false,
-                     /*allowMemorySpaceChange*/ false,
+                     /*allowMemorySpaceChange*/ true,
                      /*checkMemrefRank*/ true,
                      /*checkMemrefGridShardForm */ true,
                      /*checkMemrefGridShape*/ false,
                      /*checkMemrefShardShape*/ true);
   if (failed(storageResultVerification)) {
     return storageResultVerification;
+  }
+
+  if (mlir::cast<MemRefType>(getInput().getType()).getMemorySpace() !=
+      mlir::cast<MemRefType>(getResult().getType()).getMemorySpace()) {
+    return this->emitOpError(
+        "Input and result memref memory spaces must be the same");
   }
 
   return success();
@@ -2881,6 +2887,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
       Type operandType = operandTypes[arg.getArgNumber()];
       Attribute expectedMemorySpace;
       ArrayRef<int64_t> expectedShardShape;
+      bool isStream = false;
       if (RankedTensorType tensorType =
               mlir::dyn_cast<RankedTensorType>(operandType)) {
         if (!tensorType.getEncoding()) {
@@ -2899,9 +2906,10 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         // shape.
         assert(memref.getRank() % 2 == 0);
         expectedShardShape = memref.getShape().take_back(memref.getRank() / 2);
+        isStream = mlir::isa<tt::StreamLayoutAttr>(memref.getLayout());
       }
 
-      if (expectedMemorySpace != blockMemref.getMemorySpace()) {
+      if (!isStream && expectedMemorySpace != blockMemref.getMemorySpace()) {
         return emitOpError("GenericOp region argument memory space must match "
                            "the memory space of the corresponding operand");
       }
