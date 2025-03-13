@@ -1657,6 +1657,50 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// CollectivePermuteOp
+//===----------------------------------------------------------------------===//
+
+// CollectivePermuteOp verification
+::mlir::LogicalResult CollectivePermuteOp::verify() {
+  auto sourceTargetPairs = getSourceTargetPairs().getValues<int64_t>();
+
+  // Check that the rank of sourceTargetPairs is 2D.
+  llvm::ArrayRef<int64_t> sourceTargetPairsShape =
+      getSourceTargetPairs().getType().getShape();
+  const size_t sourceTargetPairsRank = sourceTargetPairsShape.size();
+
+  if (sourceTargetPairsRank != 2) {
+    return emitOpError("The rank of source target pairs must be 2, got rank = ")
+           << sourceTargetPairsRank;
+  }
+
+  /* Check that the 'src' values and 'dest' values in sourceTargetPairs is
+  unique. Given a 2D rank tensor of source target pairs eg. [['src', 'target'],
+  ['src', 'target'] ...], we need to ensure that each 'src' is unique and each
+  'target' is unique.
+  */
+  auto areElementsUnique = [](const auto &sourceTargetPairs) -> bool {
+    for (size_t i = 0; i < sourceTargetPairs.size(); i++) {
+      int target = sourceTargetPairs[i];
+      for (size_t j = i + 2; j < sourceTargetPairs.size(); j += 2) {
+        if (sourceTargetPairs[j] == target) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
+  if (!areElementsUnique(sourceTargetPairs)) {
+    return emitOpError(
+        "There are duplicate 'src' or 'dest' devices in source target pairs");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
 

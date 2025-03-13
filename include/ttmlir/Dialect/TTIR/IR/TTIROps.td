@@ -2028,6 +2028,30 @@ def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
+def TTIR_CollectivePermuteOp : TTIR_DPSOp<"collective_permute"> {
+    let summary = "Collective permute operation.";
+    let description = [{
+      Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
+
+      Example:
+        For a 1x2 mesh, the following will take the device shard living in device 0 and move it to device 1. The device shard living in device 1 will move to device 0.
+        %source_target_pairs: [[0, 1], [1, 0]]
+
+        In the case of missing 'dest', the device shard living on that device will contain values of 0. For example, device shard living in device 0 will contain 0 values.
+        %source_target_pairs: [[0, 1]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I64ElementsAttr:$source_target_pairs);
+
+    let results = (outs AnyRankedTensor:$result);
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+    let hasVerifier = 1;
+}
+
 def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
     let summary = "Mesh shard operation.";
     let description = [{
