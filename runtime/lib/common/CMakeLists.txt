@@ -34,7 +34,7 @@ endif()
 if (NOT ANY_RUNTIME_ENABLED)
   add_library(TTRuntimeSysDesc INTERFACE)
   add_library(TTRuntimeDebug INTERFACE)
-  add_library(TTRuntimeWorkarounds INTERFACE)
+  add_library(TTRuntimeDylibs INTERFACE)
   return()
 endif()
 
@@ -51,13 +51,6 @@ add_dependencies(TTRuntimeSysDesc tt-metal FBS_GENERATION)
 add_library(TTRuntimeDebug STATIC debug.cpp)
 set_property(TARGET TTRuntimeDebug PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeDebug
-  PUBLIC
-    ${PROJECT_SOURCE_DIR}/runtime/include
-)
-
-add_library(TTRuntimeWorkarounds STATIC workarounds.cpp)
-set_property(TARGET TTRuntimeWorkarounds PROPERTY CXX_STANDARD 20)
-target_include_directories(TTRuntimeWorkarounds
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
 )

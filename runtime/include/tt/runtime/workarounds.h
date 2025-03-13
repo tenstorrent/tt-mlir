@@ -2,30 +2,24 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_WORKAROUNDS_H
-#define TT_RUNTIME_DETAIL_WORKAROUNDS_H
+#ifndef TT_RUNTIME_WORKAROUNDS_H
+#define TT_RUNTIME_WORKAROUNDS_H
 
 #include <ostream>
 
 namespace tt::runtime::workaround {
 
 struct Env {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static const Env &
-#else
-  constexpr static Env
-#endif
-  get(bool swapBinaryOperands = true,
-      bool readUpdateIndexFromDeviceForKVCache = true,
-      bool toLayoutAPIAssumeSingleChip = true,
-      bool manualDeviceStorageFromBorrowedStorage = true)
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-      ;
-#else
-  {
-    return Env(true, true, true, true);
+  static const Env &get(bool swapBinaryOperands = true,
+                        bool readUpdateIndexFromDeviceForKVCache = true,
+                        bool toLayoutAPIAssumeSingleChip = true,
+                        bool manualDeviceStorageFromBorrowedStorage = true) {
+    static const Env config(
+        swapBinaryOperands, readUpdateIndexFromDeviceForKVCache,
+        toLayoutAPIAssumeSingleChip, manualDeviceStorageFromBorrowedStorage);
+    return config;
   }
-#endif
+
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
   // rhs operand). We should add this check in the compiler.
@@ -84,4 +78,4 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
 
 } // namespace tt::runtime::workaround
 
-#endif // TT_RUNTIME_DETAIL_WORKAROUNDS_H
+#endif // TT_RUNTIME_WORKAROUNDS_H

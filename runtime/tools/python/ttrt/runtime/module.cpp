@@ -5,9 +5,9 @@
 #include <sstream>
 
 #include "tt/runtime/detail/debug.h"
-#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include "tt/runtime/workarounds.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
 #include "tt/runtime/ttnn/test/dylib.h"
 #include "tt/runtime/ttnn/test/utils.h"

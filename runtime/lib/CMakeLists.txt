@@ -42,7 +42,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
     TTRuntimeDebug
-    TTRuntimeWorkarounds
+    TTRuntimeDylibs
     ${TTNN_LIBS}
     flatbuffers
 )
@@ -50,10 +50,16 @@ target_link_libraries(TTMLIRRuntime
 set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
 set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
-add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimeWorkarounds TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
+add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimeDylibs TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
 
 if (TTMLIR_ENABLE_RUNTIME)
-  set_target_properties(TTMLIRRuntime PROPERTIES PUBLIC_HEADER "../include/tt/runtime/runtime.h;../include/tt/runtime/types.h;../include/tt/runtime/utils.h")
+  set(TTMLIR_RUNTIME_PUBLIC_HEADERS
+    "../include/tt/runtime/runtime.h"
+    "../include/tt/runtime/types.h"
+    "../include/tt/runtime/utils.h"
+    "../include/tt/runtime/workarounds.h"
+  )
+  set_target_properties(TTMLIRRuntime PROPERTIES PUBLIC_HEADER "${TTMLIR_RUNTIME_PUBLIC_HEADERS}")
   install(TARGETS TTMLIRRuntime
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime
         COMPONENT SharedLib
