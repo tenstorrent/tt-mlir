@@ -1650,8 +1650,11 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
     return storageResultVerification;
   }
 
-  if (mlir::cast<MemRefType>(getInput().getType()).getMemorySpace() !=
-      mlir::cast<MemRefType>(getResult().getType()).getMemorySpace()) {
+  MemRefType inputMemrefType = mlir::dyn_cast<MemRefType>(getInput().getType());
+  MemRefType resultMemrefType =
+      mlir::dyn_cast<MemRefType>(getResult().getType());
+  if (inputMemrefType && resultMemrefType &&
+      (inputMemrefType.getMemorySpace() != resultMemrefType.getMemorySpace())) {
     return this->emitOpError(
         "Input and result memref memory spaces must be the same");
   }
