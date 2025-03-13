@@ -130,47 +130,15 @@ LogicalResult LoadCachedOp::verify() {
 
   FunctionType fnType = funcOp.getFunctionType();
 
-  // Verify input arity
-  if (fnType.getNumInputs() != this->getInputs().size())
-    return emitOpError("incorrect number of arguments for callee");
+  // Verify result count
+  if (fnType.getNumResults() != this->getNumResults())
+    return emitOpError("incorrect number of results for callee");
 
-  // Verify input types
-  for (unsigned i = 0; i < fnType.getNumInputs(); ++i) {
-    if (this->getInputs()[i].getType() != fnType.getInput(i))
-      return emitOpError("argument type mismatch at index ") << i;
+  // Verify result types directly
+  for (unsigned i = 0; i < fnType.getNumResults(); ++i) {
+    if (this->getResult(i).getType() != fnType.getResult(i))
+      return emitOpError("result type mismatch at index ") << i;
   }
-
-  // Verify result types by checking that the function returns a tuple
-  // and the tuple elements match our result types
-
-  // Look for a return op with tt.tuple
-  bool foundTupleReturn = false;
-  for (Block &block : funcOp.getBody()) {
-    if (auto returnOp =
-            dyn_cast_or_null<func::ReturnOp>(block.getTerminator())) {
-      if (returnOp.getNumOperands() == 1) {
-        // Get the operand of the return
-        Value returnVal = returnOp.getOperands()[0];
-        // Check if this is the result of a tt.tuple operation
-        if (auto tupleOp =
-                dyn_cast_or_null<TupleOp>(returnVal.getDefiningOp())) {
-          foundTupleReturn = true;
-
-          if (tupleOp.getNumOperands() != this->getNumResults())
-            return emitOpError(
-                "callee returns tuple with wrong number of elements");
-
-          for (unsigned i = 0; i < this->getNumResults(); ++i) {
-            if (this->getResult(i).getType() != tupleOp.getOperand(i).getType())
-              return emitOpError("result type mismatch at index ") << i;
-          }
-        }
-      }
-    }
-  }
-
-  if (!foundTupleReturn)
-    return emitOpError("callee does not return a tuple");
 
   return success();
 }
