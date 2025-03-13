@@ -215,7 +215,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::creation::run(op->type_as_EmptyOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ConstructTensorOp: {
-    return operations::creation::run(op->type_as_ConstructTensorOp(), context);
+    return operations::creation::run(op->type_as_ConstructTensorOp(),
+                                     getContext());
   }
   case ::tt::target::ttnn::OpType::ZerosOp: {
     return operations::creation::run(op->type_as_ZerosOp(), getContext());
