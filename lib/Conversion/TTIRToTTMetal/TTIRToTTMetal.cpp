@@ -686,7 +686,7 @@ public:
     auto srcRemote = rewriter.create<ttkernel::GetNocAddrXYOp>(
         loc, srcGridX, srcGridY, srcOffset);
     rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcRemote, size, size);
-    rewriter.eraseOp(op);
+    rewriter.replaceOpWithNewOp<ttir::NullTxOp>(op, op.getResult().getType());
     return success();
 #else
     return failure();
