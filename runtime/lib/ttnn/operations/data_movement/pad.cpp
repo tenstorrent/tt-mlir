@@ -21,7 +21,7 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
   float padValue = op->value();
 
   ::ttnn::Tensor out;
-
+  std::cerr << "The size of the padding from the data movement->" << op->padding()->size() << std::endl;
   std::vector<std::pair<uint32_t, uint32_t>> padding;
   for (uint32_t i = 0; i < op->padding()->size(); i += 2) {
     padding.emplace_back(op->padding()->Get(i), op->padding()->Get(i + 1));
