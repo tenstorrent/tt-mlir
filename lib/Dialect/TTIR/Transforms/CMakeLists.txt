@@ -6,6 +6,8 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         GenericLinearizeMemref.cpp
         GenericDatamovement.cpp
         GenericLowerAffineDMAs.cpp
+        AttachMetalLayout.cpp
+        OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
         Layout.cpp
         Transforms.cpp

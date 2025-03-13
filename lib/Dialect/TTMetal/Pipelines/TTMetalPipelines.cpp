@@ -104,6 +104,13 @@ void createTTIRToTTMetalBackendPipeline(
   // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
   pm.addPass(mlir::tt::ttir::createTTIRGenericConversion());
   if (options.version > 0) {
+    ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
+    {
+      optimizeTensorLayoutOptions.overrideDeviceShape =
+          llvm::to_vector(options.overrideDeviceShape);
+    }
+    pm.addPass(mlir::tt::ttir::createTTIROptimizeTensorLayout(
+        optimizeTensorLayoutOptions));
     createTTIRBufferizationPipeline(pm);
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
     pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
