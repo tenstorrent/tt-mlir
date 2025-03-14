@@ -5,6 +5,7 @@
 #include "mlir/CAPI/AffineMap.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
+#include <nanobind/stl/optional.h>
 namespace mlir::ttmlir::python {
 void populateTTNNModule(nb::module_ &m) {
 
@@ -132,19 +133,28 @@ void populateTTNNModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
-             MlirType memref,
-             std::optional<unsigned> memLayout = std::nullopt) {
+             MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
+             std::optional<tt::TensorMeshShardingAttr> tensorMeshSharding =
+                 std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
+            tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+            if (tensorMeshSharding.has_value()) {
+              tensorMeshShardingAttr = tensorMeshSharding.value();
+            }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
                 mlir::cast<tt::GridAttr>(unwrap(grid)),
-                mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr));
-          })
+                mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
+                tensorMeshShardingAttr));
+          },
+          nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
+          nb::arg("memLayout") = nb::none(),
+          nb::arg("tensorMeshSharding") = nb::none())
       .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })

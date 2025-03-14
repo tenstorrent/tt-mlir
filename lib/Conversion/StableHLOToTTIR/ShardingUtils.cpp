@@ -250,12 +250,13 @@ bool MeshSharding::checkAndUpdateGSPMDArgSharding(
     mlir::StringAttr shardingAttr) {
   auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
   bool foundArgSharding = false;
+  mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr;
 
   if (auto blockArg =
           mlir::dyn_cast<mlir::BlockArgument>(srcOp->getOperand(0))) {
     auto argNum = blockArg.getArgNumber();
     foundArgSharding = checkAndRemoveFuncArgSharding<mlir::StringAttr>(
-        rewriter, funcOp, argNum, shardingAttr,
+        rewriter, funcOp, argNum, shardingAttr, tensorMeshShardingAttr,
         mlir::tt::sharding_utils::kXlaShardingAttr);
   }
 
@@ -269,6 +270,7 @@ bool MeshSharding::checkAndUpdateGSPMDRetSharding(
     mlir::StringAttr shardingAttr) {
   auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
   bool foundRetSharding = false;
+  mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr;
 
   // Check if the GSPMD ShardToFull output is one of the return values.
   if (auto *funcReturnOp = funcOp.getBody().front().getTerminator()) {
@@ -277,7 +279,7 @@ bool MeshSharding::checkAndUpdateGSPMDRetSharding(
     if (returnOperandIt != returnOperands.end()) {
       auto retIdx = std::distance(returnOperands.begin(), returnOperandIt);
       foundRetSharding = checkAndRemoveFuncReturnSharding<mlir::StringAttr>(
-          rewriter, funcOp, retIdx, shardingAttr,
+          rewriter, funcOp, retIdx, shardingAttr, tensorMeshShardingAttr,
           mlir::tt::sharding_utils::kXlaShardingAttr);
     }
   }
@@ -353,14 +355,16 @@ llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
 // to be created or not.
 bool MeshSharding::checkAndUpdateShardyArgSharding(
     mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp,
-    mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr) {
+    mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
 
   bool foundArgSharding = false;
   if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(argOperand)) {
     auto argNum = blockArg.getArgNumber();
     foundArgSharding =
         checkAndRemoveFuncArgSharding<mlir::sdy::TensorShardingAttr>(
-            rewriter, funcOp, argNum, shardingAttr, mlir::sdy::kShardingAttr);
+            rewriter, funcOp, argNum, shardingAttr, tensorMeshShardingAttr,
+            mlir::sdy::kShardingAttr);
   }
 
   return determineMeshShardOpCreationAndShardType(foundArgSharding);
@@ -370,11 +374,13 @@ bool MeshSharding::checkAndUpdateShardyArgSharding(
 // to be created or not.
 bool MeshSharding::checkAndUpdateShardyRetSharding(
     mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp, uint64_t retIdx,
-    sdy::TensorShardingAttr shardingAttr) {
+    sdy::TensorShardingAttr shardingAttr,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
 
   bool foundRetSharding =
       checkAndRemoveFuncReturnSharding<sdy::TensorShardingAttr>(
-          rewriter, funcOp, retIdx, shardingAttr, mlir::sdy::kShardingAttr);
+          rewriter, funcOp, retIdx, shardingAttr, tensorMeshShardingAttr,
+          mlir::sdy::kShardingAttr);
 
   return determineMeshShardOpCreationAndShardType(foundRetSharding);
 }

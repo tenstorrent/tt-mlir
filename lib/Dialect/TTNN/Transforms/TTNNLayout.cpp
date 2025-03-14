@@ -74,10 +74,21 @@ createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
   auto elementType = isTiled ? TileType::get(ctx, type.getElementType())
                              : type.getElementType();
 
+  mlir::Attribute encoding = type.getEncoding();
+  TensorMeshShardingAttr tensorMeshShardingAttr;
+  if (auto encodingMeshSharding =
+          mlir::dyn_cast_if_present<TensorMeshShardingAttr>(encoding)) {
+    tensorMeshShardingAttr = encodingMeshSharding;
+  } else if (auto layout =
+                 mlir::dyn_cast_if_present<TTNNLayoutAttr>(encoding)) {
+    tensorMeshShardingAttr = layout.getTensorMeshSharding();
+  }
+
   TensorMemoryLayoutAttr memoryLayoutAttr =
       getMemoryLayoutAttr(ctx, bufferType);
   return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
-                             tensorGrid, memoryLayoutAttr, collapseDimsRef);
+                             tensorGrid, memoryLayoutAttr,
+                             tensorMeshShardingAttr, collapseDimsRef);
 }
 
 static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
@@ -102,7 +113,7 @@ public:
     addConversion([](Type type) { return type; });
     addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
       Attribute layout = type.getEncoding();
-      if (layout) {
+      if (isa_and_nonnull<TTNNLayoutAttr>(layout)) {
         return type;
       }
 
@@ -128,7 +139,7 @@ public:
     addConversion([](Type type) { return type; });
     addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
       Attribute layout = type.getEncoding();
-      if (layout) {
+      if (isa_and_nonnull<TTNNLayoutAttr>(layout)) {
         return type;
       }
 
@@ -242,6 +253,10 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   // Get buffer type (i.e DRAM/L1 etc)
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
 
+  // Get mesh sharding
+  TensorMeshShardingAttr desiredTensorMeshSharding =
+      ttnnLayoutAttr.getTensorMeshSharding();
+
   // Get the current element type (i.e bf16/TileType etc)
   // If the defining op is arange, then we need to assume ROW_MAJOR (scalar)
   // element type.
@@ -271,7 +286,8 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   // memory layout
   TTNNLayoutAttr desiredLayout = rewriter.getAttr<TTNNLayoutAttr>(
       ty.getShape(), desiredElementType, desiredBufferType,
-      ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, g_defaultCollapseDims);
+      ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, desiredTensorMeshSharding,
+      g_defaultCollapseDims);
 
   // If the input tensor is a constant or empty tensor, we can replace it with a
   // new tensor with the desired layout
@@ -305,7 +321,8 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   if (existingArange) {
     TTNNLayoutAttr arangeLayout = rewriter.getAttr<TTNNLayoutAttr>(
         ty.getShape(), ty.getElementType(), desiredBufferType,
-        ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, g_defaultCollapseDims);
+        ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr,
+        desiredTensorMeshSharding, g_defaultCollapseDims);
     input =
         rewriter
             .replaceOpWithNewOp<ttir::ArangeOp>(

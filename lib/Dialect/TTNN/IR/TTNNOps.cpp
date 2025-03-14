@@ -1715,18 +1715,6 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   }
 
   if (shardType == ::mlir::tt::MeshShardType::Devices) {
-    // Check if input rank is equal to or greater than two.
-    if (inputShape.size() < 2) {
-      return emitOpError(
-          "Invalid input rank (<2) for mesh_shard op with devices partition.");
-    }
-
-    // Check if shardShape is eqaul to or greater than two.
-    if (shardShape.size() < 2) {
-      return emitOpError(
-          "Invalid shard_shape (<2) for mesh_shard op with devices partition.");
-    }
-
     // Check if rank(shardShape) is eqaul to rank(input).
     if (shardShape.size() != inputShape.size()) {
       return emitOpError("Invalid rank(shard_shape) != rank(input) for "
