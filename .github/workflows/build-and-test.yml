@@ -249,8 +249,11 @@ jobs:
 
         # op-model tests -- ???is this needed or already run with llvm/lit above??? -- need to check
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
+          echo "Running op-model test Conversion"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
+          echo "Running op-model test Lib"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+          echo "Running op-model test Interface"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
         fi
 
