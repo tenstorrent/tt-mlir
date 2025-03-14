@@ -114,9 +114,9 @@ public:
     mcastShape.reserve(grid.getShape().size());
 
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
-      Value gridDimMinusOne = blockBuilder.create<arith::ConstantOp>(
+      Value gridDim = blockBuilder.create<arith::ConstantOp>(
           loc, blockBuilder.getIndexType(),
-          blockBuilder.getIndexAttr(grid.getShape()[dim] - 1));
+          blockBuilder.getIndexAttr(grid.getShape()[dim]));
       Value core =
           blockBuilder.create<CoreIndexOp>(loc, blockBuilder.getIndexType(),
                                            blockBuilder.getI64IntegerAttr(dim));
@@ -125,8 +125,8 @@ public:
         mcastShape.push_back(Value(one));
       } else {
         assert(iteratorType == IteratorType::Reduction);
-        coreIndex.push_back(one);
-        mcastShape.push_back(gridDimMinusOne);
+        coreIndex.push_back(zero);
+        mcastShape.push_back(gridDim);
         mcastVolume *= grid.getShape()[dim];
 
         Value condition = blockBuilder.create<arith::CmpIOp>(
