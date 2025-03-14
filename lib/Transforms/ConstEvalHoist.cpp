@@ -304,7 +304,6 @@ private:
   // Internal representation of subgraphs
   llvm::SmallVector<ConstEvalSubgraph, 4> constEvalSubgraphs;
 };
-ConstEvalAnalyze(func::FuncOp) -> ConstEvalAnalyze<OpTypeChecker<>>;
 } // namespace
 
 namespace {
