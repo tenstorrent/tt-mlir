@@ -161,8 +161,7 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     // Compare various tensor properties
     //
     LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
-               "DType: ", static_cast<int>(lhsTensor->get_dtype()), ", ",
-               static_cast<int>(rhsTensor->get_dtype()));
+               "DType: ", lhsTensor->get_dtype(), ", ", rhsTensor->get_dtype());
     LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
                "Layout: ", static_cast<int>(lhsTensor->get_layout()), ", ",
                static_cast<int>(rhsTensor->get_layout()));
