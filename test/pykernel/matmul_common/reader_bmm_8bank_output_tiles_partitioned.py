@@ -11,15 +11,10 @@ from pykernel.types import *
 
 @ttkernel_noc_compile()
 def reader_bmm_8bank_output_tiles_partitioned(
-    cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer
+    cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer, rt_args
 ):
-    src0_addr = get_arg_val(int, 0)
-    src1_addr = get_arg_val(int, 1)
-    Mt = get_arg_val(int, 2)
-    Kt = get_arg_val(int, 3)
-    Nt = get_arg_val(int, 4)
-    MtKt = get_arg_val(int, 5)
-    KtNt = get_arg_val(int, 6)
+    src0_addr, src1_addr = rt_args[:2]
+    Mt, Kt, Nt, MtKt, KtNt = rt_args[2:7]
     batch = get_arg_val(int, 7)
     bcast_B = get_arg_val(int, 8)
     output_tile_start_id = get_arg_val(int, 9)
