@@ -7,7 +7,7 @@
 import inspect
 import torch
 
-from ttmlir.test_utils import compile_to_flatbuffer
+from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
 
@@ -88,6 +88,11 @@ def test_cos(in0: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_tan(in0: Operand, builder: TTIRBuilder):
     return builder.tan(in0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_atan(in0: Operand, builder: TTIRBuilder):
+    return builder.atan(in0)
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
@@ -486,6 +491,63 @@ def test_transpose(in0: Operand, builder: TTIRBuilder):
 # def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
 #   return builder.where(in0, in1, in2)
 #
+
+
+@compile_to_flatbuffer(
+    [
+        (2, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_repeat(in0: Operand, builder: TTIRBuilder):
+    return builder.repeat(in0, [2, 2])
+
+
+@compile_to_flatbuffer(
+    [
+        (2, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_repeat_interleave(in0: Operand, builder: TTIRBuilder):
+    return builder.repeat_interleave(in0, repeats=2, dim=1)
+
+
+@compile_to_flatbuffer(
+    [
+        (32, 32),
+    ],
+    targets=["ttnn"],
+)
+def test_pad(in0: Operand, builder: TTIRBuilder):
+    return builder.pad(in0, padding=[0, 2, 1, 0], value=0)
+
+
+@compile_to_flatbuffer(
+    [
+        (32, 64),
+    ],
+    targets=["ttnn"],
+)
+def test_index(in0: Operand, builder: TTIRBuilder):
+    return builder.index(in0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_zeros(in0: Operand, builder: TTIRBuilder):
+    shapes = [128, 128]
+    return builder.zeros(shapes)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_ones(in0: Operand, builder: TTIRBuilder):
+    shapes = [128, 128]
+    return builder.ones(shapes)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_argmax(in0: Operand, builder: TTIRBuilder):
+    return builder.argmax(in0, [1])
 
 
 @compile_to_flatbuffer(
