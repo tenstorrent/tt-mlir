@@ -223,5 +223,45 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 
 }; // namespace MultiplyOpInterface
 
+//===----------------------------------------------------------------------===//
+// Conv2dOp
+//===----------------------------------------------------------------------===//
+
+namespace Conv2dOpInterface {
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> weightShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+                 std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                 std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+                 int32_t in_channels, int32_t out_channels, int32_t batch_size,
+                 int32_t input_height, int32_t input_width,
+                 llvm::ArrayRef<int32_t> kernel_size,
+                 llvm::ArrayRef<int32_t> stride,
+                 llvm::ArrayRef<int32_t> padding,
+                 llvm::ArrayRef<int32_t> dilation, int32_t groups,
+                 std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> weightShape,
+             mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+             std::optional<llvm::ArrayRef<int64_t>> biasShape,
+             std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+             int32_t in_channels, int32_t out_channels, int32_t batch_size,
+             int32_t input_height, int32_t input_width,
+             llvm::ArrayRef<int32_t> kernel_size,
+             llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+             llvm::ArrayRef<int32_t> dilation, int32_t groups,
+             std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace Conv2dOpInterface
+
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

@@ -55,7 +55,7 @@ TEST_P(MlirToTtnnConversionDataType, DataType) {
           &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
 
   auto convertedDataType =
-      mlir::tt::op_model::ttnn::conversion::getDataType(layout);
+      mlir::tt::op_model::ttnn::conversion::getDataType(layout.getDataType());
   EXPECT_EQ(convertedDataType, expectedDataType);
 }
 
@@ -405,7 +405,8 @@ TEST_P(MlirToTnnConversionTensorMemoryLayout, MemoryConfig) {
                                   mlirTensorMemoryLayout);
 
   const auto tensorMemoryLayout =
-      mlir::tt::op_model::ttnn::conversion::getTensorMemoryLayout(layout);
+      mlir::tt::op_model::ttnn::conversion::getTensorMemoryLayout(
+          layout.getMemLayout());
   EXPECT_EQ(tensorMemoryLayout, expectedTensorMemoryLayout);
 }
 

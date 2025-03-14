@@ -702,8 +702,8 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
       if (DEBUG) {
         llvm::errs() << "OpModel constraints failed: ";
         llvm::errs() << producerOperand.getLoc() << "->"
-                     << consumerOp->getName()
-                     << " :: " << llvm::toString(l1UsageExp.takeError())
+                     << consumerOp->getName() << " :: "
+                     << llvm::toStringWithoutConsuming(l1UsageExp.takeError())
                      << "\n";
         producerLayout.dump();
         consumerLayout.dump();
