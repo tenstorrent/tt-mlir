@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 
 namespace mlir::tt::ttnn {
 
@@ -32,18 +33,17 @@ public:
 public:
   BFInterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts,
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
-      : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalLayouts,
+      : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
                                    schedule, usableL1CacheSize) {}
 
   void run() final;
 
 private:
   // Check if the op is analyzable. Op is analyzable if it has at least one
-  // legal layout.
+  // legal config.
   bool isAnalyzable(Operation *op);
 
   // Iterate over all operands of the op that satisfy the analyzability
@@ -53,11 +53,11 @@ private:
   void walkOnAnalyzableOperands(Operation *op,
                                 function_ref<void(Operation *)> callback);
 
-  // Fetch op's DRAM layout from legalLayouts.
+  // Fetch op's DRAM layout from legalConfigs.
   bool hasDRAMBufferType(Operation *op);
   TTNNLayoutAttr getDRAMLayout(Operation *op);
 
-  // Fetch op's L1 Interleaved layout from legalLayouts.
+  // Fetch op's L1 Interleaved layout from legalConfigs.
   bool hasL1BufferType(Operation *op);
   TTNNLayoutAttr getL1InterleavedLayout(Operation *op);
 

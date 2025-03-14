@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_L1CHAINCONFIG_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_L1CHAINCONFIG_H
 
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
@@ -22,18 +23,18 @@ struct OpL1MemSpec {
   //
   uint tensorSplitFactor = 1;
 
-  // Layout of the output tensor of the op.
+  // Op specific configuration.
   //
-  TTNNLayoutAttr layout;
+  OpConfig config;
 };
 
 // Enum to track the state of the L1 chain.
 // InBuild: L1 chain is being built. OpL1MemSpecs can be added.
 // Built: L1 chain is built, but not resolved yet. ShardSolver can be run.
 // Resolved: L1 chain is resolved. Reshards are computed. We can pick legal
-// layouts for each op.
+// configs for each op.
 // Completed: L1 chain is completed. OpL1MemSpecs are
-// resolved to a single layout.
+// resolved to a single config.
 //
 enum class L1ChainState { InBuild, Built, Resolved, Completed, Failed };
 
@@ -48,15 +49,13 @@ public:
   L1ChainConfig() : opL1MemSpecs(), state() {}
 
   ShardSolver resolveWithSolver(
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts,
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
       const std::unordered_set<Edge> &overrideReshardEdges);
   void resolve();
   void build();
-  void
-  complete(const llvm::DenseMap<Operation *, TTNNLayoutAttr> &selectedOpLayout,
-           std::unordered_set<Edge> &memReconfigEdges);
+  void complete(const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,
+                std::unordered_set<Edge> &memReconfigEdges);
   void complete();
 
   bool isEmpty() { return opL1MemSpecs.empty(); }

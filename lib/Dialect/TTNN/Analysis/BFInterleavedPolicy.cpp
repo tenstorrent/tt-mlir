@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
+
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -81,7 +82,8 @@ void BFInterleavedPolicy::run() {
         //
         OpL1MemSpec opL1MemSpec;
         opL1MemSpec.op = nextOpForScheduling;
-        opL1MemSpec.layout = getL1InterleavedLayout(nextOpForScheduling);
+        opL1MemSpec.config.outputLayout =
+            getL1InterleavedLayout(nextOpForScheduling);
         l1ChainConfigs->back().addOpL1MemSpec(opL1MemSpec);
 
         // Update the state of L1 memory by allocating the nextOpForScheduling's
@@ -90,7 +92,7 @@ void BFInterleavedPolicy::run() {
         uint64_t numOfUsers = std::distance(nextOpForScheduling->user_begin(),
                                             nextOpForScheduling->user_end());
         currentL1UsagePerOp[nextOpForScheduling].l1MemUsagePerUser =
-            utils::getOpOutputL1Usage(opL1MemSpec.layout);
+            utils::getOpOutputL1Usage(opL1MemSpec.config.outputLayout);
         currentL1UsagePerOp[nextOpForScheduling].numOfUnscheduledUsers =
             numOfUsers;
         currentL1Usage +=
@@ -154,10 +156,10 @@ void BFInterleavedPolicy::run() {
 bool BFInterleavedPolicy::isAnalyzable(Operation *op) {
   // Skip operations that are not analyzed by the LegalGridAnalysis.
   //
-  if (legalLayouts.count(op) > 0) {
+  if (legalConfigs.count(op) > 0) {
     // Skip operations that are filterd out by the MemoryLayoutAnalysis.
     //
-    return legalLayouts[op].size() > 0;
+    return legalConfigs[op].size() > 0;
   }
   return false;
 }
@@ -182,41 +184,41 @@ void BFInterleavedPolicy::walkOnAnalyzableOperands(
 }
 
 bool BFInterleavedPolicy::hasDRAMBufferType(Operation *op) {
-  if (legalLayouts.count(op)) {
-    return std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
-                        [](TTNNLayoutAttr layout) {
-                          return layout.hasDRAMBufferType();
-                        }) != legalLayouts[op].end();
+  if (legalConfigs.count(op)) {
+    return std::find_if(legalConfigs[op].begin(), legalConfigs[op].end(),
+                        [](OpConfig config) {
+                          return config.outputLayout.hasDRAMBufferType();
+                        }) != legalConfigs[op].end();
   }
   return false;
 }
 
 TTNNLayoutAttr BFInterleavedPolicy::getDRAMLayout(Operation *op) {
   assert(hasDRAMBufferType(op));
-  auto dramLayoutIter = std::find_if(
-      legalLayouts[op].begin(), legalLayouts[op].end(),
-      [](TTNNLayoutAttr layout) { return layout.hasDRAMBufferType(); });
-  return *dramLayoutIter;
+  auto configIter = std::find_if(
+      legalConfigs[op].begin(), legalConfigs[op].end(),
+      [](OpConfig config) { return config.outputLayout.hasDRAMBufferType(); });
+  return configIter->outputLayout;
 }
 
 bool BFInterleavedPolicy::hasL1BufferType(Operation *op) {
-  if (legalLayouts.count(op)) {
-    return std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
-                        [](TTNNLayoutAttr layout) {
-                          return layout.hasInterleavedL1TensorMemoryLayout();
-                        }) != legalLayouts[op].end();
+  if (legalConfigs.count(op)) {
+    return std::find_if(legalConfigs[op].begin(), legalConfigs[op].end(),
+                        [](OpConfig config) {
+                          return config.outputLayout
+                              .hasInterleavedL1TensorMemoryLayout();
+                        }) != legalConfigs[op].end();
   }
   return false;
 }
 
 TTNNLayoutAttr BFInterleavedPolicy::getL1InterleavedLayout(Operation *op) {
   assert(hasL1BufferType(op));
-  auto l1InterleaveLayoutIter =
-      std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
-                   [](TTNNLayoutAttr layout) {
-                     return layout.hasInterleavedL1TensorMemoryLayout();
-                   });
-  return *l1InterleaveLayoutIter;
+  auto configIter = std::find_if(
+      legalConfigs[op].begin(), legalConfigs[op].end(), [](OpConfig config) {
+        return config.outputLayout.hasInterleavedL1TensorMemoryLayout();
+      });
+  return configIter->outputLayout;
 }
 
 } // namespace mlir::tt::ttnn

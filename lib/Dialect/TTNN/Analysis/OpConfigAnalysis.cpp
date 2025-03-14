@@ -16,10 +16,10 @@ bool OpConfigAnalysis::applyOverrides() {
 void OpConfigAnalysis::analysisImplementation() {
 
   // Future entrypoint for picking optimal op config.
-  // Placeholder: pick the first legal layout.
+  // Placeholder: pick the first legal config.
   //
-  for (auto opLayouts : analysisInput.legalLayouts) {
-    analysisResult[opLayouts.first] = opLayouts.second[0];
+  for (auto opConfigs : analysisInput.legalConfigs) {
+    analysisResult[opConfigs.first] = opConfigs.second[0];
   }
 }
 } // namespace mlir::tt::ttnn
