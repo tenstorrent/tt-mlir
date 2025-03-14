@@ -116,28 +116,32 @@ LogicalResult DeviceModuleOp::verify() { return verifyModuleWrapper(*this); }
 LogicalResult CPUModuleOp::verify() { return verifyModuleWrapper(*this); }
 
 LogicalResult LoadCachedOp::verify() {
-  // Verify that the callee exists and has the right type
+  // Verify that the callee exists and has the right type.
   FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
   Operation *callee = SymbolTable::lookupNearestSymbolFrom(*this, calleeAttr);
-  if (!callee)
+  if (!callee) {
     return emitOpError() << "'" << calleeAttr.getValue()
                          << "' does not reference a valid function";
+  }
 
   auto funcOp = dyn_cast<func::FuncOp>(callee);
-  if (!funcOp)
+  if (!funcOp) {
     return emitOpError() << "'" << calleeAttr.getValue()
                          << "' does not reference a function";
+  }
 
   FunctionType fnType = funcOp.getFunctionType();
 
-  // Verify result count
-  if (fnType.getNumResults() != this->getNumResults())
+  // Verify result count.
+  if (fnType.getNumResults() != this->getNumResults()) {
     return emitOpError("incorrect number of results for callee");
+  }
 
-  // Verify result types directly
+  // Verify result types.
   for (unsigned i = 0; i < fnType.getNumResults(); ++i) {
-    if (this->getResult(i).getType() != fnType.getResult(i))
+    if (this->getResult(i).getType() != fnType.getResult(i)) {
       return emitOpError("result type mismatch at index ") << i;
+    }
   }
 
   return success();
