@@ -24,6 +24,7 @@ namespace mlir::tt::transforms {
 // Hoist const-eval subgraphs to separate funcs pass
 //===----------------------------------------------------------------------===//
 
+namespace {
 struct ConstEvalSubgraph {
   // Set of parameters to the original function that this subgraph depends on.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> inputParameters;
@@ -33,7 +34,9 @@ struct ConstEvalSubgraph {
   // merging dependent subgraph during analysis
   llvm::SmallPtrSet<mlir::Value, 4> values;
 };
+} // namespace
 
+namespace {
 // Helper class to wrap variadic list of ops and get if a given op is one of
 // these types.
 // OpTypeChecker - template for checking if an operation matches one of the
@@ -57,6 +60,11 @@ class OpTypeChecker<> {
 public:
   bool isOfType(mlir::Operation *op) const { return false; }
 };
+} // namespace
+
+namespace {
+// Analyzer class to detect const-eval subgraphs in a given FuncOp.
+// Template argument allows user to specify set of ops to not consider hoisting.
 template <typename IgnoreChecker = OpTypeChecker<>>
 class ConstEvalAnalyze {
 public:
@@ -297,9 +305,11 @@ private:
   llvm::SmallVector<ConstEvalSubgraph, 4> constEvalSubgraphs;
 };
 ConstEvalAnalyze(func::FuncOp) -> ConstEvalAnalyze<OpTypeChecker<>>;
+} // namespace
 
-// Transform pass to hoist specific ops (based on configured analysis pass)
-// into a cpu submodule for later independent lowering.
+namespace {
+// Transform pass to hoist const-eval subgraphs into separate funcs, invoked w/
+// tt.load_cached ops.
 template <typename IgnoreChecker = OpTypeChecker<>>
 class ConstEvalHoistTransform : public impl::ConstEvalHoistTransformBase<
                                     ConstEvalHoistTransform<IgnoreChecker>> {
@@ -487,6 +497,7 @@ private:
     }
   }
 };
+} // namespace
 
 template <typename... OpTypes>
 std::unique_ptr<Pass> createConstEvalHoistTransformWithIgnoreTypes() {
