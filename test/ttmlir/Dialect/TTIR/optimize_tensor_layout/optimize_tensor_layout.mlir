@@ -19,9 +19,9 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
         iterator_types = [#parallel, #reduction],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
-        // CHECK: ^bb0(%arg2: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK-SAME: %arg3: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK-SAME: %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
+        // CHECK: ^compute(%cb0: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
+        // CHECK-SAME: %cb1: memref<1x2x!tt.tile<32x32, f32>, #l1_>,
+        // CHECK-SAME: %cb2: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
         ^bb0(%arg2: memref<8x12x!tt.tile<32x32, f32>, #l1_>,
             %arg3: memref<8x12x!tt.tile<32x32, f32>, #l1_>,
             %arg4: memref<8x1x!tt.tile<32x32, f32>, #l1_>):
@@ -59,9 +59,9 @@ func.func @reduce_prime(%arg0: tensor<32x608xf32, #layout1>, %arg1: tensor<32x60
         iterator_types = [#parallel, #reduction],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
-        // CHECK: ^bb0(%arg2: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK-SAME: %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
-        // CHECK-SAME: %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
+        // CHECK: ^compute(%cb0: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
+        // CHECK-SAME: %cb1: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
+        // CHECK-SAME: %cb2: memref<1x1x!tt.tile<32x32, f32>, #l1_>):
         ^bb0(%arg2: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
             %arg3: memref<1x19x!tt.tile<32x32, f32>, #l1_>,
             %arg4: memref<1x1x!tt.tile<32x32, f32>, #l1_>):

@@ -23,6 +23,7 @@ def TTIR_Dialect : Dialect {
         or dialects that are actually supported by a consuming backend.
     }];
     let cppNamespace = "::mlir::tt::ttir";
+    let useDefaultTypePrinterParser = 1;
     let useDefaultAttributePrinterParser = 1;
     let dependentDialects = [
       "::mlir::arith::ArithDialect",
@@ -35,6 +36,10 @@ def TTIR_Dialect : Dialect {
     ];
 
     let hasConstantMaterializer = 1;
+
+    let extraClassDeclaration = [{
+        void registerTypes();
+    }];
 }
 
 //===----------------------------------------------------------------------===//
