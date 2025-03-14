@@ -5,16 +5,16 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
-#include <mlir/Dialect/Affine/IR/AffineOps.h>
-#include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Linalg/IR/Linalg.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/SCF/IR/SCF.h>
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/Rewrite/FrozenRewritePatternSet.h>
-#include <mlir/Transforms/DialectConversion.h>
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICDATAMOVEMENT
@@ -30,13 +30,10 @@ public:
   }
 
   static bool compatibleDeviceGrid(DeviceAttr device, GridAttr grid) {
-    if (grid.getShape().size() != device.getWorkerGrid().getShape().size()) {
-      return false;
-    }
-    return true;
+    return device.getWorkerGrid().getShape().size() == grid.getShape().size();
   }
 
-  static BlockArgument createSemaphore(OpBuilder &builder, Location loc) {
+  static BlockArgument createSemaphore(PatternRewriter &builder, Location loc) {
     Block *thisBlock = builder.getBlock();
     Operation *op = thisBlock->getParentOp();
     BlockArgument semaphore = nullptr;
@@ -98,13 +95,13 @@ public:
 
   static std::tuple<SmallVector<Value>, SmallVector<Value>, unsigned,
                     SmallVector<Value>>
-  calculateGatherMcastArguments(OpBuilder &blockBuilder, Location loc,
+  calculateGatherMcastArguments(PatternRewriter &rewriter, Location loc,
                                 GridAttr grid,
                                 ArrayRef<IteratorType> mcastIterators) {
-    Value zero = blockBuilder.create<arith::ConstantOp>(
-        loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(0));
-    Value one = blockBuilder.create<arith::ConstantOp>(
-        loc, blockBuilder.getIndexType(), blockBuilder.getIndexAttr(1));
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                                   rewriter.getIndexAttr(1));
 
     SmallVector<Value> coreIndex;
     SmallVector<Value> mcastShape;
@@ -114,12 +111,11 @@ public:
     mcastShape.reserve(grid.getShape().size());
 
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
-      Value gridDim = blockBuilder.create<arith::ConstantOp>(
-          loc, blockBuilder.getIndexType(),
-          blockBuilder.getIndexAttr(grid.getShape()[dim]));
-      Value core =
-          blockBuilder.create<CoreIndexOp>(loc, blockBuilder.getIndexType(),
-                                           blockBuilder.getI64IntegerAttr(dim));
+      Value gridDim = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(),
+          rewriter.getIndexAttr(grid.getShape()[dim]));
+      Value core = rewriter.create<CoreIndexOp>(
+          loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
       if (iteratorType == IteratorType::Parallel) {
         coreIndex.push_back(Value(core));
         mcastShape.push_back(Value(one));
@@ -129,8 +125,8 @@ public:
         mcastShape.push_back(gridDim);
         mcastVolume *= grid.getShape()[dim];
 
-        Value condition = blockBuilder.create<arith::CmpIOp>(
-            loc, blockBuilder.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
+        Value condition = rewriter.create<arith::CmpIOp>(
+            loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
             zero);
         conditions.push_back(condition);
       }
@@ -142,9 +138,9 @@ public:
   // One implementation of mcast by which one core (the 0th core for the
   // respective dim) takes on the role of (the sender) gathering and sending the
   // data to all other cores (the receivers) via mcast along the same dimension.
-  static void createGatherMcastDMA(OpBuilder &builder, Location loc, Value src,
-                                   Value dst, AffineMap operandIndexingMap,
-                                   GridAttr grid,
+  static void createGatherMcastDMA(PatternRewriter &builder, Location loc,
+                                   Value src, Value dst,
+                                   AffineMap operandIndexingMap, GridAttr grid,
                                    ArrayRef<IteratorType> mcastIterators) {
     SmallVector<Value> coreIndex, mcastShape, conditions;
     unsigned mcastVolume;
@@ -185,15 +181,14 @@ public:
         });
   }
 
-  static LogicalResult
-  buildDatamovementBlock(OpBuilder &builder, Location loc, Value genericOperand,
-                         Value blockOperand, GridAttr grid, DeviceAttr device,
-                         AffineMap operandIndexingMap,
-                         AffineMap gridIndexingMap, ArrayAttr iteratorTypes,
-                         bool isOutput) {
+  static LogicalResult buildDatamovementBlock(
+      PatternRewriter &builder, Location loc, Value genericOperand,
+      Value blockOperand, GridAttr grid, DeviceAttr device,
+      AffineMap operandIndexingMap, AffineMap gridIndexingMap,
+      ArrayAttr iteratorTypes, bool isOutput) {
     if (isOutput) {
-      // Wait for compute
-      builder.create<ttir::AwaitOp>(loc, ValueRange(blockOperand));
+      // Wait for compute.
+      builder.create<ttir::AwaitOp>(loc, blockOperand);
     }
 
     if (isStream(genericOperand.getType())) {
@@ -213,8 +208,8 @@ public:
     }
 
     if (!isOutput) {
-      // Push input to compute
-      builder.create<ttir::YieldOp>(loc, ValueRange(blockOperand));
+      // Push input to compute.
+      builder.create<ttir::YieldOp>(loc, blockOperand);
     }
 
     return success();
@@ -227,7 +222,7 @@ public:
       return failure();
     }
 
-    // One per operand
+    // One per operand.
     auto numDataMovementRegions = generic.getNumOperands();
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
@@ -236,8 +231,8 @@ public:
         generic.getNumRegions() + numDataMovementRegions);
 
     // Insert the new data movement regions.
-    auto [outputOperandsIndex, outputOperandsLength] =
-        generic.getODSOperandIndexAndLength(1);
+    unsigned outputOperandsIndex = generic.getOutputs().getBeginOperandIndex();
+    unsigned outputOperandsLength = generic.getOutputs().size();
     // The output and the grid indexing must always be aligned.
     AffineMap gridIndexingMap =
         mlir::cast<AffineMapAttr>(
@@ -253,14 +248,14 @@ public:
               generic.getRegion(0).getArgumentTypes().size(),
               generic.getLoc()));
 
-      OpBuilder blockBuilder = OpBuilder::atBlockEnd(datamovementBlock);
+      rewriter.setInsertionPointToEnd(datamovementBlock);
       bool isOutput = operand.getOperandNumber() >= outputOperandsIndex;
       AffineMap operandIndexingMap =
           mlir::cast<AffineMapAttr>(
               generic.getIndexingMaps()[operand.getOperandNumber()])
               .getValue();
       auto result = buildDatamovementBlock(
-          blockBuilder, generic->getLoc(),
+          rewriter, generic->getLoc(),
           generic->getOperand(operand.getOperandNumber()),
           datamovementBlock->getArgument(operand.getOperandNumber()),
           generic.getGrid(), device, operandIndexingMap, gridIndexingMap,
@@ -279,21 +274,19 @@ public:
     // Await / Yield insertion to compute region.
     {
       Block *computeBlock = &newGeneric.getRegion(computeRegionIndex).front();
-      OpBuilder blockBuilder = OpBuilder::atBlockBegin(computeBlock);
-      auto [inputOperandsIndex, inputOperandsLength] =
-          generic.getODSOperandIndexAndLength(0);
+      rewriter.setInsertionPointToStart(computeBlock);
 
-      // Await the inputs
-      blockBuilder.create<ttir::AwaitOp>(
-          generic->getLoc(), ValueRange(computeBlock->getArguments().take_front(
-                                 inputOperandsLength)));
+      // Await the inputs.
+      rewriter.create<ttir::AwaitOp>(
+          generic->getLoc(),
+          computeBlock->getArguments().take_front(generic.getInputs().size()));
 
-      blockBuilder.setInsertionPointToEnd(computeBlock);
+      rewriter.setInsertionPointToEnd(computeBlock);
 
-      // Yield the outputs
-      blockBuilder.create<ttir::YieldOp>(
-          generic->getLoc(), ValueRange(computeBlock->getArguments().take_back(
-                                 outputOperandsLength)));
+      // Yield the outputs.
+      rewriter.create<ttir::YieldOp>(
+          generic->getLoc(),
+          computeBlock->getArguments().take_back(outputOperandsLength));
     }
 
     rewriter.replaceOp(generic, newGeneric);

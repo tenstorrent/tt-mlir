@@ -2833,9 +2833,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
     return emitOpError("GenericOp grid mapping is not supported");
   }
 
-  auto [outputOperandsIndex, outputOperandsLength] =
-      getODSOperandIndexAndLength(1);
-  if (outputOperandsLength != 1) {
+  if (getOutputs().size() != 1) {
     return emitOpError(
         "GenericOp must currently have exactly one output operand");
   }
@@ -2944,8 +2942,10 @@ void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(
   for (BlockArgument arg : region.getArguments()) {
     if (mlir::isa<MemRefType>(arg.getType())) {
       setNameFn(arg, "cb" + std::to_string(cbIndex++));
-    } else {
+    } else if (mlir::isa<SemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
+    } else {
+      llvm_unreachable("Unexpected region argument type");
     }
   }
 }
@@ -3309,10 +3309,7 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 //===----------------------------------------------------------------------===//
 
 static bool valueInBlockArguments(mlir::Value value, mlir::Block *block) {
-  return llvm::any_of(block->getArguments(),
-                      [&](const mlir::BlockArgument &blockArgument) {
-                        return blockArgument == value;
-                      });
+  return llvm::is_contained(block->getArguments(), value);
 }
 
 static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
