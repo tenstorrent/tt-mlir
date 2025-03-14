@@ -81,11 +81,13 @@ private:
     // Iterate through arguments and check their tt.argument_type attributes
     for (auto arg : args) {
       auto argAttrs = funcOp.getArgAttrDict(arg.getArgNumber());
-      if (!argAttrs)
+      if (!argAttrs) {
         continue;
+      }
       auto typeAttr = argAttrs.get("tt.argument_type");
-      if (!typeAttr)
+      if (!typeAttr) {
         continue;
+      }
 
       // Cast to ArgumentTypeAttr
       if (auto enumAttr =
@@ -238,7 +240,7 @@ private:
             mergeSubgraphs(targetIdx, allIndices[i]);
           }
 
-          for (const auto movingOp : opsToInsert) {
+          for (auto *const movingOp : opsToInsert) {
             targetSubgraph.ops.emplace_back(movingOp);
 
             for (auto result : movingOp->getResults()) {

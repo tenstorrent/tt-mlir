@@ -1,9 +1,9 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
-#define TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
+#ifndef TTMLIR_TRANSFORMS_PASSES_H
+#define TTMLIR_TRANSFORMS_PASSES_H
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
