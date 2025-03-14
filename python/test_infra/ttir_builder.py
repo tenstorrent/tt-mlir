@@ -104,7 +104,7 @@ class TTIRBuilder:
         self._seed = 0
         # Dictionary to store Golden for each Operand we encounter in MLIR
         # graph.
-        self._goldens: Dict[Operand, Golden] = {}
+        self._goldens: Dict[Operand, List[Golden]] = {}
 
         # global ID of operations
         self._global_id = -1
@@ -143,7 +143,7 @@ class TTIRBuilder:
 
     def generate_and_store_random_golden(
         self, operand: Operand, dtype: torch.dtype = torch.float32
-    ) -> Golden:
+    ) -> List[Golden]:
         """
         Generates random tensor of `dtype`s of `operand`s shape, assigns it to a golden,
         and maps `operand` to that golden.
@@ -154,7 +154,7 @@ class TTIRBuilder:
         random_tensor = self._generate_random_tensor(
             self.get_shape(operand), dtype, seed
         )
-        golden = Golden(random_tensor, seed)
+        golden = [Golden(random_tensor, seed)]
         self._store_golden(operand, golden)
         return golden
 
@@ -172,7 +172,8 @@ class TTIRBuilder:
     def get_golden_map(self) -> Dict:
         golden_info = {}
         for name, golden_tensor in self.id_golden_map.items():
-            golden_tensor = golden_tensor.contiguous()
+            # ToDo : consider multiple golden. use first one for now.
+            golden_tensor = golden_tensor[0].contiguous()
             golden_info[name] = GoldenTensor(
                 name,
                 list(golden_tensor.tensor.shape),
@@ -233,20 +234,20 @@ class TTIRBuilder:
                 dtype=dtype,
             )
 
-    def _get_golden(self, operand: Operand) -> Golden:
+    def _get_golden(self, operand: Operand) -> List[Golden]:
         """Retrieves stored golden for `operand`."""
         golden = self._goldens.get(operand)
         assert golden is not None, f"Expected to have a golden stored for {operand}"
         return golden
 
-    def _store_golden(self, operand: Operand, golden: Golden) -> None:
+    def _store_golden(self, operand: Operand, golden: List[Golden]) -> None:
         """Maps `operand` to `golden`."""
         assert (
             self._goldens.get(operand) == None
         ), f"Golden for {operand} already exists."
         self._goldens[operand] = golden
 
-    def _override_golden(self, operand: Operand, golden: Golden) -> None:
+    def _override_golden(self, operand: Operand, golden: List[Golden]) -> None:
         """
         Overrides existing golden for `operand`.
 
@@ -258,8 +259,8 @@ class TTIRBuilder:
         ), f"Expected golden for {operand} to already exist before overriding it."
         self._goldens[operand] = golden
 
-    def _get_golden_tensor(self, operand: Operand) -> torch.Tensor:
-        return self._get_golden(operand).tensor
+    def _get_golden_tensor(self, operand: Operand) -> List[torch.Tensor]:
+        return [t.tensor for t in self._get_golden(operand)]
 
     @property
     def _default_dtype(self) -> Type:
@@ -389,7 +390,7 @@ class TTIRBuilder:
         return ([self._get_type(output)], inputs, [output])
 
     def _organize_eltwise_golden(self, inputs: List[Operand]):
-        return [self._get_golden_tensor(inp) for inp in inputs]
+        return [tensor for inp in inputs for tensor in self._get_golden_tensor(inp)]
 
     def op_proxy(
         self,
@@ -458,14 +459,14 @@ class TTIRBuilder:
             golden_output = op_golden_function(
                 *(organize_golden_args(inputs)), **golden_kwargs
             )
-            golden = (
-                Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
-                else Golden(golden_output)
+            goldens = (
+                [Golden(golden_output)]
+                if isinstance(golden_output, torch.Tensor)
+                else [Golden(golden) for golden in golden_output]
             )
-
             # Use the golden output to determine proper output shape unless otherwise specified
-            output_shape = golden.tensor.shape if not output_shape else output_shape
+            # We assume that all output goldens have the same shape in cases with multiple outputs.
+            output_shape = goldens[0].tensor.shape if not output_shape else output_shape
             if use_zeros:
                 output = self.zeros(output_shape)
             else:
@@ -487,9 +488,9 @@ class TTIRBuilder:
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            self.id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
-            self._override_golden(output, golden)
+            self.id_golden_map[str(loc)] = goldens
+            self._store_golden(op, goldens)
+            self._override_golden(output, goldens)
 
             return op
 
@@ -766,7 +767,7 @@ class TTIRBuilder:
             ttir_kwargs=kwargs,
             # special handling is needed here to get around arg expansion; `torch.concat` takes a tuple of tensors on input
             organize_golden_args=lambda i: (
-                tuple([self._get_golden_tensor(i_i) for i_i in i]),
+                tuple([t for i_i in i for t in self._get_golden_tensor(i_i)]),
             ),
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i, o),
         )
