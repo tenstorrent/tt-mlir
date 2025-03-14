@@ -10,6 +10,7 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/types.h"
 
+#include <cstddef>
 #include <dlfcn.h>
 
 namespace tt::runtime::ttnn::test {
@@ -100,6 +101,75 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
   return outputs;
 }
 
+using SupportedTypes =
+    std::variant<uint8_t, uint16_t, int32_t, uint32_t, float, bfloat16>;
+
+static SupportedTypes getValueForDType(::ttnn::DataType dtype, void *data) {
+  switch (dtype) {
+  case ::ttnn::DataType::UINT8:
+    return *static_cast<uint8_t *>(data);
+  case ::ttnn::DataType::UINT16:
+    return *static_cast<uint16_t *>(data);
+  case ::ttnn::DataType::INT32:
+    return *static_cast<int32_t *>(data);
+  case ::ttnn::DataType::UINT32:
+    return *static_cast<uint32_t *>(data);
+  case ::ttnn::DataType::FLOAT32:
+    return *static_cast<float *>(data);
+  case ::ttnn::DataType::BFLOAT16:
+    return *static_cast<bfloat16 *>(data);
+  // Defaults to uint8_t, i.e. raw data.
+  default:
+    return *static_cast<uint8_t *>(data);
+  }
+}
+
+static std::string toString(SupportedTypes &v) {
+  return std::visit(
+      [](const auto &val) {
+        using T = std::decay_t<decltype(val)>;
+        if constexpr (std::is_same_v<T, uint8_t> ||
+                      std::is_same_v<T, uint16_t>) {
+          // Print uint8_t and uint16_t as an integer.
+          return std::to_string(static_cast<int>(val));
+        } else if constexpr (std::is_same_v<T, bfloat16>) {
+          return std::to_string(val.to_float());
+        } else {
+          return std::to_string(val);
+        }
+      },
+      v);
+}
+
+using IndexTy = std::vector<size_t>;
+
+IndexTy getIndex(const ::ttnn::Shape &shape, size_t index) {
+  IndexTy result(shape.size());
+
+  size_t remaining = index;
+  size_t stride = 1;
+
+  assert(shape.size() > 0 && "Shape must have at least one dimension");
+  for (int32_t i = shape.size() - 1; i >= 0; i--) {
+    result[i] = (remaining / stride) % shape[i];
+    stride *= shape[i];
+  }
+
+  return result;
+}
+
+std::string toString(const IndexTy &v) {
+  std::string result = "[";
+  for (size_t i = 0; i < v.size(); i++) {
+    result += std::to_string(v[i]);
+    if (i != v.size() - 1) {
+      result += ", ";
+    }
+  }
+  result += "]";
+  return result;
+}
+
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
@@ -121,22 +191,13 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     // Compare various tensor properties
     //
     LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
-               "DType: ", static_cast<int>(lhsTensor->get_dtype()), ", ",
-               static_cast<int>(rhsTensor->get_dtype()));
-    LOG_ASSERT(lhsTensor->get_logical_shape() == rhsTensor->get_logical_shape(),
-               "Shape: ", lhsTensor->get_logical_shape(), ", ",
-               rhsTensor->get_logical_shape());
+               "DType: ", lhsTensor->get_dtype(), ", ", rhsTensor->get_dtype());
     LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
                "Layout: ", static_cast<int>(lhsTensor->get_layout()), ", ",
                static_cast<int>(rhsTensor->get_layout()));
     LOG_ASSERT(lhsTensor->get_logical_shape() == rhsTensor->get_logical_shape(),
                "Logical shape: ", lhsTensor->get_logical_shape(), ", ",
                rhsTensor->get_logical_shape());
-    LOG_ASSERT(lhsTensor->volume() == rhsTensor->volume(),
-               "Volume: ", lhsTensor->volume(), ", ", rhsTensor->volume());
-    LOG_ASSERT(lhsTensor->element_size() == rhsTensor->element_size(),
-               "Element size in bytes: ", lhsTensor->element_size(), ", ",
-               rhsTensor->element_size());
 
     // Compare tensor data
     //
@@ -145,11 +206,15 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     uint8_t *rhsData = static_cast<uint8_t *>(
         ::tt::tt_metal::get_raw_host_data_ptr(*rhsTensor));
     for (size_t i = 0; i < lhsTensor->volume() * lhsTensor->element_size();
-         i++) {
-      if (lhsData[i] != rhsData[i]) {
-        LOG_FATAL("Mismatch at byte number: ", i, ": ",
-                  static_cast<int>(lhsData[i]),
-                  " != ", static_cast<int>(rhsData[i]));
+         i += lhsTensor->element_size()) {
+      SupportedTypes lhsVal =
+          getValueForDType(lhsTensor->get_dtype(), lhsData + i);
+      SupportedTypes rhsVal =
+          getValueForDType(rhsTensor->get_dtype(), rhsData + i);
+      if (lhsVal != rhsVal) {
+        LOG_FATAL("Mismatch at index ",
+                  toString(getIndex(lhsTensor->get_logical_shape(), i)), ": ",
+                  toString(lhsVal), " != ", toString(rhsVal));
         return false;
       }
     }
