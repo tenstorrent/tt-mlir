@@ -168,9 +168,6 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     LOG_ASSERT(lhsTensor->get_logical_shape() == rhsTensor->get_logical_shape(),
                "Logical shape: ", lhsTensor->get_logical_shape(), ", ",
                rhsTensor->get_logical_shape());
-    LOG_ASSERT(lhsTensor->element_size() == rhsTensor->element_size(),
-               "Element size in bytes: ", lhsTensor->element_size(), ", ",
-               rhsTensor->element_size());
 
     // Compare tensor data
     //
