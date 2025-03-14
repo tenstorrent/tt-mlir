@@ -9,7 +9,7 @@
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
-#include "ttmlir/Target/TTNN/types_generated.h"
+#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
@@ -604,7 +604,7 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
     return ::tt::target::ttnn::UnaryOpType::Dropout;
   case ttnn::UnaryOpType::Fill:
     return ::tt::target::ttnn::UnaryOpType::Fill;
-  case ttnn::UnaryOpType::PreluFspu:
+  case ttnn::UnaryOpType::PreluSfpu:
     return ::tt::target::ttnn::UnaryOpType::PreluSfpu;
   case ttnn::UnaryOpType::ZeroPoint:
     return ::tt::target::ttnn::UnaryOpType::ZeroPoint;

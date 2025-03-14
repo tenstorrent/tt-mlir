@@ -155,7 +155,7 @@ def TTNN_UnaryOpType_Remainder  : I32EnumAttrCase<"Remainder", 74, "remainder">;
 def TTNN_UnaryOpType_Fmod  : I32EnumAttrCase<"Fmod", 75, "fmod">;
 def TTNN_UnaryOpType_Dropout  : I32EnumAttrCase<"Dropout", 76, "dropout">;
 def TTNN_UnaryOpType_Fill  : I32EnumAttrCase<"Fill", 77, "fill">;
-def TTNN_UnaryOpType_PreluSfpu  : I32EnumAttrCase<"PreluFspu", 78, "prelu_sfpu">;
+def TTNN_UnaryOpType_PreluSfpu  : I32EnumAttrCase<"PreluSfpu", 78, "prelu_sfpu">;
 def TTNN_UnaryOpType_ZeroPoint  : I32EnumAttrCase<"ZeroPoint", 79, "zero_point">;
 
 def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",

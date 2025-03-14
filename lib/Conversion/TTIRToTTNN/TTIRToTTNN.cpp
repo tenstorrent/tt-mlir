@@ -955,13 +955,24 @@ public:
     ttnn::CoreCoordAttr coreCoordAttr = rewriter.getAttr<ttnn::CoreCoordAttr>(
         rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
         rewriter.getIntegerAttr(rewriter.getI32Type(), 0));
-    ttnn::MatmulMultiCoreReuseProgramConfigAttr matmulConfigAttr =
-        rewriter.getAttr<ttnn::MatmulMultiCoreReuseProgramConfigAttr>(
+
+    auto floatAttr = rewriter.getF32FloatAttr(0.0f);
+    llvm::SmallVector<FloatAttr, 2> floatAttrs = {floatAttr, floatAttr};
+    llvm::ArrayRef<FloatAttr> arrayRefFloatAttrs(floatAttrs);
+    ttnn::UnaryWithParamAttr unaryWithParamAttr =
+        rewriter.getAttr<ttnn::UnaryWithParamAttr>(
+            ttnn::UnaryOpType::AddUnarySfpu, arrayRefFloatAttrs);
+    ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr matmulConfigAttr =
+        rewriter.getAttr<ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
             coreCoordAttr, rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
             rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
             rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
             rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
-            rewriter.getIntegerAttr(rewriter.getI32Type(), 0));
+            rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
+            rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
+            rewriter.getIntegerAttr(rewriter.getI32Type(), 0),
+            rewriter.getBoolAttr(false), unaryWithParamAttr,
+            rewriter.getBoolAttr(false));
 
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),

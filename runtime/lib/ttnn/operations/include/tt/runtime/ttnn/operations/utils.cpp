@@ -240,7 +240,4 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg) {
   return conv2dConfig;
 }
 
-::ttnn::operations::matmul::MatmulProgramConfig createMatmulProgramConfig(
-    const ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfig
-        *matmulProgramConfig) {}
 } // namespace tt::runtime::ttnn::operations::utils
