@@ -10,6 +10,7 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/types.h"
 
+#include <cstddef>
 #include <dlfcn.h>
 
 namespace tt::runtime::ttnn::test {
@@ -140,6 +141,35 @@ static std::string toString(SupportedTypes &v) {
       v);
 }
 
+using IndexTy = std::vector<size_t>;
+
+IndexTy getIndex(const ::ttnn::Shape &shape, size_t index) {
+  IndexTy result(shape.size());
+
+  size_t remaining = index;
+  size_t stride = 1;
+
+  assert(shape.size() > 0 && "Shape must have at least one dimension");
+  for (int32_t i = shape.size() - 1; i >= 0; i--) {
+    result[i] = (remaining / stride) % shape[i];
+    stride *= shape[i];
+  }
+
+  return result;
+}
+
+std::string toString(const IndexTy &v) {
+  std::string result = "[";
+  for (size_t i = 0; i < v.size(); i++) {
+    result += std::to_string(v[i]);
+    if (i != v.size() - 1) {
+      result += ", ";
+    }
+  }
+  result += "]";
+  return result;
+}
+
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
@@ -182,8 +212,9 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
       SupportedTypes rhsVal =
           getValueForDType(rhsTensor->get_dtype(), rhsData + i);
       if (lhsVal != rhsVal) {
-        LOG_FATAL("Mismatch at byte number: ", i, ": ", toString(lhsVal),
-                  " != ", toString(rhsVal));
+        LOG_FATAL("Mismatch at index ",
+                  toString(getIndex(lhsTensor->get_logical_shape(), i)), ": ",
+                  toString(lhsVal), " != ", toString(rhsVal));
         return false;
       }
     }
