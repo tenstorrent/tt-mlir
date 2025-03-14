@@ -2,16 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRALLOCATE
+#define GEN_PASS_DEF_TTIRPLACEHOLDERALLOCATE
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -36,6 +40,7 @@ inline MemorySpace getMemorySpace(RankedTensorType ty) {
 // Allocate pass
 //===----------------------------------------------------------------------===//
 
+namespace {
 class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
   struct SimpleAllocator {
     struct MemorySpaceInfo {
@@ -180,4 +185,102 @@ public:
     });
   }
 };
+} // namespace
+
+namespace {
+struct TTIRGenericFormStreams
+    : public OpRewritePattern<ttir::GenericOp> {
+  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
+
+  static bool needsStream(AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
+                          Value operand, bool isOutput) {
+    auto *definingOp = operand.getDefiningOp();
+    if (definingOp && (mlir::isa<ttir::StreamLayoutOp>(definingOp) ||
+                       mlir::isa<memref::AllocOp>(definingOp))) {
+      return false;
+    }
+
+    if (definingOp && mlir::isa<ttir::ViewLayoutOp>(definingOp)) {
+      return true;
+    }
+
+    bool operandNeedsReduction = llvm::any_of(
+        llvm::enumerate(operandIndexingMap.getResults()), [&](auto it) {
+          auto [dim, expr] = it;
+          unsigned dimPosition = operandIndexingMap.getDimPosition(dim);
+          IteratorType iteratorType =
+              mlir::cast<IteratorTypeAttr>(iteratorTypes[dimPosition])
+                  .getValue();
+          return iteratorType == IteratorType::Reduction;
+        });
+
+    return !isOutput && operandNeedsReduction;
+  }
+
+  static void insertStream(PatternRewriter &rewriter, OpOperand &operand,
+                           ttir::GenericOp op) {
+    auto memref = mlir::cast<MemRefType>(operand.get().getType());
+    auto streamAttr =
+        rewriter.getAttr<StreamLayoutAttr>(memref.getLayout().getAffineMap());
+    auto streamMemref =
+        MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,
+                        memref.getMemorySpace());
+    auto storage = rewriter.create<memref::AllocOp>(op.getLoc(), memref);
+    auto streamLayout = rewriter.create<ttir::StreamLayoutOp>(
+        op.getLoc(), streamMemref, operand.get(), storage);
+    rewriter.modifyOpInPlace(
+        op, [&]() { operand.assign(streamLayout.getResult()); });
+  }
+
+  LogicalResult matchAndRewrite(ttir::GenericOp op,
+                                PatternRewriter &rewriter) const final {
+    bool modified = false;
+    auto [outputOperandsIndex, outputOperandsLength] =
+        op.getODSOperandIndexAndLength(1);
+    ArrayAttr iteratorTypes = op.getIteratorTypes();
+    for (OpOperand &operand : op->getOpOperands()) {
+      bool isOutput = operand.getOperandNumber() >= outputOperandsIndex;
+      AffineMap operandIndexingMap =
+          mlir::cast<AffineMapAttr>(
+              op.getIndexingMaps()[operand.getOperandNumber()])
+              .getValue();
+
+      if (!needsStream(operandIndexingMap, iteratorTypes, operand.get(),
+                       isOutput)) {
+        continue;
+      }
+
+      insertStream(rewriter, operand, op);
+
+      modified = true;
+    }
+
+    return modified ? success() : failure();
+  }
+};
+} // namespace
+
+namespace {
+class TTIRPlaceholderAllocate
+    : public impl::TTIRPlaceholderAllocateBase<TTIRPlaceholderAllocate> {
+
+  using impl::TTIRPlaceholderAllocateBase<
+      TTIRPlaceholderAllocate>::TTIRPlaceholderAllocateBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericFormStreams>(&getContext());
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttir

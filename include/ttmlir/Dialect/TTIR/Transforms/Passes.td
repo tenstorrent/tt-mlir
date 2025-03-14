@@ -205,6 +205,12 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRPlaceholderAllocate : Pass<"ttir-placeholder-allocate", "::mlir::ModuleOp"> {
+  let summary = "Insert allocate/deallocate ops for tensors.";
+  let description = [{
+  }];
+}
+
 def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
   let summary = "Load system desc.";
   let description = [{
