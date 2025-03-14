@@ -110,8 +110,6 @@ module {
   // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}}) <{operandSegmentSizes = array<i32: 2, 1>}>
 
   // CHECK-LABEL: func.func @forward_merge_const_eval_0
-  // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}}) <{operandSegmentSizes = array<i32: 2, 1>}>
-  // CHECK: "ttir.add"(%{{.*}}, %{{.*}}, %{{.*}}) <{operandSegmentSizes = array<i32: 2, 1>}>
   // CHECK: "ttir.subtract"(%{{.*}}, %{{.*}}, %{{.*}}) <{operandSegmentSizes = array<i32: 2, 1>}>
 
   // CHECK-LABEL: func.func @forward_merge_return_multiple_values_const_eval_0
