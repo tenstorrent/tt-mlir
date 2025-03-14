@@ -48,7 +48,9 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [HasMemoryConfigTrait]> 
     let hasVerifier = 1;
 }
 
-def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
+def TTNN_ToLayoutOp : TTNN_Op<"to_layout",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ToLayout op.";
     let description = [{
       This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
@@ -1470,6 +1472,8 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
@@ -1488,6 +1492,8 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
@@ -1501,6 +1507,30 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
                          TT_ReduceTypeAttr:$reduce_type,
                          UI32Attr:$cluster_axis,
                          DefaultValuedAttr<UI32Attr, "1">:$num_links);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+
+    let hasFolder = 1;
+}
+
+def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
+    let summary = "Collective permute op.";
+    let description = [{
+      Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
+
+      Example:
+        For a 1x2 mesh, the following will take the device shard living in device 0 and move it to device 1. The device shard living in device 1 will move to device 0.
+        %source_target_pairs: [[0, 1], [1, 0]]
+
+        In the case of missing 'dest', the device shard living on that device will contain values of 0. For example, device shard living in device 0 will contain 0 values.
+        %source_target_pairs: [[0, 1]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
+                         I64ElementsAttr:$source_target_pairs);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1524,7 +1554,7 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds();
+        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(getShardType());
       }
     }];
 

@@ -89,11 +89,11 @@ private:
 class ProgramTensorPool {
 public:
   ProgramTensorPool(
-      const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputIds,
-      const std::vector<uint32_t> &programOutputIds)
+      const std::vector<uint32_t> &programOutputIds,
+      std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors)
       : programInputIds(programInputIds), programOutputIds(programOutputIds),
-        liveTensors(liveTensors) {}
+        liveTensors(std::move(liveTensors)) {}
   ProgramTensorPool(const ProgramTensorPool &) = delete;
   ProgramTensorPool &operator=(const ProgramTensorPool &) = delete;
   ProgramTensorPool(ProgramTensorPool &&) = default;
@@ -138,14 +138,13 @@ private:
 
 class ProgramContext {
 public:
-  ProgramContext(
-      const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-      const std::vector<uint32_t> &programInputs,
-      const std::vector<uint32_t> &programOutputs,
-      common::DylibManager &&programDylibManager,
-      ::ttnn::MeshDevice *parentMesh)
-      : tensorPool(
-            ProgramTensorPool(liveTensors, programInputs, programOutputs)),
+  ProgramContext(const std::vector<uint32_t> &programInputIds,
+                 const std::vector<uint32_t> &programOutputIds,
+                 std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
+                 common::DylibManager &&programDylibManager,
+                 ::ttnn::MeshDevice *parentMesh)
+      : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
+                                     std::move(liveTensors))),
         dylibManager(std::move(programDylibManager)), parentMesh(parentMesh) {
     LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
   }

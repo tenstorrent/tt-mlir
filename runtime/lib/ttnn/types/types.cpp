@@ -382,14 +382,15 @@ ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
 std::vector<Tensor> ProgramTensorPool::gatherOutputTensors() {
   std::vector<Tensor> outputTensors;
   outputTensors.reserve(programOutputIds.size());
-  std::transform(
-      programOutputIds.begin(), programOutputIds.end(),
-      std::back_inserter(outputTensors), [this](uint32_t outputGlobalId) {
-        LOG_ASSERT(liveTensors.contains(outputGlobalId));
-        const ::ttnn::Tensor &ttnnTensor = *liveTensors.at(outputGlobalId);
-        DEBUG_ASSERT(ttnnTensor.is_allocated());
-        return utils::createRuntimeTensorFromTTNN(ttnnTensor);
-      });
+  std::transform(programOutputIds.begin(), programOutputIds.end(),
+                 std::back_inserter(outputTensors),
+                 [this](uint32_t outputGlobalId) -> ::tt::runtime::Tensor {
+                   LOG_ASSERT(liveTensors.contains(outputGlobalId));
+                   const ::ttnn::Tensor &ttnnTensor =
+                       *liveTensors.at(outputGlobalId);
+                   DEBUG_ASSERT(ttnnTensor.is_allocated());
+                   return utils::createRuntimeTensorFromTTNN(ttnnTensor);
+                 });
   return outputTensors;
 }
 

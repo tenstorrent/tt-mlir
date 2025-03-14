@@ -318,12 +318,12 @@ module @jit_matmul_shardy_automatic attributes {mhlo.num_partitions = 8 : i32, m
 // CHECK-SAME: shard_dims = array<i64: 0, 1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<manual>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<manual>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>
 // CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
@@ -353,15 +353,15 @@ module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 // CHECK-SAME: shard_dims = array<i64: 0, 1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 4>
-// CHECK-SAME: shard_type = #tt.shard_type<manual>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<manual>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>
 // CHECK: = "ttir.all_reduce"
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #tt.shard_type<manual>
+// CHECK-SAME: shard_type = #tt.shard_type<identity>

@@ -11,9 +11,7 @@
 
 namespace tt {
 namespace tt_metal {
-inline namespace v0 {
 class IDevice;
-} // namespace v0
 } // namespace tt_metal
 } // namespace tt
 
@@ -30,7 +28,7 @@ class SingletonDeviceContext {
 public:
   static SingletonDeviceContext &getInstance();
 
-  ::tt::tt_metal::v0::IDevice *getDevice() { return m_device; }
+  ::tt::tt_metal::IDevice *getDevice() { return m_device; }
 
 private:
   SingletonDeviceContext(

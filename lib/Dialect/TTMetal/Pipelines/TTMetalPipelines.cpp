@@ -29,23 +29,26 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
            const bufferization::BufferizationOptions &bufferizationOptions)
         -> ::mlir::BaseMemRefType {
       auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-      if (!rankedTensorType.getEncoding()) {
-        return bufferization::getMemRefTypeWithStaticIdentityLayout(
-            tensorType, memorySpace);
-      }
+      assert(rankedTensorType.getEncoding());
       return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getBufferType();
     };
     bufferizationOptions.defaultMemorySpaceFn =
         [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
       auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-      if (!rankedTensorType.getEncoding()) {
-        return mlir::tt::MemorySpaceAttr::get(tensorType.getContext(),
-                                              mlir::tt::MemorySpace::DeviceL1);
-      }
+      assert(rankedTensorType.getEncoding());
       return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getMemref()
           .getMemorySpace();
+    };
+    bufferizationOptions.unknownTypeConverterFn =
+        [](Value value, Attribute memorySpace,
+           const bufferization::BufferizationOptions &) -> BaseMemRefType {
+      auto rankedTensorType =
+          mlir::cast<::mlir::RankedTensorType>(value.getType());
+      assert(rankedTensorType.getEncoding());
+      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+          .getBufferType();
     };
   }
   pm.addPass(

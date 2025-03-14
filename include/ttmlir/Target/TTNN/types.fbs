@@ -24,7 +24,7 @@ enum MeshShardDirection: uint32 {
 }
 
 enum MeshShardType: uint32 {
-  Manual,
+  Identity,
   Replicate,
   Maximal,
   Devices,

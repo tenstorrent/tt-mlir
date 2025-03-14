@@ -94,9 +94,9 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic", [AttrSizedOperandSegments, N
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
         operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
       ({
-      ^bb0(%arg2: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, alias>>,
-           %arg3: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, stream>>,
-           %arg4: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, alias>>):
+      ^bb0(%arg2: memref<64x128xf32, #l1_>,
+           %arg3: memref<64x128xf32, #l1_>,
+           %arg4: memref<64x128xf32, #l1_>):
           // Region body, would contain some computation that represents the work each core does.
       }) : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
@@ -175,7 +175,7 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
       ```llvm
       %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
       %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3), stream>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3)>, #l1_>
       ```
     }];
 
@@ -2020,6 +2020,30 @@ def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
                          TT_ReduceTypeAttr:$reduce_type,
                          SI32Attr:$scatter_dim,
                          UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+    let hasVerifier = 1;
+}
+
+def TTIR_CollectivePermuteOp : TTIR_DPSOp<"collective_permute"> {
+    let summary = "Collective permute operation.";
+    let description = [{
+      Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
+
+      Example:
+        For a 1x2 mesh, the following will take the device shard living in device 0 and move it to device 1. The device shard living in device 1 will move to device 0.
+        %source_target_pairs: [[0, 1], [1, 0]]
+
+        In the case of missing 'dest', the device shard living on that device will contain values of 0. For example, device shard living in device 0 will contain 0 values.
+        %source_target_pairs: [[0, 1]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I64ElementsAttr:$source_target_pairs);
 
     let results = (outs AnyRankedTensor:$result);
     let extraClassDeclaration = [{

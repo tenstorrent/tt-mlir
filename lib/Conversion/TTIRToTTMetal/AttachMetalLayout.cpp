@@ -37,15 +37,8 @@ public:
           return layout;
         }
 
-        // Select some stream layout defaults for the given memory space:
-        StreamMode streamMode;
-        uint32_t numBuffers;
-        std::tie(streamMode, numBuffers) =
-            StreamLayoutAttr::getDefaults(initMemorySpace);
         auto tileType = TileType::get(ctx, type.getElementType());
-
-        return layout.withElementType(ctx, tileType)
-            .withStreamMode(ctx, streamMode, numBuffers);
+        return layout.withElementType(ctx, tileType);
       }();
 
       return RankedTensorType::get(type.getShape(), type.getElementType(),

@@ -5,10 +5,10 @@
 #include "operations/ccl/mesh_shard.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/workarounds.h"
 #include "ttnn/distributed/distributed_tensor.hpp"
 #include "ttnn/tensor/xtensor/partition.hpp"
 
@@ -110,20 +110,24 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   const auto *fbShardDims = op->shard_dims();
   std::vector<int64_t> shardShape(fbShardShape->begin(), fbShardShape->end());
   std::vector<int64_t> shardDims(fbShardDims->begin(), fbShardDims->end());
-  DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(input.storage_type()),
-               "Input of ttnn::mesh_shard should be host tensor");
 
-  // Regards manual sharding as no op assuming that the input tensor is
+  // Regards identity mesh shard type as no op assuming that the input tensor is
   // pre-sharded by frontend. Thus, no sharding is required, but need to makes
-  // sure if the tensor is multi-device host tensor.
-  if (shardType == ::tt::target::ttnn::MeshShardType::Manual) {
-    LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::MULTI_DEVICE_HOST,
-               "Input of mesh_shard with manual sharding must be MULTI DEVICE "
-               "HOST Storage. id:",
+  // sure if the tensor is multi-device or multi-device host tensor.
+  if (shardType == ::tt::target::ttnn::MeshShardType::Identity) {
+    LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::MULTI_DEVICE ||
+                   input.storage_type() ==
+                       ::ttnn::StorageType::MULTI_DEVICE_HOST,
+               "Input of mesh_shard with identity shard_type must be MULTI "
+               "DEVICE or MULTI DEVICE HOST Storage. id:",
                op->in()->global_id());
     tensorPool.insertAndValidate(op->out(), input);
     return;
   }
+
+  DEBUG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(input.storage_type()),
+               "Input of ttnn::mesh_shard should be host tensor for replicate "
+               "and devices operations.");
 
   if (shardDirection !=
           ::tt::target::ttnn::MeshShardDirection::FullToShardShape &&

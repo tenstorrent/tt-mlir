@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/ccl/all_gather.h"
+#include "operations/ccl/collective_permute.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
@@ -77,38 +78,60 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 namespace {
 class ProgramExecutor {
 public:
-  ProgramExecutor(
-      const Binary &executableHandle,
-      const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-      const std::vector<uint32_t> &programInputs,
-      const std::vector<uint32_t> &programOutputs,
-      common::DylibManager &&dylibManager, ::ttnn::MeshDevice *meshDevice)
-      : executableHandle(executableHandle),
-        context(ProgramContext(liveTensors, programInputs, programOutputs,
-                               std::move(dylibManager), meshDevice)) {}
+  ProgramExecutor(const ::tt::target::ttnn::Program *program,
+                  const Binary &executableHandle,
+                  const std::vector<::ttnn::Tensor *> &programInputs,
+                  ::ttnn::MeshDevice *meshDevice)
+      : program(program), executableHandle(executableHandle) {
+    LOG_ASSERT(program, "Program must be provided for execution");
+
+    std::vector<uint32_t> programInputIds;
+    int inputIndex = 0;
+    std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+    LOG_ASSERT(program->inputs()->size() == programInputs.size(),
+               "Program input size mismatch: ", program->inputs()->size(),
+               " != ", programInputs.size());
+    for (const ::tt::target::ttnn::TensorRef *input : *program->inputs()) {
+      auto [iter, inserted] = liveTensors.try_emplace(
+          input->global_id(), programInputs[inputIndex++]);
+      LOG_ASSERT(inserted, "Duplicate input tensor");
+      programInputIds.push_back(input->global_id());
+    }
+
+    std::vector<uint32_t> programOutputIds;
+    for (const ::tt::target::ttnn::TensorRef *output : *program->outputs()) {
+      programOutputIds.push_back(output->global_id());
+    }
+
+    context = std::make_unique<ProgramContext>(
+        programInputIds, programOutputIds, std::move(liveTensors),
+        common::DylibManager(program->dylibs()), meshDevice);
+  }
 
   void runCallback(Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
-  void execute(const ::tt::target::ttnn::Program *program) {
+  void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
       runOperation(op);
-      runCallback(executableHandle, op, &context);
+      runCallback(executableHandle, op, context.get());
     }
   }
 
-  ProgramContext &getContext() { return context; }
+  ProgramContext &getContext() { return *context; }
+
   std::vector<Tensor> gatherOutputTensors() {
-    return context.getTensorPool().gatherOutputTensors();
+    return context->getTensorPool().gatherOutputTensors();
   }
 
 private:
+  const ::tt::target::ttnn::Program *program;
   Binary executableHandle;
-  ProgramContext context;
+  std::unique_ptr<ProgramContext> context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
@@ -133,19 +156,21 @@ void ProgramExecutor::runEltwiseOperation(
     const ::tt::target::ttnn::EltwiseOp *op) {
   auto runUnaryOp = [&]() {
     if (operations::unary::composite::isUnaryCompositeOp(op)) {
-      return operations::unary::composite::run(op, context);
+      return operations::unary::composite::run(op, getContext());
     }
-    return operations::unary::run(op, context);
+    return operations::unary::run(op, getContext());
   };
 
   auto runBinaryOp = [&]() {
     if (operations::binary::composite::isBinaryCompositeOp(op)) {
-      return operations::binary::composite::run(op, context);
+      return operations::binary::composite::run(op, getContext());
     }
-    return operations::binary::run(op, context);
+    return operations::binary::run(op, getContext());
   };
 
-  auto runTernaryOp = [&]() { return operations::ternary::run(op, context); };
+  auto runTernaryOp = [&]() {
+    return operations::ternary::run(op, getContext());
+  };
 
   if (operations::unary::isUnaryOp(op)) {
     return runUnaryOp();
@@ -164,134 +189,145 @@ void ProgramExecutor::runEltwiseOperation(
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
-    return operations::context::run(op->type_as_GetDeviceOp(), context);
+    return operations::context::run(op->type_as_GetDeviceOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
-    return operations::layout::run(op->type_as_ToMemoryConfigOp(), context);
+    return operations::layout::run(op->type_as_ToMemoryConfigOp(),
+                                   getContext());
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
-    return operations::layout::run(op->type_as_ToLayoutOp(), context);
+    return operations::layout::run(op->type_as_ToLayoutOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ToDTypeOp: {
-    return operations::layout::run(op->type_as_ToDTypeOp(), context);
+    return operations::layout::run(op->type_as_ToDTypeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
-    return operations::layout::run(op->type_as_TypecastOp(), context);
+    return operations::layout::run(op->type_as_TypecastOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ToDeviceOp: {
-    return operations::layout::run(op->type_as_ToDeviceOp(), context);
+    return operations::layout::run(op->type_as_ToDeviceOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::FromDeviceOp: {
-    return operations::layout::run(op->type_as_FromDeviceOp(), context);
+    return operations::layout::run(op->type_as_FromDeviceOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
-    return operations::creation::run(op->type_as_EmptyOp(), context);
+    return operations::creation::run(op->type_as_EmptyOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ZerosOp: {
-    return operations::creation::run(op->type_as_ZerosOp(), context);
+    return operations::creation::run(op->type_as_ZerosOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::OnesOp: {
-    return operations::creation::run(op->type_as_OnesOp(), context);
+    return operations::creation::run(op->type_as_OnesOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::FullOp: {
-    return operations::creation::run(op->type_as_FullOp(), context);
+    return operations::creation::run(op->type_as_FullOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
     return runEltwiseOperation(op->type_as_EltwiseOp());
   }
   case ::tt::target::ttnn::OpType::LinearOp: {
-    return operations::matmul::run(op->type_as_LinearOp(), context);
+    return operations::matmul::run(op->type_as_LinearOp(), getContext());
   }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {
-    return operations::matmul::run(op->type_as_MatmulOp(), context);
+    return operations::matmul::run(op->type_as_MatmulOp(), getContext());
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
-    return operations::moreh::run(op->type_as_MorehCumSumOp(), context);
+    return operations::moreh::run(op->type_as_MorehCumSumOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
-    return operations::reduction::run(op->type_as_ReductionArgMaxOp(), context);
+    return operations::reduction::run(op->type_as_ReductionArgMaxOp(),
+                                      getContext());
   }
   case ::tt::target::ttnn::OpType::ReductionProdOp: {
-    return operations::reduction::run(op->type_as_ReductionProdOp(), context);
+    return operations::reduction::run(op->type_as_ReductionProdOp(),
+                                      getContext());
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
-    return operations::reduction::run(op->type_as_ReductionOp(), context);
+    return operations::reduction::run(op->type_as_ReductionOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
-    return operations::embedding::run(op->type_as_EmbeddingOp(), context);
+    return operations::embedding::run(op->type_as_EmbeddingOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
     return operations::embedding_backward::run(
-        op->type_as_EmbeddingBackwardOp(), context);
+        op->type_as_EmbeddingBackwardOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
-    return operations::normalization::run(op->type_as_SoftmaxOp(), context);
+    return operations::normalization::run(op->type_as_SoftmaxOp(),
+                                          getContext());
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
-    return operations::data_movement::run(op->type_as_TransposeOp(), context);
+    return operations::data_movement::run(op->type_as_TransposeOp(),
+                                          getContext());
   }
   case ::tt::target::ttnn::OpType::PadOp: {
-    return operations::data_movement::run(op->type_as_PadOp(), context);
+    return operations::data_movement::run(op->type_as_PadOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
-    return operations::data_movement::run(op->type_as_ConcatOp(), context);
+    return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::PermuteOp: {
-    return operations::data_movement::run(op->type_as_PermuteOp(), context);
+    return operations::data_movement::run(op->type_as_PermuteOp(),
+                                          getContext());
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
-    return operations::data_movement::run(op->type_as_ReshapeOp(), context);
+    return operations::data_movement::run(op->type_as_ReshapeOp(),
+                                          getContext());
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
-    return operations::data_movement::run(op->type_as_SliceOp(), context);
+    return operations::data_movement::run(op->type_as_SliceOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
-    return operations::data_movement::run(op->type_as_RepeatOp(), context);
+    return operations::data_movement::run(op->type_as_RepeatOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
-                                          context);
+                                          getContext());
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
-    return operations::conv::run(op->type_as_Conv2dOp(), context);
+    return operations::conv::run(op->type_as_Conv2dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
-    return operations::conv::run(op->type_as_ConvTranspose2dOp(), context);
+    return operations::conv::run(op->type_as_ConvTranspose2dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
-    return operations::deletion::run(op->type_as_DeallocateOp(), context);
+    return operations::deletion::run(op->type_as_DeallocateOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
-    return operations::pool::run(op->type_as_MaxPool2dOp(), context);
+    return operations::pool::run(op->type_as_MaxPool2dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
-    return operations::ccl::run(op->type_as_AllGatherOp(), context);
+    return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
-    return operations::ccl::run(op->type_as_ReduceScatterOp(), context);
+    return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
+    return operations::ccl::run(op->type_as_CollectivePermuteOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
-    return operations::ccl::run(op->type_as_MeshShardOp(), context);
+    return operations::ccl::run(op->type_as_MeshShardOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
-    return operations::creation::run(op->type_as_ArangeOp(), context);
+    return operations::creation::run(op->type_as_ArangeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
-    return operations::kv_cache::run(op->type_as_UpdateCacheOp(), context);
+    return operations::kv_cache::run(op->type_as_UpdateCacheOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
-    return operations::kv_cache::run(op->type_as_FillCacheOp(), context);
+    return operations::kv_cache::run(op->type_as_FillCacheOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
-    return operations::pool::run(op->type_as_UpsampleOp(), context);
+    return operations::pool::run(op->type_as_UpsampleOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::CpuOp: {
-    return operations::cpu::run(op->type_as_CpuOp(), context);
+    return operations::cpu::run(op->type_as_CpuOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {
-    return operations::creation::run(op->type_as_ConstantOp(), context);
+    return operations::creation::run(op->type_as_ConstantOp(), getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type");
@@ -306,26 +342,8 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
-  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
-  std::vector<uint32_t> programInputs;
-  int inputIndex = 0;
-  LOG_ASSERT(program->inputs()->size() == inputs.size(),
-             "Program input size mismatch: ", program->inputs()->size(),
-             " != ", inputs.size());
-  for (::tt::target::ttnn::TensorRef const *input : *program->inputs()) {
-    auto [iter, inserted] =
-        liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
-    LOG_ASSERT(inserted, "Duplicate input tensor");
-    programInputs.push_back(input->global_id());
-  }
-  std::vector<uint32_t> programOutputs;
-  for (::tt::target::ttnn::TensorRef const *output : *program->outputs()) {
-    programOutputs.push_back(output->global_id());
-  }
-  ProgramExecutor executor(
-      executableHandle, liveTensors, programInputs, programOutputs,
-      common::DylibManager(program->dylibs()), &meshDevice);
-  executor.execute(program);
+  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice);
+  executor.execute();
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;
 }
