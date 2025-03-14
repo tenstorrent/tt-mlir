@@ -14,7 +14,34 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
     and hoist them into separate functions. This pass is dialect-agnostic and works with
     any dialect that implements the ConstEvalHoistingInterface.
 
-    Example: (TODO)
+    Example:
+
+    func.func @forward(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
+      %0 = tensor.empty() : tensor<32x32xbf16>
+      %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %2 = tensor.empty() : tensor<32x32xbf16>
+      %3 = "ttir.subtract"(%arg2, %arg3, %2)  <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %4 = tensor.empty() : tensor<32x32xbf16>
+      %5 = "ttir.add"(%1, %3, %4)  <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %5 : tensor<32x32xbf16>
+    }
+
+    becomes:
+
+    func.func @forward(%arg0: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<input>}, %arg1: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {tt.argument_type = #tt.argument_type<constant>}) -> tensor<32x32xbf16> {
+      %0 = tt.load_cached(@forward_const_eval_0, [%arg2, %arg3]) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %1 = tensor.empty() : tensor<32x32xbf16>
+      %2 = "ttir.add"(%arg0, %arg1, %1) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %3 = tensor.empty() : tensor<32x32xbf16>
+      %4 = "ttir.add"(%2, %0, %3) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %4 : tensor<32x32xbf16>
+    }
+    func.func @forward_const_eval_0(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {const_eval} {
+      %0 = tensor.empty() : tensor<32x32xbf16>
+      %1 = "ttir.subtract"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %1 : tensor<32x32xbf16>
+    }
+
   }];
 
   // let dependentDialects = ["::mlir::tt::TTDialect"];

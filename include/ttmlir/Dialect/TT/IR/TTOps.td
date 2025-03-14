@@ -155,19 +155,6 @@ def TT_LoadCachedOp : TT_Op<"load_cached", []> {
   }];
 
   let hasVerifier = 1;
-
-  // You can add any custom methods that are relevant to your operation
-  // let extraClassDeclaration = [{
-  //   // Get the reference to the cached function
-  //   FlatSymbolRefAttr getCalleeAttr() {
-  //     return (*this)->getAttrOfType<FlatSymbolRefAttr>("callee");
-  //   }
-
-  //   // Get the function name as a string
-  //   StringRef getCallee() {
-  //     return getCalleeAttr().getValue();
-  //   }
-  // }];
 }
 
 #endif
