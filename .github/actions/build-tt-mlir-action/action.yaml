@@ -82,6 +82,13 @@ runs:
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
+    - name: Build tt-explorer
+      if: inputs.enable-explorer == 'ON'
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- explorer
+
     # Install needs to run after the "Compile dylibs" step
     #
     - name: Install
@@ -90,13 +97,6 @@ runs:
         source env/activate
         cmake --install ${{ inputs.build-output-dir }} --component Test
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
-
-    - name: Build tt-explorer
-      if: inputs.enable-explorer == 'ON'
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ inputs.build-output-dir }} -- explorer
 
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4

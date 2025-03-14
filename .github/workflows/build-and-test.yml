@@ -247,6 +247,22 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
+        # op-model tests -- ???is this needed or already run with llvm/lit above??? -- need to check
+        if [ "${{ matrix.build.suite }}" == "op_model" ]; then
+          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
+          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
+        fi
+
+    - name: Copy unit test report
+      if: matrix.build.type == 'unit'
+      shell: bash
+      run: |
+        if [ -f build/test/report.xml ]; then
+          cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
+          echo "Unit test report copied"
+        fi
+
     - name: Generate EmitC tests
       shell: bash
       if: matrix.build.suite == 'emitc'
@@ -256,25 +272,6 @@ jobs:
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
-
-    # Unit test runner
-    - name: Run unit tests
-      shell: bash
-      if: matrix.build.type == 'unit'
-      run: |
-        source env/activate
-        if [ -f "${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
-          export SYSTEM_DESC_PATH="${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
-        fi
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- run-ttmlir-tests
-        cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
-
-        # op-model tests -- ???is this needed??? -- need to check
-        if [ "${{ matrix.build.image }}" == "speedy" ]; then
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
-        fi
 
     # TTRT test runner
     - name: Run TTRT tests
