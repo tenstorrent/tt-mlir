@@ -11,7 +11,7 @@ func.func @subtract(%arg0: tensor<224x64xf32>, %arg1: tensor<224x64xf32>) -> ten
 
 func.func @div(%arg0: tensor<224x64xf32>, %arg1: tensor<224x64xf32>) -> tensor<224x64xf32> {
   %0 = tensor.empty() : tensor<224x64xf32>
-  // CHECK: "ttnn.div"
+  // CHECK: "ttnn.divide"
   %1 = "ttir.div"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<224x64xf32>, tensor<224x64xf32>, tensor<224x64xf32>) -> tensor<224x64xf32>
   return %1 : tensor<224x64xf32>
 }

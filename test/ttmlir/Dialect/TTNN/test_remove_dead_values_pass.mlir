@@ -45,8 +45,8 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
     %18 = "ttnn.to_layout"(%arg1) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout1>
     %19 = "ttnn.to_device"(%18, %0) <{memory_config = #ttnn.memory_config<#dram, <<2x4>>, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout1>, !tt.device<#device>) -> tensor<64x128xf32, #ttnn_layout1>
     "ttnn.deallocate"(%18) <{force = false}> : (tensor<64x128xf32, #ttnn_layout1>) -> ()
-    // CHECK-NOT: "ttnn.div"
-    %20 = "ttnn.div"(%17, %19) : (tensor<64x128xf32, #ttnn_layout1>, tensor<64x128xf32, #ttnn_layout1>) -> tensor<64x128xf32, #ttnn_layout2>
+    // CHECK-NOT: "ttnn.divide"
+    %20 = "ttnn.divide"(%17, %19) : (tensor<64x128xf32, #ttnn_layout1>, tensor<64x128xf32, #ttnn_layout1>) -> tensor<64x128xf32, #ttnn_layout2>
     "ttnn.deallocate"(%19) <{force = false}> : (tensor<64x128xf32, #ttnn_layout1>) -> ()
     "ttnn.deallocate"(%17) <{force = false}> : (tensor<64x128xf32, #ttnn_layout1>) -> ()
     %21 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout1>

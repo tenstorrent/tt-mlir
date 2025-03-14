@@ -57,6 +57,18 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::pow);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::BitwiseAnd: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_and);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::BitwiseOr: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_or);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::BitwiseXor: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_xor);
+    break;
+  }
   default:
     LOG_FATAL("Unsupported Eltwise Binary Composite operation");
   }
