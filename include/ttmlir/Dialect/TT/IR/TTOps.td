@@ -168,19 +168,6 @@ def TT_LoadCachedOp : TT_Op<"load_cached", [
   }];
 
   let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-    // CallOpInterface method implementations
-    StringAttr getCallableForCallee() { return getCalleeAttr(); }
-
-    // Set the callee name
-    void setCalleeFromCallable(CallInterfaceCallable callable) {
-      setCalleeAttr(cast<FlatSymbolRefAttr>(callable));
-    }
-
-    // Get the argument operands passed to the called function
-    ArrayRef<Value> getArgOperands() { return getInputs(); }
-  }];
 }
 
 #endif
