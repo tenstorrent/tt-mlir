@@ -287,26 +287,11 @@ bool MeshSharding::checkAndUpdateGSPMDRetSharding(
   return determineMeshShardOpCreationAndShardType(foundRetSharding);
 }
 
-// Convert sdy.sharding to meshSharding based on sdy::MeshAttr.
-llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
-    sdy::TensorShardingAttr sdySharding, sdy::MeshAttr meshAttr,
-    tt::MeshShardDirection direction) {
+// Parse Shardy sharding attribute.
+llvm::Expected<bool>
+MeshSharding::parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
+                               mlir::sdy::MeshAttr meshAttr) {
 
-  shardDirection = direction;
-
-  if (meshAttr.getAxes().empty()) {
-    if (meshAttr.getDeviceIds().empty()) {
-      // replicated
-      setNonDevicesShardType(mlir::tt::MeshShardType::Replicate);
-    } else {
-      // maximal
-      setNonDevicesShardType(mlir::tt::MeshShardType::Maximal);
-      deviceIds = llvm::SmallVector<int64_t>(meshAttr.getDeviceIds());
-    }
-    return true;
-  }
-
-  shardType = tt::MeshShardType::Devices;
   shardShape.assign(sdySharding.getRank(), 1);
   shardDims.assign(meshAttr.getAxes().size(), -1);
 
@@ -338,6 +323,35 @@ llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
     }
   }
 
+  return true;
+}
+
+// Convert sdy.sharding to meshSharding based on sdy::MeshAttr.
+llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
+    sdy::TensorShardingAttr sdySharding, sdy::MeshAttr meshAttr,
+    tt::MeshShardDirection direction) {
+
+  shardDirection = direction;
+  meshName = sdySharding.getMeshName();
+
+  if (meshAttr.getAxes().empty()) {
+    if (meshAttr.getDeviceIds().empty()) {
+      // replicated
+      setNonDevicesShardType(mlir::tt::MeshShardType::Replicate);
+    } else {
+      // maximal
+      setNonDevicesShardType(mlir::tt::MeshShardType::Maximal);
+      deviceIds = llvm::SmallVector<int64_t>(meshAttr.getDeviceIds());
+    }
+    return true;
+  }
+
+  shardType = tt::MeshShardType::Devices;
+  auto error = parseSdySharding(sdySharding, meshAttr);
+  if (auto e = error.takeError()) {
+    return e;
+  }
+
   // totalPartition is the total number of multi-chips such as 8 for t3k. Thus,
   // no overflow is expected with int64_t.
   int64_t totalPartition =
@@ -355,16 +369,15 @@ llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
 // to be created or not.
 bool MeshSharding::checkAndUpdateShardyArgSharding(
     mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp,
-    mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+    mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr) {
 
   bool foundArgSharding = false;
   if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(argOperand)) {
     auto argNum = blockArg.getArgNumber();
     foundArgSharding =
         checkAndRemoveFuncArgSharding<mlir::sdy::TensorShardingAttr>(
-            rewriter, funcOp, argNum, shardingAttr, tensorMeshShardingAttr,
-            mlir::sdy::kShardingAttr);
+            rewriter, funcOp, argNum, shardingAttr,
+            getTensorMeshShardingAttr(rewriter), mlir::sdy::kShardingAttr);
   }
 
   return determineMeshShardOpCreationAndShardType(foundArgSharding);
@@ -374,15 +387,48 @@ bool MeshSharding::checkAndUpdateShardyArgSharding(
 // to be created or not.
 bool MeshSharding::checkAndUpdateShardyRetSharding(
     mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp, uint64_t retIdx,
-    sdy::TensorShardingAttr shardingAttr,
-    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+    sdy::TensorShardingAttr shardingAttr) {
 
   bool foundRetSharding =
       checkAndRemoveFuncReturnSharding<sdy::TensorShardingAttr>(
-          rewriter, funcOp, retIdx, shardingAttr, tensorMeshShardingAttr,
-          mlir::sdy::kShardingAttr);
+          rewriter, funcOp, retIdx, shardingAttr,
+          getTensorMeshShardingAttr(rewriter), mlir::sdy::kShardingAttr);
 
   return determineMeshShardOpCreationAndShardType(foundRetSharding);
+}
+
+// Get TensorMeshShardingAttr given MeshSharding info.
+mlir::tt::TensorMeshShardingAttr
+MeshSharding::getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter) {
+  MLIRContext *context = rewriter.getContext();
+  auto meshNameStrAttr = mlir::StringAttr::get(context, meshName);
+  llvm::SmallVector<llvm::SmallVector<int64_t>> tensorAxes(
+      shardShape.size(), llvm::SmallVector<int64_t>{});
+  llvm::SmallVector<TensorMeshShardingAxisAttr> tensorMeshShardingAxisAttr;
+
+  // Only devices has sharding info, so rest shard_types return empty
+  // TensorMeshShardingAxis.
+  if (shardType != mlir::tt::MeshShardType::Devices) {
+    return mlir::tt::TensorMeshShardingAttr::get(context, meshNameStrAttr,
+                                                 tensorMeshShardingAxisAttr);
+  }
+
+  for (auto [shardIdx, shardDim] : llvm::enumerate(shardDims)) {
+    // Non-neagtive shardDim means actual sharding in certain hardware
+    // dimension. So, we would like to show only such info.
+    if (shardDim < 0) {
+      continue;
+    }
+    tensorAxes[shardDim].push_back(shardIdx);
+  }
+
+  for (auto [shape, axes] : llvm::zip_equal(shardShape, tensorAxes)) {
+    tensorMeshShardingAxisAttr.push_back(
+        mlir::tt::TensorMeshShardingAxisAttr::get(context, shape, axes));
+  }
+
+  return mlir::tt::TensorMeshShardingAttr::get(context, meshNameStrAttr,
+                                               tensorMeshShardingAxisAttr);
 }
 
 } // namespace sharding_utils
