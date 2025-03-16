@@ -82,6 +82,10 @@ def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::Modul
   let description = [{
     Analyze the graph and select optimal layouts, insert to_layout where needed.
   }];
+
+  list<Option> options = [
+        ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
+    ];
 }
 
 def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", "::mlir::ModuleOp"> {
