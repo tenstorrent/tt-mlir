@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-attach-metal-layout --ttir-bufferization-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-attach-metal-layout --ttir-bufferization-pipeline %s | FileCheck %s
 
 #l1_ = #tt.memory_space<l1>
 #map = affine_map<(d0, d1, d2) -> (d0, d2)>

@@ -5,7 +5,10 @@
 #ifndef UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H
 #define UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
@@ -25,9 +28,17 @@
 class OpModelFixture : public ::testing::Test {
 public:
   mlir::MLIRContext context;
+  mlir::OwningOpRef<mlir::ModuleOp> module;
   mlir::OpBuilder builder = mlir::OpBuilder(&context);
 
-  void SetUp() override { context.loadDialect<mlir::tt::ttnn::TTNNDialect>(); }
+  void SetUp() override {
+    // Initialize context and module
+    context.loadDialect<mlir::tt::TTDialect>();
+    context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
+    module = mlir::ModuleOp::create(builder.getUnknownLoc());
+    builder.setInsertionPointToStart(&module->getBodyRegion().front());
+    mlir::tt::registerDevice(module.get());
+  }
 
   // helper function
   llvm::SmallVector<int64_t>

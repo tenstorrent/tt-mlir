@@ -37,7 +37,7 @@ class TTNNToEmitCTypeConverter : public TypeConverter {
 public:
   TTNNToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](tt::DeviceType type) -> emitc::PointerType {
+    addConversion([ctx](tt::ttnn::DeviceType type) -> emitc::PointerType {
       return emitc::PointerType::get(
           emitc::OpaqueType::get(ctx, "ttnn::IDevice"));
     });

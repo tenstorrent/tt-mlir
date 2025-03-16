@@ -7,22 +7,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
-  let summary = "Create an implicit device";
-  let description = [{
-    This pass will take a view of the system descriptor and create an implicit
-    device around it.
-  }];
-
-  let options = [
-    ListOption<"meshShape", "mesh-shape", "int64_t",
-               "Set the multi-device mesh shape.">,
-    Option<"forceReload", "force-reload", "bool",
-           /*default=*/"false",
-           "Force reload the system descriptor.">
-  ];
-}
-
 def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
@@ -185,18 +169,6 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     this should be replaced with an analysis pass that can make global allocation
     decisions, followed by this pass that mechanically applies those decisions.
   }];
-}
-
-def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
-  let summary = "Load system desc.";
-  let description = [{
-    Load system descriptor as a compiler pass.
-  }];
-
-  list<Option> options = [
-        Option<"path", "path", "std::string", "", "System desc path">,
-        ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape.">,
-    ];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {

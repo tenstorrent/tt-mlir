@@ -710,7 +710,7 @@ public:
     // we construct a ttnn layout attribute with default values:
     // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
     {
-      DeviceAttr device = getCurrentScopeDevice(getOperation());
+      DeviceAttr device = lookupDevice(getOperation());
       assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeDefaultConverter(
           &getContext(), device.getWorkerGrid());

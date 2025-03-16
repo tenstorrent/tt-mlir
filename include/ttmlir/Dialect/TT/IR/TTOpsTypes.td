@@ -535,13 +535,6 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let genVerifyDecl = 1;
 }
 
-def TT_Device : TT_Type<"Device", "device", []> {
-    let summary = "TT device";
-    let description = "Device type in TT dialect";
-    let parameters = (ins TT_DeviceAttr:$desc);
-    let assemblyFormat = "`<` $desc `>`";
-}
-
 //===----------------------------------------------------------------------===//
 // Auxiliary type definitions
 //===----------------------------------------------------------------------===//

@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -20,7 +21,7 @@ namespace mlir::tt::ttnn {
 
 namespace detail {
 llvm::Expected<bool> checkDeviceWorkerGrid(mlir::Operation *op) {
-  auto deviceAttr = mlir::tt::getCurrentScopeDevice(op);
+  auto deviceAttr = mlir::tt::lookupDevice(op);
   assert(deviceAttr);
   return op_model::ttnn::Device::getDeviceConstraints(
       deviceAttr.getWorkerGrid());

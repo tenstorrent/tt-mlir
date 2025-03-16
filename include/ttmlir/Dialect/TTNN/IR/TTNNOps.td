@@ -26,7 +26,7 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     }];
 
     let arguments = (ins OptionalAttr<TTNN_MeshShapeAttr>:$mesh_shape);
-    let results = (outs TT_Device:$device);
+    let results = (outs TTNN_Device:$device);
 }
 
 def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [HasMemoryConfigTrait]> {
@@ -63,7 +63,7 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout",
                          TTNN_LayoutAttr:$layout,
                          OptionalAttr<TT_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         Optional<TT_Device>:$device);
+                         Optional<TTNN_Device>:$device);
     let results = (outs AnyRankedTensor:$result);
 
     let hasCanonicalizer = 1;
@@ -108,7 +108,7 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 }
@@ -1157,7 +1157,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d"> {
         %input = tensor.empty() : () -> tensor<1x1x1024x64xbf16>
         %weight = tensor.empty() : () -> tensor<64x64x3x3xbf16>
         %bias = tensor.empty() : () -> tensor<1x1x1x64xbf16>
-        %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
+        %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         %0 = "ttnn.conv2d"(%input, %weight, %bias, %device)
           <{
             in_channels = 64: i32,
@@ -1170,13 +1170,13 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d"> {
             padding = array<i32: 0, 0>,
             dilation = array<i32: 1, 1>,
             groups = 1: i32
-          }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !tt.device<#device>) -> tensor<1x1x900x64xbf16>
+          }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !ttnn.device) -> tensor<1x1x900x64xbf16>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          I32Attr:$in_channels,
                          I32Attr:$out_channels,
                          I32Attr:$batch_size,
@@ -1255,7 +1255,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          I32Attr:$in_channels,
                          I32Attr:$out_channels,
                          I32Attr:$batch_size,
@@ -1280,7 +1280,7 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          SI32Attr:$batch_size,
                          SI32Attr:$input_height,
                          SI32Attr:$input_width,
@@ -1334,7 +1334,7 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let arguments = (ins TTNN_ShapeAttr:$shape,
                          TT_DataTypeAttr:$dtype,
                          TTNN_LayoutAttr:$layout,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          TTNN_MemoryConfigAttr:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1361,7 +1361,7 @@ def TTNN_ArangeOp : TTNN_Op<"arange"> {
                        I64Attr:$end,
                        I64Attr:$step,
                        OptionalAttr<TT_DataTypeAttr>:$dtype,
-                       Optional<TT_Device>:$device,
+                       Optional<TTNN_Device>:$device,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
@@ -1383,7 +1383,7 @@ def TTNN_ZerosOp : TTNN_Op<"zeros"> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TT_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
-                       Optional<TT_Device>:$device,
+                       Optional<TTNN_Device>:$device,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
@@ -1404,7 +1404,7 @@ def TTNN_OnesOp : TTNN_Op<"ones"> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TT_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
-                       Optional<TT_Device>:$device,
+                       Optional<TTNN_Device>:$device,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
@@ -1416,7 +1416,7 @@ def TTNN_FullOp : TTNN_Op<"full"> {
       Tensor full operation
     }];
 
-    let arguments = (ins TT_Device:$device, F32Attr:$fillValue);
+    let arguments = (ins TTNN_Device:$device, F32Attr:$fillValue);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -1464,7 +1464,7 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          SI32Attr:$all_gather_dim,
                          UI32Attr:$cluster_axis,
                          DefaultValuedAttr<UI32Attr, "1">:$num_links);
@@ -1483,7 +1483,7 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          TT_ReduceTypeAttr:$reduce_type,
                          SI32Attr:$scatter_dim,
                          UI32Attr:$cluster_axis,
@@ -1503,7 +1503,7 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          TT_ReduceTypeAttr:$reduce_type,
                          UI32Attr:$cluster_axis,
                          DefaultValuedAttr<UI32Attr, "1">:$num_links);
@@ -1529,7 +1529,7 @@ def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          I64ElementsAttr:$source_target_pairs);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1544,7 +1544,7 @@ def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device,
+                         TTNN_Device:$device,
                          TT_MeshShardDirectionAttr:$shard_direction,
                          TT_MeshShardTypeAttr:$shard_type,
                          DenseI64ArrayAttr:$shard_shape,

@@ -51,4 +51,16 @@ def TTUnwrapDeviceModulePass : Pass<"tt-unwrap-device-module", "::mlir::ModuleOp
   let dependentDialects = ["::mlir::tt::TTDialect"];
 }
 
+def TTRegisterDevicePass : Pass<"tt-register-device", "::mlir::ModuleOp"> {
+  let summary = "Move tt.device_module contents to top-level builtin.module";
+  let description = [{
+    Utility pass to register the default device.
+  }];
+
+  list<Option> options = [
+        Option<"systemDescPath", "system-desc-path", "std::string", "", "System desc path">,
+        ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,
+    ];
+}
+
 #endif

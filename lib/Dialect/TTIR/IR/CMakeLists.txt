@@ -16,5 +16,6 @@ add_mlir_dialect_library(MLIRTTIRDialect
         MLIRTTOpsIncGen
 
         LINK_LIBS PUBLIC
+        MLIRTTDialect
         MLIRBufferizationTransforms
         )

@@ -106,9 +106,9 @@ def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::ml
 
     ```mlir
     func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
-      %0 = "ttnn.get_device"() : () -> !tt.device<#device>
-      %1 = "ttnn.to_device"(%arg0, %0) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
-      %2 = "ttnn.to_device"(%arg1, %0) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %0 = "ttnn.get_device"() : () -> !ttnn.device
+      %1 = "ttnn.to_device"(%arg0, %0) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%arg1, %0) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
       %3 = "ttnn.add"(%1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %3 : tensor<32x32xbf16>
     }
@@ -120,11 +120,11 @@ def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::ml
     - return type is modified to be a tuple
 
     ```mlir
-    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !tt.device<#device>) -> tuple<tensor<32x32xbf16>> {
+    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
       %0 = tt.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
       %1 = tt.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
-      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
-      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
       %4 = "ttnn.add"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %5 = tt.tuple %4 : tuple<tensor<32x32xbf16>>
       return %5 : tuple<tensor<32x32xbf16>>

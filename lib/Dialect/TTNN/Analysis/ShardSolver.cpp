@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -43,7 +44,7 @@ ShardSolver::ShardSolver(
 
   // Cache DeviceAttr.
   //
-  deviceAttr = getCurrentScopeDevice(shardSpecs.front().op);
+  deviceAttr = lookupDevice(shardSpecs.front().op);
 
   // Populate operandOpEdges and userOpEdges.
   //
@@ -644,7 +645,7 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
   if (OpModel backend = dyn_cast<OpModel>(consumerOp)) {
     // Constraints are implemented for this op.
     //
-    auto deviceAttr = mlir::tt::getCurrentScopeDevice(consumerOp);
+    auto deviceAttr = mlir::tt::lookupDevice(consumerOp);
     assert(deviceAttr);
     auto workerGrid = deviceAttr.getWorkerGrid();
 

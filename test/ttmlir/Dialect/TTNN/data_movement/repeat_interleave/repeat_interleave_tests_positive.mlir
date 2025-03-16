@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 module {
   func.func @test_repeat_interleave(%arg0: tensor<1x8x1x12x64xf32>) -> tensor<1x8x1x12x64xf32> {
     // CHECK: "ttnn.repeat_interleave"
@@ -10,6 +10,8 @@ module {
   }
 }
 
+// -----
+
 module {
   func.func @test_repeat_interleave(%arg0: tensor<1x8x1x12x64xf32>) -> tensor<1x8x4x12x64xf32> {
     // CHECK: "ttnn.repeat_interleave"
@@ -20,6 +22,8 @@ module {
     return %1 : tensor<1x8x4x12x64xf32>
   }
 }
+
+// -----
 
 module {
   func.func @test_repeat_interleave(%arg0: tensor<1x8x1x12x4xf32>) -> tensor<1x8x1x12x16xf32> {

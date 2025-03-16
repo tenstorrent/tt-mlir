@@ -239,7 +239,7 @@ public:
         mlir::cast<AffineMapAttr>(
             generic.getIndexingMaps()[outputOperandsIndex])
             .getValue();
-    auto device = getCurrentScopeDevice(generic);
+    auto device = lookupDevice(generic);
     for (OpOperand &operand : generic->getOpOperands()) {
       Block *datamovementBlock =
           &newGeneric.getRegion(operand.getOperandNumber()).emplaceBlock();

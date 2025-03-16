@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-implicit-broadcast-folding-pass=false enable-repeat-folding-workaround-pass=false" %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline="enable-implicit-broadcast-folding-pass=false enable-repeat-folding-workaround-pass=false" %s | FileCheck %s
 module {
   func.func @main(%arg0: tensor<1x16x32xf32>, %arg1: tensor<1x1x32xf32>) -> tensor<1x16x32xf32> {
     // CHECK: %{{[0-9]+}} = "ttnn.repeat"
@@ -10,6 +10,8 @@ module {
     return %3 : tensor<1x16x32xf32>
   }
 }
+
+// -----
 
 module {
   func.func public @main(%arg0: tensor<1xf32>, %arg1: tensor<512x512xf32>) -> (tensor<512x512xf32>) {
@@ -25,6 +27,8 @@ module {
     return %5 : tensor<512x512xf32>
   }
 }
+
+// -----
 
 module {
     func.func @main(%arg0: tensor<1x23x40x1xf32>, %arg1: tensor<128xf32>) -> tensor<1x23x40x128xf32> {
@@ -42,6 +46,8 @@ module {
       return %7 : tensor<1x23x40x128xf32>
     }
   }
+
+// -----
 
 module {
     func.func @main(%arg0: tensor<6x2xf32>) -> tensor<2400x2xf32> {

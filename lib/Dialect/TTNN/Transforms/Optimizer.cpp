@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
@@ -163,10 +164,7 @@ public:
 
     // Get the max grid size from the system description.
     //
-    assert(moduleOp->hasAttr(tt::DeviceAttr::name));
-    GridAttr max_grid =
-        mlir::cast<tt::DeviceAttr>(moduleOp->getAttr(tt::DeviceAttr::name))
-            .getWorkerGrid();
+    GridAttr max_grid = lookupDevice(moduleOp).getWorkerGrid();
 
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
@@ -418,8 +416,8 @@ private:
     assert(overrideInputLayout.size() == overrideReshardEdges.size());
   }
 
-  mlir::TypedValue<mlir::tt::DeviceType>
-  getOrCreateDeviceOpValue(Operation *contextOp, OpBuilder &builder) {
+  mlir::TypedValue<DeviceType> getOrCreateDeviceOpValue(Operation *contextOp,
+                                                        OpBuilder &builder) {
     Block *block = contextOp->getBlock();
     for (auto &op : block->getOperations()) {
       if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
@@ -428,7 +426,7 @@ private:
     }
 
     // Device op does not exist in the block, hence we need to create it.
-    DeviceAttr deviceAttr = getCurrentScopeDevice(contextOp);
+    DeviceAttr deviceAttr = lookupDevice(contextOp);
     auto currentInsertionPoint = builder.saveInsertionPoint();
     builder.setInsertionPoint(block, block->begin());
     llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
@@ -436,7 +434,7 @@ private:
       meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
     }
     auto deviceOp = builder.create<ttnn::GetDeviceOp>(
-        contextOp->getLoc(), builder.getType<DeviceType>(deviceAttr),
+        contextOp->getLoc(), builder.getType<DeviceType>(),
         ttnn::MeshShapeAttr::get(contextOp->getContext(), meshShape[0],
                                  meshShape[1]));
     builder.restoreInsertionPoint(currentInsertionPoint);

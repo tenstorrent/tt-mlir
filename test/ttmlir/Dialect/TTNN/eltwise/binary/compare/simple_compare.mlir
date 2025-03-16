@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 module attributes {} {
   func.func @equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     %0 = tensor.empty() : tensor<13x31xf32>
@@ -10,6 +10,8 @@ module attributes {} {
     return %1 : tensor<13x31xf32>
   }
 }
+
+// -----
 
 module attributes {} {
   func.func @not_equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
@@ -23,6 +25,8 @@ module attributes {} {
   }
 }
 
+// -----
+
 module attributes {} {
   func.func @greater_equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     %0 = tensor.empty() : tensor<13x31xf32>
@@ -34,6 +38,8 @@ module attributes {} {
     return %1 : tensor<13x31xf32>
   }
 }
+
+// -----
 
 module attributes {} {
   func.func @greater_than(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
@@ -47,6 +53,8 @@ module attributes {} {
   }
 }
 
+// -----
+
 module attributes {} {
   func.func @less_equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     %0 = tensor.empty() : tensor<13x31xf32>
@@ -58,6 +66,8 @@ module attributes {} {
     return %1 : tensor<13x31xf32>
   }
 }
+
+// -----
 
 module attributes {} {
   func.func @less_than(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {

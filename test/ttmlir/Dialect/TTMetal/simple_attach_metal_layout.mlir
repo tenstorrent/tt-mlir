@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-attach-metal-layout %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-attach-metal-layout %s | FileCheck %s
 // CHECK-LABEL: func.func @maximum(
 // CHECK-SAME: %arg0: tensor<64x128xf32, #[[LAYOUT:layout]]>
 // CHECK-SAME: %arg1: tensor<64x128xf32, #[[LAYOUT]]>

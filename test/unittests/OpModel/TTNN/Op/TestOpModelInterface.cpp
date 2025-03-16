@@ -99,7 +99,6 @@ TEST_F(OpModelBase, ReluOpInterface) {
 
   auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), outputType,
                                      ::mlir::ValueRange{input});
-  relu->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test ReluOp interface
   auto constraintsExp = getOpConstraints(relu.getOperation());
@@ -130,7 +129,6 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
 
   auto softmax =
       builder.create<SoftmaxOp>(builder.getUnknownLoc(), output, input, -1);
-  softmax->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test SoftmaxOp interface
   auto constraintsExp = getOpConstraints(softmax.getOperation());
@@ -163,7 +161,6 @@ TEST_F(OpModelBase, AddOpInterface) {
 
   auto add = builder.create<AddOp>(builder.getUnknownLoc(), outputType,
                                    ::mlir::ValueRange{input1, input2});
-  add->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test AddOp interface
   auto constraintsExp = getOpConstraints(add.getOperation());
@@ -197,7 +194,6 @@ TEST_F(OpModelBase, MultiplyOpInterface) {
   auto multiply =
       builder.create<MultiplyOp>(builder.getUnknownLoc(), output.getType(),
                                  ::mlir::ValueRange{input1, input2});
-  multiply->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test MultiplyOp interface
   auto constraintsExp = getOpConstraints(multiply.getOperation());
@@ -232,7 +228,6 @@ TEST_F(OpModelBase, MatmulOpInterface) {
 
   auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
                                          ::mlir::ValueRange{inputA, inputB});
-  matmul->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test MatmulOp interface
   auto constraintsExp = getOpConstraints(matmul.getOperation());
@@ -265,7 +260,6 @@ TEST_F(OpModelBase, MeanOpInterface) {
 
   auto mean = builder.create<MeanOp>(builder.getUnknownLoc(), output.getType(),
                                      ::mlir::ValueRange{input});
-  mean->setAttr(DeviceAttr::name, getFakeDeviceAttr());
   mean.setKeepDim(true);
   mean.setDimArgAttr(builder.getArrayAttr(
       llvm::SmallVector<mlir::Attribute>{builder.getI64IntegerAttr(1)}));
@@ -301,7 +295,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
 
   auto reshape = builder.create<ReshapeOp>(
       builder.getUnknownLoc(), output.getType(), ::mlir::ValueRange{input});
-  reshape->setAttr(DeviceAttr::name, getFakeDeviceAttr());
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
       builder.getI64IntegerAttr(64 * 4), builder.getI64IntegerAttr(1024 / 4)}));
 
@@ -334,16 +327,14 @@ TEST_F(OpModelBase, toLayoutOp) {
       ShapeAttr::get(&context, tensorShape), nullptr,
       LayoutAttr::get(&context, Layout::RowMajor), nullptr, nullptr);
 
-  DeviceAttr deviceAttr = getFakeDeviceAttr();
   // Need to pass a GetDeviceOp to make sure the layout change happens on the
   // device
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(deviceAttr),
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
       ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
   ToLayoutOp toLayout = builder.create<ToLayoutOp>(
       builder.getUnknownLoc(), tensor.getType(), tensor, Layout::Tile, nullptr,
       nullptr, deviceOp);
-  toLayout->setAttr(DeviceAttr::name, deviceAttr);
 
   // Manually create the operand layouts for calling the backend to make sure
   // the layouts are propagated all the way
@@ -391,7 +382,6 @@ TEST_F(OpModelBase, transposeOp) {
 
   auto transpose = builder.create<TransposeOp>(builder.getUnknownLoc(),
                                                output.getType(), input, 0, 1);
-  transpose->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test transpose Op interface
   auto constraintsExp = getOpConstraints(transpose.getOperation());
@@ -431,7 +421,6 @@ TEST_F(OpModelBase, typecastOp) {
 
   auto typecast = builder.create<TypecastOp>(
       builder.getUnknownLoc(), rankedTensorTypeF32, input, DataType::Float32);
-  typecast->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {

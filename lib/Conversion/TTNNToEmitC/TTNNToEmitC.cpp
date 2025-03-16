@@ -742,6 +742,23 @@ public:
   }
 };
 
+// tt::DeviceOp conversion pattern
+//
+namespace {
+struct TTDeviceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::DeviceOp> {
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::DeviceOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::DeviceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(srcOp);
+    return success();
+  }
+};
+} // namespace
+
 // GetDeviceOp conversion pattern
 //
 namespace {
@@ -1325,6 +1342,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  TypeConverter &typeConverter) {
   // Device ops
   //
+  patterns.add<TTDeviceOpConversionPattern>(typeConverter, ctx);
   patterns.add<GetDeviceOpConversionPattern>(typeConverter, ctx);
 
   // Memory ops

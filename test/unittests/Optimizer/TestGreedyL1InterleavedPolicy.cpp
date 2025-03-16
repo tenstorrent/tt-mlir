@@ -14,6 +14,8 @@
 #include "mlir/IR/MLIRContext.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -41,8 +43,9 @@ public:
     context.loadDialect<TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
+    mlir::tt::registerDevice(module.get());
     createFuncOp();
-    deviceAttr = mlir::tt::getCurrentScopeDevice(func);
+    deviceAttr = mlir::tt::lookupDevice(func);
   }
 
   llvm::SmallVector<int64_t, 2> getTensorShape() {

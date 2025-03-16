@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
@@ -348,9 +348,8 @@ public:
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
     Value deviceValue = op.getDevice();
-    auto deviceOp = mlir::cast<GetDeviceOp>(deviceValue.getDefiningOp());
-    auto resultType = deviceOp.getResult().getType();
-    ::llvm::ArrayRef<int64_t> meshShape = resultType.getDesc().getMeshShape();
+    auto deviceDesc = lookupDevice(op);
+    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
     // Algorithm: iterate through all tensor dimension values and select first
     // tensor dimension which is divisible by number of devices along the
