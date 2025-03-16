@@ -90,6 +90,8 @@ void createTTIRToTTMetalBackendPipeline(
     pm.addPass(mlir::tt::ttir::createTTIROptimizeTensorLayout(
         optimizeTensorLayoutOptions));
     createTTIRBufferizationPipeline(pm);
+    pm.addPass(ttir::createTTIRPlaceholderAllocate());
+    pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
     pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
     pm.addPass(mlir::createLowerAffinePass());
