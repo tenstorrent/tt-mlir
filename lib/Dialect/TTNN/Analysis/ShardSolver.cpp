@@ -339,7 +339,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
     }
   }
 
-  if (not validConfigExists) {
+  if (!validConfigExists) {
     consumerOp->emitWarning()
         << "No valid output config found for resharded input!";
 

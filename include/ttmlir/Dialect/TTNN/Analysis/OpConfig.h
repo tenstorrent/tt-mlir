@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -18,16 +18,17 @@ struct OpConfig {
   //
   Attribute config;
 
-  OpConfig() : outputLayout(), config() {}
-  OpConfig(TTNNLayoutAttr outputLayout)
-      : outputLayout(outputLayout), config() {}
+  OpConfig() = default;
+  OpConfig(TTNNLayoutAttr outputLayout) : outputLayout(outputLayout) {}
 
   bool operator==(const OpConfig &other) const {
     return outputLayout == other.outputLayout && config == other.config;
   }
 
   void dump() const {
-    outputLayout.dump();
+    if (outputLayout) {
+      outputLayout.dump();
+    }
     if (config) {
       config.dump();
     }
