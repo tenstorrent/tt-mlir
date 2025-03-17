@@ -13,7 +13,7 @@ module {
     // named elementwise op, binary:
     // CHECK: linalg.generic {{.+}} iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_add
-
+    %0 = "ttir.add"(%lhs, %rhs, %out) <{operandSegmentSizes = array<i32: 2, 1>}> : (!ttype, !ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: linalg.generic {{.+}} iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_exp
