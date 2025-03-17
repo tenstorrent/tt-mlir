@@ -2,6 +2,7 @@
 /env/ @nsmithtt @vwellsTT
 *.fbs @jnie-TT @nsmithtt
 /.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
+LICENSE @nsmithtt
 
 # CI
 /.github/ @vmilosevic @jmcgrathTT @nsumrakTT
@@ -35,9 +36,9 @@
 /test/ttmlir/Conversion/TTIRToLinalg/ @vwellsTT @ctodTT @nsmithTT
 
 # Tosa Conversion
-/include/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT
-/lib/Conversion/TosaToTTIR/ @mrakitaTT
-/test/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT
+/include/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
+/lib/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
+/test/ttmlir/Conversion/TosaToTTIR/ @mrakitaTT @sgligorijevicTT @sdjukicTT
 
 # TTNN Conversions
 /include/ttmlir/Conversion/TTIRToTTIRDecomposition/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
@@ -75,6 +76,11 @@
 /include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
 /lib/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
 /test/ttmlir/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
+
+# TTIR Erase Inverse Ops Optimization Pass
+/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps @LPanosTT @azecevicTT
+/lib/Dialect/TTIR/Transforms/EraseInverseOps @LPanosTT @azecevicTT
+/test/ttmlir/Dialect/TTIR/erase_inverse_ops @LPanosTT @azecevicTT
 
 # Metal Dialects
 /include/ttmlir/Dialect/TTIR/IR/TTIRGeneric* @nsmithtt @vroubtsovTT
