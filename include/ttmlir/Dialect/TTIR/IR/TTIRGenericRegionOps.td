@@ -91,7 +91,17 @@ def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum"> {
+def TTIR_TileMaximumOp : TTIR_GenericRegionComputeOp<"tile_maximum">{
+    let summary = "TTIR Tile Maximum Op";
+    let description = [{
+        The `tile_maximum` operation calculates the maximum of two tensors element-wise.
+    }];
+
+    let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
+    let results = (outs TT_Tile:$result);
+}
+
+def TTIR_TileReduceSumOp : TTIR_GenericRegionOp<"tile_reduce_sum">{
     let summary = "TTIR Tile Reduce Sum Op";
     let description = [{
         The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
@@ -115,7 +125,16 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
+def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul">{
+    let summary = "TTIR Tile Matmul Op";
+    let description = [{
+    }];
+
+    let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$accum);
+    let results = (outs TT_Tile:$result);
+}
+
+def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
   [DestinationStyleOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
