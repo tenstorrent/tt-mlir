@@ -21,7 +21,8 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class TTIRGenericGenerateDatamovementRewriter : public OpRewritePattern<GenericOp> {
+class TTIRGenericGenerateDatamovementRewriter
+    : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
@@ -297,7 +298,8 @@ public:
 
 namespace {
 class TTIRGenericGenerateDatamovement
-    : public impl::TTIRGenericGenerateDatamovementBase<TTIRGenericGenerateDatamovement> {
+    : public impl::TTIRGenericGenerateDatamovementBase<
+          TTIRGenericGenerateDatamovement> {
 public:
   using impl::TTIRGenericGenerateDatamovementBase<
       TTIRGenericGenerateDatamovement>::TTIRGenericGenerateDatamovementBase;
