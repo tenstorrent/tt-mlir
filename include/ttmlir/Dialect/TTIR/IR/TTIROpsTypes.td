@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPSTYPES_TD
-#define TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPSTYPES_TD
+#ifndef TTMLIR_TTMLIR_DIALECT_TTIR_IR_TTIROPSTYPES_TD
+#define TTMLIR_TTMLIR_DIALECT_TTIR_IR_TTIROPSTYPES_TD
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
@@ -29,4 +29,4 @@ def TTIR_Semaphore : TTIR_Type<"Semaphore", "semaphore"> {
     let description = "Semaphore primitive type used in combination with semaphore ops to synchronize cores.";
 }
 
-#endif  // TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPSTYPES_TD
+#endif  // TTMLIR_TTMLIR_DIALECT_TTIR_IR_TTIROPSTYPES_TD
