@@ -36,10 +36,34 @@ def TTKernel_Dialect : Dialect {
 }
 
 //===----------------------------------------------------------------------===//
-// Base TTKernel operation definition.
+// TTKernel Traits.
+//===----------------------------------------------------------------------===//
+
+class TTKernel_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, traits> {
+  let cppNamespace = "::mlir::tt::ttkernel::OpTrait";
+}
+
+def TTKernel_FPUOpTrait : TTKernel_Trait<"TTKernelFPUOpTrait", []>;
+
+def TTKernel_SFPUOpTrait : TTKernel_Trait<"TTKernelSFPUOpTrait", []>;
+
+def TTKernel_InitOpTrait : TTKernel_Trait<"TTKernelInitOpTrait", []>;
+
+//===----------------------------------------------------------------------===//
+// Base TTKernel operation definitions.
 //===----------------------------------------------------------------------===//
 
 class TTKernel_Op<string mnemonic, list<Trait> traits = []> :
         Op<TTKernel_Dialect, mnemonic, traits>;
+
+class TTKernel_FPUOp<string mnemonic, list<Trait> traits = [TTKernel_FPUOpTrait]> :
+        TTKernel_Op<mnemonic, traits>;
+
+class TTKernel_SFPUOp<string mnemonic, list<Trait> traits = [TTKernel_SFPUOpTrait]> :
+        TTKernel_Op<mnemonic, traits>;
+
+class TTKernel_InitOp<string mnemonic, list<Trait> traits = [TTKernel_InitOpTrait]> :
+        TTKernel_Op<mnemonic, traits>;
+
 
 #endif
