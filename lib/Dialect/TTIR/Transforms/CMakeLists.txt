@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
         Constant.cpp
+        EraseInverseOps.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
         AttachMetalLayout.cpp
