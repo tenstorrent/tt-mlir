@@ -5,6 +5,7 @@
 #include "mlir/CAPI/AffineMap.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
+#include <nanobind/stl/optional.h>
 namespace mlir::ttmlir::python {
 void populateTTNNModule(nb::module_ &m) {
 
@@ -132,19 +133,28 @@ void populateTTNNModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
-             MlirType memref,
-             std::optional<unsigned> memLayout = std::nullopt) {
+             MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
+             std::optional<tt::TensorMeshShardingAttr> tensorMeshSharding =
+                 std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
+            tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+            if (tensorMeshSharding.has_value()) {
+              tensorMeshShardingAttr = tensorMeshSharding.value();
+            }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
                 mlir::cast<tt::GridAttr>(unwrap(grid)),
-                mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr));
-          })
+                mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
+                tensorMeshShardingAttr));
+          },
+          nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
+          nb::arg("memLayout") = nb::none(),
+          nb::arg("tensorMeshSharding") = nb::none())
       .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
@@ -168,5 +178,101 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("data_type_as_int", [](tt::ttnn::TTNNLayoutAttr self) {
         return static_cast<uint32_t>(self.getDataType());
       });
+  tt_attribute_class<tt::ttnn::Conv2dConfigAttr>(m, "Conv2dConfigAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, tt::DataType dtype, tt::DataType weightsDtype,
+             StringAttr activation, IntegerAttr inputChannelsAlignment,
+             BoolAttr deallocateActivation, BoolAttr reallocateHaloOutput,
+             IntegerAttr actBlockHOverride, IntegerAttr actBlockWDiv,
+             BoolAttr reshardIfNotOptimal, BoolAttr overrideShardingConfig,
+             tt::ttnn::TensorMemoryLayoutAttr shardLayout, Attribute coreGrid,
+             BoolAttr transposeShards, tt::ttnn::Layout outputLayout,
+             BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
+             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding) {
+            return wrap(tt::ttnn::Conv2dConfigAttr::get(
+                unwrap(ctx), dtype, weightsDtype, activation,
+                inputChannelsAlignment, deallocateActivation,
+                reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
+                reshardIfNotOptimal, overrideShardingConfig, shardLayout,
+                coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
+                enableWeightsDoubleBuffer, enableSplitReader,
+                enableSubblockPadding));
+          })
+      .def_prop_ro("dtype_as_int",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return static_cast<uint32_t>(self.getDtype());
+                   })
+      .def_prop_ro("weights_dtype_as_int",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return static_cast<uint32_t>(self.getDtype());
+                   })
+      .def_prop_ro("activation",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getActivation().str();
+                   })
+      .def_prop_ro("input_channels_alignment",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getInputChannelsAlignment().getInt();
+                   })
+      .def_prop_ro("deallocate_activation",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getDeallocateActivation().getValue();
+                   })
+      .def_prop_ro("reallocate_halo_output",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getReallocateHaloOutput().getValue();
+                   })
+      .def_prop_ro("act_block_h_override",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getActBlockHOverride().getInt();
+                   })
+      .def_prop_ro("act_block_w_div",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getActBlockWDiv().getInt();
+                   })
+      .def_prop_ro("reshard_if_not_optimal",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getReshardIfNotOptimal().getValue();
+                   })
+      .def_prop_ro("override_sharding_config",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getOverrideShardingConfig().getValue();
+                   })
+      .def_prop_ro("shard_layout_as_int",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return static_cast<uint32_t>(
+                         self.getShardLayout().getValue());
+                   })
+      // TODO(vkovacevic): parse core_grid
+      .def_prop_ro("core_grid",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     assert(!self.getCoreGrid());
+                     return nb::none();
+                   })
+      .def_prop_ro("transpose_shards",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getTransposeShards().getValue();
+                   })
+      .def_prop_ro("output_layout_as_int",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return static_cast<uint32_t>(self.getOutputLayout());
+                   })
+      .def_prop_ro("enable_act_double_buffer",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getEnableActDoubleBuffer().getValue();
+                   })
+      .def_prop_ro("enable_weights_double_buffer",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getEnableWeightsDoubleBuffer().getValue();
+                   })
+      .def_prop_ro("enable_split_reader",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getEnableSplitReader().getValue();
+                   })
+      .def_prop_ro("enable_subblock_padding",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getEnableSubblockPadding().getValue();
+                   });
 }
 } // namespace mlir::ttmlir::python

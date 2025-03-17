@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/ttmetal.h"
 #include "tt/runtime/runtime.h"

@@ -211,6 +211,7 @@ conv2dConfigToFlatbuffer(FlatbufferObjectCache &cache,
 
 flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
+                       tt::TensorMeshShardingAttr tensorMeshSharding,
                        BufferType bufferType,
                        ttnn::TensorMemoryLayoutAttr memLayoutAttr,
                        std::vector<::tt::target::Dim2dRange> coreRangeSet) {
@@ -235,12 +236,16 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
     size *= dim;
   }
 
-  // TODO (jnie): Currently we hardcode to owned or single-device storage
-  // Will need compiler support to correctly/dynamically determine this
-  ::tt::target::ttnn::StorageType storageType =
-      bufferType == ttnn::BufferType::SystemMemory
-          ? ::tt::target::ttnn::StorageType::Owned
-          : ::tt::target::ttnn::StorageType::Device;
+  ::tt::target::ttnn::StorageType storageType;
+  if (tensorMeshSharding) {
+    storageType = bufferType == ttnn::BufferType::SystemMemory
+                      ? ::tt::target::ttnn::StorageType::MultiDeviceHost
+                      : ::tt::target::ttnn::StorageType::MultiDevice;
+  } else {
+    storageType = bufferType == ttnn::BufferType::SystemMemory
+                      ? ::tt::target::ttnn::StorageType::Owned
+                      : ::tt::target::ttnn::StorageType::Device;
+  }
 
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
 
@@ -279,9 +284,9 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // flatbuffer LayoutDescs.
   return ::tt::target::ttnn::CreateLayoutDesc(
       *cache.fbb, toFlatbuffer(cache, OOBVal::Undef),
-      memrefAttrToFlatbuffer(cache, layoutAttr.getMemref(),
-                             layoutAttr.getBufferType(),
-                             layoutAttr.getMemLayout(), coreRangeSet));
+      memrefAttrToFlatbuffer(
+          cache, layoutAttr.getMemref(), layoutAttr.getTensorMeshSharding(),
+          layoutAttr.getBufferType(), layoutAttr.getMemLayout(), coreRangeSet));
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
@@ -483,7 +488,9 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
         distribution);
   };
 
-  if (!deviceValue) {
+  // Skip single device tensors if it includes TensorMeshShardingAttr.
+  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
+  if (!deviceValue || !layoutAttr.isMeshDeviceTensor()) {
     return noneDistributionStrategy();
   }
 
@@ -533,9 +540,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       cache, op.getDevice(), mlir::cast<RankedTensorType>(op.getType()),
       numShards);
   auto output = getOperandThroughDPSOps(op.getResult());
-
   auto device = getOperandThroughDPSOps(op.getDevice());
-
   auto tileShape = getTensorValueTileShape(output);
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, output);
   auto memoryConfig = memoryConfigToFlatbuffer(cache, op.getMemoryConfig(),
@@ -796,6 +801,21 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
       op.getClusterAxis(), op.getNumLinks());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CollectivePermuteOp>
+createOp(FlatbufferObjectCache &cache, CollectivePermuteOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  auto sourceTargetPairs = op.getSourceTargetPairs().getValues<int64_t>();
+  std::vector<int64_t> sourceTargetPairsVec(sourceTargetPairs.begin(),
+                                            sourceTargetPairs.end());
+  return ::tt::target::ttnn::CreateCollectivePermuteOp(
+      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
+      cache.fbb->CreateVector<int64_t>(sourceTargetPairsVec));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::MeshShardOp>
 createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -824,8 +844,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Replicate;
   } else if (shardType == mlir::tt::MeshShardType::Devices) {
     meshShardType = ::tt::target::ttnn::MeshShardType::Devices;
-  } else if (shardType == mlir::tt::MeshShardType::Manual) {
-    meshShardType = ::tt::target::ttnn::MeshShardType::Manual;
+  } else if (shardType == mlir::tt::MeshShardType::Identity) {
+    meshShardType = ::tt::target::ttnn::MeshShardType::Identity;
   } else {
     llvm_unreachable("unhandled mesh_shard type");
   }
@@ -1688,6 +1708,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
     return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
                            locInfo);
+  }
+  if (auto collectivePermuteOp = dyn_cast<CollectivePermuteOp>(op);
+      collectivePermuteOp) {
+    return createOperation(cache, createOp(cache, collectivePermuteOp),
+                           debugString, locInfo);
   }
   if (auto meshShardOp = dyn_cast<MeshShardOp>(op); meshShardOp) {
     return createOperation(cache, createOp(cache, meshShardOp), debugString,

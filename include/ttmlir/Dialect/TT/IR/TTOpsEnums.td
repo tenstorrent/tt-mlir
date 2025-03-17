@@ -120,18 +120,6 @@ def TT_ChipCapability : I32BitEnumAttr<"ChipCapability", "TT Chip Capabilities",
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_StreamModeAlias : I32BitEnumAttrCaseBit<"Alias", 0, "alias">;
-def TT_StreamModeStream : I32BitEnumAttrCaseBit<"Stream", 1, "stream">;
-
-def TT_StreamMode : I32BitEnumAttr<"StreamMode", "TT Stream Mode",
-                           [
-                            TT_StreamModeAlias,
-                            TT_StreamModeStream,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
-}
-
 def TT_ReduceType_Sum  : I32EnumAttrCase<"Sum",  0, "sum">;
 def TT_ReduceType_Mean : I32EnumAttrCase<"Mean", 1, "mean">;
 def TT_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
@@ -164,14 +152,14 @@ def TT_MeshShardDirection: I32EnumAttr<"MeshShardDirection", "TT MeshShardDirect
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_MeshShardType_Manual    : I32EnumAttrCase<"Manual",    0, "manual">;
+def TT_MeshShardType_Identity  : I32EnumAttrCase<"Identity",  0, "identity">;
 def TT_MeshShardType_Replicate : I32EnumAttrCase<"Replicate", 1, "replicate">;
 def TT_MeshShardType_Maximal   : I32EnumAttrCase<"Maximal",   2, "maximal">;
 def TT_MeshShardType_Devices   : I32EnumAttrCase<"Devices",   3, "devices">;
 
 def TT_MeshShardType: I32EnumAttr<"MeshShardType", "TT MeshShardType",
                           [
-                           TT_MeshShardType_Manual,
+                           TT_MeshShardType_Identity,
                            TT_MeshShardType_Replicate,
                            TT_MeshShardType_Maximal,
                            TT_MeshShardType_Devices,

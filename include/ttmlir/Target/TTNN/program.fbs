@@ -398,6 +398,13 @@ table ReduceScatterOp {
   num_links: uint32;
 }
 
+table CollectivePermuteOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  source_target_pairs: [int64];
+}
+
 table MeshShardOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
@@ -475,6 +482,7 @@ union OpType {
   AllGatherOp,
   ReduceScatterOp,
   MeshShardOp,
+  CollectivePermuteOp,
   ArangeOp,
   UpdateCacheOp,
   FillCacheOp,

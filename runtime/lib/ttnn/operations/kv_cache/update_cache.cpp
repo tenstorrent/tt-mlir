@@ -5,8 +5,8 @@
 #include "operations/kv_cache/update_cache.h"
 
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/debug_apis.h"
+#include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::operations::kv_cache {
 void run(const ::tt::target::ttnn::UpdateCacheOp *op, ProgramContext &context) {

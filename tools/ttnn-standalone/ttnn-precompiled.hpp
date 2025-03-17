@@ -8,6 +8,9 @@
 // ANCHOR: standalone_includes
 #include "core.hpp"
 #include "device.hpp"
+#include "operations/ccl/all_gather/all_gather.hpp"
+#include "operations/ccl/ccl_host_types.hpp"
+#include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/copy.hpp"
 #include "operations/core/core.hpp"
@@ -25,7 +28,10 @@
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
+#include "operations/pool/upsample/upsample.hpp"
+#include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
+#include "operations/reduction/prod/prod.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
 #include "tt-metalium/bfloat16.hpp"
@@ -33,6 +39,7 @@
 #include "types.hpp"
 // ANCHOR_END: standalone_includes
 
+#include <cassert>
 #include <cstddef>
 #include <iostream>
 #include <vector>

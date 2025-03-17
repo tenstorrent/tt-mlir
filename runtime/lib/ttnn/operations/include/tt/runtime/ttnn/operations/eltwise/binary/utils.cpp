@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tt/runtime/ttnn/operations/eltwise/binary/utils.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/workarounds.h"
+#include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::operations::binary {
 

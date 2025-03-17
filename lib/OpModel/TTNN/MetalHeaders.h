@@ -61,6 +61,9 @@
 // using namespace removed in metal
 // but IDevice cannot be resolved by "ttnn/graph/graph_query_op_constraints.hpp"
 using IDevice = ::tt::tt_metal::IDevice;
+// allocator header include required by
+// "ttnn/graph/graph_query_op_constraints.hpp"
+#include "tt-metalium/allocator.hpp"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"

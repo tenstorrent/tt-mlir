@@ -7,10 +7,10 @@
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
+#include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
@@ -307,7 +307,7 @@ void wait(std::vector<Tensor> const &tensors) {
   }
 }
 
-Tensor toHost(Tensor tensor, bool untilize) {
+static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
   const ::ttnn::Tensor &deviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
   std::shared_ptr<::ttnn::Tensor> hostTensor =
@@ -321,6 +321,28 @@ Tensor toHost(Tensor tensor, bool untilize) {
 
   return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
                 DeviceRuntime::TTNN);
+}
+
+std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+  const ::ttnn::Tensor &multiDeviceTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::vector<Tensor> host_tensors;
+  if (multiDeviceTensor.storage_type() ==
+          ::ttnn::StorageType::MULTI_DEVICE_HOST ||
+      multiDeviceTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE) {
+    std::vector<::ttnn::Tensor> single_tensors =
+        ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
+    for (auto &tensor : single_tensors) {
+      host_tensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
+          Tensor(std::make_shared<::ttnn::Tensor>(tensor), nullptr,
+                 DeviceRuntime::TTNN),
+          untilize));
+    }
+  } else {
+    host_tensors.push_back(
+        ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
+  }
+  return host_tensors;
 }
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout) {

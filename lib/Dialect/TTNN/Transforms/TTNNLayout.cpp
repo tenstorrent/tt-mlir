@@ -74,10 +74,27 @@ createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
   auto elementType = isTiled ? TileType::get(ctx, type.getElementType())
                              : type.getElementType();
 
+  mlir::Attribute encoding = type.getEncoding();
+  TensorMeshShardingAttr tensorMeshShardingAttr;
+  if (auto encodingMeshSharding =
+          mlir::dyn_cast_if_present<TensorMeshShardingAttr>(encoding)) {
+    tensorMeshShardingAttr = encodingMeshSharding;
+  } else if (auto layout =
+                 mlir::dyn_cast_if_present<TTNNLayoutAttr>(encoding)) {
+    tensorMeshShardingAttr = layout.getTensorMeshSharding();
+  }
+
   TensorMemoryLayoutAttr memoryLayoutAttr =
       getMemoryLayoutAttr(ctx, bufferType);
   return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
-                             tensorGrid, memoryLayoutAttr, collapseDimsRef);
+                             tensorGrid, memoryLayoutAttr,
+                             tensorMeshShardingAttr, collapseDimsRef);
+}
+
+static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
+  auto meshShardOp = mlir::dyn_cast_if_present<ttir::MeshShardOp>(srcOp);
+  return meshShardOp &&
+         meshShardOp.getShardType() != mlir::tt::MeshShardType::Identity;
 }
 
 //===----------------------------------------------------------------------===//
@@ -96,7 +113,7 @@ public:
     addConversion([](Type type) { return type; });
     addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
       Attribute layout = type.getEncoding();
-      if (layout) {
+      if (isa_and_nonnull<TTNNLayoutAttr>(layout)) {
         return type;
       }
 
@@ -122,7 +139,7 @@ public:
     addConversion([](Type type) { return type; });
     addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
       Attribute layout = type.getEncoding();
-      if (layout) {
+      if (isa_and_nonnull<TTNNLayoutAttr>(layout)) {
         return type;
       }
 
@@ -236,6 +253,10 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   // Get buffer type (i.e DRAM/L1 etc)
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
 
+  // Get mesh sharding
+  TensorMeshShardingAttr desiredTensorMeshSharding =
+      ttnnLayoutAttr.getTensorMeshSharding();
+
   // Get the current element type (i.e bf16/TileType etc)
   // If the defining op is arange, then we need to assume ROW_MAJOR (scalar)
   // element type.
@@ -265,7 +286,8 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   // memory layout
   TTNNLayoutAttr desiredLayout = rewriter.getAttr<TTNNLayoutAttr>(
       ty.getShape(), desiredElementType, desiredBufferType,
-      ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, g_defaultCollapseDims);
+      ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, desiredTensorMeshSharding,
+      g_defaultCollapseDims);
 
   // If the input tensor is a constant or empty tensor, we can replace it with a
   // new tensor with the desired layout
@@ -299,7 +321,8 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   if (existingArange) {
     TTNNLayoutAttr arangeLayout = rewriter.getAttr<TTNNLayoutAttr>(
         ty.getShape(), ty.getElementType(), desiredBufferType,
-        ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, g_defaultCollapseDims);
+        ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr,
+        desiredTensorMeshSharding, g_defaultCollapseDims);
     input =
         rewriter
             .replaceOpWithNewOp<ttir::ArangeOp>(
@@ -380,7 +403,7 @@ public:
       // handle canonicalization of toLayout ops (#2102). Currently the
       // workaround pass cannot detect redundant toLayout ops as a result of
       // forcing the output layout and removing them.
-      if (mlir::isa<ttir::MeshShardOp>(op.getOperation())) {
+      if (shouldMeshShardOpForceSystemMemory(op.getOperation())) {
         modified = changeLayoutToHost(op, operand, rewriter, isDPSResult);
         continue;
       }
@@ -600,7 +623,7 @@ private:
 
   bool shouldForceInputSystemMemory(BlockArgument arg) const {
     for (Operation *user : arg.getUsers()) {
-      if (mlir::isa<ttir::MeshShardOp>(user)) {
+      if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
       }
       // For the weight input of the conv2d op, it specifically needs to be on
@@ -619,7 +642,7 @@ private:
       if (!mlir::isa<RankedTensorType>(operand.getType())) {
         continue;
       }
-      if (operand.getDefiningOp<ttir::MeshShardOp>()) {
+      if (shouldMeshShardOpForceSystemMemory(operand.getDefiningOp())) {
         return true;
       }
     }
@@ -668,7 +691,7 @@ public:
 private:
   // Return op output should be on host if it's a result of a mesh shard op
   bool shouldForceSystemMemory(Value operandValue) const {
-    if (operandValue.getDefiningOp<ttir::MeshShardOp>()) {
+    if (shouldMeshShardOpForceSystemMemory(operandValue.getDefiningOp())) {
       return true;
     }
     return false;

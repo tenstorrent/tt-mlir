@@ -5,10 +5,10 @@
 #include "operations/layout/typecast.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/workarounds.h"
 #include "ttnn/operations/core/core.hpp"
 
 namespace tt::runtime::ttnn::operations::layout {

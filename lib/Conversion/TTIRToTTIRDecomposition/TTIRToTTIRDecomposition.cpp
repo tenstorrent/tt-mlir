@@ -1149,12 +1149,7 @@ public:
  * to repeat the data along the other dimensions.
  *
  * The ArangeOp that is generated here will be equivalent to how ttnn::ArangeOp
- * behaves. The reason this pass is done in TTIR rather than generated when we
- * want to lower to TTNN is because in the future we will want to consteval the
- * ArangeOp, but have the option to not include repeated data in the constant
- * tensor and broadcast at runtime instead. Consteval will be implemented for
- * the TTIR dialect only and so this explication of the TMs implicit in ArangeOp
- * must be done in TTIR.
+ * behaves.
  */
 namespace {
 struct ArangeForceLastDimensionPattern
@@ -1170,14 +1165,13 @@ public:
         mlir::cast<RankedTensorType>(op.getResult().getType());
 
     int64_t arangeDimension = adaptor.getArangeDimension();
-    int64_t arangeDimensionNegative = arangeDimension - outputType.getRank();
     int64_t start = adaptor.getStart();
     int64_t end = adaptor.getEnd();
     int64_t step = adaptor.getStep();
 
     int64_t arangeLength = (end - start) / step;
 
-    const llvm::SmallVector<int64_t, 4> requiredShape{1, 1, 1, arangeLength};
+    const llvm::SmallVector<int64_t, 1> requiredShape{arangeLength};
     ArrayRef<int64_t> ttnnShape(requiredShape);
     if (ttnnShape == outputType.getShape()) {
       return success();
@@ -1190,28 +1184,10 @@ public:
         rewriter
             .create<ttir::ArangeOp>( // perform arange on the last dimension to
                                      // match how ttnn behaves
-                op.getLoc(), arangeOutputType, start, end, step, 3)
+                op.getLoc(), arangeOutputType, start, end, step, 0)
             .getResult();
 
     std::vector<int64_t> outputShape = arangeOutputType.getShape().vec();
-    // Must transpose the output so that the data changes along the axis defined
-    // by arangeDimension
-    if (arangeDimensionNegative != -1) {
-      std::vector<int64_t> transposeShape = outputShape;
-      transposeShape[arangeDimensionNegative + transposeShape.size()] =
-          arangeLength;
-      transposeShape[arangeOutputType.getRank() - 1] = 1;
-      RankedTensorType transposeType = RankedTensorType::get(
-          transposeShape, arangeOutputType.getElementType(),
-          arangeOutputType.getEncoding());
-
-      output = ttmlir::utils::createDPSOp<ttir::TransposeOp>(
-          rewriter, op.getLoc(), transposeType, output,
-          arangeDimensionNegative + transposeShape.size(),
-          arangeOutputType.getRank() - 1);
-
-      outputShape = std::move(transposeShape);
-    }
 
     // Must match up the rank of the output with the rank of the intended output
     // from the original arange, with the arangeDimension in the correct
@@ -1219,7 +1195,7 @@ public:
     if (outputType.getRank() != static_cast<int64_t>(outputShape.size())) {
       std::vector<int64_t> reshapeShape;
       for (uint32_t i = 0; i < outputType.getRank(); i++) {
-        i == arangeDimension ? reshapeShape.push_back(end)
+        i == arangeDimension ? reshapeShape.push_back(arangeLength)
                              : reshapeShape.push_back(1);
       }
 
