@@ -359,39 +359,6 @@ public:
 
 // reconfig data formats
 
-// tile regs pass
-
-namespace {
-
-class TTIRTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
-public:
-  using OpRewritePattern<ttkernel::PackTileOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
-                                PatternRewriter &rewriter) const final {
-    llvm::errs() << "tile regs rewriter\n";
-
-    if (!op->getBlock()->getOps<ttkernel::TileRegsCommitOp>().empty()) {
-      return failure();
-    }
-
-    rewriter.moveOpAfter(
-        rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc()), op);
-    auto regsWait = rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-    rewriter.moveOpBefore(regsWait, op);
-    rewriter.moveOpBefore(
-        rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc()), regsWait);
-
-    rewriter.moveOpAfter(
-        rewriter.create<ttkernel::TileRegsAcquireOp>(op->getLoc()),
-        op->getBlock(), op->getBlock()->begin());
-
-    return success();
-  };
-};
-
-} // namespace
-
 // memref.alloc -> ttmetal.create_buffer pass
 
 namespace {
@@ -457,8 +424,7 @@ void populateTTIRToTTKernelPatternsPhase2(MLIRContext *ctx,
 void populateTTIRToTTKernelPatternsPhase3(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
                                           TypeConverter & /*typeConverter*/) {
-  patterns.add<ttkernel::TTIRGenericRewriter, ttkernel::TTIRTileRegsRewriter>(
-      ctx);
+  patterns.add<ttkernel::TTIRGenericRewriter>(ctx);
 }
 
 } // namespace mlir::tt
