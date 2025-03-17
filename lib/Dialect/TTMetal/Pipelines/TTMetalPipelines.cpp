@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -92,6 +93,7 @@ void createTTIRToTTMetalBackendPipeline(
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
     pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
     pm.addPass(mlir::createLowerAffinePass());
+    pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
   } else {
     mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
     {
