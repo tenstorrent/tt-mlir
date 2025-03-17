@@ -18,6 +18,7 @@
 #include "tt-metalium/allocator.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
+#include "llrt/tt_cluster.hpp"
 
 namespace tt::runtime::system_desc {
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
@@ -58,6 +59,10 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
+      if (!tt::Cluster::instance().is_ethernet_link_up(device->id(),
+                                                      ethernetCore)) {
+        continue;
+      }
       std::tuple<chip_id_t, CoreCoord> connectedDevice =
           device->get_connected_ethernet_core(ethernetCore);
       addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
