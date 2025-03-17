@@ -85,6 +85,16 @@ def TTIR_TileLogOp : TTIR_GenericRegionOp<"tile_log">{
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileMaximumOp : TTIR_GenericRegionOp<"tile_maximum">{
+    let summary = "TTIR Tile Maximum Op";
+    let description = [{
+        The `tile_maximum` operation calculates the maximum of two tensors element-wise.
+    }];
+
+    let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileReduceSumOp : TTIR_GenericRegionOp<"tile_reduce_sum">{
     let summary = "TTIR Tile Reduce Sum Op";
     let description = [{
@@ -106,6 +116,15 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
     let arguments = (ins TT_Tile:$a,
                          TT_Tile:$b,
                          TTIR_ReduceDimAttr:$reduce_dim);
+    let results = (outs TT_Tile:$result);
+}
+
+def TTIR_TileMatmulOp : TTIR_GenericRegionOp<"tile_matmul">{
+    let summary = "TTIR Tile Matmul Op";
+    let description = [{
+    }];
+
+    let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$accum);
     let results = (outs TT_Tile:$result);
 }
 
