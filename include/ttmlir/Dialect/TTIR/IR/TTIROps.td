@@ -345,7 +345,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastabl
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands, TTIR_ElementwiseUnary], traits)> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -610,7 +610,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands, TTIR_ElementwiseBinary], traits)> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -1028,7 +1028,7 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let hasVerifier = 1;
 }
 
-def TTIR_TransposeOp : TTIR_NamedOp<"transpose"> {
+def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {
     let summary = "Transpose op.";
     let description = [{
       Transpose tensor along two given dimensions.
@@ -1043,7 +1043,7 @@ def TTIR_TransposeOp : TTIR_NamedOp<"transpose"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
@@ -1239,7 +1239,8 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
-                         I32Attr:$groups);
+                         I32Attr:$groups,
+                         OptionalAttr<TTIR_FlattenedCompatInfoAttr>:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1394,14 +1395,15 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
                          SI32Attr:$padding_left,
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
-                         SI32Attr:$padding_bottom);
+                         SI32Attr:$padding_bottom,
+                         OptionalAttr<TTIR_FlattenedCompatInfoAttr>:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
 
-def TTIR_ReshapeOp: TTIR_NamedOp<"reshape"> {
+def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     let summary = "Reshape op.";
     let description = [{
       Reshape tensor.
@@ -1816,7 +1818,7 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
-def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
+def TTIR_PermuteOp : TTIR_NamedOp<"permute", [TTIR_TensorManipulation]> {
     let summary = "Permute operation.";
     let description = [{
       Permute input tensor dimensions.
@@ -1838,7 +1840,7 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {

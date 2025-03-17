@@ -184,7 +184,8 @@ public:
     // TODO (azecevic) Add comment about the parameters.
     ttmlir::utils::replaceOpWithNewDPSOp<ttir::MaxPool2dOp>(
         rewriter, srcOp, outputType, adaptor.getInput(), dims[0], dims[1],
-        strides[0], strides[1], 1, 1, false, pad[2], pad[3], pad[0], pad[1]);
+        strides[0], strides[1], 1, 1, false, pad[2], pad[3], pad[0], pad[1],
+        nullptr);
 
     return success();
   }
