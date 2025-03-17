@@ -374,4 +374,11 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
   let dependentDialects = ["::mlir::tt::TTDialect"];
 }
 
+def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp"> {
+  let summary = "Erase inverse ops.";
+  let description = [{
+    This pass walks through the graph and erases inverse ops.
+  }];
+}
+
 #endif

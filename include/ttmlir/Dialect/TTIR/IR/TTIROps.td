@@ -336,7 +336,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastabl
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands, TTIR_ElementwiseUnary], traits)> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
