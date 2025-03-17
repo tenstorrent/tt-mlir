@@ -25,6 +25,14 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
   ];
 }
 
+def TTIRGeneralizeNamedOps: Pass<"ttir-generalize-named-ops", "::mlir::ModuleOp"> {
+  let summary = "Convert named TTIR operations to their ttir.generic form.";
+  let description = [{
+    This pass converts "named" ops to a nested ttir.generic/linalg.generic structure.
+    TODO(vlad) more doc
+  }];
+}
+
 def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{

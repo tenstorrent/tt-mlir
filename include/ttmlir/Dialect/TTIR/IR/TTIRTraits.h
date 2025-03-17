@@ -72,6 +72,35 @@ class TTIRGenericRegionOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, TTIRGenericRegionOpTrait> {
 };
 
+namespace named_op_group {
+
+struct elementwise {
+  using named_op_group_type = elementwise;
+};
+struct reduction {
+  using named_op_group_type = reduction;
+};
+struct contraction {
+  using named_op_group_type = contraction;
+}; // matmul-like
+
+} // namespace named_op_group
+
+template <typename ConcreteType>
+struct TTIRNamedElementwise
+    : named_op_group::elementwise,
+      mlir::TypeTrait::TraitBase<ConcreteType, TTIRNamedElementwise> {};
+
+template <typename ConcreteType>
+struct TTIRNamedReduction
+    : named_op_group::reduction,
+      mlir::TypeTrait::TraitBase<ConcreteType, TTIRNamedReduction> {};
+
+template <typename ConcreteType>
+struct TTIRNamedContraction
+    : named_op_group::contraction,
+      mlir::TypeTrait::TraitBase<ConcreteType, TTIRNamedContraction> {};
+
 } // namespace OpTrait
 } // namespace ttir
 } // namespace tt

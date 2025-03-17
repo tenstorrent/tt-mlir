@@ -9,6 +9,7 @@ include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
+
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -302,7 +303,7 @@ class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
+    TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_NamedElementwise, TTIR_Broadcastable], traits)> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -790,7 +791,7 @@ def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
+    TTIR_NamedOp<mnemonic, !listconcat([TTIR_NamedReduction, TTIR_GenericRegionOpInterface], traits)> {
 
     let summary = "Reduction op.";
     let description = [{
@@ -1743,7 +1744,7 @@ def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
+def TTIR_LinearOp : TTIR_NamedOp<"linear", [TTIR_NamedContraction]> {
     let summary = "Linear transformation of inputs.";
     let description = [{
       Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
@@ -1771,7 +1772,7 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_NamedOp<"matmul", [TTIR_NamedContraction]> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.
