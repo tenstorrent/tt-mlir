@@ -326,7 +326,7 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastable]> {
+def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_FirstOperandBroadcastable]> {
     let summary = "Eltwise where op.";
     let description = [{
       Eltwise where operation.
@@ -731,7 +731,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence, TTIR_PartiallyBroadcastable]> {
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence, TTIR_FirstOperandBroadcastable]> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -744,14 +744,14 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
     }];
 }
 
-def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract", [TTIR_PartiallyBroadcastable]> {
+def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract", [TTIR_FirstOperandBroadcastable]> {
     let summary = "Eltwise subtract.";
     let description = [{
       Eltwise subtract operation.
     }];
 }
 
-def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroadcastable]> {
+def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_FirstOperandBroadcastable]> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
@@ -768,7 +768,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroa
 
 // TODO We need to add a broadcastable trait to this op.
 // See issue https://github.com/tenstorrent/tt-mlir/issues/2015
-def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
+def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power", [TTIR_SecondOperandBroadcastable]> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -1900,21 +1900,21 @@ def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable
     }];
 }
 
-def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
+def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_FirstOperandBroadcastable]> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
     }];
 }
 
-def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
+def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div", [TTIR_FirstOperandBroadcastable]> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.
     }];
 }
 
-def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
+def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum", [TTIR_SecondOperandBroadcastable]> {
     let summary = "Eltwise maximum.";
     let description = [{
       Calculates maximum of input tensors' values element-wise and stores result in output tensor.
