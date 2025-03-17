@@ -14,6 +14,7 @@ import torch
 import array
 from enum import Enum, auto
 import re
+from .ccl_golden import *
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -606,6 +607,31 @@ class TTIRBuilder:
         inputs: List[Operand],
     ) -> OpView:
         return self.op_proxy(op_golden_function, op_ttir_function, inputs)
+
+    def ccl_proxy(
+        self,
+        op_golden_function: Callable,
+        op_ttir_function: Callable,
+        inputs: List[Operand],
+        kwargs: dict = {},
+    ) -> OpView:
+        # Force GoldenCheckLevel to GRAPH_LEVEL when CCL Ops are used(phase 0)
+        self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
+        return self.op_proxy(
+            op_golden_function=op_golden_function,
+            op_ttir_function=op_ttir_function,
+            inputs=inputs,
+            organize_golden_args=lambda i: (
+                [self._get_golden_tensor(i[0]), self.mesh_shape]
+            ),
+            organize_ttir_args=lambda i, o, shape: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+        )
 
     # TTIR top level ops
 
@@ -1654,4 +1680,91 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(
                 TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
             ),
+        )
+
+    # CCL ops
+    def mesh_shard(
+        self,
+        input: Operand,
+        shard_type: str,
+        shard_direction: str,
+        shard_shape: Tuple[int, ...],
+        shard_dims: Tuple[int, ...],
+    ) -> OpView:
+        kwargs = {
+            "shard_type": Attribute.parse(shard_type),
+            "shard_direction": Attribute.parse(shard_direction),
+            "shard_shape": shard_shape,
+            "shard_dims": shard_dims,
+        }
+        return self.ccl_proxy(
+            mesh_shard_golden,
+            ttir.MeshShardOp,
+            [input],
+            kwargs=kwargs,
+        )
+
+    def all_gather(
+        self,
+        input: Operand,
+        all_gather_dim: int = None,
+        cluster_axis: int = None,
+    ) -> OpView:
+        kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
+        return self.ccl_proxy(
+            all_gather_golden,
+            ttir.AllGatherOp,
+            [input],
+            kwargs=kwargs,
+        )
+
+    def all_reduce(
+        self,
+        input: Operand,
+        reduce_type: str,
+        cluster_axis: int,
+    ) -> OpView:
+        kwargs = {
+            "reduce_type": Attribute.parse(reduce_type),
+            "cluster_axis": cluster_axis,
+        }
+        return self.ccl_proxy(
+            all_reduce_golden,
+            ttir.AllReduceOp,
+            [input],
+            kwargs=kwargs,
+        )
+
+    def reduce_scatter(
+        self,
+        input: Operand,
+        reduce_type: str,
+        scatter_dim: int,
+        cluster_axis: int,
+    ) -> OpView:
+        kwargs = {
+            "reduce_type": Attribute.parse(reduce_type),
+            "scatter_dim": scatter_dim,
+            "cluster_axis": cluster_axis,
+        }
+        return self.ccl_proxy(
+            reduce_scatter_golden,
+            ttir.ReduceScatterOp,
+            [input],
+            kwargs=kwargs,
+        )
+
+    def collective_permute(
+        self,
+        input: Operand,
+        source_target_pairs: List[Tuple[int, int]],
+    ) -> OpView:
+        kwargs = {
+            "source_target_pairs": source_target_pairs,
+        }
+        return self.ccl_proxy(
+            collective_permute_golden,
+            ttir.CollectivePermuteOp,
+            [input],
+            kwargs=kwargs,
         )
