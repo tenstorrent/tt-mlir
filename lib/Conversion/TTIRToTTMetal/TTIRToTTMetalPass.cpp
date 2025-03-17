@@ -81,53 +81,36 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<arith::ArithDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addLegalDialect<scf::SCFDialect>();
+    target.addIllegalDialect<ttir::TTIRDialect>();
 
-    target.addIllegalOp<memref::AllocOp>();
+    target.addLegalOp<ttir::GenericOp>();
     target.addIllegalOp<memref::StoreOp>();
-    target.addIllegalOp<ttir::AwaitOp>();
-    target.addIllegalOp<ttir::YieldOp>();
-    target.addIllegalOp<ttir::TileMaximumOp>();
-    target.addIllegalOp<ttir::TileMatmulOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
 
-    RewritePatternSet patterns(&getContext());
-    populateTTIRToTTKernelPatternsPhase1(&getContext(), patterns,
-                                         typeConverter);
-
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
-      signalPassFailure();
-      return;
-    }
-
-    target.addIllegalOp<memref::LoadOp>();
-
-    RewritePatternSet patterns2(&getContext());
-    populateTTIRToTTKernelPatternsPhase2(&getContext(), patterns2,
-                                         typeConverter);
+    RewritePatternSet innerRegionPatterns(&getContext());
+    populateTTIRToTTKernelInnerRegionPatterns(
+        &getContext(), innerRegionPatterns, typeConverter);
 
     if (failed(applyFullConversion(getOperation(), target,
-                                   std::move(patterns2)))) {
+                                   std::move(innerRegionPatterns)))) {
       signalPassFailure();
       return;
     }
 
-    target.addDynamicallyLegalOp<ttir::GenericOp>([](Operation *op) {
-      return mlir::isa<ttkernel::CBType>(
-          op->getRegion(0).getBlocks().front().getArgument(0).getType());
-    });
+    target.addIllegalOp<memref::AllocOp>();
+    target.addIllegalOp<memref::LoadOp>();
     target.addIllegalOp<memref::CollapseShapeOp>();
+    target.addIllegalOp<ttir::GenericOp>();
 
-    RewritePatternSet patterns3(&getContext());
-    populateTTIRToTTKernelPatternsPhase3(&getContext(), patterns3,
-                                         typeConverter);
+    RewritePatternSet topLevelPatterns(&getContext());
+    populateTTIRToTTKernelTopLevelPatterns(&getContext(), topLevelPatterns,
+                                           typeConverter);
 
-    GreedyRewriteConfig config = GreedyRewriteConfig();
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns3),
-                                     config))) {
+    if (failed(applyFullConversion(getOperation(), target,
+                                   std::move(topLevelPatterns)))) {
       signalPassFailure();
       return;
     }

@@ -296,9 +296,7 @@ public:
       }
     }
 
-    if (erase) {
-      rewriter.eraseOp(op);
-    }
+    rewriter.eraseOp(op);
     return success();
   };
 };
@@ -405,26 +403,20 @@ public:
 
 namespace mlir::tt {
 
-void populateTTIRToTTKernelPatternsPhase1(MLIRContext *ctx,
-                                          RewritePatternSet &patterns,
-                                          TypeConverter & /*typeConverter*/) {
+void populateTTIRToTTKernelInnerRegionPatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    TypeConverter & /*typeConverter*/) {
 
   patterns.add<ttkernel::TTIRTileOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
-               ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
-               ttkernel::MemrefAllocRewriter>(ctx);
+               ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>>(ctx);
 }
 
-void populateTTIRToTTKernelPatternsPhase2(MLIRContext *ctx,
-                                          RewritePatternSet &patterns,
-                                          TypeConverter & /*typeConverter*/) {
-  // patterns.add<ttkernel::MemrefLoadRewriter>(ctx);
-}
-
-void populateTTIRToTTKernelPatternsPhase3(MLIRContext *ctx,
-                                          RewritePatternSet &patterns,
-                                          TypeConverter & /*typeConverter*/) {
-  patterns.add<ttkernel::TTIRGenericRewriter>(ctx);
+void populateTTIRToTTKernelTopLevelPatterns(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter & /*typeConverter*/) {
+  patterns.add<ttkernel::TTIRGenericRewriter, ttkernel::MemrefAllocRewriter>(
+      ctx);
 }
 
 } // namespace mlir::tt
