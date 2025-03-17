@@ -706,9 +706,9 @@ MetalLayoutAttr MetalLayoutAttr::withGrid(
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   assert(ty);
   SmallVector<int64_t> tensorShape(ty.getShape());
-  if (mlir::isa<tt::TileType>(ty.getElementType())) {
-    tensorShape = mlir::cast<tt::TileType>(ty.getElementType())
-                      .getScalarShape(tensorShape);
+  auto tileType = mlir::dyn_cast<TileType>(ty.getElementType());
+  if (tileType) {
+    tensorShape = tileType.getScalarShape(tensorShape);
   }
   return MetalLayoutAttr::withGrid(context, tensorShape, grid,
                                    collapseIntervals);
