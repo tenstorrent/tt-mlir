@@ -10,6 +10,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/LogicalResult.h"
+#include <llvm/Support/ErrorHandling.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/OperationSupport.h>
 
@@ -17,15 +18,15 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRERASEINVERSEOPS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-class TTIRCommuteTmsAboveElementwiseUnaryRewriter : public RewritePattern {
+class TTIRCommuteTmsAboveElementwiseRewriter : public RewritePattern {
 public:
-  TTIRCommuteTmsAboveElementwiseUnaryRewriter(MLIRContext *ctx)
+  TTIRCommuteTmsAboveElementwiseRewriter(MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
 
-    if (!op->hasTrait<ElementwiseUnary::Trait>()) {
+    if (!op->hasTrait<Elementwise::Trait>()) {
       // The op should support implicit broadcast to fold them.
       return failure();
     }
@@ -35,12 +36,20 @@ public:
       return failure();
     }
 
-    if (auto transpose = dyn_cast<ttir::TransposeOp>(users[0])) {
-      commuteTmsThroughEltwise(op, users, op->getOperand(0), rewriter);
-      return success();
+    if (isa<ttir::TransposeOp>(users[0])) {
+      commuteTmsThroughEltwise<ttir::TransposeOp>(op, users, op->getOperand(0),
+                                                  rewriter);
+    } else if (isa<ttir::PermuteOp>(users[0])) {
+      commuteTmsThroughEltwise<ttir::PermuteOp>(op, users, op->getOperand(0),
+                                                rewriter);
+    } else if (isa<ttir::ReshapeOp>(users[0])) {
+      commuteTmsThroughEltwise<ttir::ReshapeOp>(op, users, op->getOperand(0),
+                                                rewriter);
+    } else {
+      llvm_unreachable("users[0] must be one of ttir::TransposeOp, "
+                       "ttir::PermuteOp, ttir::ReshapeOp");
     }
-
-    return failure();
+    return success();
   }
 
 private:
@@ -56,6 +65,7 @@ private:
         isa<ttir::TransposeOp, ttir::PermuteOp, ttir::ReshapeOp>(firstUser));
   }
 
+  template <typename TMOpType>
   void commuteTmsThroughEltwise(Operation *op, SmallVector<Operation *> users,
                                 Value operand,
                                 PatternRewriter &rewriter) const {
@@ -65,7 +75,7 @@ private:
     mlir::tensor::EmptyOp newTransposeDPS = rewriter.create<tensor::EmptyOp>(
         op->getLoc(), newEltwiseType.getShape(),
         newEltwiseType.getElementType());
-    TransposeOp newTranspose = cast<TransposeOp>(rewriter.clone(*user));
+    TMOpType newTranspose = cast<TMOpType>(rewriter.clone(*user));
     mlir::tensor::EmptyOp newEltwiseDPS = rewriter.create<tensor::EmptyOp>(
         op->getLoc(), newEltwiseType.getShape(),
         newEltwiseType.getElementType());
