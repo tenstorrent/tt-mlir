@@ -143,20 +143,17 @@ public:
                     "determine CB id. Failing.");
   }
 
-  static bool isFirstComputeOp(Operation *op) {
-    auto generic = op->getParentOfType<ttir::GenericOp>();
-    assert(generic && "Could not find parent generic op, failing.");
+  static bool computeOpInBlock(Block *block) {
+    bool computeFound = 0;
 
-    bool isFirst = 1;
-
-    generic.walk([&](Operation *walkOp) {
+    block->walk([&](Operation *walkOp) {
       if (walkOp->hasTrait<OpTrait::TTKernelFPUOpTrait>() ||
           walkOp->hasTrait<OpTrait::TTKernelSFPUOpTrait>()) {
-        isFirst = 0;
+        computeFound = 1;
       }
     });
 
-    return isFirst;
+    return computeFound;
   }
 
   static void lowerLoad(memref::LoadOp op, bool copyToDst, bool cbIndices,
@@ -175,15 +172,13 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const final {
-    auto first = isFirstComputeOp(op);
-    bool erase = 0;
+    auto isComputeOpInBlock = computeOpInBlock(op->getBlock());
     Operation *newOp;
 
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
       rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
       newOp = rewriter.create<ttkernel::MaxTilesOp>(
           op->getLoc(), i32(0, rewriter), i32(1, rewriter));
-      erase = 1;
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
       auto dstIdx = rewriter.create<arith::ConstantOp>(
           op->getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(0));
@@ -194,15 +189,12 @@ public:
           i32(getCbId(op->getOperand(1).getDefiningOp<memref::LoadOp>()),
               rewriter),
           index(op->getOperand(0)), index(op->getOperand(1)), dstIdx);
-      erase = 1;
+    } else {
+      return failure();
     }
 
-    if (!erase) {
-      return failure(); // new ttir trait for generic region compute vs generic
-                        // region "helpers" or something
-    }
-
-    if (first) {
+    // Lower memref loads if this is the first compute op to be lowered.
+    if (!isComputeOpInBlock) {
       if (mlir::isa<ttkernel::MatmulTilesOp>(newOp)) {
         lowerLoad(op->getOperand(0).getDefiningOp<memref::LoadOp>(), false,
                   false, rewriter);
