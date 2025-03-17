@@ -4,67 +4,67 @@ include(AddMLIRPython)
 # SHLO (copied over from /opt/ttmlir-toolchain/src/stablehlo/stablehlo/integrations/python/CMakeLists.txt)
 ################################################################################
 
-set(STABLEHLO_PYTHON_ROOT_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo/stablehlo/integrations/python")
+# set(STABLEHLO_PYTHON_ROOT_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo/stablehlo/integrations/python")
 
-declare_mlir_python_sources(StablehloPythonSources)
-declare_mlir_python_sources(StablehloPythonSources.Dialects
-  ADD_TO_PARENT StablehloPythonSources
-)
+# declare_mlir_python_sources(StablehloPythonSources)
+# declare_mlir_python_sources(StablehloPythonSources.Dialects
+#   ADD_TO_PARENT StablehloPythonSources
+# )
 
-declare_mlir_dialect_python_bindings(
-  ADD_TO_PARENT StablehloPythonSources.Dialects
-  ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}/mlir"
-  TD_FILE dialects/StablehloOps.td
-  SOURCES dialects/stablehlo.py
-  DIALECT_NAME stablehlo)
+# declare_mlir_dialect_python_bindings(
+#   ADD_TO_PARENT StablehloPythonSources.Dialects
+#   ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}/mlir"
+#   TD_FILE dialects/StablehloOps.td
+#   SOURCES dialects/stablehlo.py
+#   DIALECT_NAME stablehlo)
 
-declare_mlir_python_sources(VhloPythonSources)
-declare_mlir_python_sources(VhloPythonSources.Dialects
-  ADD_TO_PARENT VhloPythonSources
-)
+# declare_mlir_python_sources(VhloPythonSources)
+# declare_mlir_python_sources(VhloPythonSources.Dialects
+#   ADD_TO_PARENT VhloPythonSources
+# )
 
-declare_mlir_dialect_python_bindings(
-  ADD_TO_PARENT VhloPythonSources.Dialects
-  ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}/mlir"
-  TD_FILE dialects/VhloOps.td
-  SOURCES dialects/vhlo.py
-  DIALECT_NAME vhlo)
+# declare_mlir_dialect_python_bindings(
+#   ADD_TO_PARENT VhloPythonSources.Dialects
+#   ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}/mlir"
+#   TD_FILE dialects/VhloOps.td
+#   SOURCES dialects/vhlo.py
+#   DIALECT_NAME vhlo)
 
 
-## The following options are used specifically for compiling nanobind codebase.
-add_compile_options(-Wno-error=cast-qual -Wno-error=nested-anon-types
-  -Wno-error=extra-semi -Wno-error=zero-length-array
-  -Wno-error=covered-switch-default)
+# ## The following options are used specifically for compiling nanobind codebase.
+# add_compile_options(-Wno-error=cast-qual -Wno-error=nested-anon-types
+#   -Wno-error=extra-semi -Wno-error=zero-length-array
+#   -Wno-error=covered-switch-default)
 
-declare_mlir_python_sources(StablehloPythonExtensions)
-declare_mlir_python_extension(StablehloPythonExtensions.Main
-  MODULE_NAME _stablehlo
-  ADD_TO_PARENT StablehloPythonExtensions
-  ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}"
-  PYTHON_BINDINGS_LIBRARY nanobind
-  SOURCES
-    StablehloApi.cpp
-    StablehloModule.cpp
-  EMBED_CAPI_LINK_LIBS
-    StablehloCAPI
-  PRIVATE_LINK_LIBS
-    StablehloCAPI
-    LLVMSupport
-)
+# declare_mlir_python_sources(StablehloPythonExtensions)
+# declare_mlir_python_extension(StablehloPythonExtensions.Main
+#   MODULE_NAME _stablehlo
+#   ADD_TO_PARENT StablehloPythonExtensions
+#   ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}"
+#   PYTHON_BINDINGS_LIBRARY nanobind
+#   SOURCES
+#     StablehloApi.cpp
+#     StablehloModule.cpp
+#   EMBED_CAPI_LINK_LIBS
+#     StablehloCAPI
+#   PRIVATE_LINK_LIBS
+#     StablehloCAPI
+#     LLVMSupport
+# )
 
-declare_mlir_python_sources(VhloPythonExtensions)
-declare_mlir_python_extension(VhloPythonExtensions.Main
-  MODULE_NAME _vhlo
-  ADD_TO_PARENT VhloPythonExtensions
-  ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}"
-  PYTHON_BINDINGS_LIBRARY nanobind
-  SOURCES
-    VhloModule.cpp
-  EMBED_CAPI_LINK_LIBS
-    VhloCAPI
-  PRIVATE_LINK_LIBS
-    LLVMSupport
-)
+# declare_mlir_python_sources(VhloPythonExtensions)
+# declare_mlir_python_extension(VhloPythonExtensions.Main
+#   MODULE_NAME _vhlo
+#   ADD_TO_PARENT VhloPythonExtensions
+#   ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}"
+#   PYTHON_BINDINGS_LIBRARY nanobind
+#   SOURCES
+#     VhloModule.cpp
+#   EMBED_CAPI_LINK_LIBS
+#     VhloCAPI
+#   PRIVATE_LINK_LIBS
+#     LLVMSupport
+# )
 
 ################################################################################
 # TTMLIR
@@ -211,40 +211,47 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.tosa
   MLIRPythonSources.Dialects.memref
-  # MLIRPythonSources.Dialects.stablehlo # doesn't work
-  # StablehloUnifiedPythonModules # doesn't work
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonInfra
 )
 
+if(TTMLIR_ENABLE_STABLEHLO)
+  # The following options are used specifically for compiling nanobind codebase.
+  add_compile_options(-Wno-error=cast-qual -Wno-error=nested-anon-types
+    -Wno-error=extra-semi -Wno-error=zero-length-array
+    -Wno-error=covered-switch-default)
+
+  list(APPEND TTMLIR_PYTHON_SOURCES StablehloPythonExtensions)
+endif()
+
 ################################################################################
 # SHLO
 ################################################################################
 
-add_mlir_python_common_capi_library(StablehloUnifiedPythonCAPI
-  INSTALL_COMPONENT StablehloUnifiedPythonModules
-  INSTALL_DESTINATION python_packages/ttmlir/_mlir_libs
-  OUTPUT_DIRECTORY "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir/_mlir_libs"
-  RELATIVE_INSTALL_ROOT ".."
-  DECLARED_SOURCES
-    StablehloPythonSources
-    StablehloPythonExtensions
-    VhloPythonSources
-    VhloPythonExtensions
-)
+# add_mlir_python_common_capi_library(StablehloUnifiedPythonCAPI
+#   INSTALL_COMPONENT StablehloUnifiedPythonModules
+#   INSTALL_DESTINATION python_packages/ttmlir/_mlir_libs
+#   OUTPUT_DIRECTORY "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir/_mlir_libs"
+#   RELATIVE_INSTALL_ROOT ".."
+#   DECLARED_SOURCES
+#     StablehloPythonSources
+#     StablehloPythonExtensions
+#     VhloPythonSources
+#     VhloPythonExtensions
+# )
 
-add_mlir_python_modules(StablehloUnifiedPythonModules
-  ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir"
-  INSTALL_PREFIX "python_packages/ttmlir"
-  DECLARED_SOURCES
-    StablehloPythonSources
-    StablehloPythonExtensions
-    VhloPythonSources
-    VhloPythonExtensions
-  COMMON_CAPI_LINK_LIBS
-    StablehloUnifiedPythonCAPI
-)
+# add_mlir_python_modules(StablehloUnifiedPythonModules
+#   ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir"
+#   INSTALL_PREFIX "python_packages/ttmlir"
+#   DECLARED_SOURCES
+#     StablehloPythonSources
+#     StablehloPythonExtensions
+#     VhloPythonSources
+#     VhloPythonExtensions
+#   COMMON_CAPI_LINK_LIBS
+#     StablehloUnifiedPythonCAPI
+# )
 
 ################################################################################
 # TTMLIR
