@@ -261,6 +261,32 @@ def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::Modu
   }];
 }
 
+def TTIRGenericLowerAffineDMAs : Pass<"ttir-generic-lower-affine-dmas", "::mlir::ModuleOp"> {
+  let summary = "Lower DMA ops from their affine form to indexed form.";
+  let description = [{
+    This pass lowers DMA ops from their affine form to indexed form. This is useful for doing analysis on the DMA
+    ops and lowering them to an optimal loop nest of coalesced transactions.  This is acheived by sampling the affine
+    map over the entire parent generic op iterator space. Note that the affine map provided to the DMA op must be
+    one of the indexing maps of the parent generic op.
+
+    e.g.
+    ```mlir
+    %tx = ttir.dma %stream<#map1>, %cb0
+    ```
+
+    Might become:
+    ```mlir
+    %c2 = arith.constant 2
+    %iter0 = ttir.iter_index(0)
+    %core0 = ttir.core_index(0)
+    %0 = arith.muli %core0, %c2
+    %1 = arith.addi %0, %iter0
+    %iter2 = ttir.iter_index(2)
+    %tx = ttir.dma %stream [%1, %iter2], %cb0
+    ```
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
