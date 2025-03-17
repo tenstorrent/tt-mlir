@@ -6,17 +6,15 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
-// clang-format off
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
-// clang-format on
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
 #include <array>
