@@ -533,11 +533,11 @@ public:
 } // namespace
 
 namespace {
-template <typename TTIROpTy, typename TTNNOpTy,
-          typename OpAdaptor = typename TTIROpTy::Adaptor>
+template <typename TTIROpTy, typename TTNNOpTy>
 class ClampOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
   using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+  using OpAdaptor = typename TTIROpTy::Adaptor;
 
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,

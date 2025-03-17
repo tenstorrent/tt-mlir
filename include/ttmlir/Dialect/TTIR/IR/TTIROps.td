@@ -1599,12 +1599,12 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
     Clamp tensor values to a specified range using min/max as tensor.
 
     Example:
-      min: [[2, 2, 2, 3, 3, 3, 0, 0]]
+      min:   [[2, 2, 2, 3, 3, 3, 0, 0]]
       input: [[0, 1, 2, 3, 4, 5, 6, 7]]
-      max: [[5, 5, 5, 9, 9, 9, 6, 6]]
+      max:   [[5, 5, 5, 9, 9, 9, 6, 6]]
 
       "ttir.clamp_tensor"(%input, %min, %max)
-      -> %out = [[2, 2, 2, 3, 4, 5, 6, 6]]
+      out:   [[2, 2, 2, 3, 4, 5, 6, 6]]
   }];
 
   let arguments = (ins AnyRankedTensor:$input,

@@ -5,11 +5,14 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
@@ -18,6 +21,7 @@
 #include <type_traits>
 
 namespace ttmlir::utils {
+using namespace mlir::tt::ttir;
 
 template <typename T>
 T alignUp(T ptr, T alignment) {
@@ -480,6 +484,36 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
   return newOp;
 }
 
+inline mlir::Value broadcastAttr(mlir::Value input,
+                                 mlir::RankedTensorType desiredType,
+                                 mlir::Location loc,
+                                 mlir::PatternRewriter &rewriter) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  if (inputType.getShape() == desiredType.getShape()) {
+    return input;
+  }
+
+  llvm::SmallVector<int64_t> unsqueezeShape(desiredType.getRank(), 1);
+  for (int64_t i = 0; i < inputType.getRank(); i++) {
+    unsqueezeShape[i] = inputType.getDimSize(i);
+  }
+  llvm::SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
+                                        unsqueezeShape.end());
+
+  auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
+  auto reshapeOp = ttmlir::utils::createDPSOp<ReshapeOp>(
+      rewriter, loc, unsqueezeShape, desiredType.getElementType(),
+      desiredType.getEncoding(), input, reshapeDimAttr);
+
+  llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
+  llvm::ArrayRef<int64_t> outputShape = desiredType.getShape();
+
+  llvm::SmallVector<int64_t> broadcastShape =
+      getBroadcastDimensions<int64_t>(inputShape, outputShape);
+
+  return createDPSOp<BroadcastOp>(rewriter, loc, desiredType, reshapeOp,
+                                  broadcastShape);
+}
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

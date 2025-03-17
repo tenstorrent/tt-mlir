@@ -1334,6 +1334,80 @@ public:
 };
 } // namespace
 
+namespace {
+struct ClampOpConstantAttrsConversionPattern
+    : public OpConversionPattern<ttir::ClampTensorOp> {
+public:
+  using OpConversionPattern<ttir::ClampTensorOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ClampTensorOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+
+    std::optional<float> minValue = getConstantValue(adaptor.getMin());
+    std::optional<float> maxValue = getConstantValue(adaptor.getMax());
+    if (minValue && maxValue) {
+      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
+          rewriter, op, outputType, adaptor.getInput(),
+          mlir::APFloat(*minValue), mlir::APFloat(*maxValue));
+
+      return success();
+    }
+
+    Location loc = op->getLoc();
+    mlir::Value minTensor = ttmlir::utils::broadcastAttr(
+        adaptor.getMin(), outputType, loc, rewriter);
+    mlir::Value maxTensor = ttmlir::utils::broadcastAttr(
+        adaptor.getMax(), outputType, loc, rewriter);
+
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+        rewriter, op, outputType, adaptor.getInput(), minTensor, maxTensor);
+
+    return success();
+  }
+
+private:
+  std::optional<float> getConstantValue(Value value) const {
+    Operation *op = value.getDefiningOp();
+    while (op && (isa<ttir::BroadcastOp>(op) || isa<ttir::ReshapeOp>(op) ||
+                  isa<ttir::TypecastOp>(op))) {
+      op = op->getOperand(0).getDefiningOp();
+    }
+    if (!op) {
+      return std::nullopt;
+    }
+
+    auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
+
+    if (!constantOp) {
+      return std::nullopt;
+    }
+
+    mlir::ElementsAttr attr = constantOp.getValueAttr();
+    if (!attr.isSplat()) {
+      return std::nullopt;
+    }
+
+    mlir::Type elementType = attr.getElementType();
+    mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
+    if (isa<IntegerType>(elementType)) {
+      fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
+                                 attr.getElementType().isSignedInteger(),
+                                 llvm::RoundingMode::TowardZero);
+      return fillValue.convertToFloat();
+    }
+    if (isa<FloatType>(elementType)) {
+      return static_cast<float>(
+          attr.getSplatValue<mlir::APFloat>().convertToDouble());
+    }
+
+    return std::nullopt;
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -1348,6 +1422,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
   patterns.add<ReductionOrPattern>(typeConverter, ctx);
   patterns.add<ArgMaxOpKeepDimConversionPattern>(typeConverter, ctx);
+  patterns.add<ClampOpConstantAttrsConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

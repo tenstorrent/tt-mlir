@@ -44,6 +44,7 @@ struct TTIRToTTIRDecompositionPass
 
     target.addLegalOp<tensor::EmptyOp>(); // DPS operands are create with
                                           // tensor::EmptyOp
+    target.addLegalOp<ttir::ClampTensorOp>();
 
     // These are the ops we intend to remove entirely with this pass
     target.addIllegalOp<ttir::IndexOp>();
