@@ -205,6 +205,12 @@
 
 Third-Party Dependencies:
 
+The following separate and independent dependencies are utilized by this
+project and are included in a distributed build of a Python Wheel and
+are subject to their own license terms listed as follows:
+
+- pytorch - [License Available Here] (https://github.com/pytorch/pytorch/blob/main/LICENSE)
+
 The following dependencies are utilized by this project but are not explicitly
 distributed as part of the software:
 
