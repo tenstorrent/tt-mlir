@@ -17,11 +17,11 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRGENERICDATAMOVEMENT
+#define GEN_PASS_DEF_TTIRGENERICGENERATEDATAMOVEMENT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class TTIRGenericDatamovementRewriter : public OpRewritePattern<GenericOp> {
+class TTIRGenericGenerateDatamovementRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
@@ -296,15 +296,15 @@ public:
 } // namespace
 
 namespace {
-class TTIRGenericDatamovement
-    : public impl::TTIRGenericDatamovementBase<TTIRGenericDatamovement> {
+class TTIRGenericGenerateDatamovement
+    : public impl::TTIRGenericGenerateDatamovementBase<TTIRGenericGenerateDatamovement> {
 public:
-  using impl::TTIRGenericDatamovementBase<
-      TTIRGenericDatamovement>::TTIRGenericDatamovementBase;
+  using impl::TTIRGenericGenerateDatamovementBase<
+      TTIRGenericGenerateDatamovement>::TTIRGenericGenerateDatamovementBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericDatamovementRewriter>(&getContext());
+    patterns.add<TTIRGenericGenerateDatamovementRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();

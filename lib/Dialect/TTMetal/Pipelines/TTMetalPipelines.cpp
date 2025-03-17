@@ -93,7 +93,7 @@ void createTTIRToTTMetalBackendPipeline(
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
     pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
     pm.addPass(mlir::createLowerAffinePass());
-    pm.addPass(mlir::tt::ttir::createTTIRGenericDatamovement());
+    pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
   } else {
     mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
     {

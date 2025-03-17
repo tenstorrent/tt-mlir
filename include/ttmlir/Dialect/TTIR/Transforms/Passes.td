@@ -84,7 +84,7 @@ def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::Modul
   }];
 }
 
-def TTIRGenericDatamovement: Pass<"ttir-generic-datamovement", "::mlir::ModuleOp"> {
+def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", "::mlir::ModuleOp"> {
   let summary = "Generate generic data movement threads.";
   let description = [{
     This pass makes the following transformation, given a generic compute region:

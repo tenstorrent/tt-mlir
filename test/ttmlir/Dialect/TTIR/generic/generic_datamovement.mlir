@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-generic-datamovement %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-generic-generate-datamovement %s | FileCheck %s
 
 #l1_ = #tt.memory_space<l1>
 #dram = #tt.memory_space<dram>
