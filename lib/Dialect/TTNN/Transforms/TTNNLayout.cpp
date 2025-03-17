@@ -265,9 +265,8 @@ public:
 
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
-      if (!isDPSResult &&
-          (mlir::isa<ttir::Conv2dOp>(op.getOperation()) ||
-           mlir::isa<ttir::ConvTranspose2dOp>(op.getOperation()))) {
+      if (!isDPSResult && (mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(
+                              op.getOperation()))) {
         // For the weight input of the conv2d op, it specifically needs to be on
         // host, so we create a host to layout op (issue
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
@@ -549,8 +548,7 @@ private:
       }
       // For the weight input of the conv2d op, it specifically needs to be on
       // host (issue https://github.com/tenstorrent/tt-mlir/issues/1528).
-      if ((mlir::isa<ttir::Conv2dOp>(user) ||
-           mlir::isa<ttir::ConvTranspose2dOp>(user)) &&
+      if ((mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(user)) &&
           user->getOperand(1) == arg) {
         return true;
       }
