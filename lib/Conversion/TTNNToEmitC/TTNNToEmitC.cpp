@@ -994,15 +994,10 @@ public:
   LogicalResult
   matchAndRewrite(tt::ttnn::ConstructTensorOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    // Create a sequence of operations to construct a tensor
-
-    // 1. Create tt::ttnn::Shape from ShapeAttr
     emitc::CallOpaqueOp shapeOp = tt::ttnn_to_emitc::utils::createShapeOp(
         rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
-    shapeOp.getResult(0).getType().dump();
 
-    // 2. Create a variable to hold the member function pointer
+    // Create a variable to hold the member function pointer
     auto memberFuncPtrTy = emitc::OpaqueType::get(
         rewriter.getContext(), "decltype(&ttnn::Shape::volume)");
     auto memberFuncPtrAttr =
@@ -1010,13 +1005,13 @@ public:
     auto memberFuncPtrOp = rewriter.create<emitc::ConstantOp>(
         srcOp.getLoc(), memberFuncPtrTy, memberFuncPtrAttr);
 
-    // 3. Call std::invoke with the member function pointer and shape
+    // Call std::invoke with the member function pointer and shape
     auto volumeTy = emitc::OpaqueType::get(rewriter.getContext(), "uint32_t");
     auto volumeOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(), volumeTy, "std::invoke", nullptr, nullptr,
         ValueRange{memberFuncPtrOp.getResult(), shapeOp.getResult(0)});
 
-    // . Create owned_buffer with proper template based on data type
+    // Create owned_buffer with proper template based on data type
     auto dtype = srcOp.getDtypeAttr().getValue();
 
     TypeAttr templateTypeAttr;
@@ -1059,14 +1054,14 @@ public:
         nullptr, rewriter.getArrayAttr({templateTypeAttr}),
         ValueRange{volumeOp.getResult(0)});
 
-    // 4. Create owned_storage from buffer
+    // Create owned_storage from buffer
     auto storageTy = emitc::OpaqueType::get(rewriter.getContext(),
                                             "::tt::tt_metal::OwnedStorage");
     auto storageOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(), storageTy, "::tt::tt_metal::OwnedStorage", nullptr,
         nullptr, ValueRange{bufferOp.getResult(0)});
 
-    // 5. Create Tensor with storage, shape, dtype, and layout
+    // Create Tensor with storage, shape, dtype, and layout
     llvm::SmallVector<Value, 4> operands{storageOp.getResult(0),
                                          shapeOp.getResult(0)};
 
