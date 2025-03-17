@@ -231,10 +231,27 @@ class TTKernelCompiler(ast.NodeVisitor):
         if isinstance(step.type, memref.MemRefType):
             step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0))
 
+        # Analyze Assign and AugAssign calls within for loop body, extract those that are taken from outside values
+        # Those that access and modify a variable defined outside the scope of the for loop are taken in as iter_args
+        # iter_args are a part of the scf.ForOp, and don't require specific AnnAssign calls to allocate them.
+        for statement in node.body:
+            if isinstance(statement, ast.Assign):
+                # Parse the assign and check to see if the symbol is defined in an external scope
+                presence = self.visit(statement.targets[0])
+                if presence is None:
+                    # This hasn't been defined in the current scope, irrelevant
+                    continue
+                # Now we are working with the value from the symbol table
+
+        # The inputs into the iter_args is now set to the be a factory of memref LoadOps
+        iter_args = []
+
         for_op = scf.ForOp(lower_bound, upper_bound, step)
+
         with (InsertionPoint(for_op.body)), Location.unknown():
             self.symbol_tables.append({})
             for stmt in node.body:
+                # Do some further analysis here to determine accesses to externally defined variables
                 self.visit(stmt)
             scf.YieldOp([])
             self.symbol_tables.pop()
