@@ -16,7 +16,6 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
-#include <llvm/ADT/SmallPtrSet.h>
 
 namespace mlir::tt::transforms {
 
