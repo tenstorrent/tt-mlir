@@ -104,11 +104,9 @@ public:
 
   LogicalResult matchAndRewrite(memref::StoreOp op,
                                 PatternRewriter &rewriter) const final {
-    OpBuilder builder(op);
-
-    auto cbId = i32(getCbId(op), builder);
+    auto cbId = i32(getCbId(op), rewriter);
     auto storeIdx = op.getIndices().front();
-    rewriter.create<ttkernel::PackTileOp>(op.getLoc(), index(0, builder), cbId,
+    rewriter.create<ttkernel::PackTileOp>(op.getLoc(), index(0, rewriter), cbId,
                                           storeIdx, rewriter.getBoolAttr(true));
 
     rewriter.eraseOp(op);
@@ -164,22 +162,19 @@ public:
   static void lowerLoad(memref::LoadOp op, bool copyToDst, bool cbIndices,
                         PatternRewriter &rewriter) {
     OpBuilder builder(op);
-
     if (copyToDst) {
       auto cbId = i32(getCbId(op), builder);
       rewriter.setInsertionPoint(op);
       rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
-      rewriter.create<ttkernel::CopyTileOp>(op.getLoc(), cbId,
-                                            op.getIndices().front(),
-                                            cbIndices ? cbId : i32(0, builder));
+      rewriter.create<ttkernel::CopyTileOp>(
+          op.getLoc(), cbId, op.getIndices().front(),
+          cbIndices ? cbId : i32(0, rewriter));
     }
     rewriter.eraseOp(op);
   }
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const final {
-    OpBuilder builder(op);
-
     auto first = isFirstComputeOp(op);
     bool erase = 0;
     Operation *newOp;
@@ -187,17 +182,17 @@ public:
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
       rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
       newOp = rewriter.create<ttkernel::MaxTilesOp>(
-          op->getLoc(), i32(0, builder), i32(1, builder));
+          op->getLoc(), i32(0, rewriter), i32(1, rewriter));
       erase = 1;
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
       auto dstIdx = rewriter.create<arith::ConstantOp>(
-          op->getLoc(), builder.getIndexType(), builder.getIndexAttr(0));
+          op->getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(0));
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(),
           i32(getCbId(op->getOperand(0).getDefiningOp<memref::LoadOp>()),
-              builder),
+              rewriter),
           i32(getCbId(op->getOperand(1).getDefiningOp<memref::LoadOp>()),
-              builder),
+              rewriter),
           index(op->getOperand(0)), index(op->getOperand(1)), dstIdx);
       erase = 1;
     }
@@ -253,14 +248,12 @@ public:
   }
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &rewriter) const final {
-    OpBuilder builder(op);
-
     for (Value input : op.getValues()) {
-      auto cbId = i32(getCbId(input), builder);
+      auto cbId = i32(getCbId(input), rewriter);
       auto type = mlir::cast<MemRefType>(input.getType());
       assert(type.getShape().size() == 1 &&
              "Expected collapsed 1D memref, failing.");
-      auto numPages = i32(type.getNumElements(), builder);
+      auto numPages = i32(type.getNumElements(), rewriter);
       Block *block = op->getBlock();
       if (mlir::isa<ttir::AwaitOp>(op)) {
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), cbId, numPages);
