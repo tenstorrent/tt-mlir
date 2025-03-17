@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -170,7 +171,7 @@ public:
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-    llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
+    llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
 
     moduleOp->walk([&](Operation *op) {
       if (op->getNumResults() == 0) {
@@ -192,7 +193,7 @@ public:
       legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
           chipDesc, max_grid, tensorType, maxLegalLayouts,
           &overrideOutputLayout, rowMajorEnabled));
-      legalLayouts[op] = legalLayoutAnalysis.getResult();
+      legalConfigs[op] = legalLayoutAnalysis.getResult();
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
@@ -209,9 +210,9 @@ public:
       MemoryLayoutAnalysis memoryLayoutAnalysis =
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
-          legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges,
+          legalConfigs, chipDesc.getUsableL1Size(), overrideReshardEdges,
           memoryLayoutAnalysisPolicy));
-      legalLayouts = memoryLayoutAnalysis.getResult().legalLayouts;
+      legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;
       spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
@@ -220,7 +221,7 @@ public:
     // Pick optimal op configuration.
     //
     OpConfigAnalysis opConfigAnalysis = getAnalysis<OpConfigAnalysis>();
-    opConfigAnalysis.init(OpConfigAnalysisInput(std::move(legalLayouts)));
+    opConfigAnalysis.init(OpConfigAnalysisInput(std::move(legalConfigs)));
 
     // Pure application of determined grid sizes to the operations.
     // No further analysis.
@@ -273,9 +274,9 @@ public:
         // Update the output layout attribute with the new one.
         //
         if (opConfigAnalysis.getResult().contains(op)) {
-          RankedTensorType newTensorType =
-              RankedTensorType::get(tensorShape, tensorType.getElementType(),
-                                    opConfigAnalysis.getResult().at(op));
+          RankedTensorType newTensorType = RankedTensorType::get(
+              tensorShape, tensorType.getElementType(),
+              opConfigAnalysis.getResult().at(op).outputLayout);
 
           // Update the memory space and layout of the op.
           //
