@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTIR/Utils/TensorTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -46,7 +46,7 @@ class TTIRPrepareTensorsForBufferization
   void runOnOperation() final {
     TTIRTensorBufferizeShapeConverter typeConverter(&getContext());
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRTensorTypeRewriter>(typeConverter, &getContext());
+    patterns.add<UniformTypeRewriter>(typeConverter, &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
@@ -70,14 +70,12 @@ void initializeOneShotBufferizationOptions(
          const bufferization::BufferizationOptions &options)
       -> ::mlir::BaseMemRefType {
     auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-    assert(rankedTensorType.getEncoding());
     return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
         .getBufferType();
   };
   options.defaultMemorySpaceFn =
       [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
     auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-    assert(rankedTensorType.getEncoding());
     return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
         .getMemref()
         .getMemorySpace();
@@ -87,7 +85,6 @@ void initializeOneShotBufferizationOptions(
          const bufferization::BufferizationOptions &) -> BaseMemRefType {
     auto rankedTensorType =
         mlir::cast<::mlir::RankedTensorType>(value.getType());
-    assert(rankedTensorType.getEncoding());
     return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
         .getBufferType();
   };

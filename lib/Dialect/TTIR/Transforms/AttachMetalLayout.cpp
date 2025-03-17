@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTIR/Utils/TensorTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -64,7 +64,7 @@ class TTIRAttachMetalLayout
                                                 useStreamLayout,
                                                 device.getWorkerGrid());
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRTensorTypeRewriter>(typeConverter, &getContext());
+    patterns.add<UniformTypeRewriter>(typeConverter, &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();

@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTIR/Utils/TensorTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -203,7 +203,7 @@ public:
       TTIRLayoutTensorTypeConverter typeConverter(
           &getContext(), initMemorySpace, device.getWorkerGrid());
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRTensorTypeRewriter>(typeConverter, &getContext());
+      patterns.add<UniformTypeRewriter>(typeConverter, &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
         signalPassFailure();
