@@ -2,6 +2,9 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
+// UNSUPPORTED: true
+// Marked as unsupported because of the following issue:
+// https://github.com/tenstorrent/tt-mlir/issues/2508
 
 func.func @scatter(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32> {
   %0 = tensor.empty() : tensor<1x3x320x320xf32>
