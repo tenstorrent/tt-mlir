@@ -15,6 +15,10 @@ struct TTIRToTTMetalBackendPipelineOptions
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
 
+  ListOption<int64_t> overrideDeviceShape{
+      *this, "override-device-shape",
+      llvm::cl::desc("Set the device worker grid shape.")};
+
   // Option to provide a system descriptor flatbuffer file to compile
   // against.
   //
