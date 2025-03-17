@@ -36,20 +36,33 @@ using namespace llvm;
 template <typename OpGroup = void>
 struct iteration_space_traits {
 
-  // navigate DPS (<inputs>;<inits>) operand split: this requires only
-  // 'getDpsInits()' to be available
+  // rewriter(s) need to be able to use:
+  //  (1) for ttir.generic:
+  //    - getAffineMapsAttr()
+  //    - getTTIRIteratorTypesAttr()
+  //  (2) for linalg.generic:
+  //    - getAffineMapsArray()
+  //    - getLinalgIteratorTypesArray()
+  //
+  // note that *.generics have 'iterator_type's with similar spellings
+  // but nevertheless different tablegen/c++ types.
+
+  // common need to navigate DPS (<inputs>;<inits>) operand split:
+  // note that this requires only 'getDpsInits()' to be available
   template <typename ConcreteOp>
   static std::array<mlir::ValueRange, 2> signatureSplit(ConcreteOp op) {
     // 'DPS inits' (for tensor semantics, tied 1:1 with 'DPS results'):
     mlir::ValueRange inits = op.getDpsInits();
 
-    // 'DPS inputs':
+    // can now infer 'DPS inputs':
     assert(inits.size() <= op->getNumOperands());
     mlir::ValueRange inputs =
         op->getOperands().take_front(op->getNumOperands() - inits.size());
 
     return {inputs, inits};
   }
+
+  // convenience getters for identity mappings:
 
   static SmallVector<mlir::AffineMap>
   getIdentityAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
@@ -184,7 +197,7 @@ struct iteration_space_traits<OpTrait::named_op_group::reduction>
 private:
   static mlir::ArrayAttr getDimArg(mlir::Operation *op) {
     auto attr = mlir::dyn_cast<mlir::ArrayAttr>(op->getAttr("dim_arg"));
-    assert(attr != nullptr);
+    assert(attr != nullptr && "expected 'dim_arg' attribute to be present");
     return attr;
   }
 
@@ -255,7 +268,7 @@ using direct_lowerings = std::tuple<
   std::pair<ExpOp,        TileExpOp>,
   std::pair<LogOp,        TileLogOp>,
   // reduction:
-  std::pair<SumOp,        TileReduceSum1Op>,
+  std::pair<SumOp,        TileReduceSum1Op>, // TODO(vlad) restore TileReduceSumOp
   std::pair<MaxOp,        TileReduceMaxOp>,
   // contraction:
   std::pair<MatmulOp,     TileMatmulBlockOp>
@@ -265,8 +278,8 @@ using direct_lowerings = std::tuple<
 // An OpRewritePattern implementation for all ConcreteOps that are present in
 // 'direct_lowerings'. As the dialect grows and/or more ConcreteOps need to
 // be handled by the 'TTIRGeneralizeNamedOps' pass, the typemap above
-// can be grown and full/partial 'TTIRGeneralizeNamedRewriter' template
-// specializations can be added (or both).
+// can be grown or full/partial 'TTIRGeneralizeNamedRewriter' template
+// specializations can be added, or both.
 
 template <typename ConcreteOp>
 class TTIRGeneralizeNamedRewriter final
@@ -274,10 +287,19 @@ class TTIRGeneralizeNamedRewriter final
 
   using TileOp = ttmlir::utils::map_find_t<ConcreteOp, direct_lowerings>;
   static_assert(!std::is_void_v<TileOp>,
-                "this ConcreteOp does not have a direct op mapping");
+                "this ConcreteOp does not have a direct tile op mapping");
 
   using op_group = typename ConcreteOp::named_op_group_type;
   using traits = iteration_space_traits<op_group>;
+
+  // some convenience trait shortcuts:
+
+  static constexpr bool is_elementwise =
+      std::is_same_v<OpTrait::named_op_group::elementwise, op_group>;
+  static constexpr bool is_reduction =
+      std::is_same_v<OpTrait::named_op_group::reduction, op_group>;
+  static constexpr bool is_contraction =
+      std::is_same_v<OpTrait::named_op_group::contraction, op_group>;
 
 public:
   using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern; // inherit
@@ -344,8 +366,7 @@ private:
         SmallVector<mlir::NamedAttribute> attributes;
 
         // for reductions, propagate 'dim_arg' as 'ReduceDim':
-        if constexpr (std::is_same_v<OpTrait::named_op_group::reduction,
-                                     op_group>) {
+        if constexpr (is_reduction) {
           attributes.emplace_back(
               tt::ttir::ReduceDimAttr::getMnemonic(),
               tt::ttir::ReduceDimAttr::get(
@@ -383,8 +404,7 @@ private:
 
       // for elementwise ops, require identical operand shapes for now (no
       // broadcasting, etc):
-      if constexpr (std::is_same_v<OpTrait::named_op_group::elementwise,
-                                   op_group>) {
+      if constexpr (is_elementwise) {
         if (shape.empty()) {
           shape = layout.getMemref().getShape();
         } else {
@@ -394,8 +414,7 @@ private:
       }
     }
     // for reductions, require 'dim_arg' and 'keep_dim'=true:
-    if constexpr (std::is_same_v<OpTrait::named_op_group::reduction,
-                                 op_group>) {
+    if constexpr (is_reduction) {
       assert(op.getDimArg() && "expected dim_arg attribute to be set");
       assert(op.getKeepDimAttr().getValue() &&
              "expected default keep_dim=true");

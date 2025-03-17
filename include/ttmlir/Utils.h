@@ -574,7 +574,7 @@ struct find {
 // as the value.
 //
 // 'map_find_t' returns 'void' on key-not-found condition. The first matching
-// is returned; there is no duplicate key checking.
+// key is returned; there is no duplicate key checking.
 template <
     typename K,
     typename MAP /* = std::tuple<std::pair<K1, V1>, std::pair<K2, V2>, ...>*/>
