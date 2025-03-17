@@ -117,6 +117,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
+      unsigned getNumLoops();
     }];
 }
 

@@ -2948,9 +2948,28 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
             "Additional GenericOp region arguments must be of SemaphoreType");
       }
     }
+
+    auto firstIndexingMap = getIndexingMaps().begin();
+    for (auto &indexingMap : getIndexingMaps()) {
+      if (mlir::cast<AffineMapAttr>(indexingMap).getValue().getNumDims() !=
+          mlir::cast<AffineMapAttr>(*firstIndexingMap)
+              .getValue()
+              .getNumDims()) {
+        return emitOpError("all indexing maps must have the same number of "
+                           "dimensions");
+      }
+    }
   }
 
   return success();
+}
+
+unsigned mlir::tt::ttir::GenericOp::getNumLoops() {
+  assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
+                                       "with indexing maps to use this method");
+  return mlir::cast<AffineMapAttr>(getIndexingMaps()[0])
+      .getValue()
+      .getNumDims();
 }
 
 void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(
@@ -3326,8 +3345,8 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // YieldOp / AwaitOp
 //===----------------------------------------------------------------------===//
 
-static bool valueInBlockArguments(mlir::Value value, mlir::Block *block) {
-  return llvm::is_contained(block->getArguments(), value);
+static bool valueInRegionArguments(mlir::Value value, mlir::Region *region) {
+  return llvm::is_contained(region->getArguments(), value);
 }
 
 static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
@@ -3338,22 +3357,35 @@ static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
   return value;
 }
 
-static ::mlir::LogicalResult operandsInBlockArguments(mlir::Operation *op,
-                                                      mlir::Block *block) {
+static ::mlir::LogicalResult operandsInRegionArguments(mlir::Operation *op,
+                                                       mlir::Region *region) {
   for (mlir::OpOperand &operand : op->getOpOperands()) {
     mlir::Value value = recurseThroughMemrefCollapse(operand.get());
-    if (!valueInBlockArguments(value, block)) {
+    if (!valueInRegionArguments(value, region)) {
       return op->emitOpError() << "operand[" << operand.getOperandNumber()
-                               << "] not in block arguments";
+                               << "] not in region arguments";
     }
   }
   return ::mlir::success();
 }
 
+template <typename OpTy>
+static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
+  mlir::Region *region = op->getParentRegion();
+  mlir::Operation *parentOp = region->getParentOp();
+  while (!mlir::isa<OpTy>(parentOp)) {
+    region = parentOp->getParentRegion();
+    parentOp = region->getParentOp();
+  }
+  return region;
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
-  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
+  return operandsInRegionArguments(
+      getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
-  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
+  return operandsInRegionArguments(
+      getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
 }

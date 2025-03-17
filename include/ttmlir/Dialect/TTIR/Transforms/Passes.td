@@ -122,6 +122,12 @@ def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", 
   }];
 }
 
+def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::ModuleOp"> {
+  let summary = "Generate generic loops.";
+  let description = [{
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
