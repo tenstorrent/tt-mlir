@@ -11,6 +11,10 @@ from pykernel.types import *
 
 @ttkernel_noc_compile()
 def write_1_tile(cb_out: CircularBuffer, rt_args):
+    # CHECK: module {
+    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     dst_addr = rt_args[0]
     dst_bank_id = rt_args[1]
 

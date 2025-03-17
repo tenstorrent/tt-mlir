@@ -11,6 +11,16 @@ from pykernel.types import *
 
 @ttkernel_noc_compile()
 def reader_bmm_8bank(cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer, rt_args):
+    # CHECK: module {
+    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     src0_addr, src1_addr = rt_args[:2]
     Mt, Kt, Nt, MtKt, KtNt = rt_args[2:7]
     batch = get_arg_val(int, 7)

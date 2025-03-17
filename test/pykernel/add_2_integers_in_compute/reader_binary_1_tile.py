@@ -11,6 +11,12 @@ from pykernel.types import *
 
 @ttkernel_noc_compile()
 def reader_binary_1_tile(cb_in0: CircularBuffer, cb_in1: CircularBuffer, rt_args):
+    # CHECK: module {
+    # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
+    # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     src0_addr, src1_addr, src0_bank_id, src1_bank_id = rt_args[:4]
 
     src0_noc_addr = get_noc_addr_from_bank_id(src0_bank_id, src0_addr)
