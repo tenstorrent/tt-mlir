@@ -19,14 +19,14 @@
 
 namespace mlir::tt::ttkernel {
 
-Value i32(int32_t value, OpBuilder &builder) {
+static Value i32(int32_t value, OpBuilder &builder) {
   return builder
       .create<arith::ConstantOp>(builder.getUnknownLoc(), builder.getI32Type(),
                                  builder.getI32IntegerAttr(value))
       .getResult();
 }
 
-Value index(int64_t value, OpBuilder &builder) {
+static Value index(int64_t value, OpBuilder &builder) {
   return builder
       .create<arith::ConstantOp>(builder.getUnknownLoc(),
                                  builder.getIndexType(),
@@ -41,11 +41,6 @@ public:
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    if (mlir::dyn_cast_or_null<ttkernel::CBType>(
-            op->getRegion(0).getBlocks().front().getArgument(0).getType())) {
-      return failure();
-    }
-
     for (auto &region : op->getRegions()) {
       assert(region.getBlocks().size() <= 1 &&
              "Expected single block in region (temporary), failing.");
@@ -76,10 +71,9 @@ public:
           region.takeBody(op->getRegion(i));
         }
       });
-
-      rewriter.eraseOp(op);
     }
 
+    rewriter.eraseOp(op);
     return success();
   };
 };
