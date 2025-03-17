@@ -41,7 +41,6 @@ public:
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    llvm::errs() << "ttir generic rewriter\n";
     if (mlir::dyn_cast_or_null<ttkernel::CBType>(
             op->getRegion(0).getBlocks().front().getArgument(0).getType())) {
       return failure();
@@ -86,64 +85,6 @@ public:
 };
 } // namespace
 
-/*
-
-========
-Old Memref Load Rewriter - keeping while lowering is WIP
-========
-
-namespace {
-
-class MemrefLoadRewriter : public OpRewritePattern<memref::LoadOp> {
-public:
-  using OpRewritePattern<memref::LoadOp>::OpRewritePattern;
-
-  static uint32_t getCbId(memref::LoadOp op) {
-    memref::CollapseShapeOp collapseOp =
-        llvm::cast<memref::CollapseShapeOp>(op.getMemref().getDefiningOp());
-    if (auto blockArg =
-            mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {
-      return blockArg.getArgNumber();
-    }
-    assert(false && "Could not match collapse op src to block argument, cannot "
-                    "determine CB id. Failing.");
-  }
-
-  LogicalResult matchAndRewrite(memref::LoadOp op,
-                                PatternRewriter &rewriter) const final {
-
-    OpBuilder builder(op);
-    // erase the load op for now? sfpu / fpu considerations
-    assert(op.getIndices().size() == 1 && "Expected 1D memref load, failing.");
-
-    int sfpuOp = -1;
-    op->getBlock()->walk([&](Operation *op) {
-      if (op->hasTrait<OpTrait::TTKernelSFPUOpTrait>() && sfpuOp == -1) {
-        sfpuOp = 1;
-      } else if (op->hasTrait<OpTrait::TTKernelFPUOpTrait>() && sfpuOp == -1) {
-        sfpuOp = 0;
-      }
-    });
-
-    assert(sfpuOp != -1 && "Data Movement op only, unsupported, failing.");
-
-    auto cbId = i32(getCbId(op), builder);
-
-    if (sfpuOp == 1) {
-      rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
-      rewriter.create<ttkernel::CopyTileOp>(op.getLoc(), cbId,
-                                            op.getIndices().front(), cbId);
-    }
-
-    rewriter.eraseOp(op);
-    return success();
-  };
-};
-
-} // namespace */
-
-// memref store rewriter
-
 namespace {
 
 class MemrefStoreRewriter : public OpRewritePattern<memref::StoreOp> {
@@ -163,18 +104,12 @@ public:
 
   LogicalResult matchAndRewrite(memref::StoreOp op,
                                 PatternRewriter &rewriter) const final {
-    llvm::errs() << "memref store rewriter\n";
     OpBuilder builder(op);
 
     auto cbId = i32(getCbId(op), builder);
     auto storeIdx = op.getIndices().front();
-    rewriter.create<ttkernel::PackTileOp>(
-        op.getLoc(), index(0, builder), cbId, storeIdx,
-        rewriter.getBoolAttr(
-            true)); // we should lower to a pack loop (or use
-                    // matmul_pack_tile??) if input is not one tile, i.e. for
-                    // matmul_block, we need to loop pack on the whole dst
-                    // output. out_idx is ignore except for out of order pack
+    rewriter.create<ttkernel::PackTileOp>(op.getLoc(), index(0, builder), cbId,
+                                          storeIdx, rewriter.getBoolAttr(true));
 
     rewriter.eraseOp(op);
     return success();
@@ -182,8 +117,6 @@ public:
 };
 
 } // namespace
-
-// tile ops rewriter
 namespace {
 
 class TTIRTileOpsRewriter
@@ -245,7 +178,6 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const final {
-    llvm::errs() << "tileops & memref load rewriter\n";
     OpBuilder builder(op);
 
     auto first = isFirstComputeOp(op);
@@ -302,8 +234,6 @@ public:
 };
 } // namespace
 
-// ttir await/yield rewriter
-
 namespace {
 
 template <typename T>
@@ -323,7 +253,6 @@ public:
   }
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &rewriter) const final {
-    llvm::errs() << "ttir await/yield rewriter\n";
     OpBuilder builder(op);
 
     for (Value input : op.getValues()) {
@@ -367,7 +296,6 @@ public:
 
   LogicalResult matchAndRewrite(memref::AllocOp op,
                                 PatternRewriter &rewriter) const final {
-    llvm::errs() << "memref alloc rewriter\n";
 
     assert(op->getAttr("address") && "No address attribute found, failing.");
     auto address = op->getAttrOfType<IntegerAttr>("address");

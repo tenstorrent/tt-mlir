@@ -19,11 +19,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
-#include <llvm/IR/Dominators.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/IR/Dominance.h>
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 using namespace mlir;
 using namespace mlir::tt;
