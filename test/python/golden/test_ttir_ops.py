@@ -6,19 +6,23 @@
 
 import inspect
 import torch
+import numpy as np
 
-from ttmlir.test_utils import compile_to_flatbuffer
+from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
+from ttmlir.ir import DenseI64ArrayAttr, DenseElementsAttr
 
-# NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection
+
+# NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371
 """
 @compile_to_flatbuffer([(1, 128, 128, 1)], targets=["ttnn"])
 def test_squeeze(in0: Operand, builder: TTIRBuilder):
     return builder.squeeze(in0, 0)
 """
 
-# NOTE: Same as Squeeze, this Op is not valid for TTRT Perf.
+
+# NOTE: Same as Squeeze, this Op is not valid for TTRT Perf. Issue #2371
 """
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_unsqueeze(in0: Operand, builder: TTIRBuilder):
@@ -91,6 +95,11 @@ def test_tan(in0: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_atan(in0: Operand, builder: TTIRBuilder):
+    return builder.atan(in0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_tanh(in0: Operand, builder: TTIRBuilder):
     return builder.tanh(in0)
 
@@ -153,6 +162,11 @@ def test_reciprocal(in0: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_is_finite(in0: Operand, builder: TTIRBuilder):
     return builder.is_finite(in0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_get_dimension_size(in0: Operand, builder: TTIRBuilder):
+    return builder.get_dimension_size(in0)
 
 
 @compile_to_flatbuffer(
@@ -224,7 +238,6 @@ def test_logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
-
 """
 @compile_to_flatbuffer(
     [
@@ -238,9 +251,9 @@ def test_bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_and(in0, in1)
 """
 
+
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
-
 """
 @compile_to_flatbuffer(
     [
@@ -254,9 +267,9 @@ def test_bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_or(in0, in1)
 """
 
+
 # NOTE: The generated flatbuffer will currently fail to run due to only floats
 # being supported by the runtime. See issue #1775 for tracking
-
 """
 @compile_to_flatbuffer(
     [
@@ -475,17 +488,154 @@ def test_transpose(in0: Operand, builder: TTIRBuilder):
 
 
 # @compile_to_flatbuffer(
-#   [
-#       (64, 64),
-#       (64, 64),
-#       (64, 64),
-#   ],
-#   inputs_types = [torch.int8, torch.float32, torch.float32],
-#   targets=["ttnn"],
+# [
+#    (64, 64),
+#    (64, 64),
+#    (64, 64),
+# ],
+# inputs_types = [torch.int8, torch.float32, torch.float32],
+# targets=["ttnn"],
 # )
 # def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-#   return builder.where(in0, in1, in2)
-#
+# return builder.where(in0, in1, in2)
+
+
+@compile_to_flatbuffer(
+    [
+        (2, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_repeat(in0: Operand, builder: TTIRBuilder):
+    return builder.repeat(in0, [2, 2])
+
+
+@compile_to_flatbuffer(
+    [
+        (2, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_repeat_interleave(in0: Operand, builder: TTIRBuilder):
+    return builder.repeat_interleave(in0, repeats=2, dim=1)
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 1, 32),
+        (1, 16, 32),
+    ],
+    targets=["ttnn"],
+)
+def test_broadcast(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.broadcast(in0, in1, [1, 16, 1])
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 128, 128, 32),
+        (1, 64, 64, 32),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.max_pool2d(
+        in0,
+        in1,
+        kernel_height=2,
+        kernel_width=2,
+        stride_height=2,
+        stride_width=2,
+        dilation_height=1,
+        dilation_width=1,
+        ceil_mode=False,
+        padding_left=0,
+        padding_right=0,
+        padding_top=0,
+        padding_bottom=0,
+    )
+
+
+@compile_to_flatbuffer(
+    [
+        (32, 32),
+    ],
+    targets=["ttnn"],
+)
+def test_pad(in0: Operand, builder: TTIRBuilder):
+    return builder.pad(in0, padding=[0, 2, 1, 0], value=0)
+
+
+@compile_to_flatbuffer([(32, 64)], targets=["ttnn"])
+def test_index(in0: Operand, builder: TTIRBuilder):
+    return builder.index(in0)
+
+
+# NOTE: select thowing floating point exception. Issue #2496
+# @compile_to_flatbuffer([(4, 4)], targets=["ttnn"])
+# def test_select(in0: Operand, builder: TTIRBuilder):
+# return builder.select(in0, dim = 1, begin = 2, length = 2)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_zeros(in0: Operand, builder: TTIRBuilder):
+    return builder.zeros([128, 128])
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_ones(in0: Operand, builder: TTIRBuilder):
+    return builder.ones([128, 128])
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_empty(in0: Operand, builder: TTIRBuilder):
+    return builder.empty([128, 128])
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_argmax(in0: Operand, builder: TTIRBuilder):
+    return builder.argmax(in0, [1])
+
+
+# TODO: #Resolve "RuntimeError: Failed to run pass manager. failed to legalize operation 'ttir.reverse'."
+# may not be supported by ttir_to_ttnn_backend_pipeline. Issue #2495
+# @compile_to_flatbuffer([(64, 64)], targets=["ttnn"])
+# def test_reverse(in0: Operand, builder: TTIRBuilder):
+#    return builder.reverse(in0, [0,1])
+
+
+# NOTE: The generated flatbuffer will currently fail to run due to only floats
+# being supported by the runtime. See issue #1775 for tracking
+# @compile_to_flatbuffer([(4, 4)], inputs_types=[torch.bool], targets=["ttnn"])
+# def test_reduce_and(in0: Operand, builder: TTIRBuilder):
+# return builder.reduce_and(in0, dim_args=[0,1])
+
+
+# NOTE: The generated flatbuffer will currently fail to run due to only floats
+# being supported by the runtime. See issue #1775 for tracking
+# @compile_to_flatbuffer([(128, 128)], inputs_types=[torch.bool], targets=["ttnn"])
+# def test_reduce_or(in0: Operand, builder: TTIRBuilder):
+# return builder.reduce_or(in0, dim_args=[0,1])
+
+
+@compile_to_flatbuffer([(2, 3, 4), (3, 4, 2)], targets=["ttnn"])
+def test_permute(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.permute(in0, in1, permutation=DenseI64ArrayAttr.get([1, 2, 0]))
+
+
+@compile_to_flatbuffer(
+    [(32, 32), (32, 32)], inputs_types=[torch.uint32, torch.uint16], targets=["ttnn"]
+)
+def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.typecast(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [(128, 10, 32, 4)], inputs_types=[torch.bfloat16], targets=["ttnn"]
+)
+def test_prod(in0: Operand, builder: TTIRBuilder):
+    return builder.prod(in0, [1])
 
 
 @compile_to_flatbuffer(
