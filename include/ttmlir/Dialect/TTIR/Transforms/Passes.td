@@ -7,22 +7,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
-  let summary = "Create an implicit device";
-  let description = [{
-    This pass will take a view of the system descriptor and create an implicit
-    device around it.
-  }];
-
-  let options = [
-    ListOption<"meshShape", "mesh-shape", "int64_t",
-               "Set the multi-device mesh shape.">,
-    Option<"forceReload", "force-reload", "bool",
-           /*default=*/"false",
-           "Force reload the system descriptor.">
-  ];
-}
-
 def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
@@ -82,8 +66,61 @@ def TTIROptimizeTensorLayout: Pass<"ttir-optimize-tensor-layout", "::mlir::Modul
   let description = [{
     Analyze the graph and select optimal layouts, insert to_layout where needed.
   }];
+
+  list<Option> options = [
+        ListOption<"overrideDeviceShape", "override-device-shape", "int64_t", "Override the device shape.">,
+    ];
 }
 
+def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", "::mlir::ModuleOp"> {
+  let summary = "Generate generic data movement threads.";
+  let description = [{
+    This pass makes the following transformation, given a generic compute region:
+    ```mlir
+    #map = affine_map<(d0, d1) -> (d0, d1)>
+    #parallel = #tt.iterator_type<parallel>
+
+    "ttir.generic"(%arg0, %arg1, %alloc) <{indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel]}> ({
+    ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+      affine.for %arg5 = 0 to 2 {
+        affine.for %arg6 = 0 to 4 {
+          %0 = affine.load %arg2[%arg5, %arg6] : memref<2x4x!tt.tile<32x32, f32>, #l1_>
+          %1 = affine.load %arg3[%arg5, %arg6] : memref<2x4x!tt.tile<32x32, f32>, #l1_>
+          %2 = "ttir.tile_add"(%0, %1) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+          affine.store %2, %arg4[%arg5, %arg6] : memref<2x4x!tt.tile<32x32, f32>, #l1_>
+        }
+      }
+    })
+    ```
+
+    We generate additional (prepended) regions that correspond to the data movement
+    for each operand respectively:
+    ```mlir
+    "ttir.generic"(%arg0, %arg1, %alloc) <{indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel]}> ({
+    ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+      ttir.yield %arg2 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>)
+    }, {
+    ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+      ttir.yield %arg3 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>)
+    }, {
+    ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+      ttir.await %arg4 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>)
+    }, {
+    ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg3: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+      ttir.await %arg2, %arg3 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>, memref<2x4x!tt.tile<32x32, f32>, #l1_>)
+      affine.for %arg5 = 0 to 2 {
+        affine.for %arg6 = 0 to 4 {
+          %0 = affine.load %arg2[%arg5, %arg6] : memref<2x4x!tt.tile<32x32, f32>, #l1_>
+          %1 = affine.load %arg3[%arg5, %arg6] : memref<2x4x!tt.tile<32x32, f32>, #l1_>
+          %2 = "ttir.tile_add"(%0, %1) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+          affine.store %2, %arg4[%arg5, %arg6] : memref<2x4x!tt.tile<32x32, f32>, #l1_>
+        }
+      }
+      ttir.yield %arg4 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>)
+    })
+    ```
+  }];
+}
 
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
@@ -132,18 +169,6 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     this should be replaced with an analysis pass that can make global allocation
     decisions, followed by this pass that mechanically applies those decisions.
   }];
-}
-
-def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
-  let summary = "Load system desc.";
-  let description = [{
-    Load system descriptor as a compiler pass.
-  }];
-
-  list<Option> options = [
-        Option<"path", "path", "std::string", "", "System desc path">,
-        ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape.">,
-    ];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {

@@ -6,8 +6,10 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALLAYOUTANALYSIS_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+
 #include "llvm/ADT/StringMap.h"
 
 namespace mlir::tt::ttnn {
@@ -16,7 +18,7 @@ struct LegalLayoutAnalysisInput {
   ChipDescAttr chipDesc;
   GridAttr maxGrid;
   RankedTensorType tensorType;
-  int64_t maxShardedLayouts;
+  int64_t maxShardedConfigs;
   llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides;
   bool rowMajorEnabled;
 
@@ -26,11 +28,11 @@ struct LegalLayoutAnalysisInput {
 
   LegalLayoutAnalysisInput(
       ChipDescAttr chipDesc, GridAttr maxGrid, RankedTensorType tensorType,
-      int64_t maxShardedLayouts,
+      int64_t maxShardedConfigs,
       llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides,
       bool rowMajorEnabled)
       : chipDesc(chipDesc), maxGrid(maxGrid), tensorType(tensorType),
-        maxShardedLayouts(maxShardedLayouts),
+        maxShardedConfigs(maxShardedConfigs),
         outputLayoutOverrides(outputLayoutOverrides),
         rowMajorEnabled(rowMajorEnabled) {}
 
@@ -45,8 +47,8 @@ struct LegalLayoutAnalysisInput {
   }
 };
 
-class LegalLayoutAnalysis : public TTNNAnalysis<LegalLayoutAnalysisInput,
-                                                std::vector<TTNNLayoutAttr>> {
+class LegalLayoutAnalysis
+    : public TTNNAnalysis<LegalLayoutAnalysisInput, std::vector<OpConfig>> {
 private:
   void analysisImplementation() override;
   bool applyOverrides() override;

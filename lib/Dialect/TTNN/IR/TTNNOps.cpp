@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -1596,8 +1597,8 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllGatherOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllGather Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
@@ -1646,8 +1647,8 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 ::mlir::OpFoldResult
 mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // ReduceScatter Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
@@ -1683,8 +1684,8 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllReduceOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllReduce Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
@@ -1761,18 +1762,6 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   }
 
   if (shardType == ::mlir::tt::MeshShardType::Devices) {
-    // Check if input rank is equal to or greater than two.
-    if (inputShape.size() < 2) {
-      return emitOpError(
-          "Invalid input rank (<2) for mesh_shard op with devices partition.");
-    }
-
-    // Check if shardShape is eqaul to or greater than two.
-    if (shardShape.size() < 2) {
-      return emitOpError(
-          "Invalid shard_shape (<2) for mesh_shard op with devices partition.");
-    }
-
     // Check if rank(shardShape) is eqaul to rank(input).
     if (shardShape.size() != inputShape.size()) {
       return emitOpError("Invalid rank(shard_shape) != rank(input) for "

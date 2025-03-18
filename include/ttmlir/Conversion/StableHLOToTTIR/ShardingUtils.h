@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/Support/Error.h"
@@ -51,14 +52,15 @@ public:
   // mesh_shard op needs to be created or not.
   bool checkAndUpdateShardyArgSharding(
       mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp,
-      mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr);
+      mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr,
+      mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr);
 
   // Check and update ret sharding attribute and determine if mesh_shard op
   // needs to be created or not.
-  bool
-  checkAndUpdateShardyRetSharding(mlir::PatternRewriter &rewriter,
-                                  mlir::func::FuncOp funcOp, uint64_t retIdx,
-                                  mlir::sdy::TensorShardingAttr shardingAttr);
+  bool checkAndUpdateShardyRetSharding(
+      mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp,
+      uint64_t retIdx, mlir::sdy::TensorShardingAttr shardingAttr,
+      mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr);
 
   // Getter functions.
   mlir::tt::MeshShardDirection getShardDirection() const {
@@ -106,17 +108,70 @@ private:
   bool lastTileDimReplicate = false;
 };
 
+inline mlir::RankedTensorType addTensorMeshShardingAttrToRankedTensorType(
+    mlir::RankedTensorType type,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+  mlir::Type elementType = type.getElementType();
+  llvm::ArrayRef<int64_t> shape = type.getShape();
+  return RankedTensorType::get(shape, elementType, tensorMeshShardingAttr);
+}
+
+inline mlir::Type addTensorMeshShardingAttrToValue(
+    mlir::Value value,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+  auto updatedType = addTensorMeshShardingAttrToRankedTensorType(
+      mlir::cast<RankedTensorType>(value.getType()), tensorMeshShardingAttr);
+  value.setType(updatedType);
+  return updatedType;
+}
+
+inline void addTensorMeshShardingAttrToFunctionArg(
+    mlir::func::FuncOp funcOp, int64_t argIdx,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+  // Add TensorMeshShardingAttr to function arg.
+  addTensorMeshShardingAttrToValue(funcOp.getArgument(argIdx),
+                                   tensorMeshShardingAttr);
+  // Update function signature.
+  auto funcOpType = funcOp.getFunctionType();
+  auto inputTypes = llvm::SmallVector<Type>(funcOpType.getInputs());
+  inputTypes[argIdx] = addTensorMeshShardingAttrToRankedTensorType(
+      mlir::cast<RankedTensorType>(inputTypes[argIdx]), tensorMeshShardingAttr);
+  funcOp.setType(FunctionType::get(funcOpType.getContext(), inputTypes,
+                                   funcOpType.getResults()));
+}
+
+inline void addTensorMeshShardingAttrToFunctionRet(
+    mlir::func::FuncOp funcOp, int64_t retIdx,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+  // Add TensorMeshShardingAttr to function return.
+  auto *funcReturnOp = funcOp.getBody().front().getTerminator();
+  addTensorMeshShardingAttrToValue(funcReturnOp->getOperand(retIdx),
+                                   tensorMeshShardingAttr);
+  // Update function signature.
+  auto funcOpType = funcOp.getFunctionType();
+  auto resultTypes = llvm::SmallVector<Type>(funcOpType.getResults());
+  resultTypes[retIdx] = addTensorMeshShardingAttrToRankedTensorType(
+      mlir::cast<RankedTensorType>(resultTypes[retIdx]),
+      tensorMeshShardingAttr);
+  funcOp.setType(FunctionType::get(funcOpType.getContext(),
+                                   funcOpType.getInputs(), resultTypes));
+}
+
 // Remove arg sharding and return true if it is found, otherwise return false.
 template <typename AttrType>
-bool checkAndRemoveFuncArgSharding(mlir::PatternRewriter &rewriter,
-                                   mlir::func::FuncOp funcOp, uint64_t argNum,
-                                   AttrType shardingAttr,
-                                   llvm::StringRef argShardingStrRef) {
+bool checkAndRemoveFuncArgSharding(
+    mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp, uint64_t argIdx,
+    AttrType shardingAttr,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
+    llvm::StringRef argShardingStrRef) {
   if (auto argShardingAttr =
-          funcOp.getArgAttrOfType<AttrType>(argNum, argShardingStrRef)) {
+          funcOp.getArgAttrOfType<AttrType>(argIdx, argShardingStrRef)) {
     if (argShardingAttr == shardingAttr) {
-      rewriter.modifyOpInPlace(
-          funcOp, [&]() { funcOp.removeArgAttr(argNum, argShardingStrRef); });
+      rewriter.modifyOpInPlace(funcOp, [&]() {
+        funcOp.removeArgAttr(argIdx, argShardingStrRef);
+        addTensorMeshShardingAttrToFunctionArg(funcOp, argIdx,
+                                               tensorMeshShardingAttr);
+      });
       return true;
     }
     llvm_unreachable("MeshSharding operation and function argument shardings "
@@ -127,17 +182,20 @@ bool checkAndRemoveFuncArgSharding(mlir::PatternRewriter &rewriter,
 
 // Remove ret sharding and return true if it is found, otherwise return false.
 template <typename AttrType>
-bool checkAndRemoveFuncReturnSharding(mlir::PatternRewriter &rewriter,
-                                      mlir::func::FuncOp funcOp,
-                                      uint64_t retIdx, AttrType shardingAttr,
-                                      llvm::StringRef retShardingStrRef) {
+bool checkAndRemoveFuncReturnSharding(
+    mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp, uint64_t retIdx,
+    AttrType shardingAttr,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
+    llvm::StringRef retShardingStrRef) {
   if (auto retShardingAttr =
           funcOp.getResultAttrOfType<AttrType>(retIdx, retShardingStrRef)) {
     if (retShardingAttr == shardingAttr) {
       rewriter.modifyOpInPlace(funcOp, [&]() {
         funcOp.removeResultAttr(
             retIdx,
-            mlir::StringAttr::get(rewriter.getContext(), retShardingStrRef));
+            mlir::StringAttr::get(funcOp->getContext(), retShardingStrRef));
+        addTensorMeshShardingAttrToFunctionRet(funcOp, retIdx,
+                                               tensorMeshShardingAttr);
       });
       return true;
     }

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "Constants.h"
 #include "tt-metalium/small_vector.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
@@ -214,7 +215,7 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
   LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid{
       1, static_cast<uint32_t>(deviceIds.size())};
-  size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
+  size_t l1SmallSizeValue = l1SmallSize.value_or(tt::constants::L1_SMALL_SIZE);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid,
                                                     .offset = {}},
@@ -307,7 +308,7 @@ void wait(std::vector<Tensor> const &tensors) {
   }
 }
 
-Tensor toHost(Tensor tensor, bool untilize) {
+static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
   const ::ttnn::Tensor &deviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
   std::shared_ptr<::ttnn::Tensor> hostTensor =
@@ -321,6 +322,28 @@ Tensor toHost(Tensor tensor, bool untilize) {
 
   return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
                 DeviceRuntime::TTNN);
+}
+
+std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+  const ::ttnn::Tensor &multiDeviceTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::vector<Tensor> host_tensors;
+  if (multiDeviceTensor.storage_type() ==
+          ::ttnn::StorageType::MULTI_DEVICE_HOST ||
+      multiDeviceTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE) {
+    std::vector<::ttnn::Tensor> single_tensors =
+        ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
+    for (auto &tensor : single_tensors) {
+      host_tensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
+          Tensor(std::make_shared<::ttnn::Tensor>(tensor), nullptr,
+                 DeviceRuntime::TTNN),
+          untilize));
+    }
+  } else {
+    host_tensors.push_back(
+        ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
+  }
+  return host_tensors;
 }
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout) {

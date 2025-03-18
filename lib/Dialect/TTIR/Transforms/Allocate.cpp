@@ -133,7 +133,7 @@ public:
              "found func that didn't have one block!");
       auto systemDesc = getCurrentScopeSystemDesc(func);
       assert(systemDesc);
-      auto device = getCurrentScopeDevice(func);
+      auto device = lookupDevice(func);
       assert(device);
       SimpleAllocator allocator = createSimpleAllocator(chipDesc);
       Liveness liveness(func.getOperation());

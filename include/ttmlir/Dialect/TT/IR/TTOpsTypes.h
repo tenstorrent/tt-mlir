@@ -151,11 +151,6 @@ inline Type dataTypeToElementType(::mlir::MLIRContext *context,
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
 
-namespace mlir::tt {
-SystemDescAttr getCurrentScopeSystemDesc(Operation *op);
-DeviceAttr getCurrentScopeDevice(Operation *op);
-} // namespace mlir::tt
-
 mlir::AffineMap collapsedLinearAffineMap(
     ::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
     ::llvm::ArrayRef<int64_t> gridShape,

@@ -123,7 +123,7 @@ enum EltwiseOpType: uint32 {
   Relu,
   GreaterEqual,
   Sqrt,
-  Div,
+  Divide,
   Sigmoid,
   Reciprocal,
   Exp,

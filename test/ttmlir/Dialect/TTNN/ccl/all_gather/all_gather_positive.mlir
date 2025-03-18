@@ -14,6 +14,8 @@ module attributes {} {
   }
 }
 
+// -----
+
 // Verify op folding for single mesh device communication
 module attributes {} {
   // CHECK-LABEL: all_gather_positive_folding

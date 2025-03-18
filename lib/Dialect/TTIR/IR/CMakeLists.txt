@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRTTIRDialect
         TTIRDialect.cpp
         TTIROps.cpp
+        TTIROpsTypes.cpp
         TTIROpsInterfaces.cpp
         TTIRTraits.cpp
         TTIRGenericRegionOps.cpp
@@ -15,5 +16,6 @@ add_mlir_dialect_library(MLIRTTIRDialect
         MLIRTTOpsIncGen
 
         LINK_LIBS PUBLIC
+        MLIRTTDialect
         MLIRBufferizationTransforms
         )

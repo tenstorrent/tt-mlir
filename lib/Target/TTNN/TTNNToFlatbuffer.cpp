@@ -109,8 +109,7 @@ static ::tt::target::Dim2d getTensorValueTileShape(Value value) {
 
 static std::vector<::tt::target::Dim2dRange>
 getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
-  DeviceAttr deviceAttr =
-      getCurrentScopeDevice(value.getParentBlock()->getParentOp());
+  DeviceAttr deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(value.getType());
   ttnn::TTNNLayoutAttr layoutAttr =
@@ -122,8 +121,8 @@ getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
 
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
-  auto deviceType = mlir::cast<DeviceType>(device.getType());
-  auto chipIds = deviceType.getDesc().getChipIds();
+  auto desc = lookupDevice(device.getParentBlock()->getParentOp());
+  auto chipIds = desc.getChipIds();
   return ::tt::target::CreateDeviceRef(*cache.fbb, chipIds[0]);
 }
 
@@ -211,6 +210,7 @@ conv2dConfigToFlatbuffer(FlatbufferObjectCache &cache,
 
 flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
+                       tt::TensorMeshShardingAttr tensorMeshSharding,
                        BufferType bufferType,
                        ttnn::TensorMemoryLayoutAttr memLayoutAttr,
                        std::vector<::tt::target::Dim2dRange> coreRangeSet) {
@@ -235,12 +235,16 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
     size *= dim;
   }
 
-  // TODO (jnie): Currently we hardcode to owned or single-device storage
-  // Will need compiler support to correctly/dynamically determine this
-  ::tt::target::ttnn::StorageType storageType =
-      bufferType == ttnn::BufferType::SystemMemory
-          ? ::tt::target::ttnn::StorageType::Owned
-          : ::tt::target::ttnn::StorageType::Device;
+  ::tt::target::ttnn::StorageType storageType;
+  if (tensorMeshSharding) {
+    storageType = bufferType == ttnn::BufferType::SystemMemory
+                      ? ::tt::target::ttnn::StorageType::MultiDeviceHost
+                      : ::tt::target::ttnn::StorageType::MultiDevice;
+  } else {
+    storageType = bufferType == ttnn::BufferType::SystemMemory
+                      ? ::tt::target::ttnn::StorageType::Owned
+                      : ::tt::target::ttnn::StorageType::Device;
+  }
 
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
 
@@ -279,9 +283,9 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // flatbuffer LayoutDescs.
   return ::tt::target::ttnn::CreateLayoutDesc(
       *cache.fbb, toFlatbuffer(cache, OOBVal::Undef),
-      memrefAttrToFlatbuffer(cache, layoutAttr.getMemref(),
-                             layoutAttr.getBufferType(),
-                             layoutAttr.getMemLayout(), coreRangeSet));
+      memrefAttrToFlatbuffer(
+          cache, layoutAttr.getMemref(), layoutAttr.getTensorMeshSharding(),
+          layoutAttr.getBufferType(), layoutAttr.getMemLayout(), coreRangeSet));
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
@@ -304,8 +308,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         uint64_t size) {
-  auto deviceAttr =
-      getCurrentScopeDevice(value.getParentBlock()->getParentOp());
+  auto deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   auto tensorDesc =
@@ -326,8 +329,8 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 ::flatbuffers::Offset<::tt::target::ttnn::GetDeviceOp>
 createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
   auto result = op.getResult();
-  auto resultType = mlir::cast<DeviceType>(result.getType());
-  auto meshShape = resultType.getDesc().getMeshShape();
+  auto desc = lookupDevice(op);
+  auto meshShape = desc.getMeshShape();
   auto meshVolume = ttmlir::utils::volume(meshShape);
   ::tt::target::Dim2d mesh;
   if (meshVolume > 1) {
@@ -336,7 +339,7 @@ createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
     mesh = ::tt::target::Dim2d(1, 1);
   }
 
-  auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
+  auto chipIds = toFlatbuffer(cache, desc.getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
   return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, chipIds, out);
 }
@@ -483,14 +486,16 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
         distribution);
   };
 
-  if (!deviceValue) {
+  // Skip single device tensors if it includes TensorMeshShardingAttr.
+  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
+  if (!deviceValue || !layoutAttr.isMeshDeviceTensor()) {
     return noneDistributionStrategy();
   }
 
   auto deviceOp = mlir::cast<GetDeviceOp>(
       getOperandThroughDPSOps(deviceValue).getDefiningOp());
-  auto resultType = mlir::cast<DeviceType>(deviceOp.getResult().getType());
-  ::llvm::ArrayRef<int64_t> meshShape = resultType.getDesc().getMeshShape();
+  auto desc = lookupDevice(deviceOp);
+  ::llvm::ArrayRef<int64_t> meshShape = desc.getMeshShape();
   numShards = ttmlir::utils::volume(meshShape);
 
   if (numShards == 1) {
@@ -533,9 +538,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       cache, op.getDevice(), mlir::cast<RankedTensorType>(op.getType()),
       numShards);
   auto output = getOperandThroughDPSOps(op.getResult());
-
   auto device = getOperandThroughDPSOps(op.getDevice());
-
   auto tileShape = getTensorValueTileShape(output);
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, output);
   auto memoryConfig = memoryConfigToFlatbuffer(cache, op.getMemoryConfig(),
@@ -1085,8 +1088,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Sign;
   } else if constexpr (std::is_same_v<EltwiseOp, ReciprocalOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Reciprocal;
-  } else if constexpr (std::is_same_v<EltwiseOp, DivOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Div;
+  } else if constexpr (std::is_same_v<EltwiseOp, DivideOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Divide;
   } else if constexpr (std::is_same_v<EltwiseOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Sigmoid;
   } else if constexpr (std::is_same_v<EltwiseOp, ScatterOp>) {
@@ -1627,7 +1630,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, reciprocalOp),
                            debugString, locInfo);
   }
-  if (auto divOp = dyn_cast<DivOp>(op); divOp) {
+  if (auto divOp = dyn_cast<DivideOp>(op); divOp) {
     return createOperation(cache, createEltwiseOp(cache, divOp), debugString,
                            locInfo);
   }
