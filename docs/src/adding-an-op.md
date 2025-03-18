@@ -318,6 +318,8 @@ And we can inspect the with [`ttrt`](./ttrt.md):
 ttrt read out.ttnn
 ```
 
+Note: If the above ttrt command yields a segfault, a clean build of your workspace may be required: [Build Instructions](./build.md#build)
+
 ## 7. Add runtime support for the Op
 
 Next, we want to add runtime support for the Op by parsing the flatbuffer and
