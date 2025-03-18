@@ -28,7 +28,136 @@
 #include "shardy/dialect/sdy/ir/utils.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/ErrorHandling.h"
+
+namespace mlir::tt {
+// Helper functions for propagateTensorMeshSharding.
+
+// Get callee funcOp from callOp.
+static mlir::func::FuncOp getCalledFunction(CallOpInterface callOp) {
+  SymbolRefAttr sym =
+      mlir::dyn_cast_if_present<SymbolRefAttr>(callOp.getCallableForCallee());
+  if (!sym) {
+    llvm_unreachable("Unable to find Callee of callOp.");
+  }
+  auto funcOp = mlir::dyn_cast_if_present<mlir::func::FuncOp>(
+      SymbolTable::lookupNearestSymbolFrom(callOp, sym));
+  if (!funcOp) {
+    llvm_unreachable("Unable to find funcOp.");
+  }
+  if (funcOp.isExternal()) {
+    llvm_unreachable(
+        "Unable to propagate TensorMeshShardingAttr to external function.");
+  }
+  return funcOp;
+}
+
+// Check if Type includes TensorMeshShardingAttr
+static bool checkTypeIfTensorMeshShardingAttrExist(
+    mlir::Type valueType,
+    mlir::tt::TensorMeshShardingAttr incomingTensorMeshShardingAttr) {
+  auto type = mlir::cast<RankedTensorType>(valueType);
+  mlir::Attribute encoding = type.getEncoding();
+  if (auto existingTensorMeshShardingAttr =
+          dyn_cast_if_present<mlir::tt::TensorMeshShardingAttr>(encoding)) {
+    if (existingTensorMeshShardingAttr.getName() !=
+        incomingTensorMeshShardingAttr.getName()) {
+      llvm_unreachable("Conflict mesh in TensorMeshShardingAttrs.");
+    }
+    return true;
+  }
+  return false;
+}
+
+// Check if FuncOp input/result include TensorMeshShardingAttr
+static bool checkFuncOpIfTensorMeshShardingAttrExist(
+    mlir::func::FuncOp funcOp,
+    mlir::tt::TensorMeshShardingAttr incomingTensorMeshShardingAttr) {
+  auto funcOpType = funcOp.getFunctionType();
+  return (funcOpType.getInputs().size() > 0 &&
+          checkTypeIfTensorMeshShardingAttrExist(
+              funcOpType.getInput(0), incomingTensorMeshShardingAttr)) ||
+         (funcOpType.getResults().size() > 0 &&
+          checkTypeIfTensorMeshShardingAttrExist(
+              funcOpType.getResult(0), incomingTensorMeshShardingAttr));
+}
+
+// Add tensorMeshShardingAttr to tensors and get updated types.
+static llvm::SmallVector<Type> addTensorMeshShardingAttrToValues(
+    mlir::ValueRange values, TensorMeshShardingAttr tensorMeshShardingAttr) {
+  llvm::SmallVector<Type> types;
+  if (values.size() == 0) {
+    return types;
+  }
+
+  // If tensors already have TensorMeshShardingAttr, they should be identical
+  // and we can skip adding it again.
+  if (checkTypeIfTensorMeshShardingAttrExist(values[0].getType(),
+                                             tensorMeshShardingAttr)) {
+    return llvm::SmallVector<Type>(values.getTypes());
+  }
+
+  for (auto v : values) {
+    types.push_back(mlir::tt::sharding_utils::addTensorMeshShardingAttrToValue(
+        v, tensorMeshShardingAttr));
+  }
+  return types;
+}
+
+// Propagate TensorMeshShardingAttr to tensors in arg, body, return of
+// manucalComputationOp and FuncOp. We assume that this function is being called
+// inside body of rewriter.modifyOpInPlace().
+template <typename OpTy>
+void propagateTensorMeshSharding(
+    OpTy srcOp, mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+  static_assert(std::is_same_v<OpTy, mlir::sdy::ManualComputationOp> ||
+                    std::is_same_v<OpTy, mlir::func::FuncOp>,
+                "Only propagate TensorMeshSharding to "
+                "mlir::sdy::ManualComputationOp or mlir::func::FuncOp.");
+
+  // Propagate to sdy::ManualComputationOp args.
+  if constexpr (std::is_same_v<OpTy, mlir::sdy::ManualComputationOp>) {
+    addTensorMeshShardingAttrToValues(srcOp.getBody().getArguments(),
+                                      tensorMeshShardingAttr);
+  }
+
+  // Visit ops in body and propagate TensorMeshShardingAttr.
+  srcOp.getBody().front().template walk<mlir::WalkOrder::PreOrder>(
+      [&](mlir::Operation *op) {
+        if (mlir::isa<mlir::sdy::ManualComputationOp>(op) ||
+            mlir::isa<mlir::func::ReturnOp>(op)) {
+          return mlir::WalkResult::skip();
+        }
+        if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(op)) {
+          auto funcOp = getCalledFunction(callOp);
+          // Only visit the function that never visited.
+          if (!checkFuncOpIfTensorMeshShardingAttrExist(
+                  funcOp, tensorMeshShardingAttr)) {
+            // Propagate to function args.
+            auto inputTypes = addTensorMeshShardingAttrToValues(
+                funcOp.getArguments(), tensorMeshShardingAttr);
+            // Visit function in a recursive manner.
+            mlir::tt::propagateTensorMeshSharding<mlir::func::FuncOp>(
+                funcOp, tensorMeshShardingAttr);
+            // Propagate to function returns.
+            mlir::Operation *funcReturnOp =
+                funcOp.getBody().front().getTerminator();
+            llvm::SmallVector<Type> resultTypes;
+            for (auto result : funcReturnOp->getOperands()) {
+              resultTypes.push_back(result.getType());
+            }
+            // Update function signature.
+            funcOp.setType(FunctionType::get(srcOp->getContext(), inputTypes,
+                                             resultTypes));
+          }
+        }
+        addTensorMeshShardingAttrToValues(op->getResults(),
+                                          tensorMeshShardingAttr);
+        return mlir::WalkResult::advance();
+      });
+}
+} // namespace mlir::tt
 
 namespace {
 
@@ -47,6 +176,7 @@ public:
       llvm_unreachable("mlir::sdy::ManualComputationOp requires module as one "
                        "of parent ops.");
     }
+    mlir::MLIRContext *context = rewriter.getContext();
     mlir::SymbolTable symbolTable(module);
     mlir::Location loc = srcOp.getLoc();
 
@@ -70,6 +200,15 @@ public:
       llvm_unreachable(
           "mlir::sdy::TensorShardingAttr requires mesh definition.");
     }
+
+    auto meshNameStrAttr =
+        mlir::StringAttr::get(context, firstSharding.getMeshName());
+    auto tensorMeshShardingAttr =
+        mlir::tt::TensorMeshShardingAttr::get(context, meshNameStrAttr);
+    rewriter.modifyOpInPlace(srcOp, [&]() {
+      mlir::tt::propagateTensorMeshSharding<mlir::sdy::ManualComputationOp>(
+          srcOp, tensorMeshShardingAttr);
+    });
 
     // Currently, sharding operation on device memory is not supported, so
     // remove any sharding in body of manual computation op and compute
@@ -113,7 +252,8 @@ public:
       // identical.
       bool shouldCreateMeshShardOp =
           meshSharding.checkAndUpdateShardyArgSharding(
-              rewriter, funcOp, globalOperand, argSharding);
+              rewriter, funcOp, globalOperand, argSharding,
+              tensorMeshShardingAttr);
       if (shouldCreateMeshShardOp) {
         auto outputType = mlir::cast<mlir::RankedTensorType>(
             getTypeConverter()->convertType(localArgType));
@@ -152,8 +292,8 @@ public:
       // create dummy mesh shard op even though frontend expect sharded return
       // in case input and output shapes of mesh shard op are different.
       bool shouldCreateMeshShardOp =
-          meshSharding.checkAndUpdateShardyRetSharding(rewriter, funcOp, retIdx,
-                                                       outSharding);
+          meshSharding.checkAndUpdateShardyRetSharding(
+              rewriter, funcOp, retIdx, outSharding, tensorMeshShardingAttr);
       if (shouldCreateMeshShardOp) {
         auto inputOperand = returnOperand.get();
         auto inputType = mlir::cast<mlir::RankedTensorType>(

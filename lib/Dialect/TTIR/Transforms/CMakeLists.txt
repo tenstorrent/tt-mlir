@@ -3,6 +3,9 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
         Constant.cpp
         GenericLinearizeMemref.cpp
+        GenericGenerateDatamovement.cpp
+        AttachMetalLayout.cpp
+        OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
         Layout.cpp
         Transforms.cpp

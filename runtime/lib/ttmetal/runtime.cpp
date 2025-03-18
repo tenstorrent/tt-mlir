@@ -4,6 +4,7 @@
 
 #include <variant>
 
+#include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal.h"

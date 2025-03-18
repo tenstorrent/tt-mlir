@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -88,10 +89,18 @@ void createTTIRToTTMetalBackendPipeline(
   // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
   // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   if (options.version > 0) {
+    ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
+    {
+      optimizeTensorLayoutOptions.overrideDeviceShape =
+          llvm::to_vector(options.overrideDeviceShape);
+    }
+    pm.addPass(mlir::tt::ttir::createTTIROptimizeTensorLayout(
+        optimizeTensorLayoutOptions));
     createTTIRBufferizationPipeline(pm);
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
     pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
     pm.addPass(mlir::createLowerAffinePass());
+    pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
   } else {
     mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
     {
