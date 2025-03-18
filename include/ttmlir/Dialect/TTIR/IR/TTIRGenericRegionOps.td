@@ -359,7 +359,7 @@ def TTIR_SemaphoreWaitOp : TTIR_GenericRegionOp<"semaphore_wait", [MemoryEffects
 // TTIR Generic Region Control Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [MemoryEffects<[MemRead, MemWrite]>, ReturnLike, Terminator]> {
+def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "Yield op.";
     let description = [{
       Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
