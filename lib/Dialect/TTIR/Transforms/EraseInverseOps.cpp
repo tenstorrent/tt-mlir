@@ -14,6 +14,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include <cstdint>
 #include <llvm/ADT/StringExtras.h>
+#include <llvm/Support/Casting.h>
 #include <llvm/Support/ErrorHandling.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -21,6 +22,7 @@
 #include <mlir/IR/OperationSupport.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/DialectConversion.h>
+#include <numeric>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRERASEINVERSEOPS
@@ -97,18 +99,19 @@ private:
     Operation *user = users[0];
     auto newEltwiseType = cast<RankedTensorType>(user->getResult(0).getType());
 
-    SmallVector<mlir::tensor::EmptyOp> newTransposeDPSOperands;
-    SmallVector<TMOpType> newTransposes;
+    SmallVector<mlir::tensor::EmptyOp> newTMDPSOperands;
+    SmallVector<TMOpType> newTMs;
     for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
          operandIdx++) {
-      newTransposeDPSOperands.push_back(rewriter.create<tensor::EmptyOp>(
+      newTMDPSOperands.push_back(rewriter.create<tensor::EmptyOp>(
           op->getLoc(), newEltwiseType.getShape(),
           newEltwiseType.getElementType()));
 
-      TMOpType newTranspose = cast<TMOpType>(rewriter.clone(*user));
-      newTranspose->setOperand(newTranspose->getNumOperands() - 1,
-                               newTransposeDPSOperands[operandIdx]);
-      newTransposes.push_back(newTranspose);
+      TMOpType newTM = cast<TMOpType>(rewriter.clone(*user));
+      handlePlaceOnImplicitBroadcast(newTM);
+      newTM->setOperand(newTM->getNumOperands() - 1,
+                        newTMDPSOperands[operandIdx]);
+      newTMs.push_back(newTM);
     }
 
     mlir::tensor::EmptyOp newEltwiseDPS = rewriter.create<tensor::EmptyOp>(
@@ -119,11 +122,9 @@ private:
     // Do not want to put a clone on the DPS operand
     for (uint32_t operandIdx = 0; operandIdx < newEltwise->getNumOperands() - 1;
          operandIdx++) {
-      newTransposes[operandIdx]->setOperand(0, operands[operandIdx]);
-      newTransposes[operandIdx]->setOperand(
-          1, newTransposeDPSOperands[operandIdx]);
-      newEltwise->setOperand(operandIdx,
-                             newTransposes[operandIdx]->getResult(0));
+      newTMs[operandIdx]->setOperand(0, operands[operandIdx]);
+      newTMs[operandIdx]->setOperand(1, newTMDPSOperands[operandIdx]);
+      newEltwise->setOperand(operandIdx, newTMs[operandIdx]->getResult(0));
     }
     newEltwise->setOperand(newEltwise->getNumOperands() - 1,
                            newEltwiseDPS->getResult(0));
@@ -132,6 +133,46 @@ private:
     for (auto *user : users) {
       rewriter.replaceOp(user, newEltwise);
     }
+  }
+
+  void handlePlaceOnImplicitBroadcast(Operation *newTM) const {
+    // If the TMOpType is a transpose, we need to place it on the implicit
+    // broadcast path
+    auto operandShape =
+        cast<RankedTensorType>(newTM->getOperand(0).getType()).getShape();
+    auto resultShape =
+        cast<RankedTensorType>(newTM->getResult(0).getType()).getShape();
+    int64_t operandVolume =
+        std::accumulate(operandShape.begin(), operandShape.end(), 1,
+                        std::multiplies<int64_t>());
+    int64_t resultVolume = std::accumulate(
+        resultShape.begin(), resultShape.end(), 1, std::multiplies<int64_t>());
+    if (operandVolume == resultVolume) {
+      return;
+    }
+
+    SmallVector<int64_t> newShape(resultShape);
+    if (auto transpose = dyn_cast_or_null<ttir::TransposeOp>(newTM)) {
+      newShape[transpose.getDim0()] = operandShape[transpose.getDim0()];
+      newShape[transpose.getDim1()] = operandShape[transpose.getDim1()];
+    } else if (auto permute = dyn_cast_or_null<ttir::PermuteOp>(newTM)) {
+      auto permutation = permute.getPermutation();
+      for (int64_t i = 0; i < static_cast<int64_t>(permutation.size()); i++) {
+        newShape[permutation[i]] = operandShape[i];
+      }
+    } else if (auto reshape = dyn_cast_or_null<ttir::ReshapeOp>(newTM)) {
+      // newShape = cast<RankedTensorType>(reshape->getResult(0).getType())
+      //                .getShape();
+      int x = 2;
+      (void)x;
+    } else {
+      llvm_unreachable("newTM must be one of ttir::TransposeOp, "
+                       "ttir::PermuteOp, ttir::ReshapeOp");
+    }
+    auto resultType = cast<RankedTensorType>(newTM->getResult(0).getType());
+    auto newResultType =
+        resultType.cloneWith(newShape, resultType.getElementType());
+    newTM->getResult(0).setType(newResultType);
   }
 };
 
@@ -150,8 +191,7 @@ private:
     // For now we always want to commute through unary elementwise ops if all
     // the users are identical
     SmallVector<Operation *> users(op->getUsers());
-    return success(succeeded(checkAllUsersAreIdenticalTms(users)) &&
-                   succeeded(checkAllOperandsHaveSameShape(op->getOperands())));
+    return success(succeeded(checkAllUsersAreIdenticalTms(users)));
   };
 };
 
@@ -170,8 +210,7 @@ private:
     // For now we always want to commute through unary elementwise ops if all
     // the users are identical
     SmallVector<Operation *> users(op->getUsers());
-    return success(succeeded(checkAllUsersAreIdenticalTms(users)) &&
-                   succeeded(checkAllOperandsHaveSameShape(op->getOperands())));
+    return success(succeeded(checkAllUsersAreIdenticalTms(users)));
   };
 };
 } // namespace
