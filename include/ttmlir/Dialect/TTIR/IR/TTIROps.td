@@ -603,7 +603,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], !listconcat([ThreeOperands, TTIR_ElementwiseBinary], traits))> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
