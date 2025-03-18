@@ -97,15 +97,28 @@ private:
                                 ValueRange operands,
                                 PatternRewriter &rewriter) const {
     Operation *user = users[0];
-    auto newEltwiseType = cast<RankedTensorType>(user->getResult(0).getType());
+    auto oldEltwiseType = cast<RankedTensorType>(op->getResult(0).getType());
+    auto newEltwiseType = cast<RankedTensorType>(user->getResult(0).getType())
+                              .clone(oldEltwiseType.getElementType());
 
     SmallVector<mlir::tensor::EmptyOp> newTMDPSOperands;
     SmallVector<TMOpType> newTMs;
+    SmallVector<Type> newTMResultTypes;
     for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
          operandIdx++) {
+
+      // The new TM will have the same shape as before, but if the eltwise op
+      // was a typecast, it will have the element type of the original operand
+      // of the eltwise. So we need to generate a new type for the TM keeping
+      // this in mind.
+      auto operandType = cast<RankedTensorType>(operands[operandIdx].getType());
+      auto oldTMResultType =
+          cast<RankedTensorType>(user->getResult(0).getType());
+      newTMResultTypes.push_back(
+          oldTMResultType.clone(operandType.getElementType()));
       newTMDPSOperands.push_back(rewriter.create<tensor::EmptyOp>(
           op->getLoc(), newEltwiseType.getShape(),
-          newEltwiseType.getElementType()));
+          operandType.getElementType()));
 
       TMOpType newTM = cast<TMOpType>(rewriter.clone(*user));
       handlePlaceOnImplicitBroadcast(newTM);
@@ -124,12 +137,17 @@ private:
          operandIdx++) {
       newTMs[operandIdx]->setOperand(0, operands[operandIdx]);
       newTMs[operandIdx]->setOperand(1, newTMDPSOperands[operandIdx]);
+      newTMs[operandIdx]->getResult(0).setType(newTMResultTypes[operandIdx]);
       newEltwise->setOperand(operandIdx, newTMs[operandIdx]->getResult(0));
     }
     newEltwise->setOperand(newEltwise->getNumOperands() - 1,
                            newEltwiseDPS->getResult(0));
     newEltwise->getResult(0).setType(newEltwiseType);
 
+    // This only works when all the users are an identical TM
+    // In the future this function may be called when this is not
+    // the case, and we'll need to insert user clones on the
+    // user edges that do not have an inverse on them.
     for (auto *user : users) {
       rewriter.replaceOp(user, newEltwise);
     }
