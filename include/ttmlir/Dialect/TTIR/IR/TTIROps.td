@@ -2150,4 +2150,89 @@ def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
     let hasVerifier = 1;
 }
 
+def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
+  let summary = "Quantize operation.";
+  let description = [{
+      The Quantize operation converts a tensor into a quantized tensor using the `quant.uniform` type from the MLIR Quant dialect.
+      This type encapsulates the scale and zero-point metadata directly within the tensor type.
+
+      Example:
+      ```mlir
+      %input = tensor.empty() : () -> tensor<64x128xf32>
+      %output = tensor.empty() : () -> tensor<64x128x!quant.uniform<i8:f32, 0.1>>
+      %quantized = "ttir.quantize"(%input, %output) : (tensor<64x128xf32>, tensor<64x128x!quant.uniform<i8:f32, 0.1>>) -> tensor<64x128x!quant.uniform<i8:f32, 0.1>>
+      ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  let hasVerifier = 1;
+}
+
+def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {
+  let summary = "Dequantize operation.";
+  let description = [{
+    The Dequantize operation converts a quantized tensor back into a floating-point tensor using the `quant.uniform` type from the MLIR Quant dialect.
+    The input tensor is expected to be of type `quant.uniform.`
+    The output tensor will be a floating-point tensor, where each element is computed as:
+    ```
+    output[i] = (input[i] - zero_point) * scale
+    ```
+    Example:
+    ```mlir
+    %input = tensor.empty() : () -> tensor<64x128x!quant.uniform<i8:f32, 0.1>>
+    %output = tensor.empty() : () -> tensor<64x128xf32>
+    %dequantized = "ttir.dequantize"(%input, %output) : (tensor<64x128x!quant.uniform<i8:f32, 0.1>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  let hasVerifier = 1;
+}
+
+def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
+  let summary = "Requantize operation.";
+  let description = [{
+    The Requantize operation converts a quantized tensor from one scale and zero-point to another, using the `quant.uniform` type from the MLIR Quant dialect.
+    The input tensor is expected to be of type `quant.uniform.`
+    The output tensor will also be of type `quant.uniform.`
+    Each element in the output tensor is computed as:
+    ```
+    output[i] = round((input[i] - input_zero_point) * (input_scale / output_scale)) + output_zero_point
+    ```
+    Example:
+    ```mlir
+    %input = tensor.empty() : () -> tensor<64x128x!quant.uniform<i8:f32, 0.1>>
+    %output = tensor.empty() : () -> tensor<64x128x!quant.uniform<i8:f32, 0.2>>
+    %requantized = "ttir.requantize"(%input, %output) : (tensor<64x128x!quant.uniform<i8:f32, 0.1>, tensor<64x128x!quant.uniform<i8:f32, 0.2>>) -> tensor<64x128x!quant.uniform<i8:f32, 0.2>>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  let hasVerifier = 1;
+}
+
 #endif

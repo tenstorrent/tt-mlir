@@ -260,6 +260,60 @@ namespace mlir::tt::ttnn {
   return success();
 }
 
+static ::mlir::LogicalResult verifyQuantizeOpCommon(
+    ::mlir::Operation *op, ::mlir::RankedTensorType inputType,
+    ::mlir::RankedTensorType outputType, std::optional<uint32_t> axis) {
+  // Sanity check to make sure that input rank matches the rank of the output
+  // tensor.
+  if (inputType.getRank() != outputType.getRank()) {
+    return op->emitOpError()
+           << "Input tensor rank of " << inputType.getRank()
+           << " does not match output tensor rank of " << outputType.getRank();
+  }
+
+  // Verify that the axis, if provided, is within the bounds of the input tensor
+  // rank.
+  if (axis.has_value()) {
+    uint32_t axisValue = axis.value();
+    if (axisValue < 0 || axisValue >= inputType.getRank()) {
+      return op->emitOpError(
+          "Axis must be within the bounds of the input tensor rank");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// QuantizeOp
+//===----------------------------------------------------------------------===//
+
+// QuantizeOp verification.
+::mlir::LogicalResult QuantizeOp::verify() {
+  return verifyQuantizeOpCommon(getOperation(), getInput().getType(),
+                                getResult().getType(), getAxis());
+}
+
+//===----------------------------------------------------------------------===//
+// DequantizeOp
+//===----------------------------------------------------------------------===//
+
+// DequantizeOp verification.
+::mlir::LogicalResult DequantizeOp::verify() {
+  return verifyQuantizeOpCommon(getOperation(), getInput().getType(),
+                                getResult().getType(), getAxis());
+}
+
+//===----------------------------------------------------------------------===//
+// RequantizeOp
+//===----------------------------------------------------------------------===//
+
+// RequantizeOp verification.
+::mlir::LogicalResult RequantizeOp::verify() {
+  return verifyQuantizeOpCommon(getOperation(), getInput().getType(),
+                                getResult().getType(), getAxis());
+}
+
 //===----------------------------------------------------------------------===//
 // ConvTranspose2dOp
 //===----------------------------------------------------------------------===//

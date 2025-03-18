@@ -460,6 +460,38 @@ table ConstantOp {
   data: [ubyte];
 }
 
+table QuantizeOp {
+  input: tt.target.ttnn.TensorRef;
+  scale: float;
+  zero_point: int32;
+  axis: int32 = null;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table DequantizeOp {
+  input: tt.target.ttnn.TensorRef;
+  scale: float;
+  zero_point: int32;
+  axis: int32 = null;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table RequantizeOp {
+  input: tt.target.ttnn.TensorRef;
+  in_scale: float;
+  in_zero_point: int32;
+  out_scale: float;
+  out_zero_point: int32;
+  axis: int32 = null;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -473,6 +505,9 @@ union OpType {
   NamedFullOp,
   FullOp,
   EltwiseOp,
+  QuantizeOp,
+  DequantizeOp,
+  RequantizeOp,
   LinearOp,
   MatmulOp,
   MorehCumSumOp,

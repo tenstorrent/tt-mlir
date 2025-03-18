@@ -44,6 +44,7 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/pool/upsample.h"
+#include "operations/quantization/quantization.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
@@ -333,6 +334,19 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConstantOp: {
     return operations::creation::run(op->type_as_ConstantOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::QuantizeOp: {
+    return operations::quantization::run(op->type_as_QuantizeOp(),
+                                         getContext());
+  }
+  case ::tt::target::ttnn::OpType::DequantizeOp: {
+    return operations::quantization::run(op->type_as_DequantizeOp(),
+                                         getContext());
+  }
+  case ::tt::target::ttnn::OpType::RequantizeOp: {
+    return operations::quantization::run(op->type_as_RequantizeOp(),
+                                         getContext());
+  }
+
   default: {
     LOG_FATAL("Unsupported operation type");
   }

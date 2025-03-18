@@ -4,6 +4,11 @@
 
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Quant/IR/Quant.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
+#include "mlir/Support/LogicalResult.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -28,10 +33,6 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
-
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Support/LogicalResult.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -250,6 +251,15 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   auto deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  mlir::Type elementType = tensorType.getElementType();
+  // If the element type is quantized, use the desired type.
+  // Ex: for a quant op of fp32->int8, the storage type is int8.
+  if (auto quantType =
+          mlir::dyn_cast<mlir::quant::QuantizedType>(elementType)) {
+    elementType = quantType.getStorageType();
+    tensorType = mlir::RankedTensorType::get(tensorType.getShape(), elementType,
+                                             tensorType.getEncoding());
+  }
   auto tensorDesc =
       cache.getOrCreate(tensorType, tensorTypeToFlatbuffer, deviceAttr);
   return ::tt::target::ttnn::CreateTensorRef(*cache.fbb, cache.global_id++,
@@ -1401,6 +1411,81 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::QuantizeOp>
+createOp(FlatbufferObjectCache &cache, ttnn::QuantizeOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  float scale = op.getScale().convertToFloat();
+  int32_t zeroPoint = op.getZeroPoint();
+  ::flatbuffers::Optional<int32_t> axis =
+      op.getAxis() ? std::make_optional(*op.getAxis()) : ::flatbuffers::nullopt;
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbufferOptional(cache, op.getOutputDtype());
+  std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  auto tileShape = getTensorValueTileShape(op.getResult());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateQuantizeOp(
+      *cache.fbb, input, scale, zeroPoint, axis, dtype,
+      memoryConfig ? memoryConfigToFlatbuffer(
+                         cache, *memoryConfig, tileShape,
+                         getTensorValueCoreRangeSet(cache, op.getResult()))
+                   : 0,
+      output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::DequantizeOp>
+createOp(FlatbufferObjectCache &cache, ttnn::DequantizeOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  float scale = op.getScale().convertToFloat();
+  int32_t zeroPoint = op.getZeroPoint();
+  ::flatbuffers::Optional<int32_t> axis =
+      op.getAxis() ? std::make_optional(*op.getAxis()) : ::flatbuffers::nullopt;
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbufferOptional(cache, op.getOutputDtype());
+  std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  auto tileShape = getTensorValueTileShape(op.getResult());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateDequantizeOp(
+      *cache.fbb, input, scale, zeroPoint, axis, dtype,
+      memoryConfig ? memoryConfigToFlatbuffer(
+                         cache, *memoryConfig, tileShape,
+                         getTensorValueCoreRangeSet(cache, op.getResult()))
+                   : 0,
+      output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RequantizeOp>
+createOp(FlatbufferObjectCache &cache, ttnn::RequantizeOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  float inputScale = op.getInScale().convertToFloat();
+  int32_t inputZeroPoint = op.getInZeroPoint();
+  float outputScale = op.getOutScale().convertToFloat();
+  int32_t outputZeroPoint = op.getOutZeroPoint();
+  ::flatbuffers::Optional<int32_t> axis =
+      op.getAxis() ? std::make_optional(*op.getAxis()) : ::flatbuffers::nullopt;
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbufferOptional(cache, op.getOutputDtype());
+  std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  auto tileShape = getTensorValueTileShape(op.getResult());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateRequantizeOp(
+      *cache.fbb, input, inputScale, inputZeroPoint, outputScale,
+      outputZeroPoint, axis, dtype,
+      memoryConfig ? memoryConfigToFlatbuffer(
+                         cache, *memoryConfig, tileShape,
+                         getTensorValueCoreRangeSet(cache, op.getResult()))
+                   : 0,
+      output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString, std::string const &locInfo) {
@@ -1797,6 +1882,18 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     // to support multiple dylibs per flatbuffer, but the exact schema is not so
     // clear.
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
+                           locInfo);
+  }
+  if (auto quantizeOp = dyn_cast<QuantizeOp>(op); quantizeOp) {
+    return createOperation(cache, createOp(cache, quantizeOp), debugString,
+                           locInfo);
+  }
+  if (auto dequantizeOp = dyn_cast<DequantizeOp>(op); dequantizeOp) {
+    return createOperation(cache, createOp(cache, dequantizeOp), debugString,
+                           locInfo);
+  }
+  if (auto requantizeOp = dyn_cast<RequantizeOp>(op); requantizeOp) {
+    return createOperation(cache, createOp(cache, requantizeOp), debugString,
                            locInfo);
   }
 
