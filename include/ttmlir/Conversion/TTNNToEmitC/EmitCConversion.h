@@ -599,12 +599,8 @@ inline std::string convert(ttnn::LayoutAttr attr) {
   return convert(attr.getValue());
 }
 
-inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
-
-  switch (attr.getValue()) {
+inline std::string convert(ttnn::TensorMemoryLayout attr) {
+  switch (attr) {
   case ttnn::TensorMemoryLayout::BlockSharded:
     return "::ttnn::TensorMemoryLayout::BLOCK_SHARDED";
   case ttnn::TensorMemoryLayout::HeightSharded:
@@ -618,6 +614,18 @@ inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
   }
 
   llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
+}
+
+inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
+  // TODO (azecevic): There is a dissonance between the way we model
+  // TensorMemoryLayout in TTNN dialect and TTNN library. This should be fixed
+  // with https://github.com/tenstorrent/tt-mlir/issues/2521. For now, we
+  // default to Interleaved, which is default value in TTNN library.
+  if (!attr) {
+    return convert(ttnn::TensorMemoryLayout::Interleaved);
+  }
+
+  return convert(attr.getValue());
 }
 
 inline std::string convert(ttnn::BufferType attr) {
@@ -653,10 +661,10 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   // TODO (azecevic): Add ShardSpec once it's modeled in the `MemoryConfigAttr`.
   std::string buf;
   llvm::raw_string_ostream rso(buf);
-  rso << "::ttnn::MemoryConfig(";
-  rso << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << convert(attr.getBufferType());
-  rso << ")";
+  rso << "::ttnn::MemoryConfig {";
+  rso << ".memory_layout = " << convert(attr.getTensorMemoryLayout()) << ", ";
+  rso << ".buffer_type = " << convert(attr.getBufferType());
+  rso << "}";
   return buf;
 }
 
@@ -844,7 +852,7 @@ public:
   // https://github.com/tenstorrent/tt-mlir/issues/2415 lands.
   mlir::Attribute getMemoryConfig(mlir::Value val) {
     auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(val).getEncoding());
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
 
     ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
         layoutAttr.getContext(), layoutAttr.getBufferType());
