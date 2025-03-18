@@ -839,6 +839,25 @@ public:
         rewriter.getArrayAttr(args), nullptr, operands);
   }
 
+  // TODO (azecevic): This is a temporary solution for handling the case when
+  // the value of the MemoryConfigAttr is nullptr. This should be removed once
+  // https://github.com/tenstorrent/tt-mlir/issues/2415 lands.
+  mlir::Attribute getMemoryConfig(mlir::Value val) {
+    auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val).getEncoding());
+
+    ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
+        layoutAttr.getContext(), layoutAttr.getBufferType());
+    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
+    // TODO (azecevic): Currently we don't model ShardSpec properly so we
+    // ingoring it for now.
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(layoutAttr.getContext(), bufferTypeAttr,
+                                    /*shardSpec=*/nullptr, tensorMemoryLayout);
+
+    return emit(memoryConfigAttr);
+  }
+
 private:
   mlir::Value createVector(ValueRange operands) {
     tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, op);
