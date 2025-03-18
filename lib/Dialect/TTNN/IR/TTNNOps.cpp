@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -1550,8 +1551,8 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllGatherOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllGather Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
@@ -1600,8 +1601,8 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 ::mlir::OpFoldResult
 mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // ReduceScatter Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
@@ -1637,8 +1638,8 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllReduceOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllReduce Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {

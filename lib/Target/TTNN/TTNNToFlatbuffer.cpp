@@ -109,8 +109,7 @@ static ::tt::target::Dim2d getTensorValueTileShape(Value value) {
 
 static std::vector<::tt::target::Dim2dRange>
 getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
-  DeviceAttr deviceAttr =
-      getCurrentScopeDevice(value.getParentBlock()->getParentOp());
+  DeviceAttr deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(value.getType());
   ttnn::TTNNLayoutAttr layoutAttr =
@@ -122,8 +121,8 @@ getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
 
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
-  auto deviceType = mlir::cast<DeviceType>(device.getType());
-  auto chipIds = deviceType.getDesc().getChipIds();
+  auto desc = lookupDevice(device.getParentBlock()->getParentOp());
+  auto chipIds = desc.getChipIds();
   return ::tt::target::CreateDeviceRef(*cache.fbb, chipIds[0]);
 }
 
@@ -309,8 +308,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         uint64_t size) {
-  auto deviceAttr =
-      getCurrentScopeDevice(value.getParentBlock()->getParentOp());
+  auto deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   auto tensorDesc =
@@ -331,8 +329,8 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 ::flatbuffers::Offset<::tt::target::ttnn::GetDeviceOp>
 createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
   auto result = op.getResult();
-  auto resultType = mlir::cast<DeviceType>(result.getType());
-  auto meshShape = resultType.getDesc().getMeshShape();
+  auto desc = lookupDevice(op);
+  auto meshShape = desc.getMeshShape();
   auto meshVolume = ttmlir::utils::volume(meshShape);
   ::tt::target::Dim2d mesh;
   if (meshVolume > 1) {
@@ -341,7 +339,7 @@ createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
     mesh = ::tt::target::Dim2d(1, 1);
   }
 
-  auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
+  auto chipIds = toFlatbuffer(cache, desc.getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
   return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, chipIds, out);
 }
@@ -496,8 +494,8 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
 
   auto deviceOp = mlir::cast<GetDeviceOp>(
       getOperandThroughDPSOps(deviceValue).getDefiningOp());
-  auto resultType = mlir::cast<DeviceType>(deviceOp.getResult().getType());
-  ::llvm::ArrayRef<int64_t> meshShape = resultType.getDesc().getMeshShape();
+  auto desc = lookupDevice(deviceOp);
+  ::llvm::ArrayRef<int64_t> meshShape = desc.getMeshShape();
   numShards = ttmlir::utils::volume(meshShape);
 
   if (numShards == 1) {

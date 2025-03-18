@@ -32,6 +32,9 @@ module attributes {} {
     return %1 : tensor<1x1x4096x16384xf32>
   }
 }
+
+// -----
+
 // Verify op folding for single mesh device communication
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_reshapes_folding

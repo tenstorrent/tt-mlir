@@ -25,5 +25,6 @@ target_link_libraries(TestOpModelInterface
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTNNDialect
+    MLIRTTTransforms
 )
 endif()

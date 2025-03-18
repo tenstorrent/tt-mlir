@@ -4,6 +4,10 @@
 
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
+#include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -11,9 +15,6 @@
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-
-#include "ttmlir/Conversion/Passes.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace mlir::tt::ttmetal {
 //===----------------------------------------------------------------------===//
@@ -63,20 +64,12 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
-  ttir::TTIRLoadSystemDescOptions systemDescOptions;
+  tt::TTRegisterDevicePassOptions registerDeviceOptions;
   {
-    systemDescOptions.path = options.systemDescPath;
-    systemDescOptions.meshShape = ::llvm::SmallVector<int64_t>(
-        options.meshShape.begin(), options.meshShape.end());
+    registerDeviceOptions.systemDescPath = options.systemDescPath;
+    registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
-
-  ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
-  {
-    implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
-        options.meshShape.begin(), options.meshShape.end());
-  }
-  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
+  pm.addPass(mlir::tt::createTTRegisterDevicePass(registerDeviceOptions));
   pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
   ttir::TTIRAttachMetalLayoutOptions attachMetalLayoutOptions;
   {

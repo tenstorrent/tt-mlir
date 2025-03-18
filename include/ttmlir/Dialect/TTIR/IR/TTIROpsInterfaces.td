@@ -29,7 +29,7 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
       /*methodName=*/"getDevice",
       /*args=*/(ins),
       /*methodBody=*/"",
-      /*defaultImplementation=*/"return ::mlir::tt::getCurrentScopeDevice($_op);"
+      /*defaultImplementation=*/"return ::mlir::tt::lookupDevice($_op);"
     >,
     InterfaceMethod<
       /*desc=*/[{

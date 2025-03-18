@@ -17,6 +17,10 @@
 #include <cstdint>
 #include <type_traits>
 
+namespace mlir::tt::ttnn {
+class DeviceType;
+} // namespace mlir::tt::ttnn
+
 namespace ttmlir::utils {
 
 template <typename T>
@@ -309,14 +313,15 @@ getQuadrupleOfInteger(mlir::Attribute attr) {
 }
 
 // It's assumed that operand is convertible to mlir::Value or mlir::ValueRange.
-// The only exception being tt::DeviceType, which is convertible to mlir::Value
-// but should not be considered an operand.
+// The only exception being tt::ttnn::DeviceType, which is convertible to
+// mlir::Value but should not be considered an operand.
 template <typename T>
 struct is_operand
-    : std::bool_constant<
-          (std::is_convertible_v<T, mlir::Value> ||
-           std::is_convertible_v<T, mlir::ValueRange>) &&
-          !std::is_convertible_v<T, mlir::TypedValue<mlir::tt::DeviceType>>> {};
+    : std::bool_constant<(std::is_convertible_v<T, mlir::Value> ||
+                          std::is_convertible_v<T, mlir::ValueRange>) &&
+                         !std::is_convertible_v<
+                             T, mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
+};
 
 template <typename T>
 inline constexpr bool is_operand_v = is_operand<T>::value;

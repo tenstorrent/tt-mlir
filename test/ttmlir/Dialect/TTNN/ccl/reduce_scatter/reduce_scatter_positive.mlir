@@ -1,8 +1,6 @@
 // RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline="mesh-shape=1,2" %s | FileCheck %s
 // Unit tests for ttnn reduce_scatter op
 
-// -----
-
 // Verify lowering of ttir reduce_scatter to ttnn ops
 
 module attributes {} {
@@ -14,6 +12,8 @@ module attributes {} {
     return %1 : tensor<1x1x8192x256xf32>
   }
 }
+
+// -----
 
 // Verify op folding for single mesh device communication
 

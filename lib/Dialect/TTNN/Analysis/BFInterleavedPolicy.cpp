@@ -14,6 +14,9 @@ namespace mlir::tt::ttnn {
 void BFInterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
+    if (!func) {
+      continue;
+    }
     mlir::tt::scheduler::Scheduler scheduler(&func);
 
     // Initialize the policy.
