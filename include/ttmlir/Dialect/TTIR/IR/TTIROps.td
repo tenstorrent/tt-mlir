@@ -1237,7 +1237,7 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_OptimizedFlattenedConv2dOp : TTIR_NamedOp<"optimized_flattened_conv2d"> {
+def TTIR_FlattenedConv2dOp : TTIR_NamedOp<"flattened_conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
 
@@ -1470,6 +1470,29 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTNN_FlattenedMaxPool2dOp : TTIR_NamedOp<"flattened_max_pool2d"> {
+    let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
+    let description = [{
+      Applies a 2D max pooling over an input signal composed of several input planes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$batch_size,
+                         SI32Attr:$input_height,
+                         SI32Attr:$input_width,
+                         SI32Attr:$channels,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         BoolAttr:$ceil_mode);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    // let hasVerifier = 1;
 }
 
 def TTIR_ReshapeOp: TTIR_NamedOp<"reshape"> {

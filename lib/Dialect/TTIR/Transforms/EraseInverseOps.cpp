@@ -370,7 +370,7 @@ generateTTIRNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
                                          shape[3]};
   return generateTTIRReshape(input, newShape, rewriter);
 }
-class ConvertToOptimizedFlattenedConv2dPattern
+class ConvertToFlattenedConv2dPattern
     : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -444,12 +444,11 @@ public:
 
     auto convDPS = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputTy.getShape(), outputTy.getElementType());
-    ttir::OptimizedFlattenedConv2dOp newConv =
-        rewriter.create<ttir::OptimizedFlattenedConv2dOp>(
-            op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
-            adaptor.getBias(), convDPS, inChannelsAttr, outChannelsAttr,
-            batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-            *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr);
+    ttir::FlattenedConv2dOp newConv = rewriter.create<ttir::FlattenedConv2dOp>(
+        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
+        adaptor.getBias(), convDPS, inChannelsAttr, outChannelsAttr,
+        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
+        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr);
 
     Value output = generateTTIRReshape(newConv, outputShape, rewriter);
 
@@ -492,6 +491,76 @@ private:
   }
 };
 } // namespace
+
+namespace {
+class ConvertToFlattenedMaxPool2dOpConversionPattern
+    : public OpConversionPattern<ttir::MaxPool2dOp> {
+public:
+  using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    assert(adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
+           "TTNN max_pool2d does not support padding top/bottom/left/right "
+           "separately");
+    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
+           "TTNN max_pool2d does not support padding top/bottom/left/right "
+           "separately");
+
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    llvm::ArrayRef<std::int64_t> inputShape = inputType.getShape();
+
+    auto batchSize = static_cast<int32_t>(inputShape[inputShape.size() - 4]);
+    auto channels = static_cast<int32_t>(inputShape[inputShape.size() - 1]);
+
+    Value flattenedInput = generateTTIRNHWFlatten(
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
+        rewriter);
+
+    auto outputType = op.getResult().getType();
+    llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
+
+    llvm::SmallVector<int64_t> flattenedOutputShape{
+        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
+
+    outputType = mlir::RankedTensorType::get(flattenedOutputShape,
+                                             outputType.getElementType(),
+                                             outputType.getEncoding());
+
+    DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
+
+    DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
+
+    assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
+    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
+    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
+
+    DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
+        {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
+
+    auto poolDPS = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), outputType.getShape(), outputType.getElementType());
+    auto newPool = rewriter.create<ttir::FlattenedMaxPool2dOp>(
+        op.getLoc(), outputType, flattenedInput, poolDPS, batchSize,
+        static_cast<int32_t>(inputShape[inputShape.size() - 3]),
+        static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
+        kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+        adaptor.getCeilMode());
+
+    Value output = generateTTIRReshape(newPool, outputShape, rewriter);
+
+    rewriter.replaceOp(op, output);
+
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttir
 using namespace mlir;
 using namespace mlir::tt;
@@ -508,19 +577,19 @@ public:
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
-    conversionPatterns.add<ttir::ConvertToOptimizedFlattenedConv2dPattern>(
+    conversionPatterns.add<ttir::ConvertToFlattenedConv2dPattern>(
         typeConverter, &getContext());
+    conversionPatterns
+        .add<ttir::ConvertToFlattenedMaxPool2dOpConversionPattern>(
+            typeConverter, &getContext());
     FrozenRewritePatternSet conversionPatternSet(std::move(conversionPatterns));
 
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<mlir::func::FuncDialect>();
-    // target.addLegalDialect<BuiltinDialect>(); // This contains the "module"
-    // op which is necessary
-
     target.addLegalOp<tensor::EmptyOp>(); // DPS operands are create with
-    // tensor::EmptyOp
     target.addIllegalOp<ttir::Conv2dOp>();
+    target.addIllegalOp<ttir::MaxPool2dOp>();
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(conversionPatternSet)))) {
