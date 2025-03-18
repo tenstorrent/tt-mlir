@@ -125,6 +125,7 @@ jobs:
           {runs-on: nXX0,   name: "run",  suite: "unit",          image: "tracy",  type: "unit", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/optimizer", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "emitc",         image: "tracy",  type: "ttrt", path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: nXX0,   name: "run",  suite: "async",         image: "speedy", type: "ttrt", path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
           {runs-on: n150,   name: "run",  suite: "op_model",      image: "speedy", type: "ttrt", path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
