@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Constant.cpp
         GeneralizeNamedOps.cpp
         EraseInverseOps.cpp
+        FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
         GenericHWThreadSelection.cpp

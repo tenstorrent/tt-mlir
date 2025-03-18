@@ -374,6 +374,44 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
   let dependentDialects = ["::mlir::tt::TTDialect"];
 }
 
+def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp"> {
+  let summary = "Flatten sliding window ops.";
+  let description = [{
+    This pass walks through the graph and flattens sliding window ops (ttir.conv2d, ttir.max_pool2d).
+
+    Example:
+      Before:
+        %dps = tensor.empty() : tensor<3x15x15x8xbf16>
+         %1 = "ttir.conv2d"(%input, %weight, %bias, %dps)
+            <{
+              stride = 2: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<3x32x32x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<3x15x15x16xbf16>) -> tensor<3x15x15x16xbf16>
+
+      After:
+        %reshape_dps = tensor.empty() : tensor<1x1x3072x8xbf16>
+        %0 = "ttir.reshape"(%input, %reshape_dps) <{[i32: 1, i32: 1, i32: 3072, i32: 8]}> : (tensor<3x32x32x8xbf16>, tensor<1x1x3072x8xbf16>) -> tensor<1x1x3072x8xbf16>
+        %new_conv_dps = tensor.empty() : tensor<1x1x675x16xbf16>
+        %1 = "ttir.flattened_conv2d"(%1, %weight, %bias, %new_conv_dps)
+            <{
+              in_channels = 8: i32,
+              out_channels = 16: i32,
+              batch_size = 1: i32,
+              input_height = 32: i32,
+              input_width = 32: i32,
+              kernel_size = array<i32: 3, 3>,
+              stride = array<i32: 2, 2>,
+              padding = array<i32: 0, 0>,
+              dilation = array<i32: 1, 1>,
+              groups = 1: i32
+            }> : (tensor<1x1x3072x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<1x1x675x16xbf16>) -> tensor<1x1x675x16xbf16>
+          %output_reshape_dps = tensor.empty() : tensor<3x15x15x16xbf16>
+          %2 = "ttir.reshape"(%1, %output_reshape_dps) <{[i32: 3, i32: 15, i32: 15, i32: 16]}> : (tensor<1x1x675x16xbf16>, tensor<3x15x15x16xbf16>) -> tensor<3x15x15x16xbf16>
+  }];
+}
+
 def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp"> {
   let summary = "Erase inverse ops.";
   let description = [{

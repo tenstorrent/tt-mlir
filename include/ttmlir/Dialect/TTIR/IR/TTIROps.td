@@ -1241,7 +1241,7 @@ def TTIR_FlattenedConv2dOp : TTIR_NamedOp<"flattened_conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
 
-      This op is identical to `ttir.conv2d`, except its input must be flattned to (1, 1, N*H*W, C_in).
+      This op is identical to `ttir.conv2d`, except its input must be flattned to (1, 1, N*H_in*W_in, C_in).
       Its output remains flattened as (1, 1, N*H_out*W_out, C_out).
 
       Applies a 2D convolution over an input image composed of several input planes.
@@ -1475,6 +1475,9 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
 def TTNN_FlattenedMaxPool2dOp : TTIR_NamedOp<"flattened_max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
+      This op is equivalent to `ttir.max_pool2d`, except its input must be flattened to (1, 1, N*H_in*W_in, C_in).
+      Its output remains flattened as (1, 1, N*H_out*W_out, C).
+
       Applies a 2D max pooling over an input signal composed of several input planes.
     }];
 
