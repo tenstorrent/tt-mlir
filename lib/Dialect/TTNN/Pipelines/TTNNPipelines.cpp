@@ -40,7 +40,12 @@ void createTTNNPipelineTTIRPasses(
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
-  pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
+
+  // Add pass to erase inverse ops. This is disabled by default
+  // while the pass is experimental.
+  if (options.eraseInverseOpsEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
+  }
 
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
   implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
