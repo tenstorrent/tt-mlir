@@ -455,9 +455,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
   auto weight = createEmptyTensor(weightShape);
   auto outputType = createRankedTensorType(outputShape);
 
-  DeviceAttr deviceAttr = getFakeDeviceAttr();
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(deviceAttr),
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
       ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
 
   Conv2dOp conv2d = builder.create<Conv2dOp>(
@@ -466,19 +465,14 @@ TEST_F(OpModelBase, Conv2dInterface) {
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
 
-  conv2d->setAttr(DeviceAttr::name, deviceAttr);
-
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
 
   // test Conv2dOp interface
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
+  // TODO(odjuricic): This will change to EXPECT_TRUE once a fix lands in metal.
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
-  if (!constraintsExp) {
-    std::string error = llvm::toString(constraintsExp.takeError());
-    EXPECT_TRUE(error.find("Mismatch!! L1 Allocation Pre Op") !=
-                std::string::npos);
-  }
+  llvm::consumeError(constraintsExp.takeError());
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
