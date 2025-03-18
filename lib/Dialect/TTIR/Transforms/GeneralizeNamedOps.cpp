@@ -261,7 +261,7 @@ private:
 // or other special case handling to be lowered through ttir.generic.
 
 // clang-format off
-using direct_lowerings = std::tuple<
+using directLowerings = std::tuple<
   // elementwise:
   std::pair<AddOp,        TileAddOp>,
   std::pair<MultiplyOp,   TileMulOp>,
@@ -285,7 +285,7 @@ template <typename ConcreteOp>
 class TTIRGeneralizeNamedRewriter final
     : public mlir::OpRewritePattern<ConcreteOp> {
 
-  using TileOp = ttmlir::utils::map_find_t<ConcreteOp, direct_lowerings>;
+  using TileOp = ttmlir::utils::map_find_t<ConcreteOp, directLowerings>;
   static_assert(!std::is_void_v<TileOp>,
                 "this ConcreteOp does not have a direct tile op mapping");
 
