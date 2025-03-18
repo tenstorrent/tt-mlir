@@ -30,8 +30,8 @@ def reader_bmm_8bank(cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer):
     src1_tile_bytes = get_tile_size(cb_id_in1)
     src1_data_format = get_dataformat(cb_id_in1)
 
-    itileA_batch: int = 0
-    itileB_batch: int = 0
+    itileA_batch = 0
+    itileB_batch = 0
 
     s0 = get_interleaved_addr_gen_fast(
         src0_is_dram, src0_addr, src0_tile_bytes, src0_data_format
@@ -41,7 +41,7 @@ def reader_bmm_8bank(cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer):
     )
 
     for nb in range(0, batch, 1):
-        itileA: int = itileA_batch + 0
+        itileA = itileA_batch + 0
         for mt in range(0, Mt, 1):
             itileB = itileB_batch + 0
             for nt in range(0, Nt, 1):
