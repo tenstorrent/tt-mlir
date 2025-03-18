@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.ttir_module_compiler import TTIRModuleCompiler
+from ttmlir.ttir_executor import TTIRExecutor
 
 
 def test_compile_full_module(print_results: bool = False):
@@ -22,7 +22,7 @@ def test_compile_full_module(print_results: bool = False):
         }
     """
 
-    compiler = TTIRModuleCompiler.create_from_module_str(ttir_module_str)
+    compiler = TTIRExecutor.create_from_module_str(ttir_module_str)
     fb = compiler.compile_full_module()
 
     if print_results:
@@ -46,7 +46,7 @@ def test_compile_op_by_op(print_results: bool = False):
         }
     """
 
-    compiler = TTIRModuleCompiler.create_from_module_str(ttir_module_str)
+    compiler = TTIRExecutor.create_from_module_str(ttir_module_str)
     fbs = compiler.compile_op_by_op()
 
     assert len(fbs) == 8, "Compiler isn't working as expected"

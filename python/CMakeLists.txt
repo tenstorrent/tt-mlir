@@ -150,18 +150,19 @@ declare_mlir_python_sources(TTMLIRPythonInfra.Infra
   ROOT_DIR "${TTMLIR_PYTHON_INFRA_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonInfra
   SOURCES
-    ttir_builder.py
-    test_utils.py
-    compiler_passes.py
-    module_compiler.py
-    module_splitter.py
-    stablehlo_module_compiler.py
-    stablehlo_module_splitter.py
+    compile_and_run.py
+    mlir_module_executor.py
+    mlir_module_splitter.py
+    pydantic_models.py
+    stablehlo_executor.py
+    stablehlo_splitter.py
     test_optimizer_overrides.py
-    ttir_module_compiler.py
-    ttir_module_splitter.py
-    ttnn_module_compiler.py
-    ttnn_module_splitter.py
+    test_utils.py
+    ttir_builder.py
+    ttir_executor.py
+    ttir_splitter.py
+    ttnn_executor.py
+    ttnn_splitter.py
     utils.py
 )
 

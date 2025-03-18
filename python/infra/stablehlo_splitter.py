@@ -4,25 +4,25 @@
 
 from __future__ import annotations
 
-from ttmlir.dialects import ttir
+from ttmlir.dialects import stablehlo
 from ttmlir.ir import Context, Module
 
-from .module_splitter import ModuleSplitter
+from .mlir_module_splitter import MLIRModuleSplitter
 from .utils import parse_module_str
 
 
-class TTIRModuleSplitter(ModuleSplitter):
-    """Splits TTIR MLIR module into constituent ops."""
+class StableHLOSplitter(MLIRModuleSplitter):
+    """Splits stablehlo MLIR module into constituent ops."""
 
     # ----- Public methods -----
 
     @staticmethod
-    def create_from_module(module: Module) -> TTIRModuleSplitter:
-        return TTIRModuleSplitter(module)
+    def create_from_module(module: Module) -> StableHLOSplitter:
+        return StableHLOSplitter(module)
 
     @staticmethod
-    def create_from_module_str(module_str: str) -> TTIRModuleSplitter:
-        return TTIRModuleSplitter(TTIRModuleSplitter._parse_module_str(module_str))
+    def create_from_module_str(module_str: str) -> StableHLOSplitter:
+        return StableHLOSplitter(StableHLOSplitter._parse_module_str(module_str))
 
     # ----- Private methods -----
 
@@ -33,5 +33,5 @@ class TTIRModuleSplitter(ModuleSplitter):
     @staticmethod
     def _parse_module_str(module_str: str) -> Module:
         with Context() as ctx:
-            ttir.register_dialect(ctx)
+            stablehlo.register_dialect(ctx)
             return parse_module_str(module_str, ctx)

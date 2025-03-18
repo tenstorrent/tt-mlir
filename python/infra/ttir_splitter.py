@@ -4,25 +4,25 @@
 
 from __future__ import annotations
 
-from ttmlir.dialects import ttnn
+from ttmlir.dialects import ttir
 from ttmlir.ir import Context, Module
 
-from .module_splitter import ModuleSplitter
+from .mlir_module_splitter import MLIRModuleSplitter
 from .utils import parse_module_str
 
 
-class TTNNModuleSplitter(ModuleSplitter):
-    """Splits TTNN MLIR module into constituent ops."""
+class TTIRSplitter(MLIRModuleSplitter):
+    """Splits TTIR MLIR module into constituent ops."""
 
     # ----- Public methods -----
 
     @staticmethod
-    def create_from_module(module: Module) -> TTNNModuleSplitter:
-        return TTNNModuleSplitter(module)
+    def create_from_module(module: Module) -> TTIRSplitter:
+        return TTIRSplitter(module)
 
     @staticmethod
-    def create_from_module_str(module_str: str) -> TTNNModuleSplitter:
-        return TTNNModuleSplitter(TTNNModuleSplitter._parse_module_str(module_str))
+    def create_from_module_str(module_str: str) -> TTIRSplitter:
+        return TTIRSplitter(TTIRSplitter._parse_module_str(module_str))
 
     # ----- Private methods -----
 
@@ -33,5 +33,5 @@ class TTNNModuleSplitter(ModuleSplitter):
     @staticmethod
     def _parse_module_str(module_str: str) -> Module:
         with Context() as ctx:
-            ttnn.register_dialect(ctx)
+            ttir.register_dialect(ctx)
             return parse_module_str(module_str, ctx)

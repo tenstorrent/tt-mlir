@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.stablehlo_module_compiler import StableHLOModuleCompiler
+from ttmlir.stablehlo_executor import StableHLOExecutor
 
 
 def test_compile_full_module():
@@ -17,7 +17,7 @@ def test_compile_full_module():
         }
     """
 
-    compiler = StableHLOModuleCompiler.create_from_module_str(shlo_module_str)
+    compiler = StableHLOExecutor.create_from_module_str(shlo_module_str)
     compiler.compile_full_module()
 
 
@@ -33,7 +33,7 @@ def test_compile_op_by_op():
         }
     """
 
-    compiler = StableHLOModuleCompiler.create_from_module_str(shlo_module_str)
+    compiler = StableHLOExecutor.create_from_module_str(shlo_module_str)
     compiler.compile_op_by_op()
 
 

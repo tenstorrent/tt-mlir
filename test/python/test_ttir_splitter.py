@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.ttir_module_splitter import TTIRModuleSplitter
+from ttmlir.ttir_splitter import TTIRSplitter
 
 
 def test1(print_results: bool = False):
@@ -22,7 +22,7 @@ def test1(print_results: bool = False):
         }
     """
 
-    splitter = TTIRModuleSplitter.create_from_module_str(ttir_module_str)
+    splitter = TTIRSplitter.create_from_module_str(ttir_module_str)
     sub_ops = splitter.get_sub_ops()
     sub_modules = splitter.get_sub_modules()
 
@@ -231,7 +231,7 @@ def test2(print_results: bool = False):
         }
     """
 
-    splitter = TTIRModuleSplitter.create_from_module_str(ttir_module_str)
+    splitter = TTIRSplitter.create_from_module_str(ttir_module_str)
     sub_ops = splitter.get_sub_ops()
     sub_modules = splitter.get_sub_modules()
 

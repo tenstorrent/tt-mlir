@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.stablehlo_module_splitter import StableHLOModuleSplitter
+from ttmlir.stablehlo_splitter import StableHLOSplitter
 
 
 def test1(print_results: bool = False):
@@ -17,7 +17,7 @@ def test1(print_results: bool = False):
         }
     """
 
-    splitter = StableHLOModuleSplitter.create_from_module_str(shlo_module_str)
+    splitter = StableHLOSplitter.create_from_module_str(shlo_module_str)
     sub_ops = splitter.get_sub_ops()
     sub_modules = splitter.get_sub_modules()
 
@@ -135,7 +135,7 @@ def test2(print_results: bool = False):
         }
     """
 
-    splitter = StableHLOModuleSplitter.create_from_module_str(shlo_module_str)
+    splitter = StableHLOSplitter.create_from_module_str(shlo_module_str)
     sub_ops = splitter.get_sub_ops()
     sub_modules = splitter.get_sub_modules()
 

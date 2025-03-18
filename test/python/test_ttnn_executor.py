@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.ttnn_module_compiler import TTNNModuleCompiler
+from ttmlir.ttnn_executor import TTNNExecutor
 
 
 def test_compile_full_module(print_results: bool = False):
@@ -22,7 +22,7 @@ def test_compile_full_module(print_results: bool = False):
         }
     """
 
-    compiler = TTNNModuleCompiler.create_from_module_str(ttnn_module_str)
+    compiler = TTNNExecutor.create_from_module_str(ttnn_module_str)
     fb = compiler.compile_full_module()
 
     if print_results:
@@ -46,7 +46,7 @@ def test_compile_op_by_op(print_results: bool = False):
         }
     """
 
-    compiler = TTNNModuleCompiler.create_from_module_str(ttnn_module_str)
+    compiler = TTNNExecutor.create_from_module_str(ttnn_module_str)
     fbs = compiler.compile_op_by_op()
 
     assert len(fbs) == 3, "Compiler isn't working as expected"

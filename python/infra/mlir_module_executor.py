@@ -5,35 +5,34 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from enum import Enum
 from typing import List
 
 from ttmlir.ir import Module
-from ttmlir.module_splitter import ModuleSplitter
 from ttrt.common.util import Binary
+
+from .mlir_module_splitter import MLIRModuleSplitter
 
 
 class CompileStep(Enum):
-    STABLE_HLO = 1
-    TTIR = 2
-    TTNN = 3
-    FLATBUFFER = 4
+    GENERATED_STABLE_HLO = 1
+    GENERATED_TTIR = 2
+    GENERATED_TTNN = 3
+    GENERATED_FLATBUFFER = 4
+    EXECUTED_FLATBUFFER = 5
 
 
-class ModuleCompiler(ABC):
+@dataclass
+class CompilationResult:
+    compile_step: CompileStep
+
+
+class MLIRModuleExecutor(ABC):
     """
-    Abstract base class used to compile a MLIR module.
+    Abstract base class used to compile and run on device a given MLIR module.
 
-    It provides the following public API for two types of compilation:
-
-    Methods
-    -------
-    compile_full_model -> Binary
-        Runs entire MLIR module through the compiler and returns generated flatbuffer.
-
-    compile_op_by_op -> List[Binary]
-        Splits MLIR module into constituent ops and runs the compiler on each one of
-        them, returning a list of generated flatbuffers.
+    TODO
     """
 
     # ----- Public methods -----
@@ -47,12 +46,18 @@ class ModuleCompiler(ABC):
             for i, sub_module in enumerate(self._module_splitter.get_sub_modules())
         ]
 
+    def compile_and_run_full_module(self) -> None:
+        fb = self.compile_full_module(self._module)
+
+    def compile_and_run_op_by_op(self) -> None:
+        fbs = self.compile_op_by_op()
+
     # ----- Protected methods -----
 
     def __init__(
         self,
         module: Module,
-        module_splitter: ModuleSplitter,
+        module_splitter: MLIRModuleSplitter,
         starting_compile_step: CompileStep,
     ) -> None:
         self._module: Module = module

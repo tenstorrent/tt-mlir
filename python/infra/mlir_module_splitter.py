@@ -13,7 +13,7 @@ from ttmlir.ir import Module, OpAttributeMap
 from .utils import OpWrapper
 
 
-class ModuleSplitter(ABC):
+class MLIRModuleSplitter(ABC):
     """
     Abstract base class used to split a MLIR module into constituent ops.
 
