@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
         Constant.cpp
         EraseInverseOps.cpp
+        FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
         AttachMetalLayout.cpp
