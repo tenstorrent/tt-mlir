@@ -247,7 +247,8 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
-        # op-model tests -- ???is this needed or already run with llvm/lit above??? -- need to check
+        export TT_METAL_HOME=${{ steps.strings.outputs.install-output-dir }}/tt_metal
+        ls -la $ $TT_METAL_HOME/tt_metal/soc_descriptors
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
           echo "Running op-model test Conversion"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
@@ -328,6 +329,7 @@ jobs:
       with:
         name: test-reports-${{ matrix.build.type }}-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ matrix.build.suite }}-${{ steps.fetch-job-id.outputs.job_id }}
         path: ${{ steps.strings.outputs.test_report_path }}
+        if-no-files-found: 'ignore'
 
     - name: Show Test Report
       uses: mikepenz/action-junit-report@v4
