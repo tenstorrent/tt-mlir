@@ -1095,6 +1095,32 @@ private:
 } // namespace
 
 namespace {
+class OptimizedFlattenedConv2dOpConversionPattern
+    : public OpConversionPattern<ttir::OptimizedFlattenedConv2dOp> {
+public:
+  using OpConversionPattern<
+      ttir::OptimizedFlattenedConv2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::OptimizedFlattenedConv2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
+        adaptor.getInChannelsAttr(), adaptor.getOutChannelsAttr(),
+        adaptor.getBatchSizeAttr(), adaptor.getInputHeightAttr(),
+        adaptor.getInputWidthAttr(), adaptor.getKernelSizeAttr(),
+        adaptor.getStrideAttr(), adaptor.getPaddingAttr(),
+        adaptor.getDilationAttr(), adaptor.getGroupsAttr(),
+        /*memory_config*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ConvTranspose2dOpConversionPattern
     : public OpConversionPattern<ttir::ConvTranspose2dOp> {
 public:
@@ -1634,6 +1660,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LinearOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
+           OptimizedFlattenedConv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
