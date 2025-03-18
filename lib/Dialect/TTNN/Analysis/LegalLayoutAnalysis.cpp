@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -135,29 +136,32 @@ bool LegalLayoutAnalysis::applyOverrides() {
 }
 
 bool incompatibleWithOverride(
-    const TTNNLayoutAttr &layout,
+    const OpConfig &config,
     const std::optional<OutputLayoutOverrideParams> &layoutOverride) {
   if (not layoutOverride.has_value()) {
     return false;
   }
 
   if (layoutOverride->grid.has_value()) {
-    if (layout.getGrid().getShape()[0] != layoutOverride->grid.value()[0] ||
-        layout.getGrid().getShape()[1] != layoutOverride->grid.value()[1]) {
+    if (config.outputLayout.getGrid().getShape()[0] !=
+            layoutOverride->grid.value()[0] ||
+        config.outputLayout.getGrid().getShape()[1] !=
+            layoutOverride->grid.value()[1]) {
       return true;
     }
   }
   if (layoutOverride->bufferType.has_value() &&
-      layout.getBufferType() != layoutOverride->bufferType.value()) {
+      config.outputLayout.getBufferType() !=
+          layoutOverride->bufferType.value()) {
     return true;
   }
   if (layoutOverride->tensorMemoryLayout.has_value() &&
-      layout.getMemLayout().getValue() !=
+      config.outputLayout.getMemLayout().getValue() !=
           layoutOverride->tensorMemoryLayout.value()) {
     return true;
   }
   if (layoutOverride->memoryLayout.has_value() &&
-      layout.isTiled() !=
+      config.outputLayout.isTiled() !=
           (layoutOverride->memoryLayout.value() == Layout::Tile)) {
     return true;
   }
@@ -319,7 +323,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
   analysisResult.insert(
       analysisResult.end(), shardedResults.begin(),
       shardedResults.begin() +
-          std::min(analysisInput.maxShardedLayouts,
+          std::min(analysisInput.maxShardedConfigs,
                    static_cast<int64_t>(shardedResults.size())));
 
   // Apply partial layout overrides. Remove layouts that conflict with at least

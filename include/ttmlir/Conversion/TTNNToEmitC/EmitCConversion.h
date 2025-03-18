@@ -5,7 +5,9 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H
 
+#include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -30,6 +32,10 @@ template <typename T>
 struct SmallVector {
   using value_type = T;
 };
+
+struct IDevice;
+
+struct Tensor;
 } // namespace ttnn
 
 namespace mlir {
@@ -39,8 +45,14 @@ namespace ttnn_to_emitc {
 template <typename T>
 struct TypeName;
 
+template <typename... Types>
+struct JoinTypeNames;
+
 template <typename T>
 const std::string TypeNameV = TypeName<T>::value;
+
+template <typename... Types>
+const std::string JoinTypeNamesV = JoinTypeNames<Types...>::value;
 
 template <>
 struct TypeName<int32_t> {
@@ -106,6 +118,44 @@ struct TypeName<::ttnn::SmallVector<T>> {
       "::ttnn::SmallVector<" + TypeNameV<T> + ">";
 };
 
+template <typename T>
+struct TypeName<std::optional<T>> {
+  inline static const std::string value =
+      "::std::optional<" + TypeNameV<T> + ">";
+};
+
+template <typename... Types>
+struct TypeName<std::tuple<Types...>> {
+  inline static const std::string value =
+      "::std::tuple<" + JoinTypeNamesV<Types...> + ">";
+};
+
+template <>
+struct TypeName<::ttnn::IDevice> {
+  inline static const std::string value = "::ttnn::IDevice";
+};
+
+template <>
+struct TypeName<::ttnn::Tensor> {
+  inline static const std::string value = "::ttnn::Tensor";
+};
+
+template <>
+struct JoinTypeNames<> {
+  inline static const std::string value = "";
+};
+
+template <typename T>
+struct JoinTypeNames<T> {
+  inline static const std::string value = TypeNameV<T>;
+};
+
+template <typename T, typename... Rest>
+struct JoinTypeNames<T, Rest...> {
+  inline static const std::string value =
+      TypeNameV<T> + ", " + JoinTypeNamesV<Rest...>;
+};
+
 template <typename T, typename Enable = void>
 struct EmitCTypeConverter;
 
@@ -128,6 +178,26 @@ struct EmitCTypeConverter<bool> {
   }
 
   static std::string convert(bool value) { return value ? "true" : "false"; }
+};
+
+template <>
+struct EmitCTypeConverter<std::string> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto strAttr = mlir::dyn_cast_if_present<mlir::StringAttr>(attr)) {
+      return convert(strAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::StringAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(mlir::StringRef attr) {
+    return convert(attr.str());
+  }
+
+  static std::string convert(std::string value) { return "\"" + value + "\""; }
 };
 
 // Converter for integral types.
@@ -435,6 +505,26 @@ struct EmitCTypeConverter<std::variant<First, Rest...>> {
   }
 };
 
+// This template struct is used to retrieve the single most relevant C++ type in
+// TTNN for a given template type.
+template <typename T>
+struct TTNNTarget {
+  using type = T;
+};
+
+template <typename T>
+using TTNNTargetT = typename TTNNTarget<T>::type;
+
+template <>
+struct TTNNTarget<llvm::StringRef> {
+  using type = std::string;
+};
+
+template <>
+struct TTNNTarget<llvm::APFloat> {
+  using type = float;
+};
+
 inline std::string convert(ttnn::ShapeAttr attr) {
   if (!attr) {
     return "::std::nullopt";
@@ -570,6 +660,15 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   return buf;
 }
 
+template <typename T>
+struct IsMLIRType {
+  static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
+                                std::is_convertible_v<T, mlir::Value>;
+};
+
+template <typename T>
+static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
+
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:
@@ -610,7 +709,7 @@ public:
   template <typename TargetTy = void, typename SourceTy>
   mlir::Attribute emit(std::optional<SourceTy> attr) {
     if (!attr) {
-      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+      return emit(std::nullopt);
     }
 
     if constexpr (std::is_void_v<TargetTy>) {
@@ -624,20 +723,46 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
-  mlir::Attribute emit(Value val) {
+  mlir::Attribute emit(mlir::Value val) {
     if (!val) {
-      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+      return emit(std::nullopt);
     }
 
-    auto operand =
-        llvm::find_if(op->getOpOperands(), [&](OpOperand &opOperand) {
-          return opOperand.get() == val;
-        });
-    if (operand == op->getOpOperands().end()) {
-      llvm_unreachable("Unknown operand");
-    }
+    mlir::OpOperand *opOperand =
+        std::find_if(op->getOpOperands().begin(), op->getOpOperands().end(),
+                     [&](OpOperand &operand) { return operand.get() == val; });
 
-    return rewriter.getIndexAttr(operand->getOperandNumber());
+    unsigned index = opOperand->getOperandNumber();
+    operands.push_back(adaptor.getOperands()[index]);
+    return rewriter.getIndexAttr(index);
+  }
+
+  mlir::Attribute emit(mlir::Operation::operand_range operands) {
+    for (mlir::OpOperand &opOperand : op->getOpOperands()) {
+      auto begin =
+          std::next(op->getOperands().begin(), opOperand.getOperandNumber());
+      if (mlir::Operation::operand_range(
+              begin, std::next(begin, operands.size())) != operands) {
+        continue;
+      }
+      unsigned index = opOperand.getOperandNumber();
+      llvm::SmallVector<mlir::Value> values(
+          adaptor.getOperands().begin() + index,
+          adaptor.getOperands().begin() + index + operands.size());
+      this->operands.push_back(createVector(values));
+      return rewriter.getIndexAttr(index);
+    }
+    llvm_unreachable("Invalid operand range");
+  }
+
+  template <typename TargetTy = void>
+  mlir::Attribute emit(std::nullptr_t) {
+    if constexpr (std::is_void_v<TargetTy>) {
+      return rewriter.getType<emitc::OpaqueAttr>("nullptr");
+    } else {
+      return rewriter.getType<emitc::OpaqueAttr>(
+          "static_cast<" + TypeNameV<TargetTy> + " *>(nullptr)");
+    }
   }
 
   // Handles the case when source type is convertible to mlir::Attribute type
@@ -651,7 +776,7 @@ public:
     if (auto convertedValue = EmitCTypeConverter<TargetTy>::convert(attr)) {
       return rewriter.getType<emitc::OpaqueAttr>(*convertedValue);
     }
-    return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    return emit(std::nullopt);
   }
 
   // Handles the case when source type is a non mlir::Attribute convertible type
@@ -659,15 +784,15 @@ public:
   // llvm::ArrayRef<T> to std::vector<U>). For convenience, by default
   // `TargetTy` is the same as `SourceTy`, for cases where we already have an
   // appropriate C++ type.
-  // TODO (azecevic): See if we can simplify the condition for this overload
-  // instantiation.
-  template <typename SourceTy, typename TargetTy = SourceTy>
-  std::enable_if_t<!std::is_convertible_v<SourceTy, mlir::Attribute> &&
-                       !std::is_convertible_v<SourceTy, mlir::Value>,
-                   mlir::Attribute>
+  template <typename TargetTy = void, typename SourceTy>
+  std::enable_if_t<!IsMLIRTypeV<SourceTy>, mlir::Attribute>
   emit(SourceTy &&attr) {
-    auto result =
-        EmitCTypeConverter<TargetTy>::convert(std::forward<SourceTy>(attr));
+    using ActualTargetTy = std::conditional_t<
+        std::is_void_v<TargetTy>,
+        TTNNTargetT<std::remove_reference_t<std::remove_cv_t<SourceTy>>>,
+        TargetTy>;
+    auto result = EmitCTypeConverter<ActualTargetTy>::convert(
+        std::forward<SourceTy>(attr));
     // It's assumed that the conversion will always succeed, if the result is
     // `std::optional<std::string>` we assume that it contains the converted
     // value.
@@ -681,35 +806,75 @@ public:
   template <typename OpConversionPatternTy>
   emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
                                 llvm::ArrayRef<mlir::Attribute> args) {
+    // Special handling for Conv2dOp and ConvTranspose2dOp. These ops have a
+    // different return type than the other TTNN ops. They return
+    // `std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
+    // std::optional<::ttnn::Tensor>>`, but we want to return only the first
+    // element of the tuple.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv2dOp> ||
+                  std::is_same_v<TTNNOp, tt::ttnn::ConvTranspose2dOp>) {
+      using ReturnTy =
+          std::tuple<::ttnn::Tensor, uint32_t, uint32_t, ::ttnn::Tensor,
+                     std::optional<::ttnn::Tensor>>;
+
+      auto opResult = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          nullptr, adaptor.getOperands());
+
+      return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          op, rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          "::std::get", rewriter.getArrayAttr({rewriter.getIndexAttr(0)}),
+          rewriter.getArrayAttr(
+              {rewriter.getIntegerAttr(rewriter.getI32Type(), 0)}),
+          opResult.getResult(0));
+    }
+
+    auto resultTypes = llvm::to_vector(
+        llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
+          return opConversionPattern.getTypeConverter()->convertType(type);
+        }));
     return rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op,
-        opConversionPattern.getTypeConverter()->convertType(
-            op->getResult(0).getType()),
-        opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
-        nullptr, adaptor.getOperands());
+        op, resultTypes, opConversionPattern.convertOpName(op),
+        rewriter.getArrayAttr(args), nullptr, operands);
   }
 
 private:
+  mlir::Value createVector(ValueRange operands) {
+    tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, op);
+
+    return rewriter
+        .create<emitc::CallOpaqueOp>(
+            op.getLoc(),
+            emitc::OpaqueType::get(rewriter.getContext(),
+                                   TypeNameV<std::vector<::ttnn::Tensor>>),
+            tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
+            nullptr, operands)
+        ->getResult(0);
+  }
+
   TTNNOp op;
   OpAdaptor adaptor;
   ConversionPatternRewriter &rewriter;
+  llvm::SmallVector<mlir::Value> operands;
 };
+
+} // namespace ttnn_to_emitc
+} // namespace tt
 
 // Helper function that serves as an alternative to the
 // `emit<std::variant<...>>` member function of the `EmitCTTNNEmitter` class.
 // For example, instead of calling `emit<std::variant<int32_t, float>>(attr)`,
 // one can call `emit<int32_t>(attr) | emit<float>(attr)`.
 inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {
-  static const mlir::Attribute nulloptAttr =
-      emitc::OpaqueAttr::get(lhs.getContext(), TypeNameV<std::nullopt_t>);
+  static const mlir::Attribute nulloptAttr = emitc::OpaqueAttr::get(
+      lhs.getContext(), tt::ttnn_to_emitc::TypeNameV<std::nullopt_t>);
   if (!lhs || lhs == nulloptAttr) {
     return rhs;
   }
   return lhs;
 }
 
-} // namespace ttnn_to_emitc
-} // namespace tt
 } // namespace mlir
 
 #endif // TTMLIR_CONVERSION_TTNNTOEMITC_EMITCCONVERSION_H

@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 
@@ -17,24 +18,23 @@
 namespace mlir::tt::ttnn {
 
 struct MemoryLayoutAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
+  llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   unsigned usableL1CacheSize = 0;
   std::unordered_set<Edge> overrideReshardEdges;
   MemoryLayoutAnalysisPolicyType policy;
 
-  MemoryLayoutAnalysisInput() : legalLayouts() {}
+  MemoryLayoutAnalysisInput() : legalConfigs() {}
 
   MemoryLayoutAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts,
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
       const std::unordered_set<Edge> &overrideReshardEdges,
       MemoryLayoutAnalysisPolicyType policy)
-      : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
+      : legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
         overrideReshardEdges(overrideReshardEdges), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {
-    return legalLayouts == rhs.legalLayouts;
+    return legalConfigs == rhs.legalConfigs;
   }
 
   bool operator!=(const MemoryLayoutAnalysisInput &rhs) const {
@@ -43,20 +43,19 @@ struct MemoryLayoutAnalysisInput {
 };
 
 struct MemoryLayoutAnalysisResult {
-  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
+  llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   std::unordered_set<Edge> memReconfigEdges;
   std::vector<Operation *> spillToDramOps;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
   MemoryLayoutAnalysisResult()
-      : legalLayouts(), memReconfigEdges(), spillToDramOps(), schedule() {}
+      : legalConfigs(), memReconfigEdges(), spillToDramOps(), schedule() {}
 
   MemoryLayoutAnalysisResult(
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts,
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const std::unordered_set<Edge> &memReconfigEdges,
       const std::vector<Operation *> &spillToDramOps)
-      : legalLayouts(legalLayouts), memReconfigEdges(memReconfigEdges),
+      : legalConfigs(legalConfigs), memReconfigEdges(memReconfigEdges),
         spillToDramOps(spillToDramOps) {}
 };
 

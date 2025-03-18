@@ -160,6 +160,32 @@ emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr) {
   llvm_unreachable("Unkonwn tt::DataType");
 }
 
+emitc::OpaqueAttr convertReduceType(ConversionPatternRewriter &rewriter,
+                                    tt::ReduceType reduceType) {
+  switch (reduceType) {
+  case tt::ReduceType::Sum:
+    return rewriter.getType<emitc::OpaqueAttr>(
+        "::ttnn::operations::reduction::ReduceType::Sum");
+  case tt::ReduceType::Mean:
+    return rewriter.getType<emitc::OpaqueAttr>(
+        "::ttnn::operations::reduction::ReduceType::Mean");
+  case tt::ReduceType::Max:
+    return rewriter.getType<emitc::OpaqueAttr>(
+        "::ttnn::operations::reduction::ReduceType::Max");
+  case tt::ReduceType::Min:
+    return rewriter.getType<emitc::OpaqueAttr>(
+        "::ttnn::operations::reduction::ReduceType::Min");
+  case tt::ReduceType::Std:
+    return rewriter.getType<emitc::OpaqueAttr>(
+        "::ttnn::operations::reduction::ReduceType::Std");
+  case tt::ReduceType::Var:
+    return rewriter.getType<emitc::OpaqueAttr>(
+        "::ttnn::operations::reduction::ReduceType::Var");
+  }
+
+  llvm_unreachable("Unknown ttnn::operations::reduction::ReduceType");
+}
+
 emitc::OpaqueAttr convertArrayAttrToTTNNSmallVector(Builder &builder,
                                                     ArrayAttr attr) {
   std::string buf;

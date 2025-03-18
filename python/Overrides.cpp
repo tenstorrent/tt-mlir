@@ -6,11 +6,11 @@
 
 namespace mlir::ttmlir::python {
 
-void populateOverridesModule(py::module &m) {
+void populateOverridesModule(nb::module_ &m) {
 
   m.def(
       "get_ptr", [](void *op) { return reinterpret_cast<uintptr_t>(op); },
-      py::arg("op").noconvert());
+      nb::arg("op").noconvert());
 }
 
 } // namespace mlir::ttmlir::python

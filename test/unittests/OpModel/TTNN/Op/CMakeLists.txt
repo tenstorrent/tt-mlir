@@ -8,6 +8,7 @@ TestOpModelInterface.cpp
 
 target_compile_options(TestOpModelInterface
     PRIVATE
+    -fno-rtti
 )
 
 target_include_directories(TestOpModelInterface
@@ -24,5 +25,6 @@ target_link_libraries(TestOpModelInterface
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTNNDialect
+    MLIRTTTransforms
 )
 endif()

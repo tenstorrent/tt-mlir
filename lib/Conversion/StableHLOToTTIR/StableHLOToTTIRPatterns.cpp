@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -25,6 +26,7 @@
 #include "ttmlir/Utils.h"
 
 #include <llvm/ADT/APFloat.h>
+#include <llvm/ADT/STLExtras.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -37,6 +39,77 @@
 
 using namespace mlir;
 using namespace mlir::tt;
+
+// Typical initialization values for reduction ops.
+enum TypicalInitReductionValue {
+  NEG_INF, // It is also used for minimum integer value.
+  ZERO,
+};
+
+// Check if the constant op is initialized with the desired init value.
+static bool checkInitValue(stablehlo::ConstantOp initValueOp,
+                           TypicalInitReductionValue desired) {
+  if (initValueOp.getValueAttr().size() != 1) {
+    return false;
+  }
+
+  float desiredF32;
+  double desiredF64;
+  uint16_t desiredBF16;
+  int32_t desiredI32;
+  int64_t desiredI64;
+  bool desiredI1;
+  if (desired == TypicalInitReductionValue::NEG_INF) {
+    desiredF32 = -std::numeric_limits<float>::infinity();
+    desiredF64 = -std::numeric_limits<double>::infinity();
+    desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
+    desiredI32 = std::numeric_limits<int32_t>::min();
+    desiredI64 = std::numeric_limits<int64_t>::min();
+    desiredI1 = false;
+  } else if (desired == TypicalInitReductionValue::ZERO) {
+    desiredF32 = 0.0;
+    desiredF64 = 0.0;
+    desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
+    desiredI32 = 0;
+    desiredI64 = 0;
+    desiredI1 = false;
+  } else {
+    return false;
+  }
+
+  // Comparing actual bits in case of bfloat16.
+  if (initValueOp.getResult().getType().getElementType().isBF16()) {
+    // Collect the values into a vector
+    std::vector<mlir::Attribute> values;
+    for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
+      values.push_back(
+          initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
+    }
+
+    auto denseValues = ::mlir::DenseElementsAttr::get(
+        initValueOp.getValueAttr().getShapedType(), values);
+    uint16_t bfloatBits =
+        static_cast<uint16_t>(*denseValues.getRawData().data());
+    return bfloatBits == desiredBF16;
+  }
+  if (initValueOp.getResult().getType().getElementType().isF32()) {
+    return *initValueOp.getValue().value_begin<float>() == desiredF32;
+  }
+  if (initValueOp.getResult().getType().getElementType().isF64()) {
+    return *initValueOp.getValue().value_begin<double>() == desiredF64;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(32)) {
+    return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(64)) {
+    return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
+    return *initValueOp.getValue().value_begin<bool>() == desiredI1;
+  }
+
+  return false;
+}
 
 namespace {
 template <typename SrcOp, typename DestOp,
@@ -111,12 +184,6 @@ public:
   }
 
 private:
-  // Typical initialization values for reduction ops.
-  enum TypicalInitReductionValue {
-    NEG_INF, // It is also used for minimum integer value.
-    ZERO,
-  };
-
   LogicalResult checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp,
                                    mlir::stablehlo::ReduceOp::Adaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
@@ -428,77 +495,6 @@ private:
     }
     return true;
   }
-
-  // Check if the constant op is initialized with the desired init value.
-  bool checkInitValue(stablehlo::ConstantOp initValueOp,
-                      TypicalInitReductionValue desired) const {
-    if (initValueOp.getValueAttr().size() != 1) {
-      return false;
-    }
-
-    float desiredF32;
-    double desiredF64;
-    uint16_t desiredBF16;
-    int32_t desiredI32;
-    int64_t desiredI64;
-    if (desired == TypicalInitReductionValue::NEG_INF) {
-      desiredF32 = -std::numeric_limits<float>::infinity();
-      desiredF64 = -std::numeric_limits<double>::infinity();
-      desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
-      desiredI32 = std::numeric_limits<int32_t>::min();
-      desiredI64 = std::numeric_limits<int64_t>::min();
-    } else if (desired == TypicalInitReductionValue::ZERO) {
-      desiredF32 = 0.0;
-      desiredF64 = 0.0;
-      desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
-      desiredI32 = 0;
-      desiredI64 = 0;
-    } else {
-      return false;
-    }
-
-    // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we actually have I must compare the raw
-    // bits
-    if (initValueOp.getResult().getType().getElementType().isBF16()) {
-      // Collect the values into a vector
-      std::vector<mlir::Attribute> values;
-      for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
-        values.push_back(
-            initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
-      }
-
-      auto denseValues = ::mlir::DenseElementsAttr::get(
-          initValueOp.getValueAttr().getShapedType(), values);
-      uint16_t bfloat_bits =
-          static_cast<uint16_t>(*denseValues.getRawData().data());
-      if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF32()) {
-      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF64()) {
-      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   32)) {
-      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   64)) {
-      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
-        return false;
-      }
-    } else {
-      return false;
-    }
-
-    return true;
-  }
 };
 } // namespace
 
@@ -636,7 +632,7 @@ public:
 private:
   LogicalResult checkBasicLegality(mlir::stablehlo::ConstantOp &srcOp,
                                    ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getValue().getShapedType().getShape().empty() &&
+    if (isa<DenseElementsAttr, DenseResourceElementsAttr>(srcOp.getValue()) &&
         !srcOp.getValue().getElementType().isIntOrFloat()) {
       return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
     }
@@ -892,7 +888,7 @@ public:
     int64_t dimension = -1;
     if (isMaxPool(srcOp)) {
       poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
-    } else if (isCumSum(srcOp, adaptor, dimension)) {
+    } else if (isCumSum(srcOp, adaptor, dimension, padding)) {
       rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
           srcOp, outputType, adaptor.getInputs()[0],
           rewriter.getI64IntegerAttr(dimension), outputs[0]);
@@ -932,7 +928,7 @@ private:
   //    dimension and value must be qual to size of the required dimension.
   bool isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
                 mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
-                int64_t &dimension) const {
+                int64_t &dimension, DenseI64ArrayAttr padding) const {
 
     // Check basic structure of the ReduceWindowOp
     if (!hasValidOpStructure(srcOp)) {
@@ -955,7 +951,7 @@ private:
     }
 
     // Check input tensor type and padding
-    if (!hasValidInputAndPadding(srcOp, adaptor, dimension)) {
+    if (!hasValidInputAndPadding(srcOp, adaptor, dimension, padding)) {
       return false;
     }
 
@@ -1025,13 +1021,13 @@ private:
   // Check input tensor type and validate padding.
   bool hasValidInputAndPadding(mlir::stablehlo::ReduceWindowOp &srcOp,
                                mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
-                               int64_t &dimension) const {
+                               int64_t &dimension,
+                               DenseI64ArrayAttr padding) const {
     RankedTensorType inputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getInputs()[0].getType()));
     int64_t inputRank = inputType.getRank();
     llvm::ArrayRef<int64_t> windowDimensions =
         adaptor.getWindowDimensionsAttr().asArrayRef();
-    mlir::DenseIntElementsAttr padding = adaptor.getPaddingAttr();
 
     // Validate padding size
     if (padding.size() != (inputRank * 2)) {
@@ -1039,12 +1035,12 @@ private:
     }
 
     // Check for splat padding (all zeroes expected).
-    if (padding.isSplat()) {
-      if (padding.getSplatValue<int64_t>() != 0) {
+    if (llvm::all_equal(padding.asArrayRef())) {
+      if (padding[0] != 0) {
         return false;
       }
-      if (!std::all_of(windowDimensions.begin(), windowDimensions.end(),
-                       [](int value) { return value == 1; })) {
+      if (!llvm::all_of(windowDimensions,
+                        [](int value) { return value == 1; })) {
         return false;
       }
       // Determine the dimension using input tensor shape.
@@ -1072,12 +1068,11 @@ private:
 
   // Determine and validate dimension attribute for non-splat padding attribute.
   bool validateNonSplatPadding(llvm::ArrayRef<int64_t> windowDimensions,
-                               mlir::DenseIntElementsAttr padding,
+                               DenseI64ArrayAttr padding,
                                RankedTensorType inputType,
                                int64_t &dimension) const {
     int64_t dimArgValue = -1;
     int64_t idx = -1;
-    auto padding_values = padding.getValues<int64_t>();
 
     // Determine dimension attribute.
     for (int64_t windowDim : windowDimensions) {
@@ -1099,89 +1094,12 @@ private:
 
     for (int64_t i = 0; i < padding.size(); ++i) {
       if (i == (dimension * 2)) {
-        if (padding_values[i] != (dimArgValue - 1)) {
+        if (padding[i] != (dimArgValue - 1)) {
           return false;
         }
-      } else if (padding_values[i] != 0) {
+      } else if (padding[i] != 0) {
         return false;
       }
-    }
-
-    return true;
-  }
-
-  enum TypicalInitReductionValue {
-    NEG_INF, // used for max pooling
-    ZERO,    // used for sum pooling
-  };
-
-  // Using the value enum rather than actual values because of different data
-  // types the init value could be
-  bool checkInitValue(stablehlo::ConstantOp initValueOp,
-                      TypicalInitReductionValue desired) const {
-    if (initValueOp.getValueAttr().size() != 1) {
-      return false;
-    }
-
-    float desiredF32;
-    double desiredF64;
-    uint16_t desiredBF16;
-    int32_t desiredI32;
-    int64_t desiredI64;
-    if (desired == TypicalInitReductionValue::NEG_INF) {
-      desiredF32 = -std::numeric_limits<float>::infinity();
-      desiredF64 = -std::numeric_limits<double>::infinity();
-      desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
-      desiredI32 = std::numeric_limits<int32_t>::min();
-      desiredI64 = std::numeric_limits<int64_t>::min();
-    } else if (desired == TypicalInitReductionValue::ZERO) {
-      desiredF32 = 0.0;
-      desiredF64 = 0.0;
-      desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
-      desiredI32 = 0;
-      desiredI64 = 0;
-    } else {
-      return false;
-    }
-
-    // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we actually have I must compare the raw
-    // bits
-    if (initValueOp.getResult().getType().getElementType().isBF16()) {
-      // Collect the values into a vector
-      std::vector<mlir::Attribute> values;
-      for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
-        values.push_back(
-            initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
-      }
-
-      auto denseValues = ::mlir::DenseElementsAttr::get(
-          initValueOp.getValueAttr().getShapedType(), values);
-      uint16_t bfloat_bits =
-          static_cast<uint16_t>(*denseValues.getRawData().data());
-      if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF32()) {
-      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isF64()) {
-      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   32)) {
-      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
-        return false;
-      }
-    } else if (initValueOp.getResult().getType().getElementType().isInteger(
-                   64)) {
-      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
-        return false;
-      }
-    } else {
-      return false;
     }
 
     return true;
@@ -1741,6 +1659,43 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRCollectivePermuteOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CollectivePermuteOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::CollectivePermuteOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CollectivePermuteOp srcOp,
+                  mlir::stablehlo::CollectivePermuteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    if (auto srcChannelHandleAttr = adaptor.getChannelHandleAttr()) {
+      // channelType is supposed to be DEVICE_TO_DEVICE or Invalid for CCL ops.
+      // Currently, we ensure if it is DEVICE_TO_DEVICE commmuincaiton.
+      // Consider preserving this information in the future if the attribute
+      // is non-DEVICE_TO_DEVICE values.
+      auto channelType =
+          static_cast<StableHLOChannelType>(srcChannelHandleAttr.getType());
+      if (channelType != StableHLOChannelType::kChannelTypeDeviceToDevice &&
+          channelType != StableHLOChannelType::kChannelTypeInvalid) {
+        return failure();
+      }
+    }
+
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectivePermuteOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        adaptor.getSourceTargetPairs());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRCustomCallOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
@@ -1798,7 +1753,6 @@ public:
           meshShape);
     }
 
-    auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
     if (callTargetName ==
         mlir::tt::sharding_utils::kSPMDFullToShardShapeCallTargetName) {
       // @Sharding => @SPMDFullToShardShape pattern
@@ -1817,37 +1771,33 @@ public:
             srcOp, "Requires operand to be defined by prior Sharding op.");
       }
 
-      // JAX automatic sharding may expect pre-sharded output tensors. Thus,
-      // mesh sharding operations should not concat the tensors twice if
-      // frontent expects pre-sharded tensor.
-      if (auto *funcReturnOp = funcOp.getBody().front().getTerminator()) {
-        auto returnOperands = funcReturnOp->getOperands();
-        auto returnOperandIt =
-            llvm::find_if(returnOperands, [&](Value operand) {
-              return operand == srcOp->getResult(0);
-            });
-        if (returnOperandIt != returnOperands.end()) {
-          auto retNum = std::distance(returnOperands.begin(), returnOperandIt);
-          meshSharding.checkAndUpdateFuncReturnSharding<mlir::StringAttr>(
-              rewriter, funcOp, retNum, shardingAttr,
-              mlir::tt::sharding_utils::kXlaShardingAttr);
-        }
+      // JAX automatic sharding may expect pre-sharded output tensors. We should
+      // check and update mesh shard op to match frontend's expectation. We may
+      // create dummy mesh shard op even though frontend expect sharded return
+      // in case input and output shapes of mesh shard op are different.
+      bool shouldCreateMeshShardOp =
+          meshSharding.checkAndUpdateGSPMDRetSharding(rewriter, srcOp,
+                                                      shardingAttr);
+      auto inputOperand = adaptor.getInputs().front();
+      if (shouldCreateMeshShardOp) {
+        auto outputType = mlir::cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp->getResult(0).getType()));
+
+        ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+            rewriter, srcOp, outputType, inputOperand,
+            meshSharding.getShardType(),
+            mlir::tt::MeshShardDirection::ShardToFull,
+            meshSharding.getShardShape(), meshSharding.getShardDims());
+      } else {
+        // Do not create mesh shard op if input and output shapes are identical:
+        // frontend expects sharded return and shard type is replicate.
+        rewriter.replaceOp(srcOp, inputOperand);
       }
-
-      auto outputType = mlir::cast<RankedTensorType>(
-          getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-
-      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-          rewriter, srcOp, outputType, adaptor.getInputs().front(),
-          meshSharding.getShardType(),
-          mlir::tt::MeshShardDirection::ShardToFull,
-          meshSharding.getShardShape(), meshSharding.getShardDims());
-
     } else if (callTargetName ==
                mlir::tt::sharding_utils::kShardingCustomCallTargetName) {
-      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Manual) {
+      if (meshSharding.getShardType() == mlir::tt::MeshShardType::Identity) {
         // @Sharding => @SPMDShardToFullShape pattern
-        // "manual" sharding indicates no sharding is required.
+        // "identity" sharding indicates no sharding is required.
         rewriter.replaceOp(srcOp, srcOp->getOperand(0));
       } else {
         // @Sharding => @SPMDFullToShardShape pattern
@@ -1859,25 +1809,30 @@ public:
         }
 
         // JAX automatic sharding pre-shards input tensors and provides multiple
-        // buffers. Thus, mesh sharding operations should not shard the tensors
-        // twice if they are function arguments and pre-sharded by frontend.
+        // buffers. Thus, we have to check if mesh shard op is sharding the
+        // tensors twice. We create dummy mesh shard op if input and output
+        // shapes are different or not create mesh shard op if they are
+        // identical.
+        bool shouldCreateMeshShardOp =
+            meshSharding.checkAndUpdateGSPMDArgSharding(rewriter, srcOp,
+                                                        shardingAttr);
         auto inputOperand = adaptor.getInputs().front();
-        if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(inputOperand)) {
-          auto argNum = blockArg.getArgNumber();
-          meshSharding.checkAndUpdateFuncArgSharding<mlir::StringAttr>(
-              rewriter, funcOp, argNum, shardingAttr,
-              mlir::tt::sharding_utils::kXlaShardingAttr);
+        if (shouldCreateMeshShardOp) {
+          auto outputType =
+              mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+                  fullToShardCustomCall->getResult(0).getType()));
+
+          ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+              rewriter, srcOp, outputType, inputOperand,
+              meshSharding.getShardType(),
+              mlir::tt::MeshShardDirection::FullToShard,
+              meshSharding.getShardShape(), meshSharding.getShardDims());
+        } else {
+          // Do not create mesh shard op if input and output shapes are
+          // identical: frontend provides sharded input and shard type is
+          // replicate.
+          rewriter.replaceOp(srcOp, inputOperand);
         }
-
-        auto outputType =
-            mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-                fullToShardCustomCall->getResult(0).getType()));
-
-        ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-            rewriter, srcOp, outputType, inputOperand,
-            meshSharding.getShardType(),
-            mlir::tt::MeshShardDirection::FullToShard,
-            meshSharding.getShardShape(), meshSharding.getShardDims());
       }
     }
     return success();
@@ -2413,6 +2368,8 @@ static void addCCLOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRAllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOToTTIRReduceScatterOpConversionPattern>(typeConverter,
                                                                 ctx);
+  patterns.add<StableHLOToTTIRCollectivePermuteOpConversionPattern>(
+      typeConverter, ctx);
   patterns.add<StableHLOToTTIRCustomCallOpConversionPattern>(typeConverter,
                                                              ctx);
 }

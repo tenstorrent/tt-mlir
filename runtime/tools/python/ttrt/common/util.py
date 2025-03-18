@@ -53,8 +53,12 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
         return torch.uint16
     elif dtype == DataType.UInt8:
         return torch.uint8
+    elif dtype == DataType.BFloat16:
+        return torch.bfloat16
     else:
-        raise ValueError("Only F32 and unsigned integers are supported in the runtime")
+        raise ValueError(
+            "Only F32, BF16, and unsigned integers are supported in the runtime"
+        )
 
 
 def get_ttrt_metal_home_path():
@@ -702,6 +706,22 @@ class SystemDesc(Flatbuffer):
         self.test_result = "pass"
 
 
+class TTRTTestException(Exception):
+    """ "Base class for all "Test Specific" Errors in TTRT"""
+
+    pass
+
+
+class PCCErrorException(TTRTTestException):
+    """Class to store PCC Comparison Errors"""
+
+    pass
+
+
+# Define a constant TTRT_TEST_ERROR_RETURN_CODE
+TTRT_TEST_EXCEPTION_RETURN_CODE = 42
+
+
 class Results:
     def __init__(self, logger, file_manager):
         self.logger = logger
@@ -754,11 +774,17 @@ class Results:
         tree.write(xml_file_path, encoding="utf-8", xml_declaration=True)
 
     def get_result_code(self):
+        return_code = 0
         for entry in self.results:
+            res = entry.get("result")
             if entry.get("result") != "pass":
-                return 1
+                if res == "test_error":
+                    return_code = TTRT_TEST_EXCEPTION_RETURN_CODE
+                else:
+                    # Prioritize severity of return_code 1 if any non-test errors are encountered
+                    return 1
 
-        return 0
+        return return_code
 
     def get_results(self):
         return self.results

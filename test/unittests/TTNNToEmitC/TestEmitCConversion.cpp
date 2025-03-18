@@ -59,6 +59,26 @@ TEST(TypeNameTest, SmallVectorTypes) {
       "::ttnn::SmallVector<::std::array<::std::vector<::std::string>, 3>>");
 }
 
+TEST_F(EmitCConversionTest, ConvertStringAttr) {
+  mlir::StringAttr stringAttr = builder.getStringAttr("Hello, World!");
+  std::string converted = EmitCTypeConverter<std::string>::convert(stringAttr);
+  EXPECT_EQ(converted, "\"Hello, World!\"");
+
+  mlir::Attribute stringAsAttribute = stringAttr;
+  std::optional<std::string> maybeConverted =
+      EmitCTypeConverter<std::string>::convert(stringAsAttribute);
+  ASSERT_TRUE(maybeConverted);
+  EXPECT_EQ(*maybeConverted, "\"Hello, World!\"");
+
+  llvm::StringRef stringRef = stringAttr.getValue();
+  converted = EmitCTypeConverter<std::string>::convert(stringRef);
+  EXPECT_EQ(converted, "\"Hello, World!\"");
+
+  std::string convertedString = stringRef.str();
+  converted = EmitCTypeConverter<std::string>::convert(convertedString);
+  EXPECT_EQ(converted, "\"Hello, World!\"");
+}
+
 TEST_F(EmitCConversionTest, ConvertI32IntegerAttr) {
   mlir::IntegerAttr int32Attr = builder.getI32IntegerAttr(42);
   std::string converted = EmitCTypeConverter<int32_t>::convert(int32Attr);

@@ -8,6 +8,7 @@ TestOpModelLib.cpp
 
 target_compile_options(TestOpModelLib
     PRIVATE
+    -fno-rtti
 )
 
 target_include_directories(TestOpModelLib
@@ -24,5 +25,6 @@ target_link_libraries(TestOpModelLib
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTNNDialect
+    MLIRTTTransforms
 )
 endif()

@@ -133,7 +133,7 @@ llvm::Expected<bool> MeshSharding::determineGSPMDShardingDims() {
 // https://github.com/sdasgup3/stablehlo/blob/80082431d1af0933e6202ecc8a6f8801e039235b/docs/spec.md#sharding-attribute
 llvm::Expected<bool>
 MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
-  shardType = mlir::tt::MeshShardType::Manual;
+  shardType = mlir::tt::MeshShardType::Identity;
   lastTileDimReplicate = false;
 
   // Parse string and tokenize.
@@ -148,21 +148,21 @@ MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
   for (auto str : shardingStrTokens) {
     if (str.contains("manual")) {
       // manual: already sharded, so no action is needed
-      if (shardType != tt::MeshShardType::Manual) {
+      if (shardType != tt::MeshShardType::Identity) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
-      setNonDevicesShardType(tt::MeshShardType::Manual);
+      setNonDevicesShardType(tt::MeshShardType::Identity);
     } else if (str.contains("replicated")) {
       // replicated: all devices have whole data
-      if (shardType != tt::MeshShardType::Manual) {
+      if (shardType != tt::MeshShardType::Identity) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
       setNonDevicesShardType(tt::MeshShardType::Replicate);
     } else if (str.contains("maximal")) {
       // maximal: one device has whole data
-      if (shardType != tt::MeshShardType::Manual) {
+      if (shardType != tt::MeshShardType::Identity) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
@@ -181,7 +181,7 @@ MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
       deviceIds.push_back(d);
     } else if (str.consume_front("devices=")) {
       // other: "devices" detail sharding plan
-      if (shardType != tt::MeshShardType::Manual) {
+      if (shardType != tt::MeshShardType::Identity) {
         return llvm::createStringError(std::errc::invalid_argument,
                                        "Fail to parse GSPMD sharding.");
       }
@@ -212,6 +212,79 @@ MeshSharding::convertGSPMDShardingToMeshSharding(StringRef shardingStr) {
   }
 
   return true;
+}
+
+// Determine mesh_shard op creation and shard_type.
+//
+// foundSharding   shardType
+//    true          replicate : no mesh_shard op
+//    true          devices   : dummy mesh_shard op (identity)
+//    false         replicate : mesh_shard op (replicate)
+//    false         devices   : mesh_shard op (devices)
+bool MeshSharding::determineMeshShardOpCreationAndShardType(
+    bool foundSharding) {
+  assert(shardType == mlir::tt::MeshShardType::Replicate ||
+         shardType == mlir::tt::MeshShardType::Devices);
+
+  // If JAX expects pre-sharded input/return (foundSharding) and if it is
+  // replicate, do not create mesh_shard op as the input/output shapes are
+  // identical.
+  if (foundSharding && shardType == mlir::tt::MeshShardType::Replicate) {
+    return false;
+  }
+
+  // If JAX expects pre-sharded input/return (foundSharding) and if it is not
+  // replicate, mesh_shard op with dummy operation is still necessary for
+  // input/output shape conversion purpose.
+  if (foundSharding) {
+    setDummyShardingOp(); // shardType = Identity
+  }
+
+  return true;
+}
+
+// Check and remove arg sharding attribute and determine if mesh_shard op needs
+// to be created or not.
+bool MeshSharding::checkAndUpdateGSPMDArgSharding(
+    mlir::PatternRewriter &rewriter, mlir::stablehlo::CustomCallOp srcOp,
+    mlir::StringAttr shardingAttr) {
+  auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
+  bool foundArgSharding = false;
+  mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+
+  if (auto blockArg =
+          mlir::dyn_cast<mlir::BlockArgument>(srcOp->getOperand(0))) {
+    auto argNum = blockArg.getArgNumber();
+    foundArgSharding = checkAndRemoveFuncArgSharding<mlir::StringAttr>(
+        rewriter, funcOp, argNum, shardingAttr, tensorMeshShardingAttr,
+        mlir::tt::sharding_utils::kXlaShardingAttr);
+  }
+
+  return determineMeshShardOpCreationAndShardType(foundArgSharding);
+}
+
+// Check and remove ret sharding attribute and determine if mesh_shard op needs
+// to be created or not.
+bool MeshSharding::checkAndUpdateGSPMDRetSharding(
+    mlir::PatternRewriter &rewriter, mlir::stablehlo::CustomCallOp srcOp,
+    mlir::StringAttr shardingAttr) {
+  auto funcOp = srcOp->getParentOfType<mlir::func::FuncOp>();
+  bool foundRetSharding = false;
+  mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+
+  // Check if the GSPMD ShardToFull output is one of the return values.
+  if (auto *funcReturnOp = funcOp.getBody().front().getTerminator()) {
+    auto returnOperands = funcReturnOp->getOperands();
+    auto returnOperandIt = llvm::find(returnOperands, srcOp->getResult(0));
+    if (returnOperandIt != returnOperands.end()) {
+      auto retIdx = std::distance(returnOperands.begin(), returnOperandIt);
+      foundRetSharding = checkAndRemoveFuncReturnSharding<mlir::StringAttr>(
+          rewriter, funcOp, retIdx, shardingAttr, tensorMeshShardingAttr,
+          mlir::tt::sharding_utils::kXlaShardingAttr);
+    }
+  }
+
+  return determineMeshShardOpCreationAndShardType(foundRetSharding);
 }
 
 // Convert sdy.sharding to meshSharding based on sdy::MeshAttr.
@@ -276,6 +349,40 @@ llvm::Expected<bool> MeshSharding::convertSdyShardingToMeshSharding(
   }
 
   return true;
+}
+
+// Check and remove arg sharding attribute and determine if mesh_shard op needs
+// to be created or not.
+bool MeshSharding::checkAndUpdateShardyArgSharding(
+    mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp,
+    mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+
+  bool foundArgSharding = false;
+  if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(argOperand)) {
+    auto argNum = blockArg.getArgNumber();
+    foundArgSharding =
+        checkAndRemoveFuncArgSharding<mlir::sdy::TensorShardingAttr>(
+            rewriter, funcOp, argNum, shardingAttr, tensorMeshShardingAttr,
+            mlir::sdy::kShardingAttr);
+  }
+
+  return determineMeshShardOpCreationAndShardType(foundArgSharding);
+}
+
+// Check and remove ret sharding attribute and determine if mesh_shard op needs
+// to be created or not.
+bool MeshSharding::checkAndUpdateShardyRetSharding(
+    mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp, uint64_t retIdx,
+    sdy::TensorShardingAttr shardingAttr,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr) {
+
+  bool foundRetSharding =
+      checkAndRemoveFuncReturnSharding<sdy::TensorShardingAttr>(
+          rewriter, funcOp, retIdx, shardingAttr, tensorMeshShardingAttr,
+          mlir::sdy::kShardingAttr);
+
+  return determineMeshShardOpCreationAndShardType(foundRetSharding);
 }
 
 } // namespace sharding_utils

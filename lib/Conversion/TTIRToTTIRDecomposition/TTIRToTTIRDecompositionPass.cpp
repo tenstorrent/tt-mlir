@@ -59,9 +59,8 @@ struct TTIRToTTIRDecompositionPass
     // These are the ops that must satisfy some conditions after this pass
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {
       auto shape = op.getResult().getType().getShape();
-      return (static_cast<int64_t>(op.getArangeDimension()) == 3 &&
-              shape.size() == 4 && shape[0] == 1 && shape[1] == 1 &&
-              shape[2] == 1);
+      return (static_cast<int64_t>(op.getArangeDimension()) == 0 &&
+              shape.size() == 1);
     });
 
     target.addDynamicallyLegalOp<ttir::ArgMaxOp>(

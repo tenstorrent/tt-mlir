@@ -5,38 +5,39 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_GREEDYL1INTERLEAVEDPOLICY_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_GREEDYL1INTERLEAVEDPOLICY_H
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 
 namespace mlir::tt::ttnn {
 
 class GreedyL1InterleavedPolicy : public MemoryLayoutAnalysisPolicy {
 public:
   struct OpMemSpec {
-    TTNNLayoutAttr layout;
+    OpConfig config;
     // Minimum L1 memory usage required for scheduling the op
-    // given the layouts of all the ops that are already scheduled.
+    // given the configs of all the ops that are already scheduled.
     //
     uint64_t requiredL1Usage;
   };
 
   // This struct is holding information about the greedily choosen
-  // configuration of the @baseOp: 1) layouts and 2) precedence.
+  // configuration of the @baseOp: 1) configs and 2) precedence.
   //
-  // The @layouts represents the mapping between the op and its choosen
-  // layout. All the ops that are included in the @layouts map must be
+  // The @configs represents the mapping between the op and its choosen
+  // config. All the ops that are included in the @configs map must be
   // either @baseOp or its operand with legal L1 Interleaved output layout
   // at the moment of analyzing the @baseOp.
   //
   // The @precedence represents the order of the op's operands in which they
-  // should be scheduled. Only op's operands that are included in the @layouts
+  // should be scheduled. Only op's operands that are included in the @configs
   // map are included in the @precedence.
   //
-  struct OpConfig {
+  struct GreedyPolicyChoice {
     Operation *baseOp;
-    llvm::DenseMap<Operation *, TTNNLayoutAttr> layouts;
+    llvm::DenseMap<Operation *, OpConfig> configs;
     llvm::SmallVector<Operation *> precedence;
   };
 
@@ -48,11 +49,10 @@ public:
 public:
   GreedyL1InterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts,
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
-      : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalLayouts,
+      : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalConfigs,
                                    schedule, usableL1CacheSize) {}
 
   /**
@@ -67,21 +67,22 @@ public:
    * the baseOp.
    * @return The greedy OpConfig for the baseOp.
    */
-  OpConfig getGreedyConfig(Operation *baseOp,
-                           llvm::DenseMap<Operation *, L1Usage> &opsL1Usage);
+  GreedyPolicyChoice
+  getGreedyConfig(Operation *baseOp,
+                  llvm::DenseMap<Operation *, L1Usage> &opsL1Usage);
 
   void run() final;
 
 private:
   // Check if the op is analyzable. Op is analyzable if it has at least one
-  // legal layout.
+  // legal config.
   bool isAnalyzable(Operation *op);
 
-  // Fetch op's DRAM layout from legalLayouts.
+  // Fetch op's DRAM layout from legalConfigs.
   bool hasDRAMBufferType(Operation *op);
   TTNNLayoutAttr getDRAMLayout(Operation *op);
 
-  // Fetch op's L1 Interleaved layout from legalLayouts.
+  // Fetch op's L1 Interleaved layout from legalConfigs.
   bool hasL1BufferType(Operation *op);
   TTNNLayoutAttr getL1InterleavedLayout(Operation *op);
 

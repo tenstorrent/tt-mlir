@@ -7,7 +7,7 @@
 #include "mlir/CAPI/IR.h"
 
 namespace mlir::ttmlir::python {
-void populateTTIRModule(py::module &m) {
+void populateTTIRModule(nb::module_ &m) {
   m.def("is_dps", [](MlirOperation op) {
     return mlir::isa<DestinationStyleOpInterface>(unwrap(op));
   });

@@ -9,7 +9,7 @@
 
 func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
-  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<2x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 0, 1>, operand_cb_mapping = array<i64>}> ({
+  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<2x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 1>}> ({
   ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
   }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
@@ -25,7 +25,7 @@ func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1
 
 func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
-  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 0, 1>, operand_cb_mapping = array<i64>}> ({
+  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 1>}> ({
   ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
   }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
@@ -41,7 +41,7 @@ func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1
 
 func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
-  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 0, 1>, operand_cb_mapping = array<i64>}> ({
+  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 1>}> ({
   ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: tensor<2x4x!tt.tile<32x32, f32>, #l1_>):
   }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
@@ -58,7 +58,7 @@ func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1
 
 func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #dram_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #dram_>
-  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 0, 1>, operand_cb_mapping = array<i64>}> ({
+  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 1>}> ({
   ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
   }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #dram_>) -> ()
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #dram_>
@@ -74,7 +74,7 @@ func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1
 
 func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
-  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 0, 1>, operand_cb_mapping = array<i64>}> ({
+  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 1>}> ({
   ^bb0(%arg2: memref<2x2x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
   }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>

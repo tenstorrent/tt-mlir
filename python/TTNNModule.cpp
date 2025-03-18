@@ -5,8 +5,9 @@
 #include "mlir/CAPI/AffineMap.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
+#include <nanobind/stl/optional.h>
 namespace mlir::ttmlir::python {
-void populateTTNNModule(py::module &m) {
+void populateTTNNModule(nb::module_ &m) {
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")
       .def_static("get",
@@ -27,12 +28,12 @@ void populateTTNNModule(py::module &m) {
                 unwrap(ctx), mlir::cast<tt::GridAttr>(unwrap(grid)),
                 offsetVec));
           },
-          py::arg("ctx"), py::arg("grid"),
-          py::arg("offset") = std::vector<int64_t>{0, 0})
-      .def_property_readonly(
+          nb::arg("ctx"), nb::arg("grid"),
+          nb::arg("offset") = std::vector<int64_t>{0, 0})
+      .def_prop_ro(
           "offset",
           [](tt::ttnn::CoreRangeAttr self) { return self.getOffset().vec(); })
-      .def_property_readonly("size", [](tt::ttnn::CoreRangeAttr self) {
+      .def_prop_ro("size", [](tt::ttnn::CoreRangeAttr self) {
         return self.getSize().vec();
       });
 
@@ -42,7 +43,7 @@ void populateTTNNModule(py::module &m) {
                     return wrap(tt::ttnn::LayoutAttr::get(
                         unwrap(ctx), static_cast<tt::ttnn::Layout>(layout)));
                   })
-      .def_property_readonly("value", [](tt::ttnn::LayoutAttr self) {
+      .def_prop_ro("value", [](tt::ttnn::LayoutAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
 
@@ -54,10 +55,9 @@ void populateTTNNModule(py::module &m) {
                         unwrap(ctx), static_cast<tt::ttnn::TensorMemoryLayout>(
                                          tensorMemoryLayout)));
                   })
-      .def_property_readonly("value",
-                             [](tt::ttnn::TensorMemoryLayoutAttr self) {
-                               return static_cast<uint32_t>(self.getValue());
-                             });
+      .def_prop_ro("value", [](tt::ttnn::TensorMemoryLayoutAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
   tt_attribute_class<tt::ttnn::BufferTypeAttr>(m, "BufferTypeAttr")
       .def_static(
           "get",
@@ -65,7 +65,7 @@ void populateTTNNModule(py::module &m) {
             return wrap(tt::ttnn::BufferTypeAttr::get(
                 unwrap(ctx), static_cast<tt::ttnn::BufferType>(bufferType)));
           })
-      .def_property_readonly("value", [](tt::ttnn::BufferTypeAttr self) {
+      .def_prop_ro("value", [](tt::ttnn::BufferTypeAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
 
@@ -75,8 +75,7 @@ void populateTTNNModule(py::module &m) {
                     return wrap(
                         tt::ttnn::ShardSpecAttr::get(unwrap(ctx), shardShape));
                   })
-      .def_property_readonly("shard_shape",
-                             &tt::ttnn::ShardSpecAttr::getShardShape);
+      .def_prop_ro("shard_shape", &tt::ttnn::ShardSpecAttr::getShardShape);
 
   tt_attribute_class<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")
       .def_static("get",
@@ -106,19 +105,17 @@ void populateTTNNModule(py::module &m) {
                     tt::ttnn::ShapeAttr::get(unwrap(ctx), shardShape)),
                 layoutAttr));
           })
-      .def_property_readonly("tensor_memory_layout",
-                             &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
-      .def_property_readonly("buffer_type",
-                             &tt::ttnn::MemoryConfigAttr::getBufferType)
-      .def_property_readonly("shard_spec",
-                             &tt::ttnn::MemoryConfigAttr::getShardSpec);
+      .def_prop_ro("tensor_memory_layout",
+                   &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
+      .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
+      .def_prop_ro("shard_spec", &tt::ttnn::MemoryConfigAttr::getShardSpec);
 
   tt_attribute_class<tt::ttnn::ShapeAttr>(m, "ShapeAttr")
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> shape) {
                     return wrap(tt::ttnn::ShapeAttr::get(unwrap(ctx), shape));
                   })
-      .def_property_readonly("shape", [](tt::ttnn::ShapeAttr self) {
+      .def_prop_ro("shape", [](tt::ttnn::ShapeAttr self) {
         return std::vector<int64_t>(self.getShape().begin(),
                                     self.getShape().end());
       });
@@ -129,49 +126,153 @@ void populateTTNNModule(py::module &m) {
                     return wrap(
                         tt::ttnn::MeshShapeAttr::get(unwrap(ctx), y, x));
                   })
-      .def_property_readonly("y", &tt::ttnn::MeshShapeAttr::getY)
-      .def_property_readonly("x", &tt::ttnn::MeshShapeAttr::getX);
+      .def_prop_ro("y", &tt::ttnn::MeshShapeAttr::getY)
+      .def_prop_ro("x", &tt::ttnn::MeshShapeAttr::getX);
 
   tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
       .def_static(
           "get",
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
-             MlirType memref,
-             std::optional<unsigned> memLayout = std::nullopt) {
+             MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
+             std::optional<tt::TensorMeshShardingAttr> tensorMeshSharding =
+                 std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
+            tt::TensorMeshShardingAttr tensorMeshShardingAttr;
+            if (tensorMeshSharding.has_value()) {
+              tensorMeshShardingAttr = tensorMeshSharding.value();
+            }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
                 mlir::cast<tt::GridAttr>(unwrap(grid)),
-                mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr));
-          })
-      .def_property_readonly(
+                mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
+                tensorMeshShardingAttr));
+          },
+          nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
+          nb::arg("memLayout") = nb::none(),
+          nb::arg("tensorMeshSharding") = nb::none())
+      .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
-      .def_property_readonly("grid_attr", &tt::ttnn::TTNNLayoutAttr::getGrid)
-      .def_property_readonly(
+      .def_prop_ro("grid_attr", &tt::ttnn::TTNNLayoutAttr::getGrid)
+      .def_prop_ro(
           "memref",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getMemref()); })
-      .def_property_readonly("tensor_memory_layout_as_int",
-                             [](tt::ttnn::TTNNLayoutAttr self)
-                                 -> std::variant<uint32_t, py::object> {
-                               if (!self.getMemLayout()) {
-                                 return py::none();
-                               }
-                               return static_cast<uint32_t>(
-                                   self.getMemLayout().getValue());
-                             })
-      .def_property_readonly("memory_layout_as_int",
-                             [](tt::ttnn::TTNNLayoutAttr self) {
-                               return static_cast<uint32_t>(self.getLayout());
-                             })
-      .def_property_readonly("data_type_as_int",
-                             [](tt::ttnn::TTNNLayoutAttr self) {
-                               return static_cast<uint32_t>(self.getDataType());
-                             });
+      .def_prop_ro("tensor_memory_layout_as_int",
+                   [](tt::ttnn::TTNNLayoutAttr self)
+                       -> std::variant<uint32_t, nb::object> {
+                     if (!self.getMemLayout()) {
+                       return nb::none();
+                     }
+                     return static_cast<uint32_t>(
+                         self.getMemLayout().getValue());
+                   })
+      .def_prop_ro("memory_layout_as_int",
+                   [](tt::ttnn::TTNNLayoutAttr self) {
+                     return static_cast<uint32_t>(self.getLayout());
+                   })
+      .def_prop_ro("data_type_as_int", [](tt::ttnn::TTNNLayoutAttr self) {
+        return static_cast<uint32_t>(self.getDataType());
+      });
+  tt_attribute_class<tt::ttnn::Conv2dConfigAttr>(m, "Conv2dConfigAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, tt::DataType dtype, tt::DataType weightsDtype,
+             StringAttr activation, IntegerAttr inputChannelsAlignment,
+             BoolAttr deallocateActivation, BoolAttr reallocateHaloOutput,
+             IntegerAttr actBlockHOverride, IntegerAttr actBlockWDiv,
+             BoolAttr reshardIfNotOptimal, BoolAttr overrideShardingConfig,
+             tt::ttnn::TensorMemoryLayoutAttr shardLayout, Attribute coreGrid,
+             BoolAttr transposeShards, tt::ttnn::Layout outputLayout,
+             BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
+             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding) {
+            return wrap(tt::ttnn::Conv2dConfigAttr::get(
+                unwrap(ctx), dtype, weightsDtype, activation,
+                inputChannelsAlignment, deallocateActivation,
+                reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
+                reshardIfNotOptimal, overrideShardingConfig, shardLayout,
+                coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
+                enableWeightsDoubleBuffer, enableSplitReader,
+                enableSubblockPadding));
+          })
+      .def_prop_ro("dtype_as_int",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return static_cast<uint32_t>(self.getDtype());
+                   })
+      .def_prop_ro("weights_dtype_as_int",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return static_cast<uint32_t>(self.getDtype());
+                   })
+      .def_prop_ro("activation",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getActivation().str();
+                   })
+      .def_prop_ro("input_channels_alignment",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getInputChannelsAlignment().getInt();
+                   })
+      .def_prop_ro("deallocate_activation",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getDeallocateActivation().getValue();
+                   })
+      .def_prop_ro("reallocate_halo_output",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getReallocateHaloOutput().getValue();
+                   })
+      .def_prop_ro("act_block_h_override",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getActBlockHOverride().getInt();
+                   })
+      .def_prop_ro("act_block_w_div",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getActBlockWDiv().getInt();
+                   })
+      .def_prop_ro("reshard_if_not_optimal",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getReshardIfNotOptimal().getValue();
+                   })
+      .def_prop_ro("override_sharding_config",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getOverrideShardingConfig().getValue();
+                   })
+      .def_prop_ro("shard_layout_as_int",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return static_cast<uint32_t>(
+                         self.getShardLayout().getValue());
+                   })
+      // TODO(vkovacevic): parse core_grid
+      .def_prop_ro("core_grid",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     assert(!self.getCoreGrid());
+                     return nb::none();
+                   })
+      .def_prop_ro("transpose_shards",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getTransposeShards().getValue();
+                   })
+      .def_prop_ro("output_layout_as_int",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return static_cast<uint32_t>(self.getOutputLayout());
+                   })
+      .def_prop_ro("enable_act_double_buffer",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getEnableActDoubleBuffer().getValue();
+                   })
+      .def_prop_ro("enable_weights_double_buffer",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getEnableWeightsDoubleBuffer().getValue();
+                   })
+      .def_prop_ro("enable_split_reader",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getEnableSplitReader().getValue();
+                   })
+      .def_prop_ro("enable_subblock_padding",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getEnableSubblockPadding().getValue();
+                   });
 }
 } // namespace mlir::ttmlir::python

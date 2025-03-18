@@ -69,6 +69,7 @@ public:
       Type elementType = type.getElementType();
       llvm::ArrayRef<int64_t> shape = type.getShape();
       size_t bitWidth = type.getElementTypeBitWidth();
+      mlir::Attribute encoding = type.getEncoding();
       MLIRContext *context = elementType.getContext();
       // Convert the element type to bfloat16 if the input is boolean.
       if (bitWidth == 1) {
@@ -98,7 +99,8 @@ public:
         shape = RankedTensorType::get({1}, elementType).getShape();
         changed = true;
       }
-      return changed ? RankedTensorType::get(shape, elementType) : type;
+      return changed ? RankedTensorType::get(shape, elementType, encoding)
+                     : type;
     });
   }
 };

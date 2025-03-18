@@ -4,17 +4,20 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
+#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include <mlir/Dialect/Func/IR/FuncOps.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -35,6 +38,7 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
+    target.addLegalOp<tt::DeviceOp>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     TypeConverter typeConverter;

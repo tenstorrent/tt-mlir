@@ -20,4 +20,9 @@ class TTNN_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
+def TTNN_Device : TTNN_Type<"Device", "device", []> {
+    let summary = "TTNN device";
+    let description = "Opaque device type";
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSTYPES_TD

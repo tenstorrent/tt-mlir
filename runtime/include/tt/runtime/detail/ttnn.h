@@ -48,9 +48,6 @@
 
 namespace tt::runtime::ttnn {
 
-// Default L1 small size to use for the ttnn runtime (32kb).
-constexpr std::size_t kL1SmallSize = 1 << 15;
-
 Tensor createOwnedTensor(std::shared_ptr<void> data,
                          std::vector<std::uint32_t> const &shape,
                          std::vector<std::uint32_t> const &stride,
@@ -94,6 +91,13 @@ inline Tensor createTensor(Device device, Layout layout,
 
 tt::target::DataType getTensorDataType(Tensor tensor);
 
+std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
+std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
+std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
+std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
+std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
+TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
+
 size_t getNumAvailableDevices();
 
 Device
@@ -117,7 +121,7 @@ void wait(Tensor tensor);
 
 void wait(std::vector<Tensor> const &tensors);
 
-Tensor toHost(Tensor tensor, bool untilize = false);
+std::vector<Tensor> toHost(Tensor tensor, bool untilize = false);
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout);
 
@@ -136,8 +140,6 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
-
-std::vector<float> getTensorData(Tensor tensor);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

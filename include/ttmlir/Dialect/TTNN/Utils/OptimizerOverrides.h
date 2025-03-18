@@ -70,14 +70,15 @@ public:
 
   // Wrapper methods we use to expose the adders to the python bindings
   std::unordered_map<std::string, InputLayoutOverrideParams>
-  getInputLayoutOverridesPybindWrapper() const;
+  getInputLayoutOverridesNanobindWrapper() const;
   std::unordered_map<std::string, OutputLayoutOverrideParams>
-  getOutputLayoutOverridesPybindWrapper() const;
+  getOutputLayoutOverridesNanobindWrapper() const;
 
   // Wrapper methods we use to expose the adders to the python bindings
-  void addInputLayoutOverridePybindWrapper(std::string, std::vector<int64_t> &);
-  void addOutputLayoutOverridePybindWrapper(std::string,
-                                            OutputLayoutOverrideParams);
+  void addInputLayoutOverrideNanobindWrapper(std::string,
+                                             std::vector<int64_t> &);
+  void addOutputLayoutOverrideNanobindWrapper(std::string,
+                                              OutputLayoutOverrideParams);
 
 private:
   // Flags for enabling/disabling the optimizer passes

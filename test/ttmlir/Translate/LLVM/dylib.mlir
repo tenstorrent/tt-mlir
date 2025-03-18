@@ -1,4 +1,5 @@
 // RUN: ttmlir-translate --llvm-to-dylib %s | llvm-nm -g - | FileCheck %s
+// UNSUPPORTED: system-darwin
 
 module attributes {ttir.cpu_module} {
   llvm.func @memrefCopy(i64, !llvm.ptr, !llvm.ptr)

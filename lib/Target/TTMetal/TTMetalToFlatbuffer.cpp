@@ -19,6 +19,7 @@
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -279,8 +280,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
 static flatbuffers::Offset<::tt::target::metal::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         uint64_t address, uint64_t size) {
-  auto deviceAttr =
-      getCurrentScopeDevice(value.getParentBlock()->getParentOp());
+  auto deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   auto tensorDesc =

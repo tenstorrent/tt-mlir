@@ -120,6 +120,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         ttkernel.register_dialect(self.ctx)
 
         self.cb_args = args
+        self.rt_args = None
 
     def var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
@@ -141,6 +142,16 @@ class TTKernelCompiler(ast.NodeVisitor):
         arg_types = []
         for i in range(len(node.args.args)):
             arg = node.args.args[i]
+
+            # Check for rt_args
+            # TODO: Decide between strict rt_args name _or_ type of list[int] defining argument as rt_args.
+            if arg.arg == "rt_args":
+                # This is a valid defined rt_args object
+                # We don't want this to be defined in the EmitC module since it's bootstrapped to call get_arg_val
+                # Instead set a flag for ast.Subscript to check if this value is being called.
+                self.rt_args = arg
+                continue
+
             if not arg.annotation:
                 raise ValueError("Function arguments must have type annotations")
             elif not arg.annotation.id == "CircularBuffer":
@@ -284,7 +295,38 @@ class TTKernelCompiler(ast.NodeVisitor):
         return None
 
     def visit_Assign(self, node):
+        # Loosely support slice + tuple assignment for rt_args
         assert len(node.targets) == 1, "Only single assignments supported"
+        if isinstance(node.targets[0], ast.Tuple):
+            # Make sure that these are being assigned from rt_args
+            if self.rt_args is None:
+                raise NotImplementedError(
+                    "Tuple Assignment except for rt_args not supported."
+                )
+
+            if (
+                isinstance(node.value, ast.Subscript)
+                and node.value.value.id == self.rt_args.arg
+            ):
+                _tuple = node.targets[0]
+                _vars = [self.visit(elt) for elt in _tuple.elts]
+                values = self.visit(node.value)
+                if not isinstance(values, list):
+                    raise ValueError(
+                        f"Not enough values to unpack from rt_args slice (expected {len(_vars)}, got 1)"
+                    )
+                if len(values) != len(_vars):
+                    raise ValueError(
+                        f"Not enough values to unpack from rt_args slice (expected {len(_vars)}, got {len(values)})"
+                    )
+                # Since we are unpacking a tuple, types can't be assigned here:
+                sym_table = self.symbol_tables[-1]
+                for i in range(len(_vars)):
+                    sym_table[_tuple.elts[i].id] = values[i]
+
+                # Exit out of function now
+                return
+
         var = self.visit(node.targets[0])
         value = self.visit(node.value)
         sym_table = self.symbol_tables[-1]
@@ -433,6 +475,37 @@ class TTKernelCompiler(ast.NodeVisitor):
                 raise NotImplementedError(
                     f"Compare operator {type(node.ops).__name__} not implemented"
                 )
+
+    # Subscript Value
+    def visit_Subscript(self, node):
+        # This is where we can invoke the rt_args for the kernel to be loaded in
+        if self.rt_args is not None:
+            # rt_args has been defined, we know that the id of the array to reference from is "rt_args"
+            if node.value.id == self.rt_args.arg:
+                # Get index from slice and ensure it's a single integral value
+                if isinstance(node.slice, ast.Constant):
+                    # Now we have a single integral constant here, construct and return the get_arg_val call.
+                    arg_index = self.visit(node.slice)
+                    int_type = IntegerType.get_signless(32, self.ctx)
+                    return ttkernel.get_arg_val(int_type, arg_index)
+                else:
+                    # Iterate from slice to generate rt_arg calls
+                    # Upper and Lower must be defined, step can be inferred as 1
+                    _step = 1 if node.slice.step is None else node.slice.step.value
+                    _lower = 0 if node.slice.lower is None else node.slice.lower.value
+                    if node.slice.upper is None:
+                        raise IndexError(
+                            "Runtime Arg Slices must have Upper Bound defined"
+                        )
+                    result = []
+                    for i in range(_lower, node.slice.upper.value, _step):
+                        arg_index = self.visit(ast.Constant(i))
+                        int_type = IntegerType.get_signless(32, self.ctx)
+                        result.append(ttkernel.get_arg_val(int_type, arg_index))
+                    return result
+        raise NotImplementedError(
+            "Loading from Subscripts except Runtime Args not supported"
+        )
 
     # Literals
     def visit_Constant(self, node):

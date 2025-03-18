@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-layout %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-layout %s | FileCheck %s
 module attributes {} {
   func.func @forward(%arg0: tensor<8x64x128xf32>, %arg1: tensor<8x64x128xf32>) -> tensor<8x64x128xf32> {
     // CHECK: = tensor.empty() : tensor<8x64x128xf32, #layout>

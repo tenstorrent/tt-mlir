@@ -19,6 +19,8 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   MLIRSCFToControlFlow
   MLIRTensorToLinalg
   MLIRTTIRDialect
+  MLIRTTDialect
+  MLIRTTTransforms
   MLIRPass
   MLIRTransforms
 )

@@ -6,4 +6,4 @@ set(TTNN_FBS_GEN_SOURCES
   program.fbs
 )
 
-build_flatbuffers("${TTNN_FBS_GEN_SOURCES}" TTNN_FBS)
+build_flatbuffers("${TTNN_FBS_GEN_SOURCES}" TTNN_FBS COMMON_FBS)

@@ -5,28 +5,27 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGANALYSIS_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGANALYSIS_H
 
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 namespace mlir::tt::ttnn {
 
 struct OpConfigAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
+  llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
 
-  OpConfigAnalysisInput() : legalLayouts() {}
-
-  OpConfigAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &&legalLayouts)
-      : legalLayouts(std::move(legalLayouts)) {}
+  OpConfigAnalysisInput() : legalConfigs() {}
 
   OpConfigAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalLayouts)
-      : legalLayouts(legalLayouts) {}
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &&legalConfigs)
+      : legalConfigs(std::move(legalConfigs)) {}
+
+  OpConfigAnalysisInput(
+      const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs)
+      : legalConfigs(legalConfigs) {}
 
   bool operator==(const OpConfigAnalysisInput &rhs) const {
-    return legalLayouts == rhs.legalLayouts;
+    return legalConfigs == rhs.legalConfigs;
   }
 
   bool operator!=(const OpConfigAnalysisInput &rhs) const {
@@ -38,7 +37,7 @@ struct OpConfigAnalysisInput {
 //
 class OpConfigAnalysis
     : public TTNNAnalysis<OpConfigAnalysisInput,
-                          llvm::DenseMap<Operation *, TTNNLayoutAttr>> {
+                          llvm::DenseMap<Operation *, OpConfig>> {
 
 private:
   void analysisImplementation() override;

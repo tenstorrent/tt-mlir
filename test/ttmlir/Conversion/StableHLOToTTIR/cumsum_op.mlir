@@ -100,4 +100,20 @@ module @moreh_cumsum attributes {} {
     // CHECK: return %[[RET]] : [[TENSOR]]
     return %0 : tensor<8x2x4x1xbf16>
   }
+
+  func.func @test_no_padding(%arg0: tensor<1x1xi32>) -> tensor<1x1xi32> {
+    // CHECK-LABEL: func.func @test_no_padding
+    // CHECK: %[[EMPTY:[0-9]+]] = tensor.empty() : [[TENSOR:tensor<1x1xi32>]]
+    // CHECK: %[[RET:[0-9]+]] = "ttir.cumsum"(%arg0, %[[EMPTY]])
+    // CHECK-SAME: <{dim = 0 : i64}>
+    // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
+    %c = stablehlo.constant dense<0> : tensor<i32>
+    %0 = stablehlo.broadcast_in_dim %c, dims = [] : (tensor<i32>) -> tensor<i32>
+    %1 = "stablehlo.reduce_window"(%arg0, %0) <{window_dimensions = array<i64: 1, 1>}> ({
+    ^bb0(%arg1: tensor<i32>, %arg2: tensor<i32>):
+      %2 = stablehlo.add %arg1, %arg2 : tensor<i32>
+      stablehlo.return %2 : tensor<i32>
+    }) : (tensor<1x1xi32>, tensor<i32>) -> tensor<1x1xi32>
+    return %1 : tensor<1x1xi32>
+  }
 }

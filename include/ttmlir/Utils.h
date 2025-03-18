@@ -17,7 +17,12 @@
 #include <cstdint>
 #include <type_traits>
 
+namespace mlir::tt::ttnn {
+class DeviceType;
+} // namespace mlir::tt::ttnn
+
 namespace ttmlir::utils {
+
 template <typename T>
 T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
@@ -59,6 +64,26 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
     dim += 1;
   }
   return result;
+}
+
+inline mlir::AffineMap
+replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
+  assert(map.getNumSymbols() == symbols.size());
+
+  mlir::SmallVector<mlir::AffineExpr> symReplacements;
+  for (unsigned i = 0; i < map.getNumSymbols(); ++i) {
+    symReplacements.push_back(
+        getAffineConstantExpr(symbols[i], map.getContext()));
+  }
+
+  mlir::SmallVector<mlir::AffineExpr> dimReplacements;
+  for (unsigned i = 0; i < map.getNumDims(); ++i) {
+    dimReplacements.push_back(getAffineDimExpr(i, map.getContext()));
+  }
+
+  unsigned numResultSyms = 0;
+  return map.replaceDimsAndSymbols(dimReplacements, symReplacements,
+                                   map.getNumDims(), numResultSyms);
 }
 
 template <typename IntType>
@@ -288,14 +313,15 @@ getQuadrupleOfInteger(mlir::Attribute attr) {
 }
 
 // It's assumed that operand is convertible to mlir::Value or mlir::ValueRange.
-// The only exception being tt::DeviceType, which is convertible to mlir::Value
-// but should not be considered an operand.
+// The only exception being tt::ttnn::DeviceType, which is convertible to
+// mlir::Value but should not be considered an operand.
 template <typename T>
 struct is_operand
-    : std::bool_constant<
-          (std::is_convertible_v<T, mlir::Value> ||
-           std::is_convertible_v<T, mlir::ValueRange>) &&
-          !std::is_convertible_v<T, mlir::TypedValue<mlir::tt::DeviceType>>> {};
+    : std::bool_constant<(std::is_convertible_v<T, mlir::Value> ||
+                          std::is_convertible_v<T, mlir::ValueRange>) &&
+                         !std::is_convertible_v<
+                             T, mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
+};
 
 template <typename T>
 inline constexpr bool is_operand_v = is_operand<T>::value;
@@ -461,4 +487,4 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
 
 } // namespace ttmlir::utils
 
-#endif
+#endif // TTMLIR_UTILS_H

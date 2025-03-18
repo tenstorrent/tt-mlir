@@ -37,6 +37,10 @@ inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
          layout == TensorMemoryLayout::BlockSharded;
 }
 
+inline bool isMeshDeviceTensor(TensorMeshShardingAttr tensorMeshSharding) {
+  return tensorMeshSharding != nullptr;
+}
+
 } // namespace mlir::tt::ttnn
 
 #define GET_ATTRDEF_CLASSES

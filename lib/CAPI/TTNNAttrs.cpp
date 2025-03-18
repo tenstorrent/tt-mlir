@@ -84,9 +84,12 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
     memLayoutAttr = TensorMemoryLayoutAttr::get(
         unwrap(ctx), static_cast<TensorMemoryLayout>(*memLayout));
   }
-  return wrap(TTNNLayoutAttr::get(
-      unwrap(ctx), affineMap, mlir::cast<GridAttr>(unwrap(grid)),
-      mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr));
+
+  TensorMeshShardingAttr tensorMeshShardingAttr;
+  return wrap(TTNNLayoutAttr::get(unwrap(ctx), affineMap,
+                                  mlir::cast<GridAttr>(unwrap(grid)),
+                                  mlir::cast<MemRefType>(unwrap(memref)),
+                                  memLayoutAttr, tensorMeshShardingAttr));
 }
 
 } // namespace mlir::tt::ttnn

@@ -394,7 +394,7 @@ public:
       //
       mlir::TupleType tuplifiedInputTensors =
           mlir::TupleType::get(&getContext(), originalFuncType.getInputs());
-      std::optional<tt::DeviceType> deviceType = std::nullopt;
+      std::optional<ttnn::DeviceType> deviceType = std::nullopt;
       if (getDeviceOp) {
         deviceType = getDeviceOp.getResult().getType();
       }

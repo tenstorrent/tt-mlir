@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/data_movement/pad.h"
-#include "tt-metalium/span.hpp"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/debug_apis.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/workarounds.h"
+#include "tt_stl/span.hpp"
 
 #include <optional>
 

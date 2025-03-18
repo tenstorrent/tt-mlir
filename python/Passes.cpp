@@ -2,19 +2,24 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/Passes.h"
 #include "mlir/InitAllTranslations.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
+
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
-#include <pybind11/stl_bind.h>
+#include <nanobind/stl/bind_map.h>
+#include <nanobind/stl/bind_vector.h>
+#include <nanobind/stl/shared_ptr.h>
 
 // Make Opaque so Casts & Copies don't occur
-PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
-PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
+NB_MAKE_OPAQUE(std::vector<std::pair<std::string, std::string>>);
+NB_MAKE_OPAQUE(mlir::tt::GoldenTensor);
+NB_MAKE_OPAQUE(std::unordered_map<std::string, mlir::tt::GoldenTensor>);
 
 namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer();
@@ -22,7 +27,7 @@ void registerTTNNToFlatbuffer();
 
 namespace mlir::ttmlir::python {
 
-void populatePassesModule(py::module &m) {
+void populatePassesModule(nb::module_ &m) {
   // When populating passes, need to first register them
 
   mlir::tt::registerAllPasses();
@@ -40,7 +45,7 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      py::arg("module"), py::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "");
 
   m.def(
       "ttnn_pipeline_analysis_passes",
@@ -54,7 +59,7 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      py::arg("module"), py::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "");
 
   m.def(
       "ttnn_pipeline_lowering_passes",
@@ -68,7 +73,7 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      py::arg("module"), py::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "");
 
   m.def(
       "ttnn_pipeline_layout_decomposition_pass",
@@ -83,7 +88,7 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      py::arg("module"), py::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "");
 
   m.def(
       "ttnn_pipeline_dealloc_pass",
@@ -97,7 +102,7 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      py::arg("module"), py::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "");
 
   m.def(
       "ttir_to_ttnn_backend_pipeline",
@@ -125,7 +130,7 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      py::arg("module"), py::arg("options") = "");
+      nb::arg("module"), nb::arg("options") = "");
 
   m.def(
       "ttir_to_ttmetal_backend_pipeline",
@@ -148,31 +153,15 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to run pass manager");
         }
       },
-      py::arg("module"), py::arg("options") = "");
-
-  py::class_<std::shared_ptr<void>>(m, "SharedVoidPtr")
-      .def(py::init<>())
-      .def("from_ttnn", [](std::shared_ptr<void> data, MlirModule module) {
-        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        data = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
-      });
-
-  m.def("ttnn_to_flatbuffer_binary", [](MlirModule module) {
-    // NOLINTBEGIN
-    mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-    std::shared_ptr<void> *binary = new std::shared_ptr<void>();
-    *binary = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
-    return py::capsule((void *)binary, [](void *data) {
-      std::shared_ptr<void> *bin = static_cast<std::shared_ptr<void> *>(data);
-      delete bin;
-    });
-    // NOLINTEND
-  });
+      nb::arg("module"), nb::arg("options") = "");
 
   // This binds the vector into an interfaceable object in python and also an
   // opaquely passed one into other functions.
-  py::bind_vector<std::vector<std::pair<std::string, std::string>>>(
+  nb::bind_vector<std::vector<std::pair<std::string, std::string>>>(
       m, "ModuleLog");
+
+  nb::bind_map<std::unordered_map<std::string, mlir::tt::GoldenTensor>>(
+      m, "GoldenMap");
 
   m.def(
       "ttnn_to_flatbuffer_file",
@@ -182,6 +171,16 @@ void populatePassesModule(py::module &m) {
          const std::vector<std::pair<std::string, std::string>> &moduleCache =
              {}) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+        // Create a dialect registry and register all necessary dialects and
+        // translations
+        mlir::DialectRegistry registry;
+
+        // Register all LLVM IR translations
+        registerAllToLLVMIRTranslations(registry);
+
+        // Apply the registry to the module's context
+        moduleOp->getContext()->appendDialectRegistry(registry);
 
         std::error_code fileError;
         llvm::raw_fd_ostream file(filepath, fileError);
@@ -197,8 +196,10 @@ void populatePassesModule(py::module &m) {
                                    filepath);
         }
       },
-      py::arg("module"), py::arg("filepath"), py::arg("goldenMap") = py::dict(),
-      py::arg("moduleCache") =
+      nb::arg("module"), nb::arg("filepath"),
+      nb::arg("goldenMap") =
+          std::unordered_map<std::string, mlir::tt::GoldenTensor>(),
+      nb::arg("moduleCache") =
           std::vector<std::pair<std::string, std::string>>());
 
   m.def("ttmetal_to_flatbuffer_file",
@@ -234,9 +235,9 @@ void populatePassesModule(py::module &m) {
         output_stream.flush();
         return output;
       },
-      py::arg("module"), py::arg("isTensixKernel"));
+      nb::arg("module"), nb::arg("isTensixKernel"));
 
-  py::enum_<::tt::target::DataType>(m, "DataType")
+  nb::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16);
 
@@ -255,39 +256,37 @@ void populatePassesModule(py::module &m) {
     return ::tt::target::DataType::MIN;
   });
 
-  // Preserve the Data by holding it in a SharedPtr.
-  py::class_<mlir::tt::GoldenTensor, std::shared_ptr<mlir::tt::GoldenTensor>>(
-      m, "GoldenTensor")
-      .def(py::init([](std::string name, std::vector<int64_t> shape,
-                       std::vector<int64_t> strides,
-                       ::tt::target::DataType dtype, std::uintptr_t ptr,
-                       std::size_t dataSize) {
-        // Create Golden Tensor and move ownership to GoldenTensor
-        auto *dataPtr = reinterpret_cast<std::uint8_t *>(ptr);
+  nb::class_<mlir::tt::GoldenTensor>(m, "GoldenTensor")
+      .def("__init__",
+           [](mlir::tt::GoldenTensor *self, std::string name,
+              std::vector<int64_t> shape, std::vector<int64_t> strides,
+              ::tt::target::DataType dtype, std::uintptr_t ptr,
+              std::size_t dataSize) {
+             new (self) mlir::tt::GoldenTensor(
+                 name, shape, strides, dtype,
+                 std::vector<std::uint8_t>(
+                     reinterpret_cast<std::uint8_t *>(ptr),
+                     reinterpret_cast<std::uint8_t *>(ptr) + dataSize));
+           })
+      .def_rw("name", &mlir::tt::GoldenTensor::name)
+      .def_rw("shape", &mlir::tt::GoldenTensor::shape)
+      .def_rw("strides", &mlir::tt::GoldenTensor::strides)
+      .def_rw("dtype", &mlir::tt::GoldenTensor::dtype)
+      .def_rw("data", &mlir::tt::GoldenTensor::data);
 
-        return std::make_shared<mlir::tt::GoldenTensor>(
-            name, shape, strides, dtype,
-            std::vector<std::uint8_t>(dataPtr, dataPtr + dataSize));
-      }))
-      .def_readwrite("name", &mlir::tt::GoldenTensor::name)
-      .def_readwrite("shape", &mlir::tt::GoldenTensor::shape)
-      .def_readwrite("strides", &mlir::tt::GoldenTensor::strides)
-      .def_readwrite("dtype", &mlir::tt::GoldenTensor::dtype)
-      .def_readwrite("data", &mlir::tt::GoldenTensor::data);
-
-  py::class_<mlir::tt::MLIRModuleLogger,
-             std::shared_ptr<mlir::tt::MLIRModuleLogger>>(m, "MLIRModuleLogger")
-      .def(py::init<>())
+  // Supposedly no need for shared_ptr holder types anymore, have python take
+  // ownership of ModuleLog
+  nb::class_<mlir::tt::MLIRModuleLogger>(m, "MLIRModuleLogger")
+      .def(nb::init<>(), nb::rv_policy::take_ownership)
       .def(
           "attach_context",
-          [](std::shared_ptr<mlir::tt::MLIRModuleLogger> &self, MlirContext ctx,
+          [](mlir::tt::MLIRModuleLogger *self, MlirContext ctx,
              std::vector<std::string> &passnames_to_cache) {
             self->attachContext(unwrap(ctx), passnames_to_cache);
           },
-          py::arg("ctx"), py::arg("passnames_to_cache") = py::list())
-      .def_property_readonly(
-          "module_log", [](std::shared_ptr<mlir::tt::MLIRModuleLogger> &self) {
-            return self->moduleCache;
-          });
+          nb::arg("ctx"), nb::arg("passnames_to_cache") = nb::list())
+      .def_prop_ro("module_log", [](mlir::tt::MLIRModuleLogger *self) {
+        return self->moduleCache;
+      });
 }
 } // namespace mlir::ttmlir::python

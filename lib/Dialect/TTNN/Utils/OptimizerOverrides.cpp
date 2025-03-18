@@ -83,7 +83,7 @@ OptimizerOverridesHandler::getOutputLayoutOverrides() const {
 }
 
 std::unordered_map<std::string, InputLayoutOverrideParams>
-OptimizerOverridesHandler::getInputLayoutOverridesPybindWrapper() const {
+OptimizerOverridesHandler::getInputLayoutOverridesNanobindWrapper() const {
   std::unordered_map<std::string, InputLayoutOverrideParams>
       inputLayoutOverridesWrapper;
   for (auto &entry : inputLayoutOverrides) {
@@ -93,7 +93,7 @@ OptimizerOverridesHandler::getInputLayoutOverridesPybindWrapper() const {
 }
 
 std::unordered_map<std::string, OutputLayoutOverrideParams>
-OptimizerOverridesHandler::getOutputLayoutOverridesPybindWrapper() const {
+OptimizerOverridesHandler::getOutputLayoutOverridesNanobindWrapper() const {
   std::unordered_map<std::string, OutputLayoutOverrideParams>
       outputLayoutOverridesWrapper;
   for (auto &entry : outputLayoutOverrides) {
@@ -190,7 +190,7 @@ void OptimizerOverridesHandler::addOutputLayoutOverride(
       std::move(grid), bufferType, tensorMemoryLayout, memoryLayout, dataType};
 }
 
-void OptimizerOverridesHandler::addInputLayoutOverridePybindWrapper(
+void OptimizerOverridesHandler::addInputLayoutOverrideNanobindWrapper(
     std::string opName, std::vector<int64_t> &operandIdxes) {
   StringRef opNameStringRef(opName);
   SmallVector<int64_t> operandIdxesSmallVector(operandIdxes.begin(),
@@ -198,7 +198,7 @@ void OptimizerOverridesHandler::addInputLayoutOverridePybindWrapper(
   addInputLayoutOverride(opNameStringRef, operandIdxesSmallVector);
 }
 
-void OptimizerOverridesHandler::addOutputLayoutOverridePybindWrapper(
+void OptimizerOverridesHandler::addOutputLayoutOverrideNanobindWrapper(
     std::string opName, OutputLayoutOverrideParams overrideParams) {
   StringRef opNameStringRef(opName);
   addOutputLayoutOverride(opNameStringRef, overrideParams);

@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
@@ -19,7 +20,7 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
     }
   }
 
-  DeviceAttr deviceAttr = getCurrentScopeDevice(op);
+  DeviceAttr deviceAttr = lookupDevice(op);
   auto currentInsertionPoint = rewriter.saveInsertionPoint();
   rewriter.setInsertionPoint(block, block->begin());
   llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
@@ -27,7 +28,7 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
     meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
   }
   auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
-      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr),
+      op->getLoc(), rewriter.getType<DeviceType>(),
       ttnn::MeshShapeAttr::get(op->getContext(), meshShape[0], meshShape[1]));
   rewriter.restoreInsertionPoint(currentInsertionPoint);
   return deviceOp;

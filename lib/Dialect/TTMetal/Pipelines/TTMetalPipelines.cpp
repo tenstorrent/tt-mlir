@@ -4,15 +4,17 @@
 
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
+#include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TT/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
-
-#include "ttmlir/Conversion/Passes.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "mlir/Transforms/Passes.h"
 
 namespace mlir::tt::ttmetal {
 //===----------------------------------------------------------------------===//
@@ -29,23 +31,26 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
            const bufferization::BufferizationOptions &bufferizationOptions)
         -> ::mlir::BaseMemRefType {
       auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-      if (!rankedTensorType.getEncoding()) {
-        return bufferization::getMemRefTypeWithStaticIdentityLayout(
-            tensorType, memorySpace);
-      }
+      assert(rankedTensorType.getEncoding());
       return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getBufferType();
     };
     bufferizationOptions.defaultMemorySpaceFn =
         [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
       auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-      if (!rankedTensorType.getEncoding()) {
-        return mlir::tt::MemorySpaceAttr::get(tensorType.getContext(),
-                                              mlir::tt::MemorySpace::DeviceL1);
-      }
+      assert(rankedTensorType.getEncoding());
       return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
           .getMemref()
           .getMemorySpace();
+    };
+    bufferizationOptions.unknownTypeConverterFn =
+        [](Value value, Attribute memorySpace,
+           const bufferization::BufferizationOptions &) -> BaseMemRefType {
+      auto rankedTensorType =
+          mlir::cast<::mlir::RankedTensorType>(value.getType());
+      assert(rankedTensorType.getEncoding());
+      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+          .getBufferType();
     };
   }
   pm.addPass(
@@ -59,15 +64,12 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
-  ttir::TTIRLoadSystemDescOptions systemDescOptions;
-  { systemDescOptions.path = options.systemDescPath; }
-  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
-  ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
+  tt::TTRegisterDevicePassOptions registerDeviceOptions;
   {
-    implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
-        options.meshShape.begin(), options.meshShape.end());
+    registerDeviceOptions.systemDescPath = options.systemDescPath;
+    registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
+  pm.addPass(mlir::tt::createTTRegisterDevicePass(registerDeviceOptions));
   pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
   ttir::TTIRAttachMetalLayoutOptions attachMetalLayoutOptions;
   {
@@ -80,10 +82,20 @@ void createTTIRToTTMetalBackendPipeline(
   // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
   // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   if (options.version > 0) {
+    ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
+    {
+      optimizeTensorLayoutOptions.overrideDeviceShape =
+          llvm::to_vector(options.overrideDeviceShape);
+    }
+    pm.addPass(mlir::tt::ttir::createTTIROptimizeTensorLayout(
+        optimizeTensorLayoutOptions));
     createTTIRBufferizationPipeline(pm);
+    pm.addPass(ttir::createTTIRPlaceholderAllocate());
+    pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
     pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
     pm.addPass(mlir::createLowerAffinePass());
+    pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
   } else {
     mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
     {

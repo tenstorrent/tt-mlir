@@ -8,11 +8,11 @@
 
 namespace mlir::ttmlir::python {
 
-void populateOptimizerOverridesModule(py::module &m) {
+void populateOptimizerOverridesModule(nb::module_ &m) {
 
-  py::class_<tt::ttnn::OptimizerOverridesHandler>(m,
+  nb::class_<tt::ttnn::OptimizerOverridesHandler>(m,
                                                   "OptimizerOverridesHandler")
-      .def(py::init<>())
+      .def(nb::init<>())
 
       .def("set_enable_optimizer",
            &tt::ttnn::OptimizerOverridesHandler::setEnableOptimizer)
@@ -56,20 +56,21 @@ void populateOptimizerOverridesModule(py::module &m) {
 
       .def("get_input_layout_overrides",
            &tt::ttnn::OptimizerOverridesHandler::
-               getInputLayoutOverridesPybindWrapper)
+               getInputLayoutOverridesNanobindWrapper)
       .def("get_output_layout_overrides",
            &tt::ttnn::OptimizerOverridesHandler::
-               getOutputLayoutOverridesPybindWrapper)
+               getOutputLayoutOverridesNanobindWrapper)
 
-      .def("add_input_layout_override", &tt::ttnn::OptimizerOverridesHandler::
-                                            addInputLayoutOverridePybindWrapper)
+      .def("add_input_layout_override",
+           &tt::ttnn::OptimizerOverridesHandler::
+               addInputLayoutOverrideNanobindWrapper)
       .def("add_output_layout_override",
            &tt::ttnn::OptimizerOverridesHandler::
-               addOutputLayoutOverridePybindWrapper)
+               addOutputLayoutOverrideNanobindWrapper)
 
       .def("to_string", &tt::ttnn::OptimizerOverridesHandler::toString);
 
-  py::enum_<mlir::tt::MemoryLayoutAnalysisPolicyType>(
+  nb::enum_<mlir::tt::MemoryLayoutAnalysisPolicyType>(
       m, "MemoryLayoutAnalysisPolicyType")
       .value("DFSharding", mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding)
       .value("GreedyL1Interleaved",
@@ -77,26 +78,26 @@ void populateOptimizerOverridesModule(py::module &m) {
       .value("BFInterleaved",
              mlir::tt::MemoryLayoutAnalysisPolicyType::BFInterleaved);
 
-  py::enum_<mlir::tt::ttnn::BufferType>(m, "BufferType")
+  nb::enum_<mlir::tt::ttnn::BufferType>(m, "BufferType")
       .value("DRAM", mlir::tt::ttnn::BufferType::DRAM)
       .value("L1", mlir::tt::ttnn::BufferType::L1)
       .value("SystemMemory", mlir::tt::ttnn::BufferType::SystemMemory)
       .value("L1Small", mlir::tt::ttnn::BufferType::L1Small)
       .value("Trace", mlir::tt::ttnn::BufferType::Trace);
 
-  py::enum_<mlir::tt::ttnn::Layout>(m, "Layout")
+  nb::enum_<mlir::tt::ttnn::Layout>(m, "Layout")
       .value("RowMajor", mlir::tt::ttnn::Layout::RowMajor)
       .value("Tile", mlir::tt::ttnn::Layout::Tile)
       .value("Invalid", mlir::tt::ttnn::Layout::Invalid);
 
-  py::enum_<mlir::tt::ttnn::TensorMemoryLayout>(m, "TensorMemoryLayout")
+  nb::enum_<mlir::tt::ttnn::TensorMemoryLayout>(m, "TensorMemoryLayout")
       .value("Interleaved", mlir::tt::ttnn::TensorMemoryLayout::Interleaved)
       .value("SingleBank", mlir::tt::ttnn::TensorMemoryLayout::SingleBank)
       .value("HeightSharded", mlir::tt::ttnn::TensorMemoryLayout::HeightSharded)
       .value("WidthSharded", mlir::tt::ttnn::TensorMemoryLayout::WidthSharded)
       .value("BlockSharded", mlir::tt::ttnn::TensorMemoryLayout::BlockSharded);
 
-  py::enum_<mlir::tt::DataType>(m, "DataType")
+  nb::enum_<mlir::tt::DataType>(m, "DataType")
       .value("Float32", mlir::tt::DataType::Float32)
       .value("Float16", mlir::tt::DataType::Float16)
       .value("BFloat16", mlir::tt::DataType::BFloat16)
@@ -111,10 +112,10 @@ void populateOptimizerOverridesModule(py::module &m) {
       .value("UInt8", mlir::tt::DataType::UInt8)
       .value("Int32", mlir::tt::DataType::Int32);
 
-  py::class_<mlir::tt::ttnn::InputLayoutOverrideParams>(
+  nb::class_<mlir::tt::ttnn::InputLayoutOverrideParams>(
       m, "InputLayoutOverrideParams")
-      .def(py::init<>())
-      .def_property(
+      .def(nb::init<>())
+      .def_prop_rw(
           "operand_idxes",
           [](const mlir::tt::ttnn::InputLayoutOverrideParams &obj) {
             // Getter: Convert SmallVector to std::vector
@@ -128,10 +129,10 @@ void populateOptimizerOverridesModule(py::module &m) {
             obj.operandIdxes.append(input.begin(), input.end());
           });
 
-  py::class_<mlir::tt::ttnn::OutputLayoutOverrideParams>(
+  nb::class_<mlir::tt::ttnn::OutputLayoutOverrideParams>(
       m, "OutputLayoutOverrideParams")
-      .def(py::init<>())
-      .def_property(
+      .def(nb::init<>())
+      .def_prop_rw(
           "grid",
           [](const mlir::tt::ttnn::OutputLayoutOverrideParams &obj) {
             // Getter: Convert SmallVector to std::vector
@@ -151,20 +152,20 @@ void populateOptimizerOverridesModule(py::module &m) {
             }
             obj.grid->append(input.begin(), input.end());
           })
-      .def_readwrite("buffer_type",
-                     &mlir::tt::ttnn::OutputLayoutOverrideParams::bufferType)
-      .def_readwrite(
-          "tensor_memory_layout",
-          &mlir::tt::ttnn::OutputLayoutOverrideParams::tensorMemoryLayout)
-      .def_readwrite("memory_layout",
-                     &mlir::tt::ttnn::OutputLayoutOverrideParams::memoryLayout)
-      .def_readwrite("data_type",
-                     &mlir::tt::ttnn::OutputLayoutOverrideParams::dataType)
+      .def_rw("buffer_type",
+              &mlir::tt::ttnn::OutputLayoutOverrideParams::bufferType)
+      .def_rw("tensor_memory_layout",
+              &mlir::tt::ttnn::OutputLayoutOverrideParams::tensorMemoryLayout)
+      .def_rw("memory_layout",
+              &mlir::tt::ttnn::OutputLayoutOverrideParams::memoryLayout)
+      .def_rw("data_type",
+              &mlir::tt::ttnn::OutputLayoutOverrideParams::dataType)
       .def("set_buffer_type_from_str",
            [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
               const std::string &value) {
-             if (auto bufferType = mlir::tt::ttnn::symbolizeBufferType(value)) {
-               obj.bufferType = bufferType;
+             if (auto bufferType_ =
+                     mlir::tt::ttnn::symbolizeBufferType(value)) {
+               obj.bufferType = bufferType_;
              } else {
                throw std::invalid_argument("Invalid buffer type: " + value);
              }
@@ -183,8 +184,8 @@ void populateOptimizerOverridesModule(py::module &m) {
       .def("set_memory_layout_from_str",
            [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
               const std::string &value) {
-             if (auto memoryLayout = mlir::tt::ttnn::symbolizeLayout(value)) {
-               obj.memoryLayout = memoryLayout;
+             if (auto memoryLayout_ = mlir::tt::ttnn::symbolizeLayout(value)) {
+               obj.memoryLayout = memoryLayout_;
              } else {
                throw std::invalid_argument("Invalid memory layout: " + value);
              }
@@ -192,8 +193,8 @@ void populateOptimizerOverridesModule(py::module &m) {
       .def("set_data_type_from_str",
            [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
               const std::string &value) {
-             if (auto dataType = mlir::tt::DataTypeStringToEnum(value)) {
-               obj.dataType = dataType;
+             if (auto dataType_ = mlir::tt::DataTypeStringToEnum(value)) {
+               obj.dataType = dataType_;
              } else {
                throw std::invalid_argument("Invalid data type: " + value);
              }

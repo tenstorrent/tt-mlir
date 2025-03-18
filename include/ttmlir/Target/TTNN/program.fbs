@@ -116,7 +116,7 @@ enum EltwiseOpType: uint32 {
   Relu,
   GreaterEqual,
   Sqrt,
-  Div,
+  Divide,
   Sigmoid,
   Reciprocal,
   Exp,
@@ -157,7 +157,8 @@ enum EltwiseOpType: uint32 {
   Scatter,
   Tan,
   Tanh,
-  Power
+  Power,
+  Atan
 }
 
 table ClampOpParams {
@@ -358,15 +359,11 @@ table MaxPool2dOp {
   input_height: uint32;
   input_width: uint32;
   channels: uint32;
-  kernel_height: uint32;
-  kernel_width: uint32;
-  stride_height: uint32;
-  stride_width: uint32;
-  dilation_height: uint32;
-  dilation_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  dilation: [int32];
   ceil_mode: bool;
-  padding_height: uint32;
-  padding_width: uint32;
 }
 
 table DeallocateOp {
@@ -399,6 +396,13 @@ table ReduceScatterOp {
   reduce_type: uint32;
   cluster_axis: uint32;
   num_links: uint32;
+}
+
+table CollectivePermuteOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  source_target_pairs: [int64];
 }
 
 table MeshShardOp {
@@ -478,6 +482,7 @@ union OpType {
   AllGatherOp,
   ReduceScatterOp,
   MeshShardOp,
+  CollectivePermuteOp,
   ArangeOp,
   UpdateCacheOp,
   FillCacheOp,

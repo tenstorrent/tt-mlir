@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
+
 #include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 namespace mlir::tt::ttnn {
@@ -18,42 +20,39 @@ bool MemoryLayoutAnalysis::applyOverrides() {
   return false;
 }
 
-llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-filterShardedOnly(const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-                      &legalLayouts) {
-  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> shardedLayouts;
-  for (const auto &opLayouts : legalLayouts) {
-    std::vector<TTNNLayoutAttr> opShardedLayouts;
-    for (const auto &layout : opLayouts.second) {
-      if (layout.hasShardedL1TensorMemoryLayout()) {
-        opShardedLayouts.push_back(layout);
+llvm::DenseMap<Operation *, std::vector<OpConfig>> filterShardedOnly(
+    const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs) {
+  llvm::DenseMap<Operation *, std::vector<OpConfig>> shardedConfigs;
+  for (const auto &configs : legalConfigs) {
+    std::vector<OpConfig> opShardedConfigs;
+    for (const OpConfig &config : configs.second) {
+      if (config.outputLayout.hasShardedL1TensorMemoryLayout()) {
+        opShardedConfigs.push_back(config);
       }
     }
 
-    shardedLayouts[opLayouts.first] = opShardedLayouts;
+    shardedConfigs[configs.first] = opShardedConfigs;
   }
 
-  return shardedLayouts;
+  return shardedConfigs;
 }
 
-llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-filterDRAMAndL1Interleaved(
-    const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-        &legalLayouts) {
-  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> l1InterleavedLayouts;
-  for (const auto &opLayouts : legalLayouts) {
-    std::vector<TTNNLayoutAttr> opL1InterleavedLayouts;
-    for (const auto &layout : opLayouts.second) {
-      if (layout.hasDRAMBufferType() ||
-          layout.hasInterleavedL1TensorMemoryLayout()) {
-        opL1InterleavedLayouts.push_back(layout);
+llvm::DenseMap<Operation *, std::vector<OpConfig>> filterDRAMAndL1Interleaved(
+    const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs) {
+  llvm::DenseMap<Operation *, std::vector<OpConfig>> l1InterleavedConfigs;
+  for (const auto &configs : legalConfigs) {
+    std::vector<OpConfig> opL1InterleavedConfigs;
+    for (const auto &config : configs.second) {
+      if (config.outputLayout.hasDRAMBufferType() ||
+          config.outputLayout.hasInterleavedL1TensorMemoryLayout()) {
+        opL1InterleavedConfigs.push_back(config);
       }
     }
 
-    l1InterleavedLayouts[opLayouts.first] = opL1InterleavedLayouts;
+    l1InterleavedConfigs[configs.first] = opL1InterleavedConfigs;
   }
 
-  return l1InterleavedLayouts;
+  return l1InterleavedConfigs;
 }
 
 void MemoryLayoutAnalysis::analysisImplementation() {
@@ -62,7 +61,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
   switch (analysisInput.policy) {
   case MemoryLayoutAnalysisPolicyType::DFSharding: {
     DFShardingPolicy dfShardingPolicy(
-        op, l1ChainConfigs, filterShardedOnly(analysisInput.legalLayouts),
+        op, l1ChainConfigs, filterShardedOnly(analysisInput.legalConfigs),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
     dfShardingPolicy.setOverrideReshardEdges(
         analysisInput.overrideReshardEdges);
@@ -72,7 +71,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
   case MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved: {
     GreedyL1InterleavedPolicy l1InterleavedPolicy(
         op, l1ChainConfigs,
-        filterDRAMAndL1Interleaved(analysisInput.legalLayouts),
+        filterDRAMAndL1Interleaved(analysisInput.legalConfigs),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
     l1InterleavedPolicy.run();
     break;
@@ -80,16 +79,16 @@ void MemoryLayoutAnalysis::analysisImplementation() {
   case MemoryLayoutAnalysisPolicyType::BFInterleaved: {
     BFInterleavedPolicy bfInterleavedPolicy(
         op, l1ChainConfigs,
-        filterDRAMAndL1Interleaved(analysisInput.legalLayouts),
+        filterDRAMAndL1Interleaved(analysisInput.legalConfigs),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
     bfInterleavedPolicy.run();
     break;
   }
   }
 
-  // Copy over default legal layouts.
+  // Copy over default legal configs.
   //
-  analysisResult.legalLayouts = analysisInput.legalLayouts;
+  analysisResult.legalConfigs = analysisInput.legalConfigs;
 
   // Override with L1 chain configs where applicable.
   //
@@ -100,8 +99,8 @@ void MemoryLayoutAnalysis::analysisImplementation() {
 
     assert(l1ChainConfig.getState() == L1ChainState::Completed);
     for (const auto &opL1MemSpec : l1ChainConfig.getOpL1MemSpecs()) {
-      analysisResult.legalLayouts[opL1MemSpec.op] =
-          std::vector<TTNNLayoutAttr>{opL1MemSpec.layout};
+      analysisResult.legalConfigs[opL1MemSpec.op] =
+          std::vector<OpConfig>{opL1MemSpec.config};
     }
 
     analysisResult.memReconfigEdges.insert(
