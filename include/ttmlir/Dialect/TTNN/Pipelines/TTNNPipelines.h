@@ -124,7 +124,7 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "row-major-enabled",
       llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Option to enable/disable the workaround pass.
   //

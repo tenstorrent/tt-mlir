@@ -160,6 +160,8 @@ public:
 
     ModuleOp moduleOp = getOperation();
 
+    utils::irToFile(moduleOp, "pre_optimizer.mlir");
+
     // Get the max grid size from the system description.
     //
     assert(moduleOp->hasAttr(tt::DeviceAttr::name));

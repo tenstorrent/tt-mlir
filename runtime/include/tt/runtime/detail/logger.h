@@ -231,7 +231,7 @@ private:
   uint64_t mask = (1ULL << LogAlways);
   Level min_level =
 #if defined(TT_RUNTIME_DEBUG) && (TT_RUNTIME_DEBUG == 1)
-      Level::Trace;
+      Level::Debug;
 #else
       Level::Info;
 #endif

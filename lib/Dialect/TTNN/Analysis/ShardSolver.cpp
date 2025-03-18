@@ -17,11 +17,13 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace mlir::tt::ttnn {
 
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
-constexpr bool DEBUG = false;
+constexpr bool DEBUG = true;
 
 ShardSolver::ShardSolver(
     const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
@@ -320,6 +322,10 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   std::vector<TTNNLayoutAttr> const &producerLayouts =
       getLegalLayouts(edge.producerOp);
 
+  std::unordered_map<std::string,
+                     std::vector<std::pair<TTNNLayoutAttr, TTNNLayoutAttr>>>
+      errorCount;
+
   // For all legal outputs, check if there is at least one valid input.
   //
   bool validLayoutExists = false;
@@ -327,6 +333,12 @@ bool ShardSolver::insertReshard(const Edge &edge) {
     TTNNLayoutAttr outputLayout = consumerLayouts[i];
 
     for (TTNNLayoutAttr producerLayout : producerLayouts) {
+      // Skip if tensor memory layouts don't match.
+      //
+      if (producerLayout.getMemLayout() != outputLayout.getMemLayout()) {
+        continue;
+      }
+
       llvm::Expected<bool> shardCompatible =
           checkShardCompatible(consumerOp->getOperand(edge.operandIndex),
                                producerLayout, consumerOp, outputLayout);
@@ -336,11 +348,35 @@ bool ShardSolver::insertReshard(const Edge &edge) {
         validLayoutExists = true;
         break;
       }
-      llvm::consumeError(shardCompatible.takeError());
+      auto error = llvm::toString(shardCompatible.takeError());
+      if (DEBUG) {
+        std::vector<std::string> errorLines;
+        std::istringstream errorStream(error);
+        std::string line;
+        while (std::getline(errorStream, line)) {
+          errorLines.push_back(line);
+        }
+
+        std::string firstFourLinesError;
+        for (size_t i = 0;
+             i < std::min(errorLines.size(), static_cast<size_t>(4)); ++i) {
+          firstFourLinesError += errorLines[i];
+          if (i < 3 && i + 1 < errorLines.size()) {
+            firstFourLinesError += "\n";
+          }
+        }
+
+        errorCount[firstFourLinesError].push_back(
+            {producerLayout, outputLayout});
+
+        llvm::errs() << "Error: " << error << "\n";
+      }
     }
   }
 
   if (not validLayoutExists) {
+    // TODO add error aggregation debugging here. We need to see what is the
+    // problem for the first few layouts. Especially 50.
     consumerOp->emitWarning()
         << "No valid output layout found for resharded input!";
 
@@ -353,13 +389,24 @@ bool ShardSolver::insertReshard(const Edge &edge) {
         llvm::errs() << "Producer op is null\n";
       }
 
-      llvm::errs() << "Producer layouts: " << producerLayouts.size() << "\n";
-      for (auto layout : producerLayouts) {
-        llvm::errs() << "\t" << layout << "\n";
-      }
-      llvm::errs() << "Consumer layouts: " << consumerLayouts.size() << "\n";
-      for (auto layout : consumerLayouts) {
-        llvm::errs() << "\t" << layout << "\n";
+      // llvm::errs() << "Producer layouts: " << producerLayouts.size() << "\n";
+      // for (auto layout : producerLayouts) {
+      //   llvm::errs() << "\t" << layout << "\n";
+      // }
+      // llvm::errs() << "Consumer layouts: " << consumerLayouts.size() << "\n";
+      // for (auto layout : consumerLayouts) {
+      //   llvm::errs() << "\t" << layout << "\n";
+      // }
+
+      llvm::errs() << "Error count: " << errorCount.size() << "\n";
+      for (const auto &[error, layouts] : errorCount) {
+        llvm::errs() << "Count: " << layouts.size() << " Error: " << error
+                     << "\n";
+        for (const auto &[producerLayout, consumerLayout] : layouts) {
+          llvm::errs() << "\nProducer layout: " << producerLayout;
+          llvm::errs() << "\nConsumer layout: " << consumerLayout;
+          llvm::errs() << "\n";
+        }
       }
     }
 
@@ -698,18 +745,19 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
         backend.getOpConstraints(inputLayouts, consumerLayout);
 
     if (!l1UsageExp) {
+      auto error = l1UsageExp.takeError();
+      auto error_str = llvm::toStringWithoutConsuming(error);
+
       // early exit
       if (DEBUG) {
         llvm::errs() << "OpModel constraints failed: ";
         llvm::errs() << producerOperand.getLoc() << "->"
-                     << consumerOp->getName()
-                     << " :: " << llvm::toString(l1UsageExp.takeError())
-                     << "\n";
+                     << consumerOp->getName() << " :: " << error_str << "\n";
         producerLayout.dump();
         consumerLayout.dump();
       }
 
-      return l1UsageExp.takeError();
+      return error;
     }
     auto [cBUsagePeak, tensorUsage, outputTensorUsage] = l1UsageExp.get();
 

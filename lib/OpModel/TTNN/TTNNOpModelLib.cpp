@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.h"
+#include <iostream>
 #include <type_traits>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -51,6 +52,7 @@ getOpConstraints(std::string_view name, Callable &callable, auto &&...args) {
   } catch (const std::exception &e) {
     query.status = ::ttnn::graph::ExecutionStatus::Error;
     query.error_message = e.what();
+    // TODO create real error here and fail compile?
   }
 
   // check if query was successful
@@ -545,6 +547,9 @@ ReshapeOpInterface::getOpConstraints(
     const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
         device, std::make_tuple(inputShape, inputLayout),
         std::make_tuple(outputShape, outputLayout));
+
+    // std::cout << "output mem config" <<
+    // outputSpec.tensor_layout().get_memory_config() << "\n";
 
     // run op constraint query
     return ::ttnn::graph::query_op_constraints(

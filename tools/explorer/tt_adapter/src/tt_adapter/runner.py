@@ -5,8 +5,10 @@ import subprocess
 import os
 import logging
 
+logging.basicConfig(level=logging.DEBUG)
+
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
-# os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
+os.environ["TTRT_LOGGER_LEVEL"] = "DEBUG"
 from ttrt import API as ttrt
 from ttmlir import passes
 from . import utils, mlir
@@ -308,7 +310,7 @@ class ModelRunner:
 
         ttrt_perf_command = [
             "ttrt",
-            "perf",
+            "run",
             flatbuffer_file,
             f"--artifact-dir={self._explorer_artifacts_dir}",
         ]
@@ -325,23 +327,23 @@ class ModelRunner:
             else:
                 error = "Error while running TTRT perf"
                 self.log(error, severity=logging.error)
-                raise ExplorerRunException(error)
+                # raise ExplorerRunException(error)
 
-        perf = self.get_perf_trace(model_path)
-        columns = [
-            "GLOBAL CALL COUNT",
-            "OP CODE",
-            "DEVICE FW DURATION [ns]",
-            "CORE COUNT",
-            "OUTPUT_0_MEMORY",
-            "LOC",
-        ]
-        perf = perf[columns]
-        logging.info(perf)
+        # perf = self.get_perf_trace(model_path)
+        # columns = [
+        #     "GLOBAL CALL COUNT",
+        #     "OP CODE",
+        #     "DEVICE FW DURATION [ns]",
+        #     "CORE COUNT",
+        #     "OUTPUT_0_MEMORY",
+        #     "LOC",
+        # ]
+        # perf = perf[columns]
+        # logging.info(perf)
 
-        logging.info(
-            "Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns"
-        )
+        # logging.info(
+        #     "Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns"
+        # )
 
         # TTNN_IR_FILE from flatbuffer is still relevant since model_path is the FB with golden data and it will rented optimized_model_path instead
         state.optimized_model_path = ttnn_ir_file
