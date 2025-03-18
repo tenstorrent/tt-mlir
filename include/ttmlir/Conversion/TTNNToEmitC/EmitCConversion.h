@@ -857,7 +857,7 @@ public:
     ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
         layoutAttr.getContext(), layoutAttr.getBufferType());
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-    // TODO (azecevic): Currently we don't model ShardSpec properly so we
+    // TODO (azecevic): Currently we don't model ShardSpec properly so we are
     // ingoring it for now.
     ttnn::MemoryConfigAttr memoryConfigAttr =
         ttnn::MemoryConfigAttr::get(layoutAttr.getContext(), bufferTypeAttr,
