@@ -249,7 +249,6 @@ jobs:
 
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
           export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
-          ls -laR $TT_METAL_HOME
           echo "Running op-model test Conversion"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
           echo "Running op-model test Lib"
