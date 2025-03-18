@@ -2857,6 +2857,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   }
 
   ValueTypeRange<OperandRange> operandTypes = getOperation()->getOperandTypes();
+  auto firstRegion = getRegions().begin();
   for (Region &region : getRegions()) {
     if (!region.hasOneBlock()) {
       return emitOpError("GenericOp region must have a single block");
@@ -2865,6 +2866,18 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
     if (region.getNumArguments() < this->getNumOperands()) {
       return emitOpError("GenericOp region must have at least as many "
                          "arguments as the number of top-level operands");
+    }
+
+    // All regions must have the same number of arguments and signature.
+    if (region.getNumArguments() != firstRegion->getNumArguments()) {
+      return emitOpError("all regions must have the same number of arguments");
+    }
+
+    for (BlockArgument arg : region.getArguments()) {
+      if (arg.getType() !=
+          firstRegion->getArgument(arg.getArgNumber()).getType()) {
+        return emitOpError("all regions must have the same argument types");
+      }
     }
 
     auto memrefArguments =
