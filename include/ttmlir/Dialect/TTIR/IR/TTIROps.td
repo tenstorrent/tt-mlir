@@ -157,7 +157,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizeMethod = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
@@ -192,6 +192,7 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
     }];
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
