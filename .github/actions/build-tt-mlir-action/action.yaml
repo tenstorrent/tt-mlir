@@ -3,19 +3,24 @@ description: "Composite action for building, testing, and uploading artifacts fo
 inputs:
   enable-perf:
     description: "Enable performance tracing"
-    required: true
+    default: "OFF"
+    required: false
   enable-op-model:
     description: "Enable op model interface tests"
-    required: true
+    default: "OFF"
+    required: false
   enable-emitc:
     description: "Enable EmitC tests"
-    required: true
-  enable-async:
-    description: "Enable async ttnn tests"
-    required: true
+    default: "OFF"
+    required: false
+  enable-explorer:
+    description: "Enable explorer build"
+    default: "OFF"
+    required: false
   enable-runtime-debug:
     description: "Enable runtime debug"
-    required: true
+    default: "OFF"
+    required: false
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
@@ -66,13 +71,7 @@ runs:
       run: |
         source env/activate
         cmake --build ${{ inputs.build-output-dir }} -- ttrt
-
-    - name: Generate and set system descriptor
-      shell: bash
-      if: inputs.enable-op-model == 'ON'
-      run: |
-        source env/activate
-        ttrt query --save-artifacts
+        cmake --build ${{ inputs.build-output-dir }} -- compile-ttmlir-tests
 
     - name: Compile dylibs for EmitC
       shell: bash
@@ -83,6 +82,13 @@ runs:
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
+    - name: Build tt-explorer
+      if: inputs.enable-explorer == 'ON'
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- explorer
+
     # Install needs to run after the "Compile dylibs" step
     #
     - name: Install
@@ -91,34 +97,6 @@ runs:
         source env/activate
         cmake --install ${{ inputs.build-output-dir }} --component Test
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
-
-    - name: Run tt-mlir tests
-      shell: bash
-      run: |
-        source env/activate
-        if [ -f "${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
-          export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
-        fi
-        cmake --build ${{ inputs.build-output-dir }} -- check-ttmlir
-        cp build/test/report.xml ${{ inputs.test_report_path }}
-
-    - name: Run OpModelInterface Tests
-      shell: bash
-      if: inputs.enable-op-model == 'ON'
-      run: |
-        source env/activate
-        if [ -f "${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
-          export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
-        fi
-        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
-        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
-        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
-
-    - name: Upload Test Report
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-emitc-${{ inputs.enable-emitc }}-async-${{ inputs.enable-async }}-runtime-debug-${{ inputs.enable-runtime-debug }}
-        path: ${{ inputs.test_report_path }}
 
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4
