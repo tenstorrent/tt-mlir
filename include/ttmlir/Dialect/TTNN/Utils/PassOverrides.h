@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 
 #include <llvm/Support/CommandLine.h>
+#include <optional>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -17,6 +18,7 @@ struct OptionNames {
   static constexpr StringRef optimizerPassEnabled = "enable-optimizer";
   static constexpr StringRef overrideInputLayout = "insert-memreconfig";
   static constexpr StringRef overrideOutputLayout = "override-output-layout";
+  static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =
       "memory-layout-analysis-enabled";
   static constexpr StringRef memReconfigEnabled = "memreconfig-enabled";
@@ -25,6 +27,32 @@ struct OptionNames {
   static constexpr StringRef systemDescPath = "system-desc-path";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
+};
+
+struct Conv2dConfigOverrideParams {
+  // change metal to ttnn types
+  std::optional<tt::DataType> dtype = std::nullopt;
+  std::optional<tt::DataType> weightsDtype = std::nullopt;
+  std::optional<std::string> activation = std::nullopt;
+  std::optional<uint32_t> inputChannelsAlignment = std::nullopt;
+  std::optional<bool> deallocateActivation = std::nullopt;
+  std::optional<bool> reallocateHaloOutput = std::nullopt;
+  std::optional<uint32_t> actBlockHOverride = std::nullopt;
+  std::optional<uint32_t> actBlockWDiv = std::nullopt;
+  std::optional<bool> reshardIfNotOptimal = std::nullopt;
+  std::optional<bool> overrideShardingConfig = std::nullopt;
+  std::optional<TensorMemoryLayout> shardLayout = std::nullopt;
+  std::optional<Attribute> coreGrid = std::nullopt;
+  std::optional<bool> transposeShards = std::nullopt;
+  std::optional<Layout> outputLayout = std::nullopt;
+  std::optional<bool> enableActDoubleBuffer = std::nullopt;
+  std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
+  std::optional<bool> enableSplitReader = std::nullopt;
+  std::optional<bool> enableSubblockPadding = std::nullopt;
+
+  //TODO: Implement for testing.
+  bool operator==(const Conv2dConfigOverrideParams &rhs) const;
+  bool operator!=(const Conv2dConfigOverrideParams &rhs) const;
 };
 
 struct OutputLayoutOverrideParams {
@@ -125,6 +153,22 @@ struct InputLayoutOverrideParams {
   bool operator!=(const InputLayoutOverrideParams &rhs) const {
     return !(*this == rhs);
   }
+};
+
+struct Conv2dConfigOverrideParser
+    : public llvm::cl::parser<llvm::StringMap<Conv2dConfigOverrideParams>> {
+public:
+  Conv2dConfigOverrideParser(llvm::cl::Option &opt)
+      : llvm::cl::parser<llvm::StringMap<Conv2dConfigOverrideParams>>(opt) {}
+
+  bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
+             llvm::StringMap<Conv2dConfigOverrideParams> &value);
+
+  static std::string
+  toString(const llvm::StringMap<Conv2dConfigOverrideParams> &);
+
+  static void print(llvm::raw_ostream &os,
+                    const llvm::StringMap<Conv2dConfigOverrideParams> &value);
 };
 
 struct OutputLayoutOverrideParser

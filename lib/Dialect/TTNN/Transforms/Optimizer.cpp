@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -81,6 +82,7 @@ public:
   TTNNOptimizerBase(TTNNOptimizerOptions options) : TTNNOptimizerBase() {
     overrideInputLayout = std::move(options.overrideInputLayout);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
+    overrideConv2dConfig = std::move(options.overrideConv2dConfig);
     memoryLayoutAnalysisEnabled =
         std::move(options.memoryLayoutAnalysisEnabled);
     memReconfigEnabled = std::move(options.memReconfigEnabled);
@@ -103,6 +105,12 @@ protected:
           *this, "override-output-layout",
           ::llvm::cl::desc("Override output tensor layout for specific ops."),
           ::llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
+  ::mlir::Pass::Option<llvm::StringMap<Conv2dConfigOverrideParams>,
+                       mlir::tt::ttnn::Conv2dConfigOverrideParser>
+      overrideConv2dConfig{
+          *this, "override-conv2d-config",
+          ::llvm::cl::desc("Override Conv2d configuration for specific ops."),
+          ::llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
   ::mlir::Pass::Option<bool> memoryLayoutAnalysisEnabled{
       *this, "memory-layout-analysis-enabled",
       ::llvm::cl::desc("Enable memory layout optimization."),
