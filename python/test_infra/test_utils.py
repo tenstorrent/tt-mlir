@@ -59,6 +59,7 @@ def compile_as_mlir_module(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[torch.dtype]] = None,
+    mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = False,
 ):
     """
@@ -130,6 +131,11 @@ def compile_as_mlir_module(
     # Instantiate builder which is passed as the last argument to
     # `test_fn` so the user can use it to build ops.
     builder = TTIRBuilder(ctx, loc)
+
+    # deliver mesh_shape to TTIRBuilder
+    # TTIR itself does not require mesh_shape information; however, it is needed to generate the golden tensor.
+    if mesh_shape is not None:
+        builder.set_mesh_shape(mesh_shape)
 
     # Default to all f32s
     if inputs_types is None:
@@ -389,7 +395,7 @@ def compile_to_flatbuffer(
 
             if "ttnn" in targets:
                 module, builder = compile_as_mlir_module(
-                    test_fn, inputs_shapes, inputs_types
+                    test_fn, inputs_shapes, inputs_types, mesh_shape
                 )
 
                 if module_dump:

@@ -112,6 +112,9 @@ class TTIRBuilder:
         # id to golden map
         self.id_golden_map = {}
 
+        # mesh_shape for multi-device
+        self.mesh_shape = ()
+
     # ----- Public helpers -----
 
     @property
@@ -182,6 +185,10 @@ class TTIRBuilder:
                 golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
             )
         return golden_info
+
+    # set mesh_shape for multi-device environment
+    def set_mesh_shape(self, mesh_shape: Tuple[int, int]):
+        self.mesh_shape = mesh_shape
 
     # ----- Private helpers -----
 
