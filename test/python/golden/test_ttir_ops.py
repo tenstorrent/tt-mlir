@@ -11,7 +11,13 @@ import numpy as np
 from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
-from ttmlir.ir import DenseI64ArrayAttr, DenseElementsAttr
+from ttmlir.ir import (
+    DenseI64ArrayAttr,
+    DenseElementsAttr,
+    DenseI32ArrayAttr,
+    IntegerAttr,
+    IntegerType,
+)
 
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371
@@ -529,6 +535,37 @@ def test_repeat_interleave(in0: Operand, builder: TTIRBuilder):
 )
 def test_broadcast(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.broadcast(in0, in1, [1, 16, 1])
+
+
+@compile_to_flatbuffer(
+    [
+        (3, 8, 8, 256),
+        (256, 256, 3, 3),
+        (1, 1, 1, 256),
+        (1, 10, 10, 256),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_conv_transpose2d(
+    in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
+):
+    stride = IntegerAttr.get(IntegerType.get_signless(32), 1)
+    padding = IntegerAttr.get(IntegerType.get_signless(32), 0)
+    output_padding = IntegerAttr.get(IntegerType.get_signless(32), 0)
+    dilation = IntegerAttr.get(IntegerType.get_signless(32), 1)
+    groups = IntegerAttr.get(IntegerType.get_signless(32), 1)
+    return builder.conv_transpose2d(
+        in0,
+        weight,
+        bias,
+        in1,
+        stride=stride,
+        padding=padding,
+        output_padding=output_padding,
+        dilation=dilation,
+        groups=groups,
+    )
 
 
 @compile_to_flatbuffer(
