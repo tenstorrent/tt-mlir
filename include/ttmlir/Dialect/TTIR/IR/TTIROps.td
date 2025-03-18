@@ -1515,6 +1515,7 @@ def TTIR_PadOp: TTIR_Op<"pad"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
                          DenseI32ArrayAttr:$padding,
                          F32Attr:$value);
 
