@@ -1215,13 +1215,13 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
         - H_in is the height of the input planes
         - W_in is the width of the input planes
         - C is the number of channels
-      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K_H, K_W).
-      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O) where:
+      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K_H, K_W) where:
         - C is the number of input channels
         - O is the number of output channels
         - G is the number of groups
         - K_H is the height of the kernel
         - K_W is the width of the kernel
+      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O).
       - `output` AnyRankedTensor()): expected in the following format (N, H_out, W_out, O) where:
         - `H_out = (H_in + pT + pB - dH * (K_H - 1) - 1) / sH + 1`
         - `W_out = (W_in + pL + pR - dW * (K_W - 1) - 1) / sW + 1`
@@ -1283,13 +1283,13 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
           - W_in is the width of the input planes
           - C is the number of channels
 
-        - `weight` AnyRankedTensor: expected in the following format (C, O/G, K_H, K_W).
-        - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O) where:
-          - C is the number of input channels
-          - O is the number of output channels
-          - G is the number of groups
-          - K_H is the height of the kernel
-          - K_W is the width of the kernel
+      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K_H, K_W) where:
+        - C is the number of input channels
+        - O is the number of output channels
+        - G is the number of groups
+        - K_H is the height of the kernel
+        - K_W is the width of the kernel
+      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O).
 
         - `output` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
           - H_out = (H_in - 1) * stride[0] - (padding_top + padding_bottom) + dilation[0] * (K_H - 1) + output_padding[0] + 1
