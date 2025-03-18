@@ -1075,8 +1075,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Sign;
   } else if constexpr (std::is_same_v<EltwiseOp, ReciprocalOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Reciprocal;
-  } else if constexpr (std::is_same_v<EltwiseOp, DivOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Div;
+  } else if constexpr (std::is_same_v<EltwiseOp, DivideOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Divide;
   } else if constexpr (std::is_same_v<EltwiseOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Sigmoid;
   } else if constexpr (std::is_same_v<EltwiseOp, ScatterOp>) {
@@ -1612,7 +1612,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, reciprocalOp),
                            debugString, locInfo);
   }
-  if (auto divOp = dyn_cast<DivOp>(op); divOp) {
+  if (auto divOp = dyn_cast<DivideOp>(op); divOp) {
     return createOperation(cache, createEltwiseOp(cache, divOp), debugString,
                            locInfo);
   }
