@@ -10,16 +10,15 @@ from pykernel.types import *
 
 
 @ttkernel_noc_compile()
-def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer):
+def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: %[[SRC_ADDR:.*]] = memref.alloca(){{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    src_addr = get_arg_val(int, 0)
-    bank_id = get_arg_val(int, 1)
-    num_tiles = get_arg_val(int, 2)
+    src_addr = rt_args[0]
+    bank_id, num_tiles = rt_args[1:3]
 
     # CHECK: {{.*}}"ttkernel.get_tile_size"{{.*}}
     ublock_size_tiles = 1

@@ -464,6 +464,28 @@ def TT_MeshShardTypeAttr : EnumAttr<TT_Dialect, TT_MeshShardType, "shard_type"> 
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TT_TensorMeshShardingAttr : TT_Attr<"TensorMeshSharding", "mesh_sharding", []> {
+  let summary = "Tensor MeshSharding attribute in TT dialect.";
+  let description = [{
+    Describes how a tensor is sharded including name and axes. With mesh name 'mesh',
+    a tensor with TensorMeshShardingAttr can be represented as
+      tensor<1x1024x128x128xf32, #tt.mesh_sharding<"mesh">> if axes info is not available,
+      or
+      tensor<1x1024x128x128xf32, #tt.mesh_sharding<"mesh" : [-1, -1, 0, 1]>> with some axes info.
+  }];
+  let parameters = (ins "StringAttr":$name,
+                        OptionalArrayRefParameter<"int64_t">:$axes);
+  let assemblyFormat = "`<` $name (`:` `[` $axes^ `]`)? `>`";
+
+  let extraClassDeclaration = [{
+      static TensorMeshShardingAttr get(::mlir::MLIRContext *context, StringRef name) {
+        auto meshNameStrAttr = mlir::StringAttr::get(context, name);
+        ::llvm::ArrayRef<int64_t> axes;
+        return TensorMeshShardingAttr::get(context, meshNameStrAttr, axes);
+      }
+  }];
+}
+
 def TT_MeshAttr : TT_Attr<"Mesh", "mesh", []> {
   let summary = "Mesh reference attribute in TT dialect.";
   let description = [{
@@ -475,9 +497,9 @@ def TT_MeshAttr : TT_Attr<"Mesh", "mesh", []> {
 }
 
 def TT_MeshesAttr : TT_Attr<"Meshes", "meshes"> {
-  let summary = "TT system meshes attribute";
+  let summary = "TT system meshes attribute.";
   let description = [{
-    TT system meshes attribute that can include multiple mesh configs used for networks.
+    TT system meshes attribute includes one or more mesh configs used for networks.
   }];
   let parameters = (ins ArrayRefParameter<"MeshAttr">:$meshes);
   let assemblyFormat = "`<` `[` $meshes `]` `>`";
@@ -511,13 +533,6 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     }];
 
     let genVerifyDecl = 1;
-}
-
-def TT_Device : TT_Type<"Device", "device", []> {
-    let summary = "TT device";
-    let description = "Device type in TT dialect";
-    let parameters = (ins TT_DeviceAttr:$desc);
-    let assemblyFormat = "`<` $desc `>`";
 }
 
 //===----------------------------------------------------------------------===//

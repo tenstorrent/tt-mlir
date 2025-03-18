@@ -267,7 +267,7 @@ public:
 
   void runOnOperation() final {
     {
-      auto device = getCurrentScopeDevice(getOperation());
+      auto device = lookupDevice(getOperation());
       assert(device && "Device not found");
       TTIRLayoutTensorTypeConverter typeConverter(
           &getContext(), initMemorySpace, device.getWorkerGrid());

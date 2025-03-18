@@ -4,6 +4,7 @@
 
 #include "OpModelFixture.h"
 
+#include "../lib/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -12,7 +13,6 @@
 #include "gtest/gtest.h"
 
 #include <cstdint>
-#include <optional>
 
 namespace mlir::tt::ttnn {
 
@@ -43,6 +43,9 @@ public:
 
     for (size_t i = 0; i < limit; i++) {
       auto operand = op->getOperand(i);
+      if (!operand || !mlir::isa<RankedTensorType>(operand.getType())) {
+        continue;
+      }
       auto inputShape =
           mlir::cast<RankedTensorType>(operand.getType()).getShape();
       auto inputLayout = CreateTiledLayout(inputShape, BufferType::L1,
@@ -99,7 +102,6 @@ TEST_F(OpModelBase, ReluOpInterface) {
 
   auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), outputType,
                                      ::mlir::ValueRange{input});
-  relu->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test ReluOp interface
   auto constraintsExp = getOpConstraints(relu.getOperation());
@@ -130,7 +132,6 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
 
   auto softmax =
       builder.create<SoftmaxOp>(builder.getUnknownLoc(), output, input, -1);
-  softmax->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test SoftmaxOp interface
   auto constraintsExp = getOpConstraints(softmax.getOperation());
@@ -163,7 +164,6 @@ TEST_F(OpModelBase, AddOpInterface) {
 
   auto add = builder.create<AddOp>(builder.getUnknownLoc(), outputType,
                                    ::mlir::ValueRange{input1, input2});
-  add->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test AddOp interface
   auto constraintsExp = getOpConstraints(add.getOperation());
@@ -197,7 +197,6 @@ TEST_F(OpModelBase, MultiplyOpInterface) {
   auto multiply =
       builder.create<MultiplyOp>(builder.getUnknownLoc(), output.getType(),
                                  ::mlir::ValueRange{input1, input2});
-  multiply->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test MultiplyOp interface
   auto constraintsExp = getOpConstraints(multiply.getOperation());
@@ -232,7 +231,6 @@ TEST_F(OpModelBase, MatmulOpInterface) {
 
   auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
                                          ::mlir::ValueRange{inputA, inputB});
-  matmul->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test MatmulOp interface
   auto constraintsExp = getOpConstraints(matmul.getOperation());
@@ -265,7 +263,6 @@ TEST_F(OpModelBase, MeanOpInterface) {
 
   auto mean = builder.create<MeanOp>(builder.getUnknownLoc(), output.getType(),
                                      ::mlir::ValueRange{input});
-  mean->setAttr(DeviceAttr::name, getFakeDeviceAttr());
   mean.setKeepDim(true);
   mean.setDimArgAttr(builder.getArrayAttr(
       llvm::SmallVector<mlir::Attribute>{builder.getI64IntegerAttr(1)}));
@@ -301,7 +298,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
 
   auto reshape = builder.create<ReshapeOp>(
       builder.getUnknownLoc(), output.getType(), ::mlir::ValueRange{input});
-  reshape->setAttr(DeviceAttr::name, getFakeDeviceAttr());
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
       builder.getI64IntegerAttr(64 * 4), builder.getI64IntegerAttr(1024 / 4)}));
 
@@ -334,16 +330,14 @@ TEST_F(OpModelBase, toLayoutOp) {
       ShapeAttr::get(&context, tensorShape), nullptr,
       LayoutAttr::get(&context, Layout::RowMajor), nullptr, nullptr);
 
-  DeviceAttr deviceAttr = getFakeDeviceAttr();
   // Need to pass a GetDeviceOp to make sure the layout change happens on the
   // device
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
-      builder.getUnknownLoc(), builder.getType<DeviceType>(deviceAttr),
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
       ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
   ToLayoutOp toLayout = builder.create<ToLayoutOp>(
       builder.getUnknownLoc(), tensor.getType(), tensor, Layout::Tile, nullptr,
       nullptr, deviceOp);
-  toLayout->setAttr(DeviceAttr::name, deviceAttr);
 
   // Manually create the operand layouts for calling the backend to make sure
   // the layouts are propagated all the way
@@ -391,7 +385,6 @@ TEST_F(OpModelBase, transposeOp) {
 
   auto transpose = builder.create<TransposeOp>(builder.getUnknownLoc(),
                                                output.getType(), input, 0, 1);
-  transpose->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   // test transpose Op interface
   auto constraintsExp = getOpConstraints(transpose.getOperation());
@@ -431,7 +424,6 @@ TEST_F(OpModelBase, typecastOp) {
 
   auto typecast = builder.create<TypecastOp>(
       builder.getUnknownLoc(), rankedTensorTypeF32, input, DataType::Float32);
-  typecast->setAttr(DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {
@@ -448,6 +440,47 @@ TEST_F(OpModelBase, typecastOp) {
   auto runtimeExp = getOpRuntime(typecast.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, Conv2dInterface) {
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  // test Conv2dOp interface
+  auto constraintsExp = getOpConstraints(conv2d.getOperation());
+  // TODO(odjuricic): This will change to EXPECT_TRUE once a fix lands in metal.
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(conv2d.getOperation());
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }

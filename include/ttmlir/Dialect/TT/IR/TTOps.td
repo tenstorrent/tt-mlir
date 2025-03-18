@@ -13,6 +13,7 @@ include "mlir/IR/BuiltinAttributeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
+include "mlir/IR/RegionKindInterface.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/FunctionInterfaces.td"
@@ -126,6 +127,16 @@ def TT_CPUModuleOp : TT_Op<"cpu_module", [
   let skipDefaultBuilders = 1;
 
   let hasVerifier = 1;
+}
+
+def TT_DeviceOp : TT_Op<"device", [Symbol]> {
+  let summary = "Named device";
+  let description = [{
+  }];
+
+  let arguments = (ins SymbolNameAttr:$sym_name, TT_DeviceAttr:$device_attr);
+
+  let assemblyFormat = "$sym_name `=` $device_attr attr-dict";
 }
 
 #endif

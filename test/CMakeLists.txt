@@ -41,12 +41,18 @@ if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
     list(APPEND TTMLIR_TEST_DEPENDS TTMLIRPythonModules)
 endif()
 
+# Add custom target to compile everything needed for tests but not execute it
+add_custom_target(compile-ttmlir-tests DEPENDS ${TTMLIR_TEST_DEPENDS})
+
 add_lit_testsuite(check-ttmlir "Running the ttmlir regression tests"
     ${CMAKE_CURRENT_BINARY_DIR}
     --xunit-xml-output report.xml
     DEPENDS ${TTMLIR_TEST_DEPENDS}
 )
 set_target_properties(check-ttmlir PROPERTIES FOLDER "Tests")
+
+# Add custom target to execute tests without compiling
+add_custom_target(run-ttmlir-tests COMMAND ${CMAKE_CTEST_COMMAND} -R check-ttmlir DEPENDS check-ttmlir)
 
 add_lit_testsuites(TTMLIRCompiler ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${TTMLIR_TEST_DEPENDS})
 

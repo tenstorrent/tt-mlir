@@ -705,7 +705,12 @@ MetalLayoutAttr MetalLayoutAttr::withGrid(
     ::mlir::MLIRContext *context, RankedTensorType ty, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   assert(ty);
-  return MetalLayoutAttr::withGrid(context, ty.getShape(), grid,
+  SmallVector<int64_t> tensorShape(ty.getShape());
+  auto tileType = mlir::dyn_cast<TileType>(ty.getElementType());
+  if (tileType) {
+    tensorShape = tileType.getScalarShape(tensorShape);
+  }
+  return MetalLayoutAttr::withGrid(context, tensorShape, grid,
                                    collapseIntervals);
 }
 
@@ -1225,31 +1230,6 @@ uint64_t TileType::getSizeBytes() const {
 
 mlir::Type TileType::getElementType() const {
   return dataTypeToElementType(getContext(), getDataType());
-}
-
-SystemDescAttr mlir::tt::getCurrentScopeSystemDesc(mlir::Operation *op) {
-  // Walk up scope levels until we find the top level ModuleOp which carries
-  // the system desc
-  while (op) {
-    if (mlir::isa<mlir::ModuleOp>(op)) {
-      auto systemDesc = op->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
-      assert(systemDesc && "expected system desc to be present on the module");
-      return systemDesc;
-    }
-    op = op->getParentOp();
-  }
-  assert(false && "expected system desc to be present in the scope");
-  return nullptr;
-}
-
-DeviceAttr mlir::tt::getCurrentScopeDevice(mlir::Operation *op) {
-  while (op) {
-    if (auto device = op->getAttrOfType<DeviceAttr>(DeviceAttr::name)) {
-      return device;
-    }
-    op = op->getParentOp();
-  }
-  return nullptr;
 }
 
 void TTDialect::registerTypes() {

@@ -301,7 +301,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return get(context, tensorShape, getElementType(), getBufferType(), grid,
-             getMemLayout(), collapseIntervals);
+             getMemLayout(), getTensorMeshSharding(), collapseIntervals);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -337,7 +337,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
     ArrayRef<int64_t> tensorShape,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return TTNNLayoutAttr::get(context, tensorShape, elementType, getBufferType(),
-                             getGrid(), getMemLayout(), collapseIntervals);
+                             getGrid(), getMemLayout(), getTensorMeshSharding(),
+                             collapseIntervals);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -379,7 +380,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
       context, getLinear(), grid,
       buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
                                               getElementType(), memorySpace),
-      memLayoutAttr);
+      memLayoutAttr, getTensorMeshSharding());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -397,7 +398,7 @@ TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
       context, getLinear(), getGrid(),
       buildMemRef<BufferType, BufferTypeAttr>(
           context, getScalarShardShape(), getElementType(), getBufferType()),
-      memLayoutAttr);
+      memLayoutAttr, getTensorMeshSharding());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -431,7 +432,7 @@ TTNNLayoutAttr::withShardShape(::mlir::MLIRContext *context,
       context, getLinear(), getGrid(),
       buildMemRef<BufferType, BufferTypeAttr>(
           context, shardShape, getElementType(), getBufferType()),
-      getMemLayout());
+      getMemLayout(), getTensorMeshSharding());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -449,7 +450,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(::mlir::MLIRContext *context,
   // attribute. This will work for now since we always use default value, but in
   // the future we would need to take this into account.
   return TTNNLayoutAttr::get(context, tensorShape, getElementType(),
-                             getBufferType(), getGrid(), getMemLayout());
+                             getBufferType(), getGrid(), getMemLayout(),
+                             getTensorMeshSharding());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -468,6 +470,7 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, BufferType bufferType, GridAttr grid,
     TensorMemoryLayoutAttr memLayoutAttr,
+    TensorMeshShardingAttr tensorMeshSharding,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   // Construct a new affine map which will be used to map from logical
   // space to physical space.
@@ -488,12 +491,14 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   // Build memref type with the given parameters
   MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
       context, shardShape, elementType, bufferType);
-  return get(context, linear, grid, memRefType, memLayoutAttr);
+  return get(context, linear, grid, memRefType, memLayoutAttr,
+             tensorMeshSharding);
 }
 
 ::llvm::LogicalResult TTNNLayoutAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
-    GridAttr, MemRefType memref, TensorMemoryLayoutAttr memLayout) {
+    GridAttr, MemRefType memref, TensorMemoryLayoutAttr memLayout,
+    TensorMeshShardingAttr tensorMeshSharding) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
   return verifyBufferAndMemoryLayout(emitError, bufferType, memLayout);

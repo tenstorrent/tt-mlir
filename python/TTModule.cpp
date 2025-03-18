@@ -368,16 +368,6 @@ void populateTTModule(nb::module_ &m) {
         return static_cast<uint32_t>(self.getValue());
       });
 
-  tt_type_class<tt::DeviceType>(m, "DeviceType")
-      .def_static(
-          "get",
-          [](MlirContext ctx, MlirAttribute deviceAttr) {
-            return wrap(tt::DeviceType::get(
-                unwrap(ctx), mlir::cast<tt::DeviceAttr>(unwrap(deviceAttr))));
-          })
-      .def_prop_ro("device_attr",
-                   [](tt::DeviceType const &self) { return self.getDesc(); });
-
   tt_attribute_class<tt::DeviceAttr>(m, "DeviceAttr")
       .def_static("from_system_desc",
                   [](MlirContext ctx, MlirAttribute systemDesc,

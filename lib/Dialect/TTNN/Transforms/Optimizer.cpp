@@ -2,9 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -162,15 +164,12 @@ public:
 
     // Get the max grid size from the system description.
     //
-    assert(moduleOp->hasAttr(tt::DeviceAttr::name));
-    GridAttr max_grid =
-        mlir::cast<tt::DeviceAttr>(moduleOp->getAttr(tt::DeviceAttr::name))
-            .getWorkerGrid();
+    GridAttr max_grid = lookupDevice(moduleOp).getWorkerGrid();
 
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-    llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
+    llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
 
     moduleOp->walk([&](Operation *op) {
       if (op->getNumResults() == 0) {
@@ -192,7 +191,7 @@ public:
       legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
           chipDesc, max_grid, tensorType, maxLegalLayouts,
           &overrideOutputLayout, rowMajorEnabled));
-      legalLayouts[op] = legalLayoutAnalysis.getResult();
+      legalConfigs[op] = legalLayoutAnalysis.getResult();
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
@@ -209,9 +208,9 @@ public:
       MemoryLayoutAnalysis memoryLayoutAnalysis =
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
-          legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges,
+          legalConfigs, chipDesc.getUsableL1Size(), overrideReshardEdges,
           memoryLayoutAnalysisPolicy));
-      legalLayouts = memoryLayoutAnalysis.getResult().legalLayouts;
+      legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;
       spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
@@ -220,7 +219,7 @@ public:
     // Pick optimal op configuration.
     //
     OpConfigAnalysis opConfigAnalysis = getAnalysis<OpConfigAnalysis>();
-    opConfigAnalysis.init(OpConfigAnalysisInput(std::move(legalLayouts)));
+    opConfigAnalysis.init(OpConfigAnalysisInput(std::move(legalConfigs)));
 
     // Pure application of determined grid sizes to the operations.
     // No further analysis.
@@ -273,9 +272,9 @@ public:
         // Update the output layout attribute with the new one.
         //
         if (opConfigAnalysis.getResult().contains(op)) {
-          RankedTensorType newTensorType =
-              RankedTensorType::get(tensorShape, tensorType.getElementType(),
-                                    opConfigAnalysis.getResult().at(op));
+          RankedTensorType newTensorType = RankedTensorType::get(
+              tensorShape, tensorType.getElementType(),
+              opConfigAnalysis.getResult().at(op).outputLayout);
 
           // Update the memory space and layout of the op.
           //
@@ -417,8 +416,8 @@ private:
     assert(overrideInputLayout.size() == overrideReshardEdges.size());
   }
 
-  mlir::TypedValue<mlir::tt::DeviceType>
-  getOrCreateDeviceOpValue(Operation *contextOp, OpBuilder &builder) {
+  mlir::TypedValue<DeviceType> getOrCreateDeviceOpValue(Operation *contextOp,
+                                                        OpBuilder &builder) {
     Block *block = contextOp->getBlock();
     for (auto &op : block->getOperations()) {
       if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
@@ -427,7 +426,7 @@ private:
     }
 
     // Device op does not exist in the block, hence we need to create it.
-    DeviceAttr deviceAttr = getCurrentScopeDevice(contextOp);
+    DeviceAttr deviceAttr = lookupDevice(contextOp);
     auto currentInsertionPoint = builder.saveInsertionPoint();
     builder.setInsertionPoint(block, block->begin());
     llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
@@ -435,7 +434,7 @@ private:
       meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
     }
     auto deviceOp = builder.create<ttnn::GetDeviceOp>(
-        contextOp->getLoc(), builder.getType<DeviceType>(deviceAttr),
+        contextOp->getLoc(), builder.getType<DeviceType>(),
         ttnn::MeshShapeAttr::get(contextOp->getContext(), meshShape[0],
                                  meshShape[1]));
     builder.restoreInsertionPoint(currentInsertionPoint);
