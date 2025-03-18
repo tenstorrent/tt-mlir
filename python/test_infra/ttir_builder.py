@@ -767,6 +767,21 @@ class TTIRBuilder:
     def prod_golden_function(self, in0: Operand):
         return torch.tensor([torch.prod(in0).item()])
 
+    def embedding(self, in0: Operand, weight: Operand, in1: Operand) -> OpView:
+        embedding = torch.nn.Embedding.from_pretrained(self._get_golden_tensor(weight))
+        return self.op_proxy(
+            embedding,
+            ttir.EmbeddingOp,
+            [in0, weight, in1],
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
+            organize_golden_args=lambda i: (
+                torch.ones(self._get_golden_tensor(i[0]).size(), dtype=torch.long),
+            ),
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(weight).dtype
+            ),
+        )
+
     def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
         return self.op_proxy(
             torch.softmax,
