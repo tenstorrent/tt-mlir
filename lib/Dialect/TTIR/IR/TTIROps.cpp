@@ -2857,7 +2857,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   }
 
   ValueTypeRange<OperandRange> operandTypes = getOperation()->getOperandTypes();
-  auto firstRegion = getRegions().begin();
+  auto *firstRegion = getRegions().begin();
   for (Region &region : getRegions()) {
     if (!region.hasOneBlock()) {
       return emitOpError("GenericOp region must have a single block");
