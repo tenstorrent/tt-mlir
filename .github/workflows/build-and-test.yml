@@ -247,8 +247,8 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
-        export TT_METAL_HOME=${{ steps.strings.outputs.install-output-dir }}/tt_metal
-        ls -la $ $TT_METAL_HOME/tt_metal/soc_descriptors
+        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt_metal"
+        ls -la $TT_METAL_HOME/tt_metal/soc_descriptors
         if [ "${{ matrix.build.suite }}" == "op_model" ]; then
           echo "Running op-model test Conversion"
           ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
