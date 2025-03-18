@@ -46,11 +46,6 @@ void createTTNNPipelineTTIRPasses(
   if (options.eraseInverseOpsEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
-
-  ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
-  implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
-      options.meshShape.begin(), options.meshShape.end());
-  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
 }
 
 void createTTNNPipelineAnalysisPasses(
