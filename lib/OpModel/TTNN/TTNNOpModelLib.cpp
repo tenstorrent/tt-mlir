@@ -977,7 +977,7 @@ Conv2dOpInterface::getOpConstraints(
          llvm::ArrayRef<int64_t> outputShape,
          mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
         // open device device, will close it at the end of function
-        ::tt::tt_metal::v0::IDevice *device =
+        ::tt::tt_metal::IDevice *device =
             SingletonDeviceContext::getInstance().getDevice();
 
         // prepare io specs
@@ -1049,7 +1049,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
          llvm::ArrayRef<int64_t> outputShape,
          mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
         // open device device, will close it at the end of function
-        ::tt::tt_metal::v0::IDevice *device =
+        ::tt::tt_metal::IDevice *device =
             SingletonDeviceContext::getInstance().getDevice();
 
         // prepare io specs
