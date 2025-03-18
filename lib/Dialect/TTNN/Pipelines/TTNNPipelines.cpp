@@ -44,6 +44,13 @@ void createTTNNPipelineTTIRPasses(
   // Add pass to erase inverse ops. This is disabled by default
   // while the pass is experimental.
   if (options.eraseInverseOpsEnabled) {
+    // Generating flattend sliding window ops before erasing inverse ops
+    // so the reshapes implicit in the sliding window ops can be erased.
+    // ttnn sliding window ops require (1, 1, N*H*W, C) input/output.
+    // so we perform the flattening in TTIR so that EraseInverseOps can
+    // remove the reshapes. Otherwise, they are introduced when lowering
+    // to TTNN.
+    pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
 }
