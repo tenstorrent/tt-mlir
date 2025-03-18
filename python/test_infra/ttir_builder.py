@@ -767,6 +767,20 @@ class TTIRBuilder:
     def prod_golden_function(self, in0: Operand):
         return torch.tensor([torch.prod(in0).item()])
 
+    def cumsum(self, in0: Operand, in1: Operand, dim: IntegerAttr) -> OpView:
+        return self.op_proxy(
+            torch.cumsum,
+            ttir.CumSumOp,
+            [in0, in1],
+            golden_kwargs={"dim": int(dim)},
+            ttir_kwargs={"dim": dim, "output": in1},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(in1).dtype
+            ),
+        )
+
     def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
         return self.op_proxy(
             torch.softmax,

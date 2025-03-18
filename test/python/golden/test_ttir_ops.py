@@ -11,7 +11,13 @@ import numpy as np
 from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
-from ttmlir.ir import DenseI64ArrayAttr, DenseElementsAttr
+from ttmlir.ir import (
+    DenseI64ArrayAttr,
+    DenseElementsAttr,
+    DenseI32ArrayAttr,
+    IntegerAttr,
+    IntegerType,
+)
 
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371
@@ -636,6 +642,16 @@ def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
 )
 def test_prod(in0: Operand, builder: TTIRBuilder):
     return builder.prod(in0, [1])
+
+
+@compile_to_flatbuffer(
+    [(4, 4, 128, 128), (4, 4, 128, 128)],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    dim = IntegerAttr.get(IntegerType.get_signless(64), 1)
+    return builder.cumsum(in0, in1, dim=dim)
 
 
 @compile_to_flatbuffer(
