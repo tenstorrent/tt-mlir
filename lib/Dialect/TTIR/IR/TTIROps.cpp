@@ -1444,10 +1444,6 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return op->emitOpError("Input and output types must be the same");
     }
 
-    if (inputTy.getShape() != outputTy.getShape()) {
-      return op->emitOpError("Input and output shapes must be the same");
-    }
-
     if (!inputTy.getEncoding() ||
         !mlir::isa<mlir::tt::MetalLayoutAttr>(inputTy.getEncoding())) {
       // If the input tensor does not have a layout, we can early exit.
