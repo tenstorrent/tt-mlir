@@ -228,7 +228,7 @@ public:
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(), generic.getIndexingMaps(),
-        generic.getIteratorTypes(),
+        generic.getIteratorTypes(), rewriter.getArrayAttr({}),
         generic.getNumRegions() + numDataMovementRegions);
 
     // Insert the new data movement regions.

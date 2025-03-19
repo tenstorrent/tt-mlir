@@ -431,4 +431,50 @@ def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index"> {
     }];
 }
 
+//===----------------------------------------------------------------------===//
+// TTIR Remote Access ops (Used in TTMetal Lowering)
+//===----------------------------------------------------------------------===//
+
+def TTIR_GetGlobalOperandOp : TTIR_GenericRegionOp<"get_global_operand", [Pure]> {
+    let summary = "Get global operand op.";
+    let description = [{
+      Access the global, aka parent generic op, operand at the specified index.
+
+      The following forms are all equivalent, but the latter forms are required
+      when moving generic regions to top level func ops in the module.
+      ```mlir
+      ttir.generic (%arg0, %arg1, %arg2) {
+        ^datamovement(%cb0, %cb1, %cb2)
+          ttir.dma %arg1, %cb1 // Capture %arg1 from parent scope
+      }
+      ```
+
+      And:
+      ```mlir
+      ttir.generic (%arg0, %arg1, %arg2) {
+        ^datamovement(%cb0, %cb1, %cb2)
+          %operand_arg1 = ttir.get_global_operand 1
+          ttir.dma %operand_arg1, %cb0
+      }
+      ```
+
+      And:
+      ```mlir
+      func.func @main(...) {
+        ttir.generic (%arg0, %arg1, %arg2) { kernel_symbols = [@dm0] }
+      }
+
+      func.func private @dm0(%cb0, %cb1, %cb2) {
+        %operand_arg1 = ttir.get_global_operand 1
+        ttir.dma %operand_arg1, %cb0
+      }
+      ```
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
+    let results = (outs AnyNon0RankedMemRef:$result);
+
+    let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD

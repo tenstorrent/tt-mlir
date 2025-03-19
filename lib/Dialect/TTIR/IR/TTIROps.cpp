@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Traits.h"
@@ -3035,7 +3036,8 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   }
   auto bufferGeneric = rewriter.create<mlir::tt::ttir::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
-      getIndexingMaps(), getIteratorTypes(), getNumRegions());
+      getIndexingMaps(), getIteratorTypes(), rewriter.getArrayAttr({}),
+      getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
@@ -3369,11 +3371,11 @@ static ::mlir::LogicalResult operandsInRegionArguments(mlir::Operation *op,
   return ::mlir::success();
 }
 
-template <typename OpTy>
+template <typename... Args>
 static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
   mlir::Region *region = op->getParentRegion();
   mlir::Operation *parentOp = region->getParentOp();
-  while (!mlir::isa<OpTy>(parentOp)) {
+  while (!mlir::isa<Args...>(parentOp)) {
     region = parentOp->getParentRegion();
     parentOp = region->getParentOp();
   }
@@ -3382,10 +3384,12 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 
 ::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
   return operandsInRegionArguments(
-      getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
+      getOperation(),
+      getParentRegionOfType<GenericOp, func::FuncOp>(getOperation()));
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
   return operandsInRegionArguments(
-      getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
+      getOperation(),
+      getParentRegionOfType<GenericOp, func::FuncOp>(getOperation()));
 }

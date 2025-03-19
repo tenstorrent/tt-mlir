@@ -110,7 +110,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types);
+                         TT_IteratorTypeArrayAttr:$iterator_types,
+                         OptionalAttr<ArrayAttr>:$kernel_symbols);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;

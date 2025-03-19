@@ -61,7 +61,8 @@ public:
     auto loopedGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(), rewriter.getArrayAttr({}),
-        rewriter.getArrayAttr({}), generic.getNumRegions());
+        rewriter.getArrayAttr({}), rewriter.getArrayAttr({}),
+        generic.getNumRegions());
 
     SmallVector<int64_t> interchange = calculateOptimalInterchange(generic);
 

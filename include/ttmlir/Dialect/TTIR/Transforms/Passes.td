@@ -128,6 +128,12 @@ def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::Modu
   }];
 }
 
+def TTIRGenericRegionsToFuncs : Pass<"ttir-generic-regions-to-funcs", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
