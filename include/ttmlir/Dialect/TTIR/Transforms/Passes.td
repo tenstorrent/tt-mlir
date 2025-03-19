@@ -377,6 +377,7 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp"> {
   let summary = "Flatten sliding window ops.";
   let description = [{
+    This is a compatibility pass for converting to the TTNN dialect.
     This pass walks through the graph and flattens sliding window ops (ttir.conv2d, ttir.max_pool2d).
 
     Example:

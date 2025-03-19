@@ -1095,13 +1095,13 @@ private:
 } // namespace
 
 namespace {
-class FlattenedConv2dOpConversionPattern
-    : public OpConversionPattern<ttir::FlattenedConv2dOp> {
+class Conv2dFlattenedCompatOpConversionPattern
+    : public OpConversionPattern<ttir::Conv2dFlattenedCompatOp> {
 public:
-  using OpConversionPattern<ttir::FlattenedConv2dOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::Conv2dFlattenedCompatOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::FlattenedConv2dOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::Conv2dFlattenedCompatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
@@ -1307,13 +1307,14 @@ public:
 } // namespace
 
 namespace {
-class FlattenedMaxPool2dOpConversionPattern
-    : public OpConversionPattern<ttir::FlattenedMaxPool2dOp> {
+class MaxPool2dFlattenedCompatOpConversionPattern
+    : public OpConversionPattern<ttir::MaxPool2dFlattenedCompatOp> {
 public:
-  using OpConversionPattern<ttir::FlattenedMaxPool2dOp>::OpConversionPattern;
+  using OpConversionPattern<
+      ttir::MaxPool2dFlattenedCompatOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::FlattenedMaxPool2dOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::MaxPool2dFlattenedCompatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
@@ -1681,10 +1682,10 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LinearOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
-           FlattenedConv2dOpConversionPattern,
+           Conv2dFlattenedCompatOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
-           FlattenedMaxPool2dOpConversionPattern,
+           MaxPool2dFlattenedCompatOpConversionPattern,
            SubtractOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,

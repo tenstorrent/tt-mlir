@@ -331,109 +331,6 @@ class TTIRCommuteTmsAboveBroadcast
 };
 } // namespace
 
-namespace {
-class TTIREraseInverseTransposes : public OpRewritePattern<ttir::TransposeOp> {
-public:
-  using OpRewritePattern<ttir::TransposeOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::TransposeOp op,
-                                PatternRewriter &rewriter) const override {
-
-    // Erase with operand
-    if (!op->getOperand(0).getDefiningOp()) {
-      return failure();
-    }
-    ttir::TransposeOp operand =
-        dyn_cast<ttir::TransposeOp>(op->getOperand(0).getDefiningOp());
-    if (!operand) {
-      return failure();
-    }
-
-    auto opDim0 = op.getDim0();
-    auto opDim1 = op.getDim1();
-    auto operandDim0 = operand.getDim0();
-    auto operandDim1 = operand.getDim1();
-
-    if ((opDim0 == operandDim1 && opDim1 == operandDim0) ||
-        (opDim0 == operandDim0 && opDim1 == operandDim1)) {
-      rewriter.replaceOp(op, operand->getOperand(0));
-      return success();
-    }
-    return failure();
-  }
-};
-} // namespace
-
-namespace {
-class TTIREraseInversePermutations : public OpRewritePattern<ttir::PermuteOp> {
-public:
-  using OpRewritePattern<ttir::PermuteOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::PermuteOp op,
-                                PatternRewriter &rewriter) const override {
-
-    // Erase with operand
-    if (!op->getOperand(0).getDefiningOp()) {
-      return failure();
-    }
-    ttir::PermuteOp operand =
-        dyn_cast<ttir::PermuteOp>(op->getOperand(0).getDefiningOp());
-    if (!operand) {
-      return failure();
-    }
-
-    // Apply the permutation of this op to the permuatation of the operand
-    // If the result is the identity permutation, erase the ops
-    ArrayRef<int64_t> opPemutation = op.getPermutation();
-    ArrayRef<int64_t> operandPermutation = operand.getPermutation();
-
-    SmallVector<int64_t> newPermutation;
-    for (int64_t i = 0; i < static_cast<int64_t>(opPemutation.size()); i++) {
-      if (operandPermutation[opPemutation[i]] != i) {
-        return failure();
-      };
-    }
-
-    rewriter.replaceOp(op, operand->getOperand(0));
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class TTIREraseInverseReshapes : public OpRewritePattern<ttir::ReshapeOp> {
-public:
-  using OpRewritePattern<ttir::ReshapeOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::ReshapeOp op,
-                                PatternRewriter &rewriter) const override {
-
-    // Erase with operand
-    if (!op->getOperand(0).getDefiningOp()) {
-      return failure();
-    }
-    ttir::ReshapeOp operand =
-        dyn_cast<ttir::ReshapeOp>(op->getOperand(0).getDefiningOp());
-    if (!operand) {
-      return failure();
-    }
-
-    // if the input shape of the operand is the same as the output shape of this
-    // op, erase the ops
-    auto opShape =
-        cast<RankedTensorType>(op->getResult(0).getType()).getShape();
-    auto inputShape =
-        cast<RankedTensorType>(operand->getOperand(0).getType()).getShape();
-
-    if (opShape != inputShape) {
-      return failure();
-    }
-    rewriter.replaceOp(op, operand->getOperand(0));
-    return success();
-  }
-};
-} // namespace
-
 class TTIREraseInverseOps
     : public impl::TTIREraseInverseOpsBase<TTIREraseInverseOps> {
 public:
@@ -448,33 +345,20 @@ public:
     commutePatterns.add<TTIRCommuteTmsAboveBroadcast>(&getContext());
     FrozenRewritePatternSet commutePatternSet(std::move(commutePatterns));
 
-    RewritePatternSet erasePatterns(&getContext());
-    erasePatterns.add<ttir::TTIREraseInverseTransposes>(&getContext());
-    erasePatterns.add<ttir::TTIREraseInversePermutations>(&getContext());
-    erasePatterns.add<ttir::TTIREraseInverseReshapes>(&getContext());
-    FrozenRewritePatternSet erasePatternSet(std::move(erasePatterns));
-
     // We want to commute all TMs upwards as much as possible so they are are
-    // placed back to back Then we can erase back to back inverses.
-    //
+    // placed back to back Then we can erase back to back inverses. The
+    // implemented folding patterns for TransposeOp, PermuteOp. and ReshapeOp
+    // will automatically erase back to back inverses during the pass.
+    // see TTIROps.cpp for the folding patterns.
     //
     // Because there are multiple TMs we wish to commute and erase, we must
     // continuously run the commute and erase patterns until the graph stops
     // changing. This is because erasing a pair of TMs may free up a path
     // for another pair of TMs to be erased.
-    //
-    // We do have some canonicalizatios for these ops will erase back to back
-    // ops, however they are not run during this pass (yet). Maybe we can call
-    // them instead.
     GreedyRewriteConfig rewriteConfig = GreedyRewriteConfig();
     bool changed = false;
     do {
       if (failed(applyPatternsGreedily(getOperation(), commutePatternSet,
-                                       rewriteConfig, &changed))) {
-        signalPassFailure();
-        return;
-      }
-      if (failed(applyPatternsGreedily(getOperation(), erasePatternSet,
                                        rewriteConfig, &changed))) {
         signalPassFailure();
         return;

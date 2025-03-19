@@ -601,7 +601,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], !listconcat([ThreeOperands, TTIR_ElementwiseBinary], traits))> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands, TTIR_ElementwiseBinary], traits)> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -1034,7 +1034,7 @@ def TTIR_TransposeOp : TTIR_NamedOp<"transpose"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
@@ -1237,7 +1237,7 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_FlattenedConv2dOp : TTIR_NamedOp<"flattened_conv2d"> {
+def TTIR_Conv2dFlattenedCompatOp : TTIR_NamedOp<"flattened_compat_conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
 
@@ -1472,7 +1472,7 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
-def TTNN_FlattenedMaxPool2dOp : TTIR_NamedOp<"flattened_max_pool2d"> {
+def TTNN_MaxPool2dFlattenedCompatOp : TTIR_NamedOp<"flattened_compat_max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       This op is equivalent to `ttir.max_pool2d`, except its input must be flattened to (1, 1, N*H_in*W_in, C_in).
@@ -1883,7 +1883,7 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
 
     let hasVerifier = 1;
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {

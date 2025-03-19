@@ -136,11 +136,12 @@ public:
 
     auto convDPS = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputTy.getShape(), outputTy.getElementType());
-    ttir::FlattenedConv2dOp newConv = rewriter.create<ttir::FlattenedConv2dOp>(
-        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), convDPS, inChannelsAttr, outChannelsAttr,
-        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr);
+    ttir::Conv2dFlattenedCompatOp newConv =
+        rewriter.create<ttir::Conv2dFlattenedCompatOp>(
+            op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
+            adaptor.getBias(), convDPS, inChannelsAttr, outChannelsAttr,
+            batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
+            *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr);
 
     Value output = generateTTIRReshape(newConv, outputShape, rewriter);
 
@@ -185,7 +186,7 @@ private:
 } // namespace
 
 namespace {
-class ConvertToFlattenedMaxPool2dOpConversionPattern
+class ConvertToMaxPool2dFlattenedCompatOpConversionPattern
     : public OpConversionPattern<ttir::MaxPool2dOp> {
 public:
   using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
@@ -237,7 +238,7 @@ public:
 
     auto poolDPS = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputType.getShape(), outputType.getElementType());
-    auto newPool = rewriter.create<ttir::FlattenedMaxPool2dOp>(
+    auto newPool = rewriter.create<ttir::MaxPool2dFlattenedCompatOp>(
         op.getLoc(), outputType, flattenedInput, poolDPS, batchSize,
         static_cast<int32_t>(inputShape[inputShape.size() - 3]),
         static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
@@ -266,8 +267,9 @@ public:
     typeConverter.addConversion([](Type type) { return type; });
     conversionPatterns.add<ConvertToFlattenedConv2dPattern>(typeConverter,
                                                             &getContext());
-    conversionPatterns.add<ConvertToFlattenedMaxPool2dOpConversionPattern>(
-        typeConverter, &getContext());
+    conversionPatterns
+        .add<ConvertToMaxPool2dFlattenedCompatOpConversionPattern>(
+            typeConverter, &getContext());
     FrozenRewritePatternSet conversionPatternSet(std::move(conversionPatterns));
 
     mlir::ConversionTarget target(getContext());
