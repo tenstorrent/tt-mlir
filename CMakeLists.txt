@@ -61,14 +61,6 @@ if (CMAKE_BUILD_TYPE STREQUAL "Asan")
   endif()
 endif()
 
-if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  # Apply coverage flags only to runtime subdirectory
-  set(COVERAGE_FLAGS "-O0 --coverage -fprofile-arcs -ftest-coverage")
-  set_target_properties(runtime PROPERTIES
-    COMPILE_FLAGS "${COVERAGE_FLAGS}"
-    LINK_FLAGS "${COVERAGE_FLAGS}")
-endif()
-
 set(TTMLIR_TOOLCHAIN_DIR $ENV{TTMLIR_TOOLCHAIN_DIR})
 set(TTMLIR_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 set(TTMLIR_BINARY_DIR ${PROJECT_BINARY_DIR})
@@ -121,5 +113,13 @@ add_subdirectory(tools)
 add_subdirectory(runtime)
 add_subdirectory(docs)
 add_subdirectory(cmake/modules)
+
+if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  # Apply coverage flags only to runtime subdirectory
+  set(COVERAGE_FLAGS "-O0 --coverage -fprofile-arcs -ftest-coverage")
+  set_target_properties(runtime PROPERTIES
+    COMPILE_FLAGS "${COVERAGE_FLAGS}"
+    LINK_FLAGS "${COVERAGE_FLAGS}")
+endif()
 
 include(LintTools)
