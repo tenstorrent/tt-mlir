@@ -457,13 +457,14 @@ jobs:
         -B ${{ steps.strings.outputs.build-output-dir }} \
         -DCMAKE_CXX_COMPILER=clang++-17 \
         -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Coverage \
+        -DCMAKE_BUILD_TYPE=Debug \
         -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DTTMLIR_ENABLE_RUNTIME=OFF \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
         -DTTMLIR_ENABLE_OPMODEL=OFF \
+        -DCODE_COVERAGE=ON \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
