@@ -9,7 +9,7 @@ from pykernel.pykernel_ast import *
 from pykernel.types import *
 
 
-@ttkernel_noc_compile()
+@ttkernel_noc_compile(verbose=True)
 def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
