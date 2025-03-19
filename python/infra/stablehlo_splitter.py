@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from ttmlir.dialects import stablehlo
+from ttmlir.dialects import stablehlo, tt
 from ttmlir.ir import Context, Module
 
 from .mlir_module_splitter import MLIRModuleSplitter
@@ -34,4 +34,9 @@ class StableHLOSplitter(MLIRModuleSplitter):
     def _parse_module_str(module_str: str) -> Module:
         with Context() as ctx:
             stablehlo.register_dialect(ctx)
+            # TODO there must be a better way to do this. We need to register `tt`
+            # (or any other of our dialects) otherwise we'll encounter problems with
+            # `func` dialect which isn't included through `stablehlo` and doesn't
+            # provide `func.register_dialect(ctx)` on its own.
+            tt.register_dialect(ctx)
             return parse_module_str(module_str, ctx)

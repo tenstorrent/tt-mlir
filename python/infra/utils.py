@@ -53,6 +53,19 @@ class OpWrapper:
         )
 
 
+class ModuleWrapper:
+    """
+    Convenience wrapper around MLIR module.
+
+    Provides posibility to keep track of the op from which module was generated, useful
+    in op by op processing pipeline. It can also store just the module with no
+    associated op.
+    """
+
+    module: Module
+    generated_from: Optional[OpWrapper] = None
+
+
 def parse_module_str(module_str: str, ctx: Context) -> Module:
     """
     Parses `module_str` and returns MLIR module.

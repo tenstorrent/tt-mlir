@@ -36,7 +36,8 @@ def ttnn_to_flatbuffer(
     return Binary(logger, file_manager, output_file_name)
 
 
-def run_flatbuffer(flatbuffer: Binary) -> None:
+def run_flatbuffer(flatbuffer: Binary) -> int:
     API.initialize_apis()
     run_instance = API.Run(args={"binary": flatbuffer.file_path})
-    run_instance()
+    return_code, _ = run_instance()
+    return return_code
