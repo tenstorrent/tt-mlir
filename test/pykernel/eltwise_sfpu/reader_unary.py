@@ -46,7 +46,7 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
         # CHECK: memref.store {{.*}} %[[SRC_ADDR]]{{.*}}
         src_addr = src_addr + ublock_size_bytes
 
-    src_addr = src_addr + 0
+    src_addr = src_addr + 1
 
     return
 
