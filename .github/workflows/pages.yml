@@ -67,7 +67,7 @@ jobs:
         run: |
           source env/activate
           export PATH="$PATH:${{ steps.strings.outputs.work-dir }}"
-          cmake -B build -S ${{ steps.strings.outputs.work-dir }}
+          cmake -B build -S ${{ steps.strings.outputs.work-dir }} -G Ninja
           cmake --build build -- doxygen
 
       - name: Upload artifact
