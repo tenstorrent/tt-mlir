@@ -1,85 +1,22 @@
 include(AddMLIRPython)
 
-################################################################################
-# SHLO (copied over from /opt/ttmlir-toolchain/src/stablehlo/stablehlo/integrations/python/CMakeLists.txt)
-################################################################################
-
-# set(STABLEHLO_PYTHON_ROOT_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo/stablehlo/integrations/python")
-
-# declare_mlir_python_sources(StablehloPythonSources)
-# declare_mlir_python_sources(StablehloPythonSources.Dialects
-#   ADD_TO_PARENT StablehloPythonSources
-# )
-
-# declare_mlir_dialect_python_bindings(
-#   ADD_TO_PARENT StablehloPythonSources.Dialects
-#   ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}/mlir"
-#   TD_FILE dialects/StablehloOps.td
-#   SOURCES dialects/stablehlo.py
-#   DIALECT_NAME stablehlo)
-
-# declare_mlir_python_sources(VhloPythonSources)
-# declare_mlir_python_sources(VhloPythonSources.Dialects
-#   ADD_TO_PARENT VhloPythonSources
-# )
-
-# declare_mlir_dialect_python_bindings(
-#   ADD_TO_PARENT VhloPythonSources.Dialects
-#   ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}/mlir"
-#   TD_FILE dialects/VhloOps.td
-#   SOURCES dialects/vhlo.py
-#   DIALECT_NAME vhlo)
-
-
-# ## The following options are used specifically for compiling nanobind codebase.
-# add_compile_options(-Wno-error=cast-qual -Wno-error=nested-anon-types
-#   -Wno-error=extra-semi -Wno-error=zero-length-array
-#   -Wno-error=covered-switch-default)
-
-# declare_mlir_python_sources(StablehloPythonExtensions)
-# declare_mlir_python_extension(StablehloPythonExtensions.Main
-#   MODULE_NAME _stablehlo
-#   ADD_TO_PARENT StablehloPythonExtensions
-#   ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}"
-#   PYTHON_BINDINGS_LIBRARY nanobind
-#   SOURCES
-#     StablehloApi.cpp
-#     StablehloModule.cpp
-#   EMBED_CAPI_LINK_LIBS
-#     StablehloCAPI
-#   PRIVATE_LINK_LIBS
-#     StablehloCAPI
-#     LLVMSupport
-# )
-
-# declare_mlir_python_sources(VhloPythonExtensions)
-# declare_mlir_python_extension(VhloPythonExtensions.Main
-#   MODULE_NAME _vhlo
-#   ADD_TO_PARENT VhloPythonExtensions
-#   ROOT_DIR "${STABLEHLO_PYTHON_ROOT_DIR}"
-#   PYTHON_BINDINGS_LIBRARY nanobind
-#   SOURCES
-#     VhloModule.cpp
-#   EMBED_CAPI_LINK_LIBS
-#     VhloCAPI
-#   PRIVATE_LINK_LIBS
-#     LLVMSupport
-# )
-
-################################################################################
-# TTMLIR
-################################################################################
-
+# Disables generation of "version soname" (i.e. libFoo.so.<version>), which
+# causes pure duplication as part of Python wheels.
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
+# The directory at which the Python import tree begins.
+# See documentation for `declare_mlir_python_sources`'s ROOT_DIR
+# argument.
 set(TTMLIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ttmlir")
-set(TTMLIR_PYTHON_INFRA_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/infra")
 
+# We vendor our own MLIR instance in the `ttmlir` namespace.
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 
+################################################################################
+# Sources
+################################################################################
+
 declare_mlir_python_sources(TTMLIRPythonSources)
-declare_mlir_python_sources(TTMLIRPythonExtensions)
-declare_mlir_python_sources(TTMLIRPythonInfra)
 
 declare_mlir_python_sources(TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
@@ -146,25 +83,11 @@ declare_mlir_python_sources(TTMLIRPythonSources.Util
   SOURCES util.py
 )
 
-declare_mlir_python_sources(TTMLIRPythonInfra.Infra
-  ROOT_DIR "${TTMLIR_PYTHON_INFRA_ROOT_DIR}"
-  ADD_TO_PARENT TTMLIRPythonInfra
-  SOURCES
-    compile_and_run.py
-    mlir_module_executor.py
-    mlir_module_splitter.py
-    pydantic_models.py
-    stablehlo_executor.py
-    stablehlo_splitter.py
-    test_optimizer_overrides.py
-    test_utils.py
-    ttir_builder.py
-    ttir_executor.py
-    ttir_splitter.py
-    ttnn_executor.py
-    ttnn_splitter.py
-    utils.py
-)
+################################################################################
+# Extensions
+################################################################################
+
+declare_mlir_python_sources(TTMLIRPythonExtensions)
 
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   MODULE_NAME _ttmlir
@@ -201,6 +124,47 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRX86VectorToLLVMIRTranslation
 )
 
+################################################################################
+# Additional custom python code we want to bundle in the package
+################################################################################
+
+declare_mlir_python_sources(TTMLIRPythonInfra)
+
+declare_mlir_python_sources(TTMLIRPythonInfra.Main
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/infra"
+  ADD_TO_PARENT TTMLIRPythonInfra
+  SOURCES
+    compile_and_run.py
+    mlir_module_executor.py
+    mlir_module_splitter.py
+    pydantic_models.py
+    stablehlo_executor.py
+    stablehlo_splitter.py
+    test_optimizer_overrides.py
+    test_utils.py
+    ttir_builder.py
+    ttir_executor.py
+    ttir_splitter.py
+    ttnn_executor.py
+    ttnn_splitter.py
+    utils.py
+)
+
+if(TTMLIR_ENABLE_PYKERNEL)
+  declare_mlir_python_sources(TTPykernelSources)
+
+  declare_mlir_python_sources(TTPykernelSources.Main
+    ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pykernel"
+    SOURCES
+      pykernel_ast.py
+      types.py
+  )
+endif()
+
+################################################################################
+# Generate packages and shared library
+################################################################################
+
 set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Core
   MLIRPythonSources.Dialects.affine
@@ -219,44 +183,19 @@ set(TTMLIR_PYTHON_SOURCES
 
 if(TTMLIR_ENABLE_STABLEHLO)
   # The following options are used specifically for compiling nanobind codebase.
+  # They are copied over from SHLO's cmake file and will prevent nanobind warnings
+  # being treated as build errors and breaking the build.
   add_compile_options(-Wno-error=cast-qual -Wno-error=nested-anon-types
     -Wno-error=extra-semi -Wno-error=zero-length-array
     -Wno-error=covered-switch-default)
 
-  list(APPEND TTMLIR_PYTHON_SOURCES StablehloPythonExtensions)
+  # To defined python sources we append minimal set of targets exposed by SHLO's cmake.
+  # This will put `stablehlo` under `ttmlir` and allow us to import it from `ttmlir`.
+  list(APPEND TTMLIR_PYTHON_SOURCES
+    StablehloPythonSources
+    StablehloPythonExtensions
+  )
 endif()
-
-################################################################################
-# SHLO
-################################################################################
-
-# add_mlir_python_common_capi_library(StablehloUnifiedPythonCAPI
-#   INSTALL_COMPONENT StablehloUnifiedPythonModules
-#   INSTALL_DESTINATION python_packages/ttmlir/_mlir_libs
-#   OUTPUT_DIRECTORY "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir/_mlir_libs"
-#   RELATIVE_INSTALL_ROOT ".."
-#   DECLARED_SOURCES
-#     StablehloPythonSources
-#     StablehloPythonExtensions
-#     VhloPythonSources
-#     VhloPythonExtensions
-# )
-
-# add_mlir_python_modules(StablehloUnifiedPythonModules
-#   ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir"
-#   INSTALL_PREFIX "python_packages/ttmlir"
-#   DECLARED_SOURCES
-#     StablehloPythonSources
-#     StablehloPythonExtensions
-#     VhloPythonSources
-#     VhloPythonExtensions
-#   COMMON_CAPI_LINK_LIBS
-#     StablehloUnifiedPythonCAPI
-# )
-
-################################################################################
-# TTMLIR
-################################################################################
 
 add_mlir_python_common_capi_library(TTMLIRPythonCAPI
   INSTALL_COMPONENT TTMLIRPythonModules
@@ -275,13 +214,6 @@ add_mlir_python_modules(TTMLIRPythonModules
 )
 
 if(TTMLIR_ENABLE_PYKERNEL)
-  set(TTPYKERNEL_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pykernel")
-  declare_mlir_python_sources(TTPykernelSources
-    ROOT_DIR "${TTPYKERNEL_ROOT_DIR}"
-    SOURCES
-      pykernel_ast.py
-      types.py
-  )
   add_mlir_python_modules(TTPykernelModules
     ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/pykernel"
     INSTALL_PREFIX "python_packages/pykernel"
