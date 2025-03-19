@@ -568,6 +568,37 @@ def test_conv2d(
 
 @compile_to_flatbuffer(
     [
+        (3, 8, 8, 256),
+        (256, 256, 3, 3),
+        (1, 1, 1, 256),
+        (1, 10, 10, 256),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_conv_transpose2d(
+    in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
+):
+    stride = IntegerAttr.get(IntegerType.get_signless(32), 1)
+    padding = IntegerAttr.get(IntegerType.get_signless(32), 0)
+    output_padding = IntegerAttr.get(IntegerType.get_signless(32), 0)
+    dilation = IntegerAttr.get(IntegerType.get_signless(32), 1)
+    groups = IntegerAttr.get(IntegerType.get_signless(32), 1)
+    return builder.conv_transpose2d(
+        in0,
+        weight,
+        bias,
+        in1,
+        stride=stride,
+        padding=padding,
+        output_padding=output_padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
+@compile_to_flatbuffer(
+    [
         (1, 128, 128, 32),
         (1, 64, 64, 32),
     ],

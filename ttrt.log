@@ -1,0 +1,38 @@
+2025-03-18 22:07:51,358 - INFO - set log file=ttrt.log
+2025-03-18 22:07:51,358 - INFO - setting artifacts folder path=/home/jgrim/wh-01-src/tt-mlir/ttrt-artifacts
+2025-03-18 22:07:51,358 - DEBUG - ----------------------------starting run API----------------------------
+2025-03-18 22:07:51,358 - DEBUG - ------preprocessing run API
+2025-03-18 22:07:51,358 - DEBUG - ----------------------------starting query API----------------------------
+2025-03-18 22:07:51,358 - DEBUG - ------preprocessing query API
+2025-03-18 22:07:51,359 - DEBUG - ------finished preprocessing query API
+2025-03-18 22:07:51,359 - DEBUG - ------checking constraints for query API
+2025-03-18 22:07:51,359 - DEBUG - ------finished constraints for query API
+2025-03-18 22:07:51,359 - DEBUG - ------executing query API
+2025-03-18 22:07:51,376 - DEBUG - getting system descriptor
+2025-03-18 22:07:53,521 - DEBUG - ------finished executing query API
+2025-03-18 22:07:53,521 - DEBUG - ------postprocessing query API
+2025-03-18 22:07:53,521 - INFO - PASS: getting system_desc passed
+2025-03-18 22:07:53,521 - INFO - results saved to=query_results.json
+2025-03-18 22:07:53,523 - DEBUG - ------finished postprocessing query API
+2025-03-18 22:07:53,523 - DEBUG - ----------------------------finished query API----------------------------
+2025-03-18 22:07:53,523 - DEBUG - ------finished preprocessing read API
+2025-03-18 22:07:53,524 - DEBUG - ------checking constraints for run API
+2025-03-18 22:07:53,524 - DEBUG - finding all ttnn files from=/dir/of/flatbuffers
+2025-03-18 22:07:53,524 - DEBUG - checking if directory=/dir/of/flatbuffers exists
+2025-03-18 22:07:53,524 - DEBUG - finding all ttmetal files from=/dir/of/flatbuffers
+2025-03-18 22:07:53,524 - DEBUG - checking if directory=/dir/of/flatbuffers exists
+2025-03-18 22:07:53,524 - DEBUG - ttnn_binary_paths=[]
+2025-03-18 22:07:53,524 - DEBUG - ttmetal_binary_paths=[]
+2025-03-18 22:07:53,524 - DEBUG - ------finished checking constraints for run API
+2025-03-18 22:07:53,524 - DEBUG - ------executing run API
+2025-03-18 22:07:53,524 - DEBUG - executing ttnn binaries
+2025-03-18 22:07:53,524 - WARNING - no binaries found to run - returning early
+2025-03-18 22:07:53,524 - DEBUG - finished executing ttnn binaries
+2025-03-18 22:07:53,524 - DEBUG - executing ttmetal binaries
+2025-03-18 22:07:53,524 - WARNING - no binaries found to run - returning early
+2025-03-18 22:07:53,524 - DEBUG - finished executing ttmetal binaries
+2025-03-18 22:07:53,524 - DEBUG - ------finished executing run API
+2025-03-18 22:07:53,524 - DEBUG - ------postprocessing run API
+2025-03-18 22:07:53,524 - INFO - results saved to=run_results.json
+2025-03-18 22:07:53,524 - DEBUG - ------finished postprocessing run API
+2025-03-18 22:07:53,524 - DEBUG - ----------------------------finished run API----------------------------
