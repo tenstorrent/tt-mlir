@@ -25,6 +25,7 @@ struct OptionNames {
   static constexpr StringRef systemDescPath = "system-desc-path";
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
+  static constexpr StringRef meshName = "mesh-name";
 };
 
 struct OutputLayoutOverrideParams {

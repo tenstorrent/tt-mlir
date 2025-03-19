@@ -429,7 +429,7 @@ private:
     DeviceAttr deviceAttr = lookupDevice(contextOp);
     auto currentInsertionPoint = builder.saveInsertionPoint();
     builder.setInsertionPoint(block, block->begin());
-    llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
+    llvm::SmallVector<int64_t> meshShape{deviceAttr.getMesh().getShape()};
     if (meshShape.empty()) {
       meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
     }

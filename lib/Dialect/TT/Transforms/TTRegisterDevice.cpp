@@ -17,16 +17,18 @@ namespace mlir::tt {
 //===----------------------------------------------------------------------===//
 
 void registerDevice(ModuleOp module, std::string path,
-                    ArrayRef<int64_t> meshShape) {
+                    ArrayRef<int64_t> meshShape, StringRef meshName) {
   MLIRContext *context = module.getContext();
+
+  // Create MeshAttr
+  auto meshAttr = tt::MeshAttr::get(context, meshName, meshShape);
 
   if (!path.empty()) {
     module->setAttr(tt::SystemDescAttr::name,
                     tt::SystemDescAttr::getFromPath(context, path));
   } else if (!module->hasAttr(tt::SystemDescAttr::name)) {
-    module->setAttr(
-        tt::SystemDescAttr::name,
-        tt::SystemDescAttr::getDefault(context, llvm::to_vector(meshShape)));
+    module->setAttr(tt::SystemDescAttr::name,
+                    tt::SystemDescAttr::getDefault(context, meshAttr));
   }
 
   SymbolTable symbolTable(module);
@@ -34,16 +36,16 @@ void registerDevice(ModuleOp module, std::string path,
     auto systemDesc =
         module->getAttrOfType<tt::SystemDescAttr>(tt::SystemDescAttr::name);
     assert(systemDesc && "expected system desc to be present on the module");
-    auto finalMeshShape = tt::utils::determineMeshShape(module, meshShape);
-    if (auto err = finalMeshShape.takeError()) {
-      emitError(module.getLoc()) << "Error determining mesh shape\n";
-      assert(false && "Error determining mesh shape");
+    auto finalMeshAttr = tt::utils::determineMeshAttr(module, meshAttr);
+    if (auto err = finalMeshAttr.takeError()) {
+      emitError(module.getLoc()) << "Error determining mesh attr\n";
+      assert(false && "Error determining mesh attr");
       return;
     }
     OpBuilder builder(module.getBodyRegion());
     symbolTable.insert(builder.create<tt::DeviceOp>(
         module.getLoc(), tt::getDefaultDeviceName(),
-        tt::DeviceAttr::get(context, systemDesc, *finalMeshShape)));
+        tt::DeviceAttr::get(context, systemDesc, *finalMeshAttr)));
   }
 }
 
@@ -55,7 +57,7 @@ public:
       TTRegisterDevicePass>::TTRegisterDevicePassBase;
 
   void runOnOperation() final {
-    registerDevice(getOperation(), systemDescPath, *meshShape);
+    registerDevice(getOperation(), systemDescPath, *meshShape, meshName);
   }
 };
 } // namespace

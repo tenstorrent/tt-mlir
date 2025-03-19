@@ -60,6 +60,7 @@ def TTRegisterDevicePass : Pass<"tt-register-device", "::mlir::ModuleOp"> {
   list<Option> options = [
         Option<"systemDescPath", "system-desc-path", "std::string", "", "System desc path">,
         ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,
+        Option<"meshName", "mesh-name", "std::string", "", "Set the mesh name.">,
     ];
 }
 

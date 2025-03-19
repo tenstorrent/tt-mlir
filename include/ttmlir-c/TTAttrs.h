@@ -78,6 +78,14 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipPhysicalCoresAttrGet(
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx,
                                                           int64_t y, int64_t x);
 
+MlirAttribute ttmlirTTMeshAttrGet(MlirContext ctx, MlirAttribute *meshName,
+                                  MlirAttribute *shape, size_t shapeSize,
+                                  MlirAttribute *chipIds, size_t chipIdsSize);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTMeshesAttrGet(MlirContext ctx,
+                                                       MlirAttribute *meshes,
+                                                       size_t meshesSize);
+
 #ifdef __cplusplus
 }
 #endif

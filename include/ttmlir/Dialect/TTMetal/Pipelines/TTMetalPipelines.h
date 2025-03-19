@@ -12,6 +12,10 @@ namespace mlir::tt::ttmetal {
 //
 struct TTIRToTTMetalBackendPipelineOptions
     : public PassPipelineOptions<TTIRToTTMetalBackendPipelineOptions> {
+  Option<std::string> meshName{*this, "mesh-name",
+                               llvm::cl::desc("Set a mesh name."),
+                               llvm::cl::init("mesh")};
+
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
 
