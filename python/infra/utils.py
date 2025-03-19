@@ -4,8 +4,10 @@
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 from typing import List, Optional
 
+from ttmlir.dialects import stablehlo, tt, ttir, ttnn
 from ttmlir.ir import Context, Module, OpAttributeMap, OpView, Type
 
 
@@ -53,6 +55,13 @@ class OpWrapper:
         )
 
 
+class ModuleDialect(Enum):
+    STABLE_HLO = "stablehlo"
+    TTIR = "ttir"
+    TTNN = "ttnn"
+    TT = "tt"
+
+
 class ModuleWrapper:
     """
     Convenience wrapper around MLIR module.
@@ -63,15 +72,14 @@ class ModuleWrapper:
     """
 
     module: Module
+    dialect: ModuleDialect
     generated_from: Optional[OpWrapper] = None
 
 
-def parse_module_str(module_str: str, ctx: Context) -> Module:
+def parse_module_str(module_str: str) -> Module:
     """
-    Parses `module_str` and returns MLIR module.
-
-    Context `ctx` must be provided which contains all registered dialects needed to
-    parse `module_str`.
+    Within a temporary context registers necessary dialects and parses `module_str`
+    returning MLIR Module instance.
     """
 
     def preprocess_module_str(module_str: str) -> str:
@@ -79,7 +87,40 @@ def parse_module_str(module_str: str, ctx: Context) -> Module:
         loc_pattern = re.compile(r"\s*loc\([^)]*\)")
         return re.sub(loc_pattern, "", module_str)
 
-    return Module.parse(preprocess_module_str(module_str), ctx)
+    def register_dialect(module_str: str, ctx: Context) -> ModuleDialect:
+        """
+        Detects dialect used in `module_str` and registers it with context `ctx`.
+        """
+        dialect = None
+
+        if "stablehlo." in module_str:
+            dialect = ModuleDialect.STABLE_HLO
+            stablehlo.register_dialect(ctx)
+            # TODO there must be a better way to do this. We need to register `tt`
+            # (or any other of our dialects) otherwise we'll encounter problems with
+            # `func` dialect which isn't included through `stablehlo` and doesn't
+            # provide `func.register_dialect(ctx)` on its own.
+            tt.register_dialect(ctx)
+        elif "ttir." in module_str:
+            dialect = ModuleDialect.TTIR
+            ttir.register_dialect(ctx)
+        elif "ttnn." in module_str:
+            dialect = ModuleDialect.TTNN
+            ttnn.register_dialect(ctx)
+        else:
+            # Fallback to registering `tt` if nothing else succeeds.
+            # It might happen that module consists solely of some builtin dialect like
+            # `tensor.empty` op. In that case we are better off at least trying to
+            # register `tt` instead of raising error.
+            dialect = ModuleDialect.TT
+            tt.register_dialect(ctx)
+
+        return dialect
+
+    with Context() as ctx:
+        module = preprocess_module_str(module_str)
+        register_dialect(module, ctx)
+        return Module.parse(module)
 
 
 def wrap_in_module_str(

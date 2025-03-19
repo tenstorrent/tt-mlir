@@ -139,14 +139,11 @@ declare_mlir_python_sources(TTMLIRPythonInfra.Main
     mlir_module_splitter.py
     pydantic_models.py
     stablehlo_executor.py
-    stablehlo_splitter.py
     test_optimizer_overrides.py
     test_utils.py
     ttir_builder.py
     ttir_executor.py
-    ttir_splitter.py
     ttnn_executor.py
-    ttnn_splitter.py
     utils.py
 )
 
