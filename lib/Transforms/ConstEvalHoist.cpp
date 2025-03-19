@@ -350,7 +350,7 @@ class ConstEvalHoistTransform
     : public impl::ConstEvalHoistTransformBase<ConstEvalHoistTransform> {
 public:
   using impl::ConstEvalHoistTransformBase<
-      ConstEvalHoistTransform<IgnoreChecker>>::ConstEvalHoistTransformBase;
+      ConstEvalHoistTransform>::ConstEvalHoistTransformBase;
 
   void runOnOperation() final {
     mlir::ModuleOp module = this->getOperation();
