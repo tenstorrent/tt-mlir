@@ -199,16 +199,16 @@ def ttir_to_ttnn(
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
-    # Generate override string
-    overridings = []
+    # Generate option string
+    options = []
     if system_desc_path:
-        overridings.append(f"system-desc-path={system_desc_path}")
+        options.append(f"system-desc-path={system_desc_path}")
     if mesh_shape and len(mesh_shape) == 2:
-        overridings.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+        options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
 
     # Now, pass it through the TTIR to TTNN pipeline. Module gets
     # modified in place.
-    ttir_to_ttnn_backend_pipeline(module, " ".join(overridings))
+    ttir_to_ttnn_backend_pipeline(module, " ".join(options))
 
     print("`ttir_to_ttnn_backend_pipeline` passed successfully.")
 
