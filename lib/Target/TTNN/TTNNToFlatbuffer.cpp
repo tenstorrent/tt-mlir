@@ -122,7 +122,7 @@ getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
   auto desc = lookupDevice(device.getParentBlock()->getParentOp());
-  auto chipIds = desc.getChipIds();
+  auto chipIds = desc.getMesh().getChipIds();
   return ::tt::target::CreateDeviceRef(*cache.fbb, chipIds[0]);
 }
 
@@ -330,7 +330,7 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
   auto result = op.getResult();
   auto desc = lookupDevice(op);
-  auto meshShape = desc.getMeshShape();
+  auto meshShape = desc.getMesh().getShape();
   auto meshVolume = ttmlir::utils::volume(meshShape);
   ::tt::target::Dim2d mesh;
   if (meshVolume > 1) {
@@ -339,7 +339,7 @@ createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
     mesh = ::tt::target::Dim2d(1, 1);
   }
 
-  auto chipIds = toFlatbuffer(cache, desc.getChipIds());
+  auto chipIds = toFlatbuffer(cache, desc.getMesh().getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
   return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, chipIds, out);
 }
@@ -495,7 +495,7 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
   auto deviceOp = mlir::cast<GetDeviceOp>(
       getOperandThroughDPSOps(deviceValue).getDefiningOp());
   auto desc = lookupDevice(deviceOp);
-  ::llvm::ArrayRef<int64_t> meshShape = desc.getMeshShape();
+  ::llvm::ArrayRef<int64_t> meshShape = desc.getMesh().getShape();
   numShards = ttmlir::utils::volume(meshShape);
 
   if (numShards == 1) {
