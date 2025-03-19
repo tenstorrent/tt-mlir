@@ -4,12 +4,14 @@
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
+#include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
+#include "mlir/Dialect/Index/IR/IndexOps.h"
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/IR/Dominance.h>
@@ -32,6 +34,13 @@ static Value index(int64_t value, OpBuilder &builder) {
                                  builder.getIndexType(),
                                  builder.getIndexAttr(value))
       .getResult();
+}
+
+static int32_t getMemrefSizeBytes(MemRefType memref) {
+  if (auto elementType = mlir::dyn_cast<TileType>(memref.getElementType())) {
+    return elementType.getSizeBytes() * memref.getNumElements();
+  }
+  return memref.getElementTypeBitWidth() / 8 * memref.getNumElements();
 }
 
 namespace {
@@ -302,6 +311,144 @@ public:
 
 // dma rewriter
 
+namespace {
+
+class TTIRDMARewriter : public OpRewritePattern<ttir::DMAOp> {
+public:
+  using OpRewritePattern<ttir::DMAOp>::OpRewritePattern;
+
+  static std::pair<Value, Value>
+  getNocCoordsFromCoreIndex(PatternRewriter &rewriter,
+                            PhysicalCoreCoordMapping &mapping,
+                            OperandRange dstCoreIndex) {
+    std::pair<Value, Value> nocCoords;
+    for (size_t i = 0; i < dstCoreIndex.size(); i++) {
+      if (auto op = mlir::dyn_cast<arith::ConstantOp>(
+              dstCoreIndex[i].getDefiningOp())) {
+        PhysicalCoreCoord logicalCoord =
+            i ? PhysicalCoreCoord(
+                    0, 0, mlir::cast<IntegerAttr>(op.getValue()).getInt())
+              : PhysicalCoreCoord(
+                    0, mlir::cast<IntegerAttr>(op.getValue()).getInt(), 0);
+        auto [virtY, virtX] = mapping[logicalCoord];
+        if (i) {
+          nocCoords.second = index(virtX, rewriter);
+        } else {
+          nocCoords.first = index(virtY, rewriter);
+        }
+      } else if (auto op = mlir::dyn_cast<ttir::CoreIndexOp>(
+                     dstCoreIndex[i].getDefiningOp())) {
+        auto nocCoord = i ? nocCoords.second : nocCoords.first;
+        nocCoord = op.getResult();
+      } else {
+        assert(false && "Expected constant op or core index op, failing.");
+      }
+    }
+    return nocCoords;
+  }
+
+  static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
+                                                   Value &nocStartY,
+                                                   Value &nocStartX,
+                                                   OperandRange mcastShape) {
+    std::pair<Value, Value> nocEndCoords;
+    nocEndCoords.first = rewriter.create<arith::AddIOp>(
+        nocStartY.getLoc(), nocStartY, mcastShape[0]);
+    nocEndCoords.second = rewriter.create<arith::AddIOp>(
+        nocStartX.getLoc(), nocStartX, mcastShape[1]);
+    return nocEndCoords;
+  }
+
+  static int64_t getAddressFromMemref(Value memref) {
+    for (auto &use : memref.getUses()) {
+      if (auto alloc = mlir::dyn_cast<memref::AllocOp>(use.getOwner())) {
+        return alloc->getAttrOfType<IntegerAttr>("address").getInt();
+      }
+    }
+    assert("Unallocated tensor found, failing.");
+    return -1;
+  }
+
+  LogicalResult matchAndRewrite(ttir::DMAOp op,
+                                PatternRewriter &rewriter) const final {
+    auto device = op->getParentOfType<ttir::GenericOp>().getDevice();
+    auto chipIds = device.getChipIds();
+    auto chipDescs =
+        op->getParentOfType<ttir::GenericOp>().getSystemDesc().getChipDescs();
+
+    PhysicalCoreCoordMapping workerMapping =
+        PhysicalCoreCoordMapping::getWorkerMapping(chipIds, chipDescs);
+    PhysicalCoreCoordMapping dramMapping =
+        PhysicalCoreCoordMapping::getDramMapping(chipIds, chipDescs);
+
+    Value srcL1Addr = i32(getAddressFromMemref(op.getSrc()), rewriter);
+    Value dstL1Addr = i32(getAddressFromMemref(op.getDst()), rewriter);
+    Value transferSize =
+        i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
+
+    if (op.isSrcLocal()) {
+      // writes
+      if (op.isDstLocal()) {
+        // local write - 1
+      } else {
+        // remote write
+        if (op.getDstCoreIndex().empty()) {
+          // dram write - 2 TBD re: ADDRESSING
+        } else {
+          // l1 write
+          assert(op.getDstCoreIndex().size() == 2 &&
+                 "Expected single dst core index (2 dims) "
+                 "for now, failing.");
+
+          auto [dstNocY, dstNocX] = getNocCoordsFromCoreIndex(
+              rewriter, workerMapping, op.getDstCoreIndex());
+
+          if (op.isMcast()) {
+            // mcast writes
+            assert(op.getMcastShape().size() == 2 &&
+                   "Expected mcast shape to have 2 dims, failing.");
+
+            auto [mcastEndY, mcastEndX] = getMcastEndCoords(
+                rewriter, dstNocY, dstNocX, op.getMcastShape());
+            auto numDests = rewriter.create<arith::MulIOp>(
+                op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
+            auto dstNocMcastAddr =
+                rewriter.create<ttkernel::GetNocMulticastAddrOp>(
+                    op.getLoc(), dstNocX, dstNocY, mcastEndX, mcastEndY,
+                    dstL1Addr, nullptr);
+            if (op.getSrc() == op.getDst()) {
+              // mcast write - 5
+              auto numDestsNoLoopback = rewriter.create<arith::SubIOp>(
+                  op.getLoc(), numDests, index(1, rewriter));
+              rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
+                  op.getLoc(), srcL1Addr, dstNocMcastAddr, transferSize,
+                  numDestsNoLoopback, nullptr, nullptr, nullptr);
+            } else {
+              // mcast write loopback src - 6
+              rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
+                  op.getLoc(), srcL1Addr, dstNocMcastAddr, transferSize,
+                  numDests, nullptr, nullptr, nullptr);
+            }
+          } else {
+            // single core write - 4
+            auto dstNocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+                op.getLoc(), dstNocX, dstNocY, dstL1Addr);
+            rewriter.create<ttkernel::NocAsyncWriteOp>(
+                op.getLoc(), srcL1Addr, dstNocAddr, transferSize);
+          }
+        }
+      }
+    } else {
+      // dram reads - 3
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+} // namespace
+
 // memref.dealloc -> ttmetal.deallocate_buffer pass?
 
 // init cleanup pass ?
@@ -316,7 +463,8 @@ void populateTTIRToTTKernelInnerRegionPatterns(
 
   patterns.add<ttkernel::TTIRTileOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
-               ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>>(ctx);
+               ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
+               ttkernel::TTIRDMARewriter>(ctx);
 }
 
 void populateTTIRToTTKernelTopLevelPatterns(MLIRContext *ctx,
