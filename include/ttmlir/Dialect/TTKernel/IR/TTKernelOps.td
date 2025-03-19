@@ -394,7 +394,7 @@ def TTKernel_GetNocAddrXYOp : TTKernel_Op<"get_noc_addr_xy"> {
       GetNocAddr api including core coordinates
     }];
 
-    let arguments = (ins I32:$x, I32:$y, I32:$l1Address);
+    let arguments = (ins Index:$x, Index:$y, I32:$l1Address);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
@@ -681,7 +681,7 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
     GetNocMulticastAddr
   }];
 
-  let arguments = (ins I32:$noc_x_start, I32:$noc_y_start, I32:$noc_x_end, I32:$noc_y_end, I32:$addr, Optional<I8>:$noc);
+  let arguments = (ins Index:$noc_x_start, Index:$noc_y_start, Index:$noc_x_end, Index:$noc_y_end, I32:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 }
 
