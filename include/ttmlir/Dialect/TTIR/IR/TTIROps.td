@@ -1277,12 +1277,11 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
 
       Inputs:
-        - `input` AnyRankedTensor: expected in the following format (N, H_in, W_in, C) where:
-          - N is the batch size
-          - H_in is the height of the input planes
-          - W_in is the width of the input planes
-          - C is the number of channels
-
+      - `input` AnyRankedTensor: expected in the following format (N, H_in, W_in, C) where:
+        - N is the batch size
+        - H_in is the height of the input planes
+        - W_in is the width of the input planes
+        - C is the number of channels
       - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K_H, K_W) where:
         - C is the number of input channels
         - O is the number of output channels
@@ -1290,17 +1289,16 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
         - K_H is the height of the kernel
         - K_W is the width of the kernel
       - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, O).
-
-        - `output` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
-          - H_out = (H_in - 1) * stride[0] - (padding_top + padding_bottom) + dilation[0] * (K_H - 1) + output_padding[0] + 1
-          - W_out = (W_in - 1) * stride[1] - (padding_left + padding_right) + dilation[1] * (K_W - 1) + output_padding[1] + 1
+      - `output` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
+        - H_out = (H_in - 1) * stride[0] - (padding_top + padding_bottom) + dilation[0] * (K_H - 1) + output_padding[0] + 1
+        - W_out = (W_in - 1) * stride[1] - (padding_left + padding_right) + dilation[1] * (K_W - 1) + output_padding[1] + 1
 
       Attributes:
-        - `stride` (i32 | array<2xi32>): Controls the stride for the cross-correlation.
-        - `padding` (i32 | array<2xi32> | array<4xi32>): Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
-        - `output_padding` (i32 | array<2xi32>): Controls the additional size added to one side of the output shape.
-        - `dilation` (i32 | array<2xi32>): Controls the spacing between the kernel points
-        - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+      - `stride` (i32 | array<2xi32>): Controls the stride for the cross-correlation.
+      - `padding` (i32 | array<2xi32> | array<4xi32>): Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
+      - `output_padding` (i32 | array<2xi32>): Controls the additional size added to one side of the output shape.
+      - `dilation` (i32 | array<2xi32>): Controls the spacing between the kernel points
+      - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
 
       Example:
         %input = tensor.empty() : () -> tensor<3x8x8x256xbf16>
