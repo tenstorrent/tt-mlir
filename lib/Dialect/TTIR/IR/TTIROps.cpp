@@ -1331,6 +1331,11 @@ permuteDenseElementsAttr(mlir::DenseElementsAttr elementsAttr,
     newShape.push_back(shape[i]);
   }
 
+  if (elementsAttr.isSplat()) {
+    return elementsAttr.resizeSplat(elementsAttr.getType().cloneWith(
+        newShape, elementsAttr.getElementType()));
+  }
+
   llvm::SmallVector<uint32_t> newStrides(rank, 1);
   for (int32_t i = rank - 2; i >= 0; i--) {
     newStrides[i] = newStrides[i + 1] * newShape[i + 1];
@@ -2914,7 +2919,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         return mlir::failure();
       });
 }
-
+static uint64_t count = 0;
 ::mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
   DenseElementsAttr elementsAttr;
   if (auto attr = dyn_cast_or_null<DenseElementsAttr>(adaptor.getInput())) {
@@ -2931,6 +2936,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   if (elementBitWidth % 8 != 0) {
     return nullptr;
   }
+  llvm::outs() << "PermuteOp fold " << count++ << "\n";
   return permuteDenseElementsAttr(elementsAttr, getPermutation());
 }
 
