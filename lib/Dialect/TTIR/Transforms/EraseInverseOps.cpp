@@ -13,6 +13,7 @@
 #include "ttmlir/Utils.h"
 #include "llvm/Support/LogicalResult.h"
 #include <cstdint>
+#include <llvm/ADT/Sequence.h>
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/ErrorHandling.h>
@@ -27,6 +28,27 @@
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRERASEINVERSEOPS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+
+LogicalResult checkAllUsersAreIdenticalTms(SmallVector<Operation *> users) {
+  Operation *firstUser = users[0];
+  for (auto *user : users) {
+    if (user->getAttrDictionary() != firstUser->getAttrDictionary()) {
+      return failure();
+    }
+  }
+  return success(
+      isa<ttir::TransposeOp, ttir::PermuteOp, ttir::ReshapeOp>(firstUser));
+}
+
+template <typename... TmTypes>
+LogicalResult checkAtLeastOneUserIsTm(SmallVector<Operation *> users) {
+  for (auto *user : users) {
+    if (isa<TmTypes...>(user)) {
+      return success();
+    }
+  }
+  return failure();
+}
 
 namespace {
 class TTIRCommuteTmsAboveElementwiseRewriter : public RewritePattern {
@@ -57,18 +79,6 @@ public:
       llvm_unreachable("users[0] must be one of ttir::TransposeOp, "
                        "ttir::PermuteOp, ttir::ReshapeOp");
     }
-  }
-
-  LogicalResult
-  checkAllUsersAreIdenticalTms(SmallVector<Operation *> users) const {
-    Operation *firstUser = users[0];
-    for (auto *user : users) {
-      if (user->getAttrDictionary() != firstUser->getAttrDictionary()) {
-        return failure();
-      }
-    }
-    return success(
-        isa<ttir::TransposeOp, ttir::PermuteOp, ttir::ReshapeOp>(firstUser));
   }
 
   LogicalResult checkAllOperandsHaveSameShape(ValueRange operands) const {
@@ -121,7 +131,7 @@ private:
           operandType.getElementType()));
 
       TMOpType newTM = cast<TMOpType>(rewriter.clone(*user));
-      handlePlaceOnImplicitBroadcast(newTM);
+      handlePlaceOnImplicitBroadcast(newTM, operands[operandIdx]);
       newTM->setOperand(newTM->getNumOperands() - 1,
                         newTMDPSOperands[operandIdx]);
       newTMs.push_back(newTM);
@@ -153,11 +163,10 @@ private:
     }
   }
 
-  void handlePlaceOnImplicitBroadcast(Operation *newTM) const {
+  void handlePlaceOnImplicitBroadcast(Operation *newTM, Value operand) const {
     // If the TMOpType is a transpose, we need to place it on the implicit
     // broadcast path
-    auto operandShape =
-        cast<RankedTensorType>(newTM->getOperand(0).getType()).getShape();
+    auto operandShape = cast<RankedTensorType>(operand.getType()).getShape();
     auto resultShape =
         cast<RankedTensorType>(newTM->getResult(0).getType()).getShape();
     int64_t operandVolume =
@@ -179,10 +188,8 @@ private:
         newShape[permutation[i]] = operandShape[i];
       }
     } else if (auto reshape = dyn_cast_or_null<ttir::ReshapeOp>(newTM)) {
-      // newShape = cast<RankedTensorType>(reshape->getResult(0).getType())
-      //                .getShape();
-      int x = 2;
-      (void)x;
+      // auto afterBroadcastShape = resultShape;
+
     } else {
       llvm_unreachable("newTM must be one of ttir::TransposeOp, "
                        "ttir::PermuteOp, ttir::ReshapeOp");
@@ -230,6 +237,97 @@ private:
     SmallVector<Operation *> users(op->getUsers());
     return success(succeeded(checkAllUsersAreIdenticalTms(users)));
   };
+};
+} // namespace
+
+namespace {
+class TTIRCommuteTmsAboveBroadcast
+    : public OpRewritePattern<ttir::BroadcastOp> {
+  using OpRewritePattern<ttir::BroadcastOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::BroadcastOp op,
+                                PatternRewriter &rewriter) const override {
+    SmallVector<Operation *> users(op->getUsers());
+    if (failed(checkAtLeastOneUserIsTm<ttir::TransposeOp, ttir::PermuteOp,
+                                       ttir::ReshapeOp>(users))) {
+      return failure();
+    }
+
+    Operation *originalTM = users[0];
+    Value operand = op->getOperand(0);
+    auto tmResultType =
+        cast<RankedTensorType>(originalTM->getResult(0).getType());
+
+    auto operandShape = cast<RankedTensorType>(operand.getType()).getShape();
+    auto resultShape = tmResultType.getShape();
+
+    SmallVector<int64_t> newShape(resultShape);
+    Operation *newTM;
+    SmallVector<int64_t> newBroadcastDimensions;
+    if (auto transpose = dyn_cast_or_null<ttir::TransposeOp>(originalTM)) {
+      newShape[transpose.getDim0()] = operandShape[transpose.getDim0()];
+      newShape[transpose.getDim1()] = operandShape[transpose.getDim1()];
+
+      for (int32_t i = 0;
+           i < static_cast<int32_t>(op.getBroadcastDimensions().size()); i++) {
+        if (i == transpose.getDim0()) {
+          newBroadcastDimensions.push_back(
+              op.getBroadcastDimensions()[transpose.getDim1()]);
+        } else if (i == transpose.getDim1()) {
+          newBroadcastDimensions.push_back(
+              op.getBroadcastDimensions()[transpose.getDim0()]);
+        } else {
+          newBroadcastDimensions.push_back(op.getBroadcastDimensions()[i]);
+        }
+      }
+
+      auto newTMResultType =
+          tmResultType.cloneWith(newShape, tmResultType.getElementType());
+
+      auto transposeDPS = rewriter.create<tensor::EmptyOp>(
+          op->getLoc(), newTMResultType.getShape(),
+          newTMResultType.getElementType());
+      newTM = rewriter.create<ttir::TransposeOp>(
+          op->getLoc(), newTMResultType, operand, transposeDPS,
+          transpose.getDim0(), transpose.getDim1());
+
+    } else if (auto permute = dyn_cast_or_null<ttir::PermuteOp>(originalTM)) {
+      auto permutation = permute.getPermutation();
+      for (int64_t i = 0; i < static_cast<int64_t>(permutation.size()); i++) {
+        newShape[i] = operandShape[permutation[i]];
+      }
+
+      for (uint32_t i = 0; i < op.getBroadcastDimensions().size(); i++) {
+        newBroadcastDimensions.push_back(
+            op.getBroadcastDimensions()[permutation[i]]);
+      }
+
+      auto newTMResultType =
+          tmResultType.cloneWith(newShape, tmResultType.getElementType());
+
+      auto permuteDPS = rewriter.create<tensor::EmptyOp>(
+          op->getLoc(), newTMResultType.getShape(),
+          newTMResultType.getElementType());
+      newTM = rewriter.create<ttir::PermuteOp>(
+          op->getLoc(), newTMResultType, operand, permuteDPS, permutation);
+
+    } else if (auto reshape = dyn_cast_or_null<ttir::ReshapeOp>(originalTM)) {
+      return rewriter.notifyMatchFailure(op, "Reshape not supported yet");
+    } else {
+      llvm_unreachable("newTM must be one of ttir::TransposeOp, "
+                       "ttir::PermuteOp, ttir::ReshapeOp");
+    }
+
+    auto broadcastDPS = rewriter.create<tensor::EmptyOp>(
+        op->getLoc(), resultShape, tmResultType.getElementType());
+    assert(newBroadcastDimensions.size() <= (uint32_t)tmResultType.getRank());
+    auto newBroadcast = rewriter.create<ttir::BroadcastOp>(
+        op->getLoc(), tmResultType, newTM->getResult(0), broadcastDPS,
+        newBroadcastDimensions);
+
+    rewriter.replaceOp(originalTM, newBroadcast);
+    return success();
+  }
 };
 } // namespace
 
@@ -347,6 +445,7 @@ public:
         &getContext());
     commutePatterns.add<ttir::TTIRCommuteTmsAboveElementwiseBinaryRewriter>(
         &getContext());
+    commutePatterns.add<TTIRCommuteTmsAboveBroadcast>(&getContext());
     FrozenRewritePatternSet commutePatternSet(std::move(commutePatterns));
 
     RewritePatternSet erasePatterns(&getContext());
