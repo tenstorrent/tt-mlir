@@ -457,7 +457,7 @@ jobs:
         -B ${{ steps.strings.outputs.build-output-dir }} \
         -DCMAKE_CXX_COMPILER=clang++-17 \
         -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_BUILD_TYPE=Coverage \
         -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DTTMLIR_ENABLE_RUNTIME=OFF \
@@ -479,3 +479,35 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
+
+    - name: Generate Coverage
+      id: coverage
+      shell: bash
+      run: |
+        source env/activate
+        lcov --ignore-errors inconsistent,format --include $(pwd) --exclude $BUILD_DIR --directory $BUILD_DIR --capture --output-file $BUILD_DIR/coverage.info
+        genhtml --ignore-errors inconsistent,format,category $BUILD_DIR/coverage.info -o $BUILD_DIR/coverage-site
+        echo "Coverage report is available at $BUILD_DIR/coverage-site/index.html"
+
+    - name: Prepare code coverage report
+      run: |
+        lcov --ignore-errors inconsistent,format --include $(pwd) --directory build --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
+        lcov --extract coverage.info '**/tt-mlir/*' --output-file coverage.info
+        sed -i 's|SF:/__w/tt-mlir/tt-mlir/|SF:|' coverage.info
+        lcov --list coverage.info
+
+    - name: Upload coverage reports to Codecov
+      if: success() || failure()
+      uses: codecov/codecov-action@v5
+      with:
+        files: coverage.info
+        disable_search: true
+        token: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Upload test results to Codecov
+      if: success() || failure()
+      uses: codecov/test-results-action@v1
+      with:
+        files: ${{ steps.strings.outputs.test_report_path }}
+        disable_search: true
+        token: ${{ secrets.CODECOV_TOKEN }}
