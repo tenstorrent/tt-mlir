@@ -267,6 +267,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt) {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  LOG_INFO("Number of devices = ", numDevices);
+
   ::tt::tt_metal::DispatchCoreType type =
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
   std::vector<chip_id_t> deviceIds(numDevices);
@@ -278,17 +280,22 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
           ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = meshShape,
                                                         .offset = {}},
           DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
+  LOG_INFO("Mesh device created");
+
   CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
   LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
            "}");
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {
+    LOG_INFO("Before getCurrentSystemDescImpl()");
     desc = getCurrentSystemDescImpl(*meshDevice);
+    LOG_INFO("After getCurrentSystemDescImpl()");
   } catch (...) {
     eptr = std::current_exception();
   }
   meshDevice->close();
+  LOG_INFO("Closed mesh device");
   if (eptr) {
     std::rethrow_exception(eptr);
   }
