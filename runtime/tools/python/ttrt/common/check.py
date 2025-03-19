@@ -207,7 +207,6 @@ class Check:
                         bin.fbb_dict["system_desc"]
                         != system_desc_to_check["system_desc"]
                     ):
-                        # Get the two dictionaries/values we're comparing
                         fbb_desc = bin.fbb_dict["system_desc"]
                         check_desc = system_desc_to_check["system_desc"]
 
