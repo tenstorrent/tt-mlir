@@ -21,7 +21,7 @@ foreach(OPTION ${TT_RUNTIME_OPTIONS})
 endforeach()
 
 # Apply coverage_config to the main target
-target_link_libraries(ttforge_csrc PUBLIC coverage_config)
+target_link_libraries(TTMLIR INTERFACE coverage_config)
 
 add_subdirectory(lib)
 add_subdirectory(tools)
