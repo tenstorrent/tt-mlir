@@ -4,6 +4,7 @@
 
 # RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
 
+import os
 import inspect
 import torch
 import pytest
@@ -19,20 +20,23 @@ def compile_to_flatbuffer(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[torch.dtype]] = None,
+    test_base: str = "test",
+    output_root: str = "",
     target: str = "ttnn",
-    module_dump: bool = False,
+    module_dump: bool = True,
 ):
-    test_base = test_fn.__name__
-
     from_ttir: Callable
     to_flatbuffer: Callable
+    mlir_suffix: str
 
     if target == "ttnn":
         from_ttir = ttir_to_ttnn
         to_flatbuffer = ttnn_to_flatbuffer 
+        mlir_suffix =  "_ttnn.mlir"
     else:
         from_ttir = ttir_to_ttmetal
         to_flatbuffer = ttmetal_to_flatbuffer 
+        mlir_suffix =  "_ttm.mlir"
 
     # Compile model to TTIR MLIR
     module, builder = compile_as_mlir_module(
@@ -44,10 +48,13 @@ def compile_to_flatbuffer(
             f.write(str(module))
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-    module = from_ttir(module, module_dump, test_base + "_ttm.mlir")
+    module = from_ttir(module, module_dump, output_root, test_base + mlir_suffix)
+
+    module_logger = MLIRModuleLogger()
+    module_logger.attach_context(module.context)
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
-    to_flatbuffer(module, builder, test_base + ".ttm")
+    to_flatbuffer(module, builder, output_root, test_base + "." + target, module_log=module_logger.module_log)
 
     # TODO: execute flatbuffer
 
@@ -61,7 +68,9 @@ def compile_to_flatbuffer(
 def test_mnist(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
-    target: str):
+    target: str,
+    artifact_path: str,
+    request):
     
     def model(
         in0: Operand,  # Input 28x28 image
@@ -77,7 +86,8 @@ def test_mnist(
         matmul_5 = builder.matmul(relu_3, in3)
         add_6 = builder.add(matmul_5, in4)
         return builder.softmax(add_6, dimension=1)
-    compile_to_flatbuffer(model, shapes, dtypes, target=target)
+    # TODO: figure out a better way to name these tests for filename purposes
+    compile_to_flatbuffer(model, shapes, dtypes, test_base=request.node.name, target=target, output_root=artifact_path)
     
 
 
@@ -105,7 +115,8 @@ def test_mnist(
 def test_llama_attention(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
-    target: str):
+    target: str,
+    artifact_path: str):
 
     def model(
         arg0: Operand,
@@ -185,29 +196,4 @@ def test_llama_attention(
         output115 = builder.unsqueeze(output113, 0)
 
         return output115
-    compile_to_flatbuffer(model, shapes, dtypes, target=target)
-
-
-if __name__ == "__main__":
-    import argparse, os
-
-    parser = argparse.ArgumentParser(description="Run TTIR Builder Model tests")
-    parser.add_argument(
-        "--path",
-        type=str,
-        help="Optional output path for the flatbuffer. Creates path if supplied path doesn't exist",
-    )
-    args = parser.parse_args()
-
-    if args.path and os.path.exists(args.path):
-        if not os.path.exists(args.path):
-            os.makedirs(args.path)
-        set_output_path(args.path)
-
-    test_functions = inspect.getmembers(
-        inspect.getmodule(inspect.currentframe()), inspect.isfunction
-    )
-
-    for function_name, func in test_functions:
-        if function_name.startswith("test_"):
-            func()
+    compile_to_flatbuffer(model, shapes, dtypes, target=target, output_root=artifact_path)

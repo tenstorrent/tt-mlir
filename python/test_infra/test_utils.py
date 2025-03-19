@@ -42,15 +42,15 @@ def set_output_path(path):
     OUTPUT_PATH = path
 
 
-def get_ttnn_path(filename):
-    ttnn_dir = os.path.join(OUTPUT_PATH, "ttnn")
+def get_ttnn_path(output_path, filename):
+    ttnn_dir = os.path.join(output_path, "ttnn")
     if not os.path.exists(ttnn_dir):
         os.makedirs(ttnn_dir)
     return os.path.join(ttnn_dir, filename)
 
 
-def get_ttmetal_path(filename):
-    ttmetal_dir = os.path.join(OUTPUT_PATH, "ttmetal")
+def get_ttmetal_path(output_path, filename):
+    ttmetal_dir = os.path.join(output_path, "ttmetal")
     if not os.path.exists(ttmetal_dir):
         os.makedirs(ttmetal_dir)
     return os.path.join(ttmetal_dir, filename)
@@ -175,6 +175,7 @@ def compile_as_mlir_module(
 def ttir_to_ttnn(
     module,
     dump_to_file: bool = True,
+    output_path: str = "",
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
@@ -221,7 +222,7 @@ def ttir_to_ttnn(
 
     # Optionally dump to file.
     if dump_to_file:
-        output_file_name = get_ttnn_path(output_file_name)
+        output_file_name = get_ttnn_path(output_path, output_file_name)
         with open(output_file_name, "w") as f:
             f.write(str(module))
 
@@ -231,6 +232,7 @@ def ttir_to_ttnn(
 def ttir_to_ttmetal(
     module,
     dump_to_file: bool = True,
+    output_path: str = "",
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
 ):
@@ -267,7 +269,7 @@ def ttir_to_ttmetal(
 
     # Optionally dump to file.
     if dump_to_file:
-        output_file_name = get_ttmetal_path(output_file_name)
+        output_file_name = get_ttmetal_path(output_path, output_file_name)
         with open(output_file_name, "w") as f:
             f.write(str(module))
 
@@ -275,7 +277,7 @@ def ttir_to_ttmetal(
 
 
 def ttnn_to_flatbuffer(
-    module, builder, output_file_name: str = "ttnn_fb.ttnn", module_log=None
+        module, builder, output_path: str = "", output_file_name: str = "ttnn_fb.ttnn", module_log=None
 ):
     """
     Converts TTNN module to flatbuffer and saves to file. Wrapper around
@@ -284,7 +286,7 @@ def ttnn_to_flatbuffer(
 
     # Convert to flatbuffer file.
     # Take the output_file_name and prefix with the ttnn directory
-    output_file_name = get_ttnn_path(output_file_name)
+    output_file_name = get_ttnn_path(output_path, output_file_name)
     if module_log:
         ttnn_to_flatbuffer_file(
             module, output_file_name, builder.get_golden_map(), module_log
@@ -298,7 +300,9 @@ def ttnn_to_flatbuffer(
 def ttmetal_to_flatbuffer(
     module,
     builder,
+    output_path: str = "",
     output_file_name: str = "ttmetal_fb.ttm",
+    module_log=None
 ):
     """
     Converts TTMetal module to flatbuffer and saves to file. Wrapper around
@@ -307,8 +311,11 @@ def ttmetal_to_flatbuffer(
 
     # Convert to flatbuffer file.
     # Take the output_file_name and prefix with ttm directory
-    output_file_name = get_ttmetal_path(output_file_name)
-    ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
+    output_file_name = get_ttmetal_path(output_path, output_file_name)
+    if module_log is not None:
+        ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map(), module_log)
+    else:
+        ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
 
     print("`ttmetal_to_flatbuffer_file` passed successfully.")
 
