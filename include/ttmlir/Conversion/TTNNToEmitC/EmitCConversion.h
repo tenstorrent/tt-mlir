@@ -36,6 +36,11 @@ struct SmallVector {
 struct IDevice;
 
 struct Tensor;
+
+namespace operations::creation::detail {
+struct OptionalAnyDevice;
+}
+
 } // namespace ttnn
 
 namespace mlir {
@@ -110,6 +115,12 @@ struct TypeName<std::array<T, k>> {
 template <typename T>
 struct TypeName<std::vector<T>> {
   inline static const std::string value = "::std::vector<" + TypeNameV<T> + ">";
+};
+
+template <>
+struct TypeName<::ttnn::operations::creation::detail::OptionalAnyDevice> {
+  inline static const std::string value =
+      "::ttnn::operations::creation::detail::OptionalAnyDevice";
 };
 
 template <typename T>
@@ -809,6 +820,49 @@ public:
       return rewriter.getType<emitc::OpaqueAttr>(*result);
     }
     return rewriter.getType<emitc::OpaqueAttr>(result);
+  }
+
+  template <typename TargetTy = ::ttnn::IDevice *>
+  mlir::Attribute
+  emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
+    if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *>) {
+      mlir::OpOperand *opOperand = std::find_if(
+          op->getOpOperands().begin(), op->getOpOperands().end(),
+          [&](OpOperand &operand) { return operand.get() == device; });
+
+      unsigned index = opOperand->getOperandNumber();
+      operands.push_back(adaptor.getOperands()[index]);
+
+      return rewriter.getIndexAttr(index);
+    } else if constexpr (std::is_same<TargetTy,
+                                      ::ttnn::operations::creation::detail::
+                                          OptionalAnyDevice>::value) {
+      mlir::OpOperand *opOperand = std::find_if(
+          op->getOpOperands().begin(), op->getOpOperands().end(),
+          [&](OpOperand &operand) { return operand.get() == device; });
+      unsigned index = opOperand->getOperandNumber();
+
+      mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
+
+      emitc::ApplyOp applyOp = rewriter.create<emitc::ApplyOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), "ttnn::IDevice"), "*",
+          deviceValueFromOperandsList);
+
+      emitc::CallOpaqueOp newDevice = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(
+              rewriter.getContext(),
+              "::ttnn::operations::creation::detail::OptionalAnyDevice"),
+          "::ttnn::operations::creation::detail::OptionalAnyDevice",
+          applyOp.getResult(), nullptr, nullptr);
+
+      operands.push_back(newDevice.getResult(0));
+
+      return rewriter.getIndexAttr(operands.size() - 1);
+    } else {
+      llvm_unreachable("Unknown TargetTy");
+    }
   }
 
   template <typename OpConversionPatternTy>
