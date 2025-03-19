@@ -3007,87 +3007,9 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   return success();
 }
 
-// GenericOp builders
-
-// Build a generic region for a binary elementwise operation.
-template <typename OpTy>
-static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
-                                            ::mlir::OpBuilder &opBuilder,
-                                            ::mlir::Block *block) {
-  assert(block->getNumArguments() == 3 &&
-         "Binary op block expects two input and one output argument.");
-
-  auto lhs = block->getArgument(0);
-  auto rhs = block->getArgument(1);
-  auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
-}
-
-// Build a generic region for a unary elementwise operation.
-template <typename OpTy>
-static void buildGenericEltwiseUnaryRegion(::mlir::Location loc,
-                                           ::mlir::OpBuilder &opBuilder,
-                                           ::mlir::Block *block) {
-  assert(block->getNumArguments() == 2 &&
-         "Unary op block expects one input and one output argument.");
-
-  auto arg = block->getArgument(0);
-  auto result = opBuilder.create<OpTy>(loc, arg);
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
-}
-
-// AddOp generic region builder.
-void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder, block);
-}
-
-// MultiplyOp generic region builder.
-void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
-    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder, block);
-}
-
-// ExpOp generic region builder.
-void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  buildGenericEltwiseUnaryRegion<math::ExpOp>(getLoc(), opBuilder, block);
-}
-
-// DivOp generic region builder.
-void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
-                                                        block);
-}
-
-// MaximumOp generic region builder.
-void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                   ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::MaximumFOp>(getLoc(), opBuilder,
-                                                     block);
-}
-
 //===----------------------------------------------------------------------===//
 // KernelOp
 //===----------------------------------------------------------------------===//
-
-// KernelOp builders.
-static mlir::tt::ttir::KernelOp
-buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
-              ::mlir::StringRef kernelName, ::mlir::StringRef kernelKind,
-              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs) {
-  return opBuilder.create<mlir::tt::ttir::KernelOp>(
-      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs);
-}
-
-// Reduce op kernel builder.
-static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
-                           mlir::Location loc, ::mlir::StringRef kernelKind) {
-  auto kernelOp = buildKernelOp(opBuilder, loc, "reduce", kernelKind,
-                                block->getArgument(0), block->getArgument(1));
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
-}
 
 // Common verifier for all Reduce ops.
 static mlir::LogicalResult
@@ -3150,13 +3072,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 // MaxOp
 //===----------------------------------------------------------------------===//
 
-// MaxOp kernel builder.
-void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "max");
-}
-
 // MaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MaxOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
@@ -3166,13 +3081,6 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 //===----------------------------------------------------------------------===//
 // MeanOp
 //===----------------------------------------------------------------------===//
-
-// MeanOp kernel builder.
-void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "mean");
-}
 
 // MeanOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MeanOp::verify() {
@@ -3184,13 +3092,6 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // SumOp
 //===----------------------------------------------------------------------===//
 
-// SumOp kernel builder.
-void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "sum");
-}
-
 // SumOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
@@ -3200,13 +3101,6 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 //===----------------------------------------------------------------------===//
 // Reduce MinOp
 //===----------------------------------------------------------------------===//
-
-// MinOp kernel builder.
-void mlir::tt::ttir::MinOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "min");
-}
 
 // MinOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MinOp::verify() {
@@ -3218,13 +3112,6 @@ void mlir::tt::ttir::MinOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // Reduce ProdOp
 //===----------------------------------------------------------------------===//
 
-// ProdOp kernel builder.
-void mlir::tt::ttir::ProdOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "prod");
-}
-
 // ProdOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ProdOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
@@ -3234,13 +3121,6 @@ void mlir::tt::ttir::ProdOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 //===----------------------------------------------------------------------===//
 // ReduceAndOp
 //===----------------------------------------------------------------------===//
-
-// ReduceAndOp kernel builder.
-void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
-    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "and");
-}
 
 // ReduceAndOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ReduceAndOp::verify() {
@@ -3252,13 +3132,6 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 // ReduceOrOp
 //===----------------------------------------------------------------------===//
 
-// ReduceOrOp kernel builder.
-void mlir::tt::ttir::ReduceOrOp::buildGenericRegion(
-    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "or");
-}
-
 // ReduceOrOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ReduceOrOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
@@ -3268,13 +3141,6 @@ void mlir::tt::ttir::ReduceOrOp::buildGenericRegion(
 //===----------------------------------------------------------------------===//
 // Reduce ArgMaxOp
 //===----------------------------------------------------------------------===//
-
-// ArgMaxOp kernel builder.
-void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                  ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "argmax");
-}
 
 // ArgMaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {

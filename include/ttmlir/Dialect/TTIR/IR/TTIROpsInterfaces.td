@@ -64,56 +64,6 @@ def TTIR_Broadcastable : OpInterface<"Broadcastable"> {
   }];
 }
 
-def TTIR_GenericRegionOpInterface : OpInterface<"GenericRegionOp"> {
-  let cppNamespace = "::mlir::tt::ttir";
-
-  let methods = [
-    InterfaceMethod<
-      /*desc=*/[{
-        Return a pair of indexingMaps and iteratorTypes for the given GenericRegionOp.
-        Where:
-        indexingMaps: a list of AffineMapAttr, one AffineMapAttr per each input and
-                      output view. Such AffineMapAttr specifies the mapping between
-                      the loops and the indexing within each view. It effectively
-                      defines how the op can legally be parallelized.
-        iteratorTypes: an ArrayAttr specifying the type of the enclosing loops. Each
-                       element of the list represents an iterator of one of the
-                       following types, parallel and reduction.
-      }],
-      /*retTy=*/"std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr>",
-      /*methodName=*/"getIndexingMaps",
-      /*args=*/(ins "::mlir::Builder &":$builder),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/""
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        Rewrite self into the generic region block using the arith and math dialects.
-      }],
-      /*retTy=*/"void",
-      /*methodName=*/"buildGenericRegion",
-      /*args=*/(ins "::mlir::OpBuilder &":$op_builder,
-                         "::mlir::Block*":$block),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/""
-    >,
-    StaticInterfaceMethod<
-      /*desc=*/[{
-        Return if the given operands have the same rank.
-      }],
-      /*retTy=*/"bool",
-      /*methodName=*/"sameRank",
-      /*args=*/(ins "::mlir::OperandRange":$operands),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        return llvm::all_equal(llvm::map_range(operands, [](Value operand) {
-          return mlir::cast<RankedTensorType>(operand.getType()).getRank();
-        }));
-      }]
-    >
-  ];
-}
-
 def TTIR_PartiallyBroadcastable : OpInterface<"PartiallyBroadcastable"> {
   // Supports implicit broadcast for first operand only.
   let cppNamespace = "::mlir::tt::ttir";
