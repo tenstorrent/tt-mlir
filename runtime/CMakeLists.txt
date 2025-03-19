@@ -20,9 +20,6 @@ foreach(OPTION ${TT_RUNTIME_OPTIONS})
   endif()
 endforeach()
 
-# Apply coverage_config to the main target
-target_link_libraries(TTMLIR INTERFACE coverage_config)
-
 add_subdirectory(lib)
 add_subdirectory(tools)
 
@@ -31,5 +28,4 @@ if (TTMLIR_ENABLE_RUNTIME_TESTS)
   add_subdirectory(test)
 else()
   add_library(TTRuntimeTTNNTestLib INTERFACE)
-  target_link_libraries(TTRuntimeTTNNTestLib INTERFACE coverage_config)
 endif()
