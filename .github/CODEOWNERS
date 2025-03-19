@@ -19,7 +19,7 @@
 /include/ttmlir-c/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /lib/CAPI/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /python/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/python/pykernel/ @vtangTT
+/python/pykernel/ @vtangTT @xanderchin
 
 # StableHLO Conversion
 /include/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
