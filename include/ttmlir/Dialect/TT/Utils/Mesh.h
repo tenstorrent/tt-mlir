@@ -37,28 +37,30 @@ inline void addMeshToModuleAttribute(PatternRewriter &rewriter,
 }
 
 // Determine hardware mesh config for DeviceAttr.
-// If none exists, the empty meshShape leads to single device config.
-// If either option.meshShape or meshes exists, use one of them.
-// If both exist, compare mesh and throw error if they are different.
-inline llvm::Expected<llvm::SmallVector<int64_t>>
-determineMeshShape(mlir::ModuleOp module, llvm::ArrayRef<int64_t> meshShape) {
+// By default, meshAttr will be compiled for single device config.
+// If either user provided mesh information through options or meshes exists
+// from graph, use one of them. If both exist, compare mesh and throw error if
+// they are different.
+inline llvm::Expected<tt::MeshAttr> determineMeshAttr(mlir::ModuleOp module,
+                                                      tt::MeshAttr &meshAttr) {
   if (auto meshesAttr =
           module->getAttrOfType<tt::MeshesAttr>(tt::MeshesAttr::name)) {
-    llvm::ArrayRef<MeshAttr> meshAttr = meshesAttr.getMeshes();
-    if (meshAttr.empty()) {
-      return llvm::SmallVector<int64_t>(meshShape);
+    llvm::ArrayRef<MeshAttr> meshAttrList = meshesAttr.getMeshes();
+    if (meshAttrList.empty()) {
+      return meshAttr;
     }
-    // For now, use the first meshShape.
-    llvm::ArrayRef<int64_t> meshFromMeshes = meshAttr[0].getShape();
+    // For now, use the first meshAttr.
+    tt::MeshAttr meshFromMeshes = meshAttrList[0];
     // If both meshes exist, they should be identical. Otherwise, throw error.
-    if (!meshShape.empty() && !llvm::equal(meshShape, meshFromMeshes)) {
+    if (meshAttr != meshFromMeshes) {
       return llvm::createStringError(
           std::errc::invalid_argument,
-          "Option.meshShape and mesh info from graph should be identical.");
+          "Mesh attr information queried from options and mesh info from graph "
+          "should be identical.");
     }
-    return llvm::SmallVector<int64_t>(meshFromMeshes);
+    return meshAttr;
   }
-  return llvm::SmallVector<int64_t>(meshShape);
+  return meshAttr;
 }
 
 } // namespace mlir::tt::utils

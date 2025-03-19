@@ -75,8 +75,9 @@ public:
         /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1, shardOffset},
         &context);
     auto workerGrid = GridAttr::get(&context, gridShapeHwN300, map3);
+    auto mesh = MeshAttr::get(&context, "mesh", {0});
 
-    return DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0});
+    return DeviceAttr::get(&context, workerGrid, map4, map4, mesh);
   }
 
   mlir::RankedTensorType createRankedTensorType(llvm::ArrayRef<int64_t> shape) {
