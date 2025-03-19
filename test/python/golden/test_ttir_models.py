@@ -5,21 +5,38 @@
 # RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
 
 import inspect
+import pytest
+from typing import Callable
+from functools import wraps
 
-from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
+from ttmlir.ir import Context
+from ttmlir.test_utils import compile_to_flatbuffer, set_output_path, compile_as_mlir_module, ttir_to_ttnn, ttnn_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder
+from ttmlir.passes import MLIRModuleLogger
+
+def compile_to_flatbuffer2(fn: Callable):
+    test_base = fn.__name__
+    @wraps(fn)
+    def wrapper(**kwargs):
+        inputs_shapes = list({k:v for k, v in kwargs.items() if k != 'builder'}.values())
+        module, builder = compile_as_mlir_module(inputs_shapes=inputs_shapes, test_fn=fn)
+        module = ttir_to_ttnn(module, True, test_base + "_ttnn.mlir")
+        module_logger = MLIRModuleLogger()
+        ttnn_to_flatbuffer(module, builder, test_base + ".ttnn", module_logger.module_log)
+        # TODO: execute flatbuffer for golden check
+
+    return wrapper
+
+@pytest.fixture
+def builder() -> None:
+    """ Dummy fixture to trick pytest into working """
+    return None
 
 
-@compile_to_flatbuffer(
-    [
-        (1, 784),
-        (784, 256),
-        (1, 256),
-        (256, 10),
-        (1, 10),
-    ],
-    targets=["ttnn"],
-)
+@pytest.mark.parametrize("in0,in1,in2,in3,in4", [((1, 784), (784, 256), (1, 256), (256, 10), (1, 10)),
+                                                 ((1, 1024), (1024, 256), (1, 256), (256, 10), (1, 10)),
+                                                 ((1, 1024), (1024, 256), (1, 256), (256, 26), (1, 26),)])
+@compile_to_flatbuffer2
 def test_mnist(
     in0: Operand,  # Input 28x28 image
     in1: Operand,  # Weight 1
@@ -36,27 +53,26 @@ def test_mnist(
     return builder.softmax(add_6, dimension=1)
 
 
-@compile_to_flatbuffer(
-    [
-        (1, 12, 3200),  # arg0
-        (1, 1, 12, 12),  # arg1
-        (1, 12),  # arg2
-        (1, 50, 1),  # arg3
-        (1, 32, 50, 100),  # arg4
-        (1, 1),  # arg5
-        (1, 32, 50, 100),  # arg6
-        (1, 32, 50, 100),  # arg7
-        (1, 1),  # arg8
-        (1, 32, 50, 100),  # arg9
-        (1, 1),  # arg10
-        (3200, 3200),  # arg11
-        (3200, 3200),  # arg12
-        (3200, 3200),  # arg13
-        (3200, 3200),  # arg14
-    ],
-    targets=["ttnn"],
-    module_dump=True,
-)
+@pytest.mark.parametrize("arg0,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9,arg10,arg11,arg12,arg13,arg14",
+    [(
+        (1, 12, 3200),      # arg0
+        (1, 1, 12, 12),     # arg1
+        (1, 12),            # arg2
+        (1, 50, 1),         # arg3
+        (1, 32, 50, 100),   # arg4
+        (1, 1),             # arg5
+        (1, 32, 50, 100),   # arg6
+        (1, 32, 50, 100),   # arg7
+        (1, 1),             # arg8
+        (1, 32, 50, 100),   # arg9
+        (1, 1),             # arg10
+        (3200, 3200),       # arg11
+        (3200, 3200),       # arg12
+        (3200, 3200),       # arg13
+        (3200, 3200),       # arg14
+        ),
+    ])
+@compile_to_flatbuffer2
 def test_llama_attention(
     arg0: Operand,
     arg1: Operand,
