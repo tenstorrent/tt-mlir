@@ -3,42 +3,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-precompiled.hpp"
-ttnn::Tensor add(ttnn::Tensor v1, ttnn::Tensor v2) {
-  ttnn::IDevice* v3 = ttnn::DeviceGetter::getInstance();
-  ttnn::MemoryConfig v4 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
-  ttnn::Tensor v5 = ttnn::to_device(v1, v3, v4);
-  ttnn::Tensor v6 = ttnn::to_layout(v5, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
-  ttnn::deallocate(v5, false);
-  ttnn::MemoryConfig v7 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
-  ttnn::Tensor v8 = ttnn::to_device(v2, v3, v7);
-  ttnn::Tensor v9 = ttnn::to_layout(v8, ttnn::Layout::TILE, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
-  ttnn::deallocate(v8, false);
-  ttnn::Shape v10 = ttnn::Shape({32, 32});
-  ttnn::MemoryConfig v11 = ttnn::MemoryConfig(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
-  ttnn::Tensor v12 = ttnn::empty(v10, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, v3, v11);
-  ttnn::Tensor v13 = ttnn::add(v6, v9, std::nullopt, std::nullopt, v12);
-  ttnn::deallocate(v9, false);
-  ttnn::deallocate(v6, false);
-  ttnn::Tensor v14 = ttnn::from_device(v13);
-  ttnn::deallocate(v12, false);
-  ttnn::Tensor v15 = ttnn::to_layout(v14, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
-  ttnn::deallocate(v14, false);
-  return v15;
+
+::ttnn::Tensor main2(::ttnn::Tensor v1) {
+  ttnn::IDevice* v2 = ttnn::DeviceGetter::getInstance();
+  assert(0 && "Mesh shard operation is not supported in emitc yet."); // ::ttnn::mesh_shard
+  ::ttnn::Tensor v3 = ttnn::mesh_shard(v1);
+  ::ttnn::Tensor v4 = ttnn::neg(v3, ::std::nullopt);
+  ttnn::deallocate(v3, false);
+  assert(0 && "Mesh shard operation is not supported in emitc yet."); // ::ttnn::mesh_shard
+  ::ttnn::Tensor v5 = ttnn::mesh_shard(v4);
+  ttnn::deallocate(v4, false);
+  return v5;
 }
 
-std::tuple<ttnn::Tensor, ttnn::Tensor> createInputsFor_add() {
-  ttnn::Shape v1 = ttnn::Shape({32, 32});
-  ttnn::Tensor v2 = ttnn::ones(v1, ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt);
-  ttnn::Shape v3 = ttnn::Shape({32, 32});
-  ttnn::Tensor v4 = ttnn::ones(v3, ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt);
-  return std::make_tuple(v2, v4);
+::ttnn::Tensor createInputsFor_main2() {
+  ttnn::IDevice* v1 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v2 = ttnn::ones(::ttnn::Shape({256, 256}), ::ttnn::DataType::FLOAT32, ::ttnn::Layout::TILE, ::std::nullopt, ::std::nullopt);
+  ::ttnn::Tensor v3 = ttnn::to_device(v2, v1, ::std::nullopt);
+  return v3;
 }
 
 int32_t main() {
-  ttnn::Tensor v1;
-  ttnn::Tensor v2;
-  std::tie(v1, v2) = createInputsFor_add();
-  ttnn::Tensor v3 = add(v1, v2);
-  int32_t v4 = 0;
-  return v4;
+  ::ttnn::Tensor v1 = createInputsFor_main2();
+  ::ttnn::Tensor v2 = main2(v1);
+  int32_t v3 = 0;
+  return v3;
 }
