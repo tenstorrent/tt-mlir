@@ -162,6 +162,13 @@ struct TTIRToTTNNBackendPipelineOptions
           "\"argument-types=forward=input,parameter,parameter,constant\""
           "\n\n"),
       llvm::cl::init(TTArgumentTypeMap())};
+
+  // TODO (azecevic): This pass is causing a lot of memory consumption and is
+  // disabled by default (https://github.com/tenstorrent/tt-mlir/issues/2512).
+  Option<bool> removeDeadValuesEnabled{
+      *this, "enable-remove-dead-values",
+      llvm::cl::desc("Enable --remove-dead-values optimization pass."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.
