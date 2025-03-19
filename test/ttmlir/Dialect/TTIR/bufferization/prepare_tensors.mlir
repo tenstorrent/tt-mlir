@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttir-load-system-desc --ttir-implicit-device --ttir-prepare-tensors-for-bufferization %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --tt-register-device --ttir-prepare-tensors-for-bufferization %s | FileCheck %s
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 #map2 = affine_map<(d0, d1) -> (d0, 0)>
