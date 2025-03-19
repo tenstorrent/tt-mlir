@@ -270,8 +270,7 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
       1, static_cast<uint32_t>(numDevices)};
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = meshShape,
-                                                        .offset = {}},
+          ::tt::tt_metal::distributed::MeshDeviceConfig(meshShape),
           DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
   CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
   LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
