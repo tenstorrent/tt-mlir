@@ -62,11 +62,11 @@ if (CMAKE_BUILD_TYPE STREQUAL "Asan")
 endif()
 
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  # Apply coverage flags globally
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_COVERAGE}" CACHE STRING "C Flags with coverage" FORCE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_COVERAGE}" CACHE STRING "C++ Flags with coverage" FORCE)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS_COVERAGE}" CACHE STRING "Executable Linker Flags with coverage" FORCE)
-  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS_COVERAGE}" CACHE STRING "Shared Linker Flags with coverage" FORCE)
+  # Apply coverage flags only to runtime subdirectory
+  set(COVERAGE_FLAGS "-O0 --coverage -fprofile-arcs -ftest-coverage")
+  set_target_properties(runtime PROPERTIES
+    COMPILE_FLAGS "${COVERAGE_FLAGS}"
+    LINK_FLAGS "${COVERAGE_FLAGS}")
 endif()
 
 set(TTMLIR_TOOLCHAIN_DIR $ENV{TTMLIR_TOOLCHAIN_DIR})
