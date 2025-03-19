@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TT/IR/TTTraits.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -42,7 +43,6 @@ struct ConstEvalSubgraph {
     ConstEvalSubgraph::ops.append(ops.begin(), ops.end());
     ConstEvalSubgraph::values.insert(values.begin(), values.end());
   }
-  // void insert(SmallVector<Operation *> ops, SmallPtrSet<Value, 4> values);
   void insert(ConstEvalSubgraph const &other) {
     insert(other.inputParameters, other.ops, other.values);
   }
@@ -50,35 +50,8 @@ struct ConstEvalSubgraph {
 } // namespace
 
 namespace {
-// Helper class to wrap variadic list of ops and get if a given op is one of
-// these types.
-// OpTypeChecker - template for checking if an operation matches one of the
-// specified types
-template <typename... OpTypes>
-class OpTypeChecker {
-public:
-  // Check if the given operation is of any of the specified types
-  bool isOfType(mlir::Operation *op) const { return isOfTypeImpl(op); }
-
-private:
-  // Implementation method - use fold expression for C++17
-  bool isOfTypeImpl(mlir::Operation *op) const {
-    return (... || (op && mlir::isa<OpTypes>(op)));
-  }
-};
-
-// Specialization for empty parameter pack
-template <>
-class OpTypeChecker<> {
-public:
-  bool isOfType(mlir::Operation *op) const { return false; }
-};
-} // namespace
-
-namespace {
 // Analyzer class to detect const-eval subgraphs in a given FuncOp.
 // Template argument allows user to specify set of ops to not consider hoisting.
-template <typename IgnoreChecker = OpTypeChecker<>>
 class ConstEvalAnalyze {
 public:
   ConstEvalAnalyze(func::FuncOp funcOp) { populateHoistOpSet(funcOp); }
@@ -86,9 +59,6 @@ public:
   llvm::SmallVector<ConstEvalSubgraph, 4> getAnalysisResults() {
     return constEvalSubgraphs;
   }
-
-private:
-  IgnoreChecker ignoreChecker;
 
 private:
   void populateHoistOpSet(func::FuncOp funcOp) {
@@ -155,7 +125,7 @@ private:
     // Creation type ops are only hoisted to subgraphs if a user is found
     // which depends on them, to prevent spuriously hoisting all creation
     // ops. We also completely ignore certain ops.
-    if (ignoreChecker.isOfType(op) || isCreationOp(op)) {
+    if (isUnhoistableOp(op) || isCreationOp(op)) {
       return;
     }
 
@@ -176,7 +146,7 @@ private:
     // Ensure any needed creation ops are inserted before the user op.
     llvm::SmallVector<mlir::Operation *, 4> opsToInsert(creationOps.begin(),
                                                         creationOps.end());
-    opsToInsert.emplace_back(op);
+    opsToInsert.push_back(op);
 
     llvm::SmallPtrSet<mlir::Value, 4> valuesToInsert;
     for (auto *opToMove : opsToInsert) {
@@ -185,7 +155,7 @@ private:
       }
     }
 
-    size_t targetIdx;
+    size_t targetIdx{};
     if (subgraphIdxs.empty()) {
       // This op does not depend on any existing subgraphs, create a new
       // one.
@@ -218,6 +188,9 @@ private:
         inputParams.insert(blockArg);
         return true;
       }
+      // If operand is a BlockArgument but not a const one, this op cannot be
+      // const-eval.
+      return false;
     }
 
     // Case 2: this operand is result of an existing op in a const-eval
@@ -233,8 +206,7 @@ private:
     // Case 3: this operand is an intermediate tensor from a neutral
     // creation op.
     if (mlir::Operation *defOp = operand.getDefiningOp();
-        defOp != nullptr && !ignoreChecker.isOfType(defOp) &&
-        isCreationOp(defOp)) {
+        defOp != nullptr && !isUnhoistableOp(defOp) && isCreationOp(defOp)) {
       creationOps.insert(defOp);
       return true;
     }
@@ -242,28 +214,19 @@ private:
     // operation cannot be const-eval'ed.
     return false;
   }
+
   // Check if an operation is a tensor creation op (no inputs, output is a
-  // tensor)
+  // tensor).
   bool isCreationOp(mlir::Operation *op) {
     assert(op != nullptr);
-    // Check if the operation has no operands
-    if (op->getNumOperands() != 0) {
-      return false;
-    }
+    return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>() ||
+           isa<mlir::tensor::EmptyOp>(op);
+  }
 
-    // Check if the operation has at least one result
-    if (op->getNumResults() == 0) {
-      return false;
-    }
-
-    // Check if any result is a tensor type
-    for (auto result : op->getResults()) {
-      if (isa<mlir::TensorType>(result.getType())) {
-        return true;
-      }
-    }
-
-    return false;
+  // Check if an operation cannot be hoisted.
+  bool isUnhoistableOp(mlir::Operation *op) {
+    assert(op != nullptr);
+    return op->hasTrait<mlir::tt::Trait::TTIgnoreConstEvalTrait>();
   }
 
   // Merge content of all subgraphs in subgraphIdxs into the subgraph at the
@@ -311,12 +274,11 @@ private:
 namespace {
 // Transform pass to hoist const-eval subgraphs into separate funcs, invoked
 // w/ tt.load_cached ops.
-template <typename IgnoreChecker = OpTypeChecker<>>
-class ConstEvalHoistTransform : public impl::ConstEvalHoistTransformBase<
-                                    ConstEvalHoistTransform<IgnoreChecker>> {
+class ConstEvalHoistTransform
+    : public impl::ConstEvalHoistTransformBase<ConstEvalHoistTransform> {
 public:
   using impl::ConstEvalHoistTransformBase<
-      ConstEvalHoistTransform<IgnoreChecker>>::ConstEvalHoistTransformBase;
+      ConstEvalHoistTransform>::ConstEvalHoistTransformBase;
 
   void runOnOperation() final {
     mlir::ModuleOp module = this->getOperation();
@@ -329,8 +291,11 @@ public:
 private:
   // Process a single function for const-eval hoisting
   void processFunction(func::FuncOp funcOp) {
+    if (funcOp->hasAttr("const_eval")) {
+      return;
+    }
     // Run the analysis to identify const-eval subgraphs
-    ConstEvalAnalyze<IgnoreChecker> analyzer(funcOp);
+    ConstEvalAnalyze analyzer(funcOp);
     auto constEvalOpSets = analyzer.getAnalysisResults();
 
     if (constEvalOpSets.empty()) {
@@ -386,20 +351,14 @@ private:
     // Mark the new function as const-eval.
     newFuncOp->setAttr("const_eval", builder.getUnitAttr());
 
-    // Copy relevant attributes from the original function.
-    if (auto ttDevice =
-            originalFunc->getAttrOfType<mlir::StringAttr>("tt.device")) {
-      newFuncOp->setAttr("tt.device", ttDevice);
-    }
-
     // Build the body of the new function.
-    auto *entryBlock = newFuncOp.addEntryBlock();
-    builder.setInsertionPointToStart(entryBlock);
+    auto *newEntryBlock = newFuncOp.addEntryBlock();
+    builder.setInsertionPointToStart(newEntryBlock);
 
-    // Create a mapping from original inputs to function arguments.
+    // Create a mapping from original inputs to new function arguments.
     llvm::DenseMap<mlir::Value, mlir::Value> valueMap;
     for (size_t i = 0; i < inputs.size(); ++i) {
-      valueMap[inputs[i]] = entryBlock->getArgument(i);
+      valueMap.insert({inputs[i], newEntryBlock->getArgument(i)});
     }
 
     // Clone operations into the new function in their original order.
@@ -410,11 +369,10 @@ private:
 
       llvm::SmallVector<mlir::Value, 4> remappedOperands;
       for (auto operand : op->getOperands()) {
-        if (valueMap.count(operand)) {
-          remappedOperands.push_back(valueMap[operand]);
-        } else {
-          return;
-        }
+        auto it = valueMap.find(operand);
+        assert(it != valueMap.end() &&
+               "Subgraph did not receive needed values from its params.");
+        remappedOperands.push_back(it->second);
       }
 
       auto *clonedOp = builder.clone(*op);
@@ -426,18 +384,17 @@ private:
 
       // Map original values to new results.
       for (size_t i = 0; i < clonedOp->getNumResults(); ++i) {
-        valueMap[op->getResult(i)] = clonedOp->getResult(i);
+        valueMap.insert({op->getResult(i), clonedOp->getResult(i)});
       }
     }
 
     // Create return operation.
     llvm::SmallVector<mlir::Value, 4> returnValues;
     for (auto output : outputs) {
-      if (valueMap.count(output)) {
-        returnValues.push_back(valueMap[output]);
-      } else {
-        return;
-      }
+      auto it = valueMap.find(output);
+      assert(it != valueMap.end() &&
+             "Subgraph did not contain value it should output.");
+      returnValues.push_back(it->second);
     }
 
     builder.create<func::ReturnOp>(originalFunc.getLoc(), returnValues);
@@ -490,7 +447,7 @@ private:
           mlir::Operation *user = use.getOwner();
           // Check if the user is outside the subgraph.
           if (!opSet.contains(user)) {
-            outputs.emplace_back(result);
+            outputs.push_back(result);
             break;
           }
         }
@@ -499,14 +456,4 @@ private:
   }
 };
 } // namespace
-
-template <typename... OpTypes>
-std::unique_ptr<Pass> createConstEvalHoistTransformWithIgnoreTypes() {
-  return std::make_unique<ConstEvalHoistTransform<OpTypeChecker<OpTypes...>>>();
-}
-
-std::unique_ptr<Pass> createConstEvalHoistTransformNoIgnoreTypes() {
-  return std::make_unique<ConstEvalHoistTransform<>>();
-}
-
 } // namespace mlir::tt::transforms

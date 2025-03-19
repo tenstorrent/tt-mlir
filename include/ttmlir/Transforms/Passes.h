@@ -5,6 +5,8 @@
 #ifndef TTMLIR_TRANSFORMS_PASSES_H
 #define TTMLIR_TRANSFORMS_PASSES_H
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
+
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallString.h"

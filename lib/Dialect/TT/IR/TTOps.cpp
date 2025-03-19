@@ -27,7 +27,7 @@ static ParseResult parseTupleOpType(OpAsmParser &parser,
 
   auto tupType = dyn_cast<TupleType>(result);
   if (!tupType) {
-    return parser.emitError(loc, "expected tuple type");
+    return parser.emitError(loc, "Expected tuple type");
   }
 
   // Assign operand types to tuple types
@@ -93,7 +93,7 @@ template <typename ModuleOpTy>
 static LogicalResult verifyModuleWrapper(ModuleOpTy op) {
   Block &body = op.getBodyRegion().front();
   if (!llvm::hasSingleElement(body)) {
-    return op.emitOpError("expected exactly one block");
+    return op.emitOpError("Expected exactly one block");
   }
 
   size_t moduleCount = 0;
@@ -104,7 +104,7 @@ static LogicalResult verifyModuleWrapper(ModuleOpTy op) {
   }
 
   if (moduleCount != 1) {
-    return op.emitOpError("expected exactly one ModuleOp but found ")
+    return op.emitOpError("Expected exactly one ModuleOp but found ")
            << moduleCount;
   }
 
@@ -118,13 +118,8 @@ LogicalResult CPUModuleOp::verify() { return verifyModuleWrapper(*this); }
 LogicalResult LoadCachedOp::verify() {
   // Verify that the callee exists and has the right type.
   FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
-  Operation *callee = SymbolTable::lookupNearestSymbolFrom(*this, calleeAttr);
-  if (!callee) {
-    return emitOpError() << "'" << calleeAttr.getValue()
-                         << "' does not reference a valid function";
-  }
-
-  auto funcOp = dyn_cast<func::FuncOp>(callee);
+  func::FuncOp funcOp =
+      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this, calleeAttr);
   if (!funcOp) {
     return emitOpError() << "'" << calleeAttr.getValue()
                          << "' does not reference a function";
@@ -132,15 +127,27 @@ LogicalResult LoadCachedOp::verify() {
 
   FunctionType fnType = funcOp.getFunctionType();
 
+  if (fnType.getNumInputs() != this->getNumOperands()) {
+    return emitOpError("Incorrect number of operands for callee -- expected ")
+           << fnType.getNumInputs() << " but got: " << this->getNumOperands();
+  }
+
+  for (unsigned i = 0; i < fnType.getNumInputs(); ++i) {
+    if (this->getOperand(i).getType() != fnType.getInput(i)) {
+      return emitOpError("Operand type mismatch at index ") << i;
+    }
+  }
+
   // Verify result count.
   if (fnType.getNumResults() != this->getNumResults()) {
-    return emitOpError("incorrect number of results for callee");
+    return emitOpError("Incorrect number of results for callee -- expected ")
+           << fnType.getNumResults() << " but got: " << this->getNumResults();
   }
 
   // Verify result types.
   for (unsigned i = 0; i < fnType.getNumResults(); ++i) {
     if (this->getResult(i).getType() != fnType.getResult(i)) {
-      return emitOpError("result type mismatch at index ") << i;
+      return emitOpError("Result type mismatch at index ") << i;
     }
   }
 

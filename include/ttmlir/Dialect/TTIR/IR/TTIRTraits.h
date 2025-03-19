@@ -24,7 +24,7 @@ mlir::OpFoldResult foldBinaryIdempotence(mlir::Operation *op);
 
 template <typename ConcreteType>
 class TTIRInvolution
-    : public mlir::TypeTrait::TraitBase<ConcreteType, TTIRInvolution> {
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTIRInvolution> {
 public:
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {
@@ -39,7 +39,7 @@ public:
 
 template <typename ConcreteType>
 class TTIRIdempotence
-    : public mlir::TypeTrait::TraitBase<ConcreteType, TTIRIdempotence> {
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTIRIdempotence> {
 public:
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {
@@ -54,7 +54,7 @@ public:
 
 template <typename ConcreteType>
 class TTIRBinaryIdempotence
-    : public mlir::TypeTrait::TraitBase<ConcreteType, TTIRBinaryIdempotence> {
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTIRBinaryIdempotence> {
 public:
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {

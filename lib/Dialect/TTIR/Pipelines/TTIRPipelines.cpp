@@ -98,10 +98,6 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   }
 }
 
-void createConstEvalHoistPipeline(OpPassManager &manager) {
-  manager.addPass(
-      mlir::tt::transforms::createConstEvalHoistTransformNoIgnoreTypes());
-}
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -116,10 +112,5 @@ void registerTTIRPipelines() {
   mlir::PassPipelineRegistration<LinalgToLLVMPipelineOptions>(
       "linalg-to-llvm-pipeline", "Pipeline lowering linalg to llvm dialect.",
       mlir::tt::ttir::createLinalgToLLVMPipeline);
-
-  mlir::PassPipelineRegistration<>(
-      "ttir-const-eval-hoist-pipeline",
-      "Pipeline to hoist const-eval subgraphs into separate functions",
-      mlir::tt::ttir::createConstEvalHoistPipeline);
 }
 } // namespace mlir::tt::ttir
