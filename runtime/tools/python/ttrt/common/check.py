@@ -15,6 +15,7 @@ import socket
 from pkg_resources import get_distribution
 import shutil
 import atexit
+import difflib
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -206,8 +207,34 @@ class Check:
                         bin.fbb_dict["system_desc"]
                         != system_desc_to_check["system_desc"]
                     ):
+                        # Get the two dictionaries/values we're comparing
+                        fbb_desc = bin.fbb_dict["system_desc"]
+                        check_desc = system_desc_to_check["system_desc"]
+
+                        # Serialize to JSON with pretty printing and split into lines
+                        fbb_json = json.dumps(
+                            fbb_desc, indent=2, sort_keys=True
+                        ).splitlines()
+                        check_json = json.dumps(
+                            check_desc, indent=2, sort_keys=True
+                        ).splitlines()
+
+                        # Generate a unified diff
+                        diff = list(
+                            difflib.unified_diff(
+                                fbb_json,
+                                check_json,
+                                fromfile="flatbuffer_system_desc",
+                                tofile="device_system_desc",
+                                lineterm="",
+                            )
+                        )
+
+                        # Log detailed information about the difference
                         self.logging.info(
-                            f"system desc for device did not match flatbuffer: {bin.file_path}"
+                            f"system desc for device did not match flatbuffer: {bin.file_path}\n"
+                            f"Difference details:\n"
+                            f"{''.join(diff)}"
                         )
                         test_result["result"] = "error"
                         test_result[
