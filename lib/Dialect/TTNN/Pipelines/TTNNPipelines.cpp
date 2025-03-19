@@ -29,6 +29,7 @@ void createTTNNPipelineTTIRPasses(
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+    registerDeviceOptions.meshName = options.meshName;
   }
   pm.addPass(mlir::tt::createTTRegisterDevicePass(registerDeviceOptions));
 

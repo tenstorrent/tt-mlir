@@ -278,7 +278,8 @@ void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::SystemDescAttr>(m, "SystemDescAttr")
       .def_static("get_default",
                   [](MlirContext ctx) {
-                    return wrap(tt::SystemDescAttr::getDefault(unwrap(ctx)));
+                    return wrap(tt::SystemDescAttr::getDefault(
+                        unwrap(ctx), tt::MeshAttr::getDefault(unwrap(ctx))));
                   })
       .def_static(
           "get",
@@ -375,7 +376,7 @@ void populateTTModule(nb::module_ &m) {
                     return wrap(tt::DeviceAttr::get(
                         unwrap(ctx),
                         mlir::cast<tt::SystemDescAttr>(unwrap(systemDesc)),
-                        meshShape));
+                        tt::MeshAttr::get(unwrap(ctx), "mesh", meshShape)));
                   })
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> gridShape,
@@ -386,7 +387,8 @@ void populateTTModule(nb::module_ &m) {
                         unwrap(ctx),
                         tt::GridAttr::get(unwrap(ctx), gridShape,
                                           unwrap(workerGridMapping)),
-                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds));
+                        unwrap(l1Map), unwrap(dramMap),
+                        tt::MeshAttr::get(unwrap(ctx), "mesh", meshShape)));
                   })
       .def("unwrap",
            [](MlirAttribute const &self) {
@@ -397,11 +399,12 @@ void populateTTModule(nb::module_ &m) {
                    [](tt::DeviceAttr self) { return wrap(self.getL1Map()); })
       .def_prop_ro("dram_map",
                    [](tt::DeviceAttr self) { return wrap(self.getDramMap()); })
-      .def_prop_ro(
-          "mesh_shape",
-          [](tt::DeviceAttr const &self) { return self.getMeshShape().vec(); })
+      .def_prop_ro("mesh_shape",
+                   [](tt::DeviceAttr const &self) {
+                     return self.getMesh().getShape().vec();
+                   })
       .def_prop_ro("chip_ids", [](tt::DeviceAttr const &self) {
-        return self.getChipIds().vec();
+        return self.getMesh().getChipIds().vec();
       });
 
   tt_type_class<tt::TileType>(m, "TileType")

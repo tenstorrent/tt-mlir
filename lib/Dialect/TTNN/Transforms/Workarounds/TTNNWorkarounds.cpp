@@ -349,7 +349,7 @@ public:
     uint32_t clusterAxis = op.getClusterAxis();
     Value deviceValue = op.getDevice();
     auto deviceDesc = lookupDevice(op);
-    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
+    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMesh().getShape();
 
     // Algorithm: iterate through all tensor dimension values and select first
     // tensor dimension which is divisible by number of devices along the

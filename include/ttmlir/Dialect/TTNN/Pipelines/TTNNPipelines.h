@@ -116,6 +116,10 @@ struct TTIRToTTNNBackendPipelineOptions
                      "layout analysis."),
       llvm::cl::init(64)};
 
+  Option<std::string> meshName{*this, OptionNames::meshName,
+                               llvm::cl::desc("Set a mesh name."),
+                               llvm::cl::init("mesh")};
+
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};

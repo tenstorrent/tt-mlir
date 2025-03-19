@@ -237,7 +237,7 @@ public:
 
     PhysicalCoreCoordMapping physicalCoordMapping =
         PhysicalCoreCoordMapping::getMemorySpaceMapping(
-            device.getChipIds(), systemDesc.getChipDescs(),
+            device.getMesh().getChipIds(), systemDesc.getChipDescs(),
             dataMovementType == NocTx::Type::Read
                 ? inputLayout.getMemorySpace()
                 : outputLayout.getMemorySpace());

@@ -105,6 +105,39 @@ def TT_ChipPhysicalCoresAttr : TT_Attr<"ChipPhysicalCores", "chip_physical_cores
   let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ `]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
 }
 
+def TT_MeshAttr : TT_Attr<"Mesh", "mesh", []> {
+  let summary = "Mesh reference attribute in TT dialect.";
+  let description = [{
+    Describes a mesh config including name and shape.
+  }];
+  let parameters = (ins "StringAttr":$name,
+                        "unsigned":$numberOfChips,
+                        ArrayRefParameter<"int64_t">:$shape,
+                        ArrayRefParameter<"unsigned">:$chipIds);
+  let assemblyFormat = "`<` `name` `=` $name `,` `numberOfChips` `=` $numberOfChips `,` `shape` `=` custom<DimensionList>($shape) `,` `chipIds` `=` `[` $chipIds `]` `>`";
+  let genVerifyDecl = 1;
+
+  let extraClassDeclaration = [{
+    static MeshAttr getDefault(::mlir::MLIRContext *context) {
+      auto meshName = mlir::StringAttr::get(context, "mesh");
+      auto numberOfChips = 1;
+      ::llvm::SmallVector<int64_t> shape = {1, 1};
+      ::llvm::SmallVector<unsigned> chipIds = {0};
+      return MeshAttr::get(context, meshName, numberOfChips, shape, chipIds);
+    };
+    static MeshAttr get(::mlir::MLIRContext *context, StringRef meshName, ::llvm::ArrayRef<int64_t> meshShape);
+  }];
+}
+
+def TT_MeshesAttr : TT_Attr<"Meshes", "meshes"> {
+  let summary = "TT system meshes attribute.";
+  let description = [{
+    TT system meshes attribute includes one or more mesh configs used for networks.
+  }];
+  let parameters = (ins ArrayRefParameter<"MeshAttr">:$meshes);
+  let assemblyFormat = "`<` `[` $meshes `]` `>`";
+}
+
 def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
   let summary = "TT chip_desc attribute";
   let description = [{
@@ -206,8 +239,8 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
-    static tt::SystemDescAttr getDefault(MLIRContext *context, const llvm::SmallVector<int64_t> &meshShape = {1});
-    static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
+    static tt::SystemDescAttr getDefault(MLIRContext *context, const MeshAttr &meshAttr);
+    static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string &path);
     unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const;
     unsigned getNocL1AddressAlignBytes(unsigned chipIndex = 0) const;
@@ -394,13 +427,11 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
   let parameters = (ins TT_GridAttr:$workerGrid,
                         "AffineMap":$l1Map,
                         "AffineMap":$dramMap,
-                        ArrayRefParameter<"int64_t">:$meshShape,
-                        ArrayRefParameter<"unsigned">:$chipIds);
-  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` `>`";
+                        TT_MeshAttr:$mesh);
+  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `mesh` `=` qualified($mesh) `>`";
 
   let extraClassDeclaration = [{
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds);
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {});
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, MeshAttr meshAttr);
       AffineMap getMemoryMap(MemRefType memrefType, size_t pageSize, size_t baseOffset = 0) const;
       size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize) const;
 
@@ -506,25 +537,6 @@ def TT_TensorMeshShardingAttr : TT_Attr<"TensorMeshSharding", "mesh_sharding", [
         return TensorMeshShardingAttr::get(context, meshNameStrAttr, tensor_mesh_sharding_axis);
       }
   }];
-}
-
-def TT_MeshAttr : TT_Attr<"Mesh", "mesh", []> {
-  let summary = "Mesh reference attribute in TT dialect.";
-  let description = [{
-    Describes a mesh config including name and shape.
-  }];
-  let parameters = (ins "StringAttr":$name,
-                        ArrayRefParameter<"int64_t">:$shape);
-  let assemblyFormat = "`<` $name `=` custom<DimensionList>($shape) `>`";
-}
-
-def TT_MeshesAttr : TT_Attr<"Meshes", "meshes"> {
-  let summary = "TT system meshes attribute.";
-  let description = [{
-    TT system meshes attribute includes one or more mesh configs used for networks.
-  }];
-  let parameters = (ins ArrayRefParameter<"MeshAttr">:$meshes);
-  let assemblyFormat = "`<` `[` $meshes `]` `>`";
 }
 
 //===----------------------------------------------------------------------===//

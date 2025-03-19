@@ -39,8 +39,9 @@ unsigned mlir::tt::ChipDescAttr::getScratchL1RegionAddress() const {
   return getL1Size() - getScratchL1RegionSize();
 }
 
-mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
-    MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
+mlir::tt::SystemDescAttr
+mlir::tt::SystemDescAttr::getDefault(MLIRContext *context,
+                                     const mlir::tt::MeshAttr &meshAttr) {
   // Set default values
   constexpr auto l1Size = 1499136;
   constexpr auto numDramChannels = 12;
@@ -53,11 +54,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   constexpr auto dramUnreservedBase = 1024;
   constexpr auto dramUnreservedEnd = 1 << 30;
   constexpr auto numCBs = 32;
-
-  // Get number of chips in mesh.
-  int64_t numberOfChips =
-      std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
-                      std::multiplies<int64_t>());
+  auto numberOfChips = meshAttr.getNumberOfChips();
 
   // Populate dummy values for single chip or multi chip config.
   llvm::SmallVector<std::int64_t> gridShape = {8, 8};
@@ -109,7 +106,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   llvm::SmallVector<tt::ChipDescAttr> chipDescs;
   chipDescs.reserve(numberOfChips);
 
-  for (auto i = 0; i < numberOfChips; i++) {
+  for (unsigned i = 0; i < numberOfChips; i++) {
     chipDescs.push_back(ChipDescAttr::get(
         context, ArchAttr::get(context, Arch::WormholeB0), gridShape, l1Size,
         numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
@@ -123,7 +120,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   llvm::SmallVector<tt::ChipCapabilityAttr> chipCapabilities;
   chipCapabilities.reserve(numberOfChips);
 
-  for (auto i = 0; i < numberOfChips; i++) {
+  for (unsigned i = 0; i < numberOfChips; i++) {
     chipCapabilities.push_back(tt::ChipCapabilityAttr::get(
         context,
         // NOLINTNEXTLINE
@@ -135,7 +132,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   chipChannelList.reserve(numberOfChips);
 
   if (numberOfChips != 1) {
-    for (auto i = 0; i < numberOfChips; i++) {
+    for (unsigned i = 0; i < numberOfChips; i++) {
       // Assume a default ring topology where final chip connects with initial
       // chip.
       chipChannelList.push_back(tt::ChipChannelAttr::get(
@@ -186,7 +183,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   auto const *chip_channel_connections = binary_system_desc->chip_channels();
 
   // Acquire cpu descs
-  std::vector<tt::CPUDescAttr> cpu_desc_list;
+  llvm::SmallVector<tt::CPUDescAttr> cpu_desc_list;
   for (auto const *element : *binary_cpu_desc) {
     static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
                       ::mlir::tt::CPURole::Device) ==
@@ -205,13 +202,13 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   }
 
   // Acquire chip descs
-  std::vector<tt::ChipDescAttr> chip_desc_list;
+  llvm::SmallVector<tt::ChipDescAttr> chip_desc_list;
   for (auto const *element : *binary_chip_desc) {
-    std::vector<tt::CoreCoordAttr> worker_cores, dram_cores, eth_cores,
+    llvm::SmallVector<tt::CoreCoordAttr> worker_cores, dram_cores, eth_cores,
         eth_inactive_cores;
     auto const *physical_cores = element->physical_cores();
 
-    // Populate all vecrors with CoreCoordAttr instances
+    // Populate all vectors with CoreCoordAttr instances
     for (auto const &core : *physical_cores->worker()) {
       worker_cores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
@@ -246,7 +243,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
       break;
     }
 
-    std::vector<tt::DataTypeAttr> supported_data_types_attr;
+    llvm::SmallVector<tt::DataTypeAttr> supported_data_types_attr;
 
     for (auto it : *(element->supported_data_types())) {
       switch (it) {
@@ -327,13 +324,13 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   }
 
   // Acquire chip indices
-  std::vector<uint32_t> chip_indices_list;
+  llvm::SmallVector<uint32_t> chip_indices_list;
   for (auto element : *binary_chip_desc_indices) {
     chip_indices_list.push_back(element);
   }
 
   // Acquire chip capabilities
-  std::vector<tt::ChipCapabilityAttr> chip_capabilities_list;
+  llvm::SmallVector<tt::ChipCapabilityAttr> chip_capabilities_list;
   for (auto element : *chip_capabilities) {
     static_assert(
         static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
@@ -352,20 +349,20 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   }
 
   // Acquire chip coordinates
-  std::vector<tt::ChipCoordAttr> chip_coordinate_list;
+  llvm::SmallVector<tt::ChipCoordAttr> chip_coordinate_list;
   for (auto const *element : *binary_chip_coords) {
     auto chip_coordinate_attr = tt::ChipCoordAttr::get(
         context, element->rack(), element->shelf(), element->y(), element->x());
     chip_coordinate_list.push_back(chip_coordinate_attr);
   }
 
-  std::vector<tt::ChipChannelAttr> chip_channel_list;
+  llvm::SmallVector<tt::ChipChannelAttr> chip_channel_list;
   for (auto const *element : *chip_channel_connections) {
-    std::vector<int64_t> ethernet_core_coord0_vec = {
+    llvm::SmallVector<int64_t> ethernet_core_coord0_vec = {
         element->ethernet_core_coord0().y(),
         element->ethernet_core_coord0().x()};
 
-    std::vector<int64_t> ethernet_core_coord1_vec = {
+    llvm::SmallVector<int64_t> ethernet_core_coord1_vec = {
         element->ethernet_core_coord1().y(),
         element->ethernet_core_coord1().x()};
 
@@ -866,16 +863,10 @@ static mlir::AffineMap createL1Map(mlir::MLIRContext *context,
 
 static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
                                  mlir::ArrayRef<int64_t> chipGrid,
-                                 mlir::ArrayRef<int64_t> meshShapeRef) {
-  assert(chipGrid.size() == 2 && "expected 2D grid");
-  mlir::SmallVector<int64_t> meshShape(meshShapeRef);
-
-  // Fill in missing dimensions with 1 so that the mesh shape is at least 2D.
-  while (meshShape.size() < chipGrid.size()) {
-    meshShape.push_back(1);
-  }
-
+                                 const mlir::tt::MeshAttr &meshAttr) {
   mlir::SmallVector<int64_t> virtualGrid(chipGrid);
+  const auto meshShape = meshAttr.getShape();
+
   // Fill in missing dimensions with 1 so that the virtual grid is at has
   // meshShape dimensions.
   while (virtualGrid.size() < meshShape.size()) {
@@ -1011,43 +1002,38 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
 
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
-                           ArrayRef<int64_t> meshShape,
-                           ArrayRef<unsigned> chipIds) {
-  assert(not chipIds.empty() && "expected at least one chip");
-  ChipDescAttr chipDesc = systemDesc.getChipDescs()[chipIds.front()];
-  SmallVector<int64_t> chipGrid(chipDesc.getGrid());
-  assert(chipGrid.size() == 2 && "expected 2D grid");
+                           mlir::tt::MeshAttr meshAttr) {
+  // Check if the chipIds found in meshAttr actually exist in systemDesc.
+  // A deviceAttr can be a subset of all the chips available on the system.
+  auto chipDescIndices = systemDesc.getChipDescIndices();
+  auto chipIds = meshAttr.getChipIds();
+  for (auto chipId : chipIds) {
+    assert(llvm::find(chipDescIndices, chipId) != chipDescIndices.end() &&
+           "chip id in mesh does not exist in system descriptor");
+  }
 
   // Take the min grid shape across all chips, this can happen if 1 chip has
   // more harvested rows than another.  We take the min because we want to
   // ensure that the logical grid is the same across all chips and this vastly
   // simplifies the grid /memory mappings across the board.
+  auto chipDescs = systemDesc.getChipDescs();
+  ChipDescAttr chipDesc = chipDescs[chipIds.front()];
+  SmallVector<int64_t> chipGrid(chipDesc.getGrid());
+  assert(chipGrid.size() == 2 && "expected 2D grid");
   for (unsigned chipId : chipIds) {
-    ChipDescAttr chip = systemDesc.getChipDescs()[chipId];
+    ChipDescAttr chip = chipDescs[chipId];
     ArrayRef<int64_t> iChipGrid = chip.getGrid();
     assert(iChipGrid.size() == 2 && "expected 2D grid");
     chipGrid[0] = std::min(chipGrid[0], iChipGrid[0]);
     chipGrid[1] = std::min(chipGrid[1], iChipGrid[1]);
   }
 
-  auto workerGrid = createWorkerGrid(context, chipGrid, meshShape);
+  auto workerGrid = createWorkerGrid(context, chipGrid, meshAttr);
   auto l1Map = createL1Map(context, workerGrid);
   constexpr unsigned dramPageSize = 8192;
   auto dramMap =
       createDramMap(context, workerGrid, systemDesc, chipIds, dramPageSize);
-  return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds);
-}
-
-DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
-                           SystemDescAttr systemDesc,
-                           ArrayRef<int64_t> meshShape) {
-  int64_t numChips = ttmlir::utils::volume(meshShape);
-  assert(systemDesc.getChipDescIndices().size() >=
-             static_cast<size_t>(numChips) &&
-         "expected at least one chip");
-  SmallVector<unsigned> chipIds(numChips);
-  std::iota(chipIds.begin(), chipIds.end(), 0);
-  return get(context, systemDesc, meshShape, chipIds);
+  return get(context, workerGrid, l1Map, dramMap, meshAttr);
 }
 
 mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
@@ -1115,20 +1101,7 @@ uint64_t DeviceAttr::getTensorSizeBytes(RankedTensorType tensorType,
 ::mlir::LogicalResult
 DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                    ::mlir::tt::GridAttr workerGrid, ::mlir::AffineMap l1Map,
-                   ::mlir::AffineMap dramMap,
-                   ::llvm::ArrayRef<int64_t> meshShape,
-                   ::llvm::ArrayRef<unsigned> chipIds) {
-  if (chipIds.empty()) {
-    emitError() << "expected at least one chip";
-    return ::mlir::failure();
-  }
-
-  std::int64_t meshVolume = ttmlir::utils::volume(meshShape);
-  if (chipIds.size() != static_cast<size_t>(meshVolume)) {
-    emitError() << "expected chipIds size to match the volume of meshShape";
-    return ::mlir::failure();
-  }
-
+                   ::mlir::AffineMap dramMap, mlir::tt::MeshAttr meshAttr) {
   auto workerGridShape = workerGrid.getShape();
   for (auto dim : workerGridShape) {
     if (dim <= 0) {
@@ -1230,6 +1203,45 @@ uint64_t TileType::getSizeBytes() const {
 
 mlir::Type TileType::getElementType() const {
   return dataTypeToElementType(getContext(), getDataType());
+}
+
+::mlir::LogicalResult
+MeshAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                 StringAttr name, unsigned numberOfChips,
+                 ::llvm::ArrayRef<int64_t> shape,
+                 ::llvm::ArrayRef<unsigned> chipIds) {
+  if (numberOfChips != ttmlir::utils::volume(shape)) {
+    emitError() << "number of chips does not equal shape of mesh";
+    return ::mlir::failure();
+  }
+
+  if (numberOfChips != chipIds.size()) {
+    emitError() << "number of chips does not equal size of chip ids";
+    return ::mlir::failure();
+  }
+
+  return ::mlir::success();
+}
+
+MeshAttr MeshAttr::get(::mlir::MLIRContext *context, llvm::StringRef meshName,
+                       ::llvm::ArrayRef<int64_t> meshShape) {
+  // Set mesh name to default 'mesh'
+  std::string name = "mesh";
+  if (!meshName.empty()) {
+    name = meshName;
+  }
+  auto nameAttr = mlir::StringAttr::get(context, meshName);
+
+  // Set mesh shape size to (1, 1) if not set
+  llvm::SmallVector<int64_t> shape = {1, 1};
+  if (!meshShape.empty()) {
+    shape.assign(meshShape.begin(), meshShape.end());
+  }
+
+  auto numberOfChips = ttmlir::utils::volume(llvm::ArrayRef<int64_t>(shape));
+  llvm::SmallVector<unsigned> chipIds(numberOfChips);
+  std::iota(chipIds.begin(), chipIds.end(), 0);
+  return MeshAttr::get(context, nameAttr, numberOfChips, shape, chipIds);
 }
 
 void TTDialect::registerTypes() {
