@@ -370,8 +370,8 @@ private:
     ConstEvalAnalyze analyzer(&funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
-        analysisResults.subgraphs;
-    llvm::SmallVector<Operation *, 1> sharedOps = analysisResults.sharedOps;
+        std::move(analysisResults.subgraphs);
+    llvm::SmallVector<Operation *, 1> sharedOps = std::move(analysisResults.sharedOps);
 
     if (subgraphs.empty()) {
       return;
