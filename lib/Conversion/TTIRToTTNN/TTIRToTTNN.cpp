@@ -988,9 +988,7 @@ public:
     auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo().value();
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-    // auto inputTy =
-    // mlir::cast<RankedTensorType>(adaptor.getInput().getType()); auto kernelTy
-    // = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = op.getResult().getType();
 
     auto batchSizeAttr =
@@ -1004,8 +1002,9 @@ public:
     auto outChannelsAttr =
         rewriter.getI32IntegerAttr(flattenedCompatInfo.getOutChannels());
 
-    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
-        SmallVector<int32_t>(flattenedCompatInfo.getKernelSize()));
+    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(SmallVector<int32_t, 2>(
+        {static_cast<int32_t>(kernelTy.getDimSize(2)),
+         static_cast<int32_t>(kernelTy.getDimSize(3))}));
 
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {

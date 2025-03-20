@@ -47,7 +47,7 @@ def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], 
   }];
 }
 
-def TTIR_FlattenedCompatAttr : AttrDef<TTIR_Dialect, "FlattenedCompat", [], "::mlir::Attribute"> {
+def TTIR_FlattenedCompatInfoAttr : AttrDef<TTIR_Dialect, "FlattenedCompat", [], "::mlir::Attribute"> {
   let mnemonic = "flattened_compat";
   let summary = "Information for sliding window operations with tensors flattened to (1, 1, N*H*W, C)";
   let description = [{
@@ -61,8 +61,7 @@ def TTIR_FlattenedCompatAttr : AttrDef<TTIR_Dialect, "FlattenedCompat", [], "::m
     "int64_t":$outChannels,
     "int64_t":$batchSize,
     "int64_t":$inputHeight,
-    "int64_t":$inputWidth,
-    ArrayRefParameter<"int64_t">:$kernelSize
+    "int64_t":$inputWidth
   );
 
   let assemblyFormat = [{
@@ -71,7 +70,6 @@ def TTIR_FlattenedCompatAttr : AttrDef<TTIR_Dialect, "FlattenedCompat", [], "::m
         `batch_size` `=` $batchSize `,`
         `input_height` `=` $inputHeight `,`
         `input_width` `=` $inputWidth `,`
-        `kernel_size` `=` custom<DimensionList>($kernelSize)
   }];
 }
 
