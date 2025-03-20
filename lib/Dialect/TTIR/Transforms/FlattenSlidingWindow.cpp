@@ -75,15 +75,16 @@ public:
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = op.getResult().getType();
 
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
-    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
-    auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
+    // auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
+    // auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
+    // auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    // auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
+    // auto outChannelsAttr =
+    // rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
 
-    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(kernelTy.getDimSize(2)),
-         static_cast<int32_t>(kernelTy.getDimSize(3))});
+    // auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+    //     {static_cast<int32_t>(kernelTy.getDimSize(2)),
+    //      static_cast<int32_t>(kernelTy.getDimSize(3))});
 
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {
@@ -107,8 +108,9 @@ public:
     }
 
     // Padding only supports 2 values in ttnn
-    auto reducedPaddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
+    // auto reducedPaddingAttr =
+    //     rewriter.getDenseI32ArrayAttr({paddingArrayRef[0],
+    //     paddingArrayRef[1]});
 
     auto dilationAttr =
         attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
@@ -116,7 +118,7 @@ public:
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
 
-    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+    // auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
     Value flattenedInput = generateTTIRNHWFlatten(
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
@@ -136,12 +138,23 @@ public:
 
     auto convDPS = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputTy.getShape(), outputTy.getElementType());
-    ttir::Conv2dFlattenedCompatOp newConv =
-        rewriter.create<ttir::Conv2dFlattenedCompatOp>(
-            op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
-            adaptor.getBias(), convDPS, inChannelsAttr, outChannelsAttr,
-            batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-            *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr);
+    // ttir::Conv2dFlattenedCompatOp newConv =
+    //     rewriter.create<ttir::Conv2dFlattenedCompatOp>(
+    //         op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
+    //         adaptor.getBias(), convDPS, inChannelsAttr, outChannelsAttr,
+    //         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
+    //         *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr);
+
+    auto flattenedCompatAttr = ttir::FlattenedCompatAttr::get(
+        getContext(), inputTy.getDimSize(3), outputTy.getDimSize(3),
+        inputTy.getDimSize(0), inputTy.getDimSize(1), inputTy.getDimSize(2),
+        {kernelTy.getDimSize(2), kernelTy.getDimSize(3)});
+
+    auto newConv = cast<ttir::Conv2dOp>(rewriter.clone(*op));
+    newConv.setFlattenedCompatInfoAttr(flattenedCompatAttr);
+    newConv->setOperand(0, flattenedInput);
+    newConv.setDpsInitOperand(0, convDPS);
+    newConv.getResult().setType(outputTy);
 
     Value output = generateTTIRReshape(newConv, outputShape, rewriter);
 
@@ -276,8 +289,11 @@ public:
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<mlir::func::FuncDialect>();
     target.addLegalOp<tensor::EmptyOp>(); // DPS operands are create with
-    target.addIllegalOp<ttir::Conv2dOp>();
-    target.addIllegalOp<ttir::MaxPool2dOp>();
+
+    target.addDynamicallyLegalOp<ttir::Conv2dOp>([&](ttir::Conv2dOp op) {
+      return op.getFlattenedCompatInfo().has_value();
+    });
+    // target.addIllegalOp<ttir::MaxPool2dOp>();
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(conversionPatternSet)))) {

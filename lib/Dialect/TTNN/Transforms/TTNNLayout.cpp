@@ -386,9 +386,8 @@ public:
 
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
-      if (!isDPSResult &&
-          (mlir::isa<ttir::Conv2dOp, ttir::Conv2dFlattenedCompatOp,
-                     ttir::ConvTranspose2dOp>(op.getOperation()))) {
+      if (!isDPSResult && (mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(
+                              op.getOperation()))) {
         // For the weight input of the conv2d op, it specifically needs to be on
         // host, so we create a host to layout op (issue
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
@@ -463,8 +462,7 @@ private:
     // unless we specify an override in the Conv2dConfig (which we don't
     // currently). Therefore we don't force row major if the operand is a DPS
     // result
-    if (mlir::isa<ttir::Conv2dOp, ttir::Conv2dFlattenedCompatOp>(operation) &&
-        !isDPSResult) {
+    if (mlir::isa<ttir::Conv2dOp>(operation) && !isDPSResult) {
       return false;
     }
     return true;
@@ -629,8 +627,7 @@ private:
       }
       // For the weight input of the conv2d op, it specifically needs to be on
       // host (issue https://github.com/tenstorrent/tt-mlir/issues/1528).
-      if ((mlir::isa<ttir::Conv2dOp, ttir::Conv2dFlattenedCompatOp,
-                     ttir::ConvTranspose2dOp>(user)) &&
+      if ((mlir::isa<ttir::Conv2dOp, ttir::ConvTranspose2dOp>(user)) &&
           user->getOperand(1) == arg) {
         return true;
       }

@@ -47,6 +47,34 @@ def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], 
   }];
 }
 
+def TTIR_FlattenedCompatAttr : AttrDef<TTIR_Dialect, "FlattenedCompat", [], "::mlir::Attribute"> {
+  let mnemonic = "flattened_compat";
+  let summary = "Information for sliding window operations with tensors flattened to (1, 1, N*H*W, C)";
+  let description = [{
+    This attribute marks operations that are compatible with flattened tensors.
+    It is used as a marker and doesn't carry any additional data.
+  }];
+
+
+  let parameters = (ins
+    "int64_t":$inChannels,
+    "int64_t":$outChannels,
+    "int64_t":$batchSize,
+    "int64_t":$inputHeight,
+    "int64_t":$inputWidth,
+    ArrayRefParameter<"int64_t">:$kernelSize
+  );
+
+  let assemblyFormat = [{
+        `in_channels` `=` $inChannels `,`
+        `out_channels` `=` $outChannels `,`
+        `batch_size` `=` $batchSize `,`
+        `input_height` `=` $inputHeight `,`
+        `input_width` `=` $inputWidth `,`
+        `kernel_size` `=` custom<DimensionList>($kernelSize)
+  }];
+}
+
 def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Attribute"> {
   let mnemonic = "hoisted_call";
   let summary = "Indicates that this call operation has been hoisted";
