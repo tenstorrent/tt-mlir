@@ -50,7 +50,10 @@ namespace {
 // Template argument allows user to specify set of ops to not consider hoisting.
 class ConstEvalAnalyze {
 public:
-  ConstEvalAnalyze(func::FuncOp funcOp) { populateHoistOpSet(funcOp); }
+  ConstEvalAnalyze(func::FuncOp funcOp) {
+    populateConstParams(funcOp);
+    buildConstEvalSubgraphs(funcOp);
+  }
 
   llvm::SmallVector<ConstEvalSubgraph, 4> getAnalysisResults() {
     llvm::SmallVector<ConstEvalSubgraph, 4> results;
@@ -62,13 +65,12 @@ public:
   }
 
 private:
-  void populateHoistOpSet(func::FuncOp funcOp) {
+  void populateConstParams(func::FuncOp funcOp) {
     if (funcOp.isDeclaration()) {
       return;
     }
 
     auto args = funcOp.getArguments();
-    llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
 
     // Iterate through arguments and check their tt.argument_type attributes
     for (auto arg : args) {
@@ -94,12 +96,10 @@ private:
         }
       }
     }
-    // Build const-eval subgraphs based on dependency analysis.
-    buildConstEvalSubgraphs(funcOp, constParams);
   }
 
   // Main algorithm to build const-eval subgraphs:
-  // 1. We have a vector of sets of ops, each representing 1 subgraph
+  // 1. We have a map of sets of ops, each representing 1 subgraph
   // 2. For every op in the original graph, select one of 3 cases
   //   a. If an op depends on any non-const ops, it cannot be const-eval'ed
   //   b. If an op depends on only const input params (to the func) or creation
@@ -107,21 +107,18 @@ private:
   //   c. If an op depends on output from an op in any existing subgraphs, it
   //   must be merged into these subgraphs (if there are multiple such
   //   subgraphs, they must be merged).
-  // 3. Result is list of all disjoint const-eval subgraphs (as sets of ops)
-  void buildConstEvalSubgraphs(
-      func::FuncOp funcOp,
-      const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
+  // 3. Result is map of all disjoint const-eval subgraphs (as sets of ops)
+  void buildConstEvalSubgraphs(func::FuncOp funcOp) {
     // Iterate over all blocks in the function
     for (auto &block : funcOp.getBlocks()) {
       // Iterate over all operations in the block
       for (auto &opRef : block.getOperations()) {
-        processOp(&opRef, constParams);
+        processOp(&opRef);
       }
     }
   }
 
-  void processOp(Operation *op,
-                 const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
+  void processOp(Operation *op) {
     // Creation type ops are only hoisted to subgraphs if a user is found
     // which depends on them, to prevent spuriously hoisting all creation
     // ops. We also completely ignore certain ops.
@@ -137,7 +134,7 @@ private:
     llvm::SmallPtrSet<mlir::Operation *, 2> creationOps;
 
     for (auto operand : op->getOperands()) {
-      if (!operandIsConstEval(operand, constParams, inputParams, creationOps,
+      if (!operandIsConstEval(operand, inputParams, creationOps,
                               subgraphIdxs)) {
         return;
       }
@@ -175,12 +172,11 @@ private:
   // Process an operand, returning true + modifying appropriate input data
   // structure if it is const-eval, and otherwise returning false without
   // modifying data structures.
-  bool operandIsConstEval(
-      mlir::Value operand,
-      const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams,
-      llvm::SmallPtrSet<mlir::BlockArgument, 4> &inputParams,
-      llvm::SmallPtrSet<mlir::Operation *, 2> &creationOps,
-      llvm::SmallSet<size_t, 2> &subgraphIdxs) {
+  bool
+  operandIsConstEval(mlir::Value operand,
+                     llvm::SmallPtrSet<mlir::BlockArgument, 4> &inputParams,
+                     llvm::SmallPtrSet<mlir::Operation *, 2> &creationOps,
+                     llvm::SmallSet<size_t, 2> &subgraphIdxs) {
     // Case 1: this operand is an const-eval param.
     if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
       if (constParams.contains(blockArg)) {
@@ -282,6 +278,8 @@ private:
 
   // Map to determine which subgraph a value belongs to (if any).
   llvm::DenseMap<mlir::Value, size_t> valueToSubgraphMap;
+  // Set of params to original func which can be const-eval'ed.
+  llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
 };
 } // namespace
 
