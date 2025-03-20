@@ -747,7 +747,9 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def prod(self, in0: Operand, dim_arg: List[int], keep_dim: bool = False) -> OpView:
+    def prod(
+        self, in0: Operand, in1: Operand, dim_arg: List[int], keep_dim: bool = False
+    ) -> OpView:
         g_kwargs = {}
         if len(dim_arg) == 1:
             g_kwargs["dim"] = dim_arg[0]
@@ -762,17 +764,20 @@ class TTIRBuilder:
             golden_kwargs=g_kwargs,
             ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(in1).dtype
+            ),
         )
 
     def prod_golden_function(self, in0: Operand):
         return torch.tensor([torch.prod(in0).item()])
 
-    def cumsum(self, in0: Operand, in1: Operand, dim: IntegerAttr) -> OpView:
+    def cumsum(self, in0: Operand, in1: Operand, dim: int) -> OpView:
         return self.op_proxy(
             torch.cumsum,
             ttir.CumSumOp,
             [in0, in1],
-            golden_kwargs={"dim": int(dim)},
+            golden_kwargs={"dim": dim},
             ttir_kwargs={"dim": dim, "output": in1},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
@@ -846,16 +851,20 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def repeat_interleave(self, in0: Operand, repeats: int, dim: int) -> OpView:
-        g_dims = [1] * (dim + 1)
-        g_dims[dim] = repeats
+    def repeat_interleave(
+        self, in0: Operand, in1: Operand, repeats: int, dim: int
+    ) -> OpView:
         return self.op_proxy(
-            torch.Tensor.repeat,
+            torch.repeat_interleave,
             ttir.RepeatInterleaveOp,
-            [in0],
-            golden_kwargs={"repeats": g_dims},
+            [in0, in1],
+            golden_kwargs={"repeats": repeats, "dim": dim},
             ttir_kwargs={"repeats": repeats, "dim": dim},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(in1).dtype
+            ),
         )
 
     def broadcast(
@@ -879,7 +888,7 @@ class TTIRBuilder:
         stride: Union[IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
         dilation: Union[IntegerAttr, DenseI32ArrayAttr],
-        groups: IntegerAttr,
+        groups: int,
     ) -> OpView:
         output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(in1).dtype)
         if not bias:
@@ -892,7 +901,7 @@ class TTIRBuilder:
                 "stride": stride,
                 "padding": padding,
                 "dilation": dilation,
-                "groups": int(groups),
+                "groups": groups,
             },
             ttir_kwargs={
                 "stride": stride,
@@ -915,16 +924,14 @@ class TTIRBuilder:
         groups: int,
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
-        golden_stride = (
-            tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
-        )
-        golden_padding = (
+        stride = tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
+        padding = (
             tuple(padding) if not isinstance(padding, IntegerAttr) else int(padding)
         )
-        golden_dilation = (
+        dilation = (
             tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
         )
-        golden_bias = torch.rand((weight.size()[0]), dtype=in0.dtype)
+        bias = torch.rand((weight.size()[0]), dtype=in0.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
         n, h_out, w_out, c_out = list(in0.size())
@@ -932,15 +939,14 @@ class TTIRBuilder:
         output_unorganized = torch.nn.functional.conv2d(
             input_tensor,
             weight,
-            bias=golden_bias,
-            stride=golden_stride,
-            padding=golden_padding,
-            dilation=golden_dilation,
+            bias=bias,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
             groups=groups,
         )
         n, c_out, h_out, w_out = list(output_unorganized.size())
-        output_tensor = torch.rand((n, h_out, w_out, c_out), dtype=in0.dtype)
-        return output_tensor
+        return torch.rand((n, h_out, w_out, c_out), dtype=in0.dtype)
 
     def conv_transpose2d(
         self,
@@ -948,11 +954,11 @@ class TTIRBuilder:
         weight: Operand,
         bias: Optional[Operand],
         in1: Operand,
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
         output_padding: Union[IntegerAttr, DenseI32ArrayAttr],
         dilation: Union[IntegerAttr, DenseI32ArrayAttr],
-        groups: IntegerAttr,
+        groups: int,
     ) -> OpView:
         output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(in1).dtype)
         if not bias:
@@ -966,7 +972,7 @@ class TTIRBuilder:
                 "padding": padding,
                 "output_padding": output_padding,
                 "dilation": dilation,
-                "groups": int(groups),
+                "groups": groups,
             },
             ttir_kwargs={
                 "stride": stride,
@@ -991,21 +997,19 @@ class TTIRBuilder:
         groups: int,
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
-        golden_stride = (
-            tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
-        )
-        golden_padding = (
+        stride = tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
+        padding = (
             tuple(padding) if not isinstance(padding, IntegerAttr) else int(padding)
         )
-        golden_out_padding = (
+        output_padding = (
             tuple(output_padding)
             if not isinstance(output_padding, IntegerAttr)
             else int(output_padding)
         )
-        golden_dilation = (
+        dilation = (
             tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
         )
-        golden_bias = torch.rand((weight.size()[0]), dtype=in0.dtype)
+        bias = torch.rand((weight.size()[0]), dtype=in0.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
         n, h_out, w_out, c_out = list(in0.size())
@@ -1013,16 +1017,15 @@ class TTIRBuilder:
         output_unorganized = torch.nn.functional.conv_transpose2d(
             input_tensor,
             weight,
-            bias=golden_bias,
-            stride=golden_stride,
-            padding=golden_padding,
-            output_padding=golden_out_padding,
-            dilation=golden_dilation,
+            bias=bias,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            dilation=dilation,
             groups=groups,
         )
         n, c_out, h_out, w_out = list(output_unorganized.size())
-        output_tensor = torch.rand((n, h_out, w_out, c_out), dtype=in0.dtype)
-        return output_tensor
+        return torch.rand((n, h_out, w_out, c_out), dtype=in0.dtype)
 
     def max_pool2d(
         self,
