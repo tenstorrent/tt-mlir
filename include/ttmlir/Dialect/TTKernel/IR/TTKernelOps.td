@@ -671,6 +671,26 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
     let results = (outs TTKernel_InterleavedAddrGenFast:$result);
 }
 
+def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
+    let summary = "MyX";
+    let description = [{
+      MyX
+    }];
+
+    let arguments = (ins Optional<I8>:$noc);
+    let results = (outs Index:$x);
+}
+
+def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
+    let summary = "MyY";
+    let description = [{
+      MyY
+    }];
+
+    let arguments = (ins Optional<I8>:$noc);
+    let results = (outs Index:$y);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//
