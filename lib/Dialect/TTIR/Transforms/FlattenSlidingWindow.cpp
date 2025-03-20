@@ -72,7 +72,6 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = op.getResult().getType();
 
     // auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
@@ -138,8 +137,7 @@ public:
 
     auto flattenedCompatAttr = ttir::FlattenedCompatAttr::get(
         getContext(), inputTy.getDimSize(3), outputTy.getDimSize(3),
-        inputTy.getDimSize(0), inputTy.getDimSize(1), inputTy.getDimSize(2),
-        {kernelTy.getDimSize(2), kernelTy.getDimSize(3)});
+        inputTy.getDimSize(0), inputTy.getDimSize(1), inputTy.getDimSize(2));
 
     auto newConvDPS = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputTy.getShape(), outputTy.getElementType());
@@ -230,8 +228,7 @@ public:
     auto flattenedCompatAttr = ttir::FlattenedCompatAttr::get(
         getContext(), inputType.getDimSize(3), outputType.getDimSize(3),
         inputType.getDimSize(0), inputType.getDimSize(1),
-        inputType.getDimSize(2),
-        {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
+        inputType.getDimSize(2));
 
     auto newPool = cast<ttir::MaxPool2dOp>(rewriter.clone(*op));
     newPool.setFlattenedCompatInfoAttr(flattenedCompatAttr);

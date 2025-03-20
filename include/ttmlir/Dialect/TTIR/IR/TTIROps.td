@@ -1231,7 +1231,7 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
                          I32Attr:$groups,
-                         OptionalAttr<TTIR_FlattenedCompatAttr>:$flattened_compat_info);
+                         OptionalAttr<TTIR_FlattenedCompatInfoAttr>:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1387,7 +1387,7 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
                          SI32Attr:$padding_bottom,
-                         OptionalAttr<TTIR_FlattenedCompatAttr>:$flattened_compat_info);
+                         OptionalAttr<TTIR_FlattenedCompatInfoAttr>:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
 

@@ -263,11 +263,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       static_cast<int32_t>(weightType.getDimSize(WEIGHT_KERNEL_HEIGHT_DIM)),
       static_cast<int32_t>(weightType.getDimSize(WEIGHT_KERNEL_WIDTH_DIM))};
 
-  if (getFlattenedCompatInfo().has_value()) {
-    kernelSize =
-        llvm::SmallVector<int64_t>(getFlattenedCompatInfo()->getKernelSize());
-  }
-
   llvm::SmallVector<uint32_t, 2> paddedInputSize{
       inputHeight + verticalPadding, inputWidth + horizontalPadding};
   llvm::SmallVector<uint32_t, 2> effectiveKernelSize{
