@@ -3,9 +3,6 @@
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
-// TODO (azecevic): Fails at runtime because we don't specify memory config https://github.com/tenstorrent/tt-mlir/issues/2415.
-// UNSUPPORTED: true
-
 func.func @conv2d(%arg0: tensor<3x32x32x8xbf16>, %arg1: tensor<16x8x3x3xbf16>, %arg2: tensor<1x1x1x16xbf16>) -> tensor<3x15x15x16xbf16> {
     %0 = tensor.empty() : tensor<3x15x15x16xbf16>
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)

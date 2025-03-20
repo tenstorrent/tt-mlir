@@ -369,7 +369,7 @@ In our specific case, we create a unit test here:
 
 #### `test/ttmlir/Silicon/TTNN/matmul/simple_matmul.mlir`
 ```mlir
-{{#include ../../../test/ttmlir/Silicon/TTNN/matmul/simple_matmul.mlir}}
+{{#include ../../../test/ttmlir/Silicon/TTNN/n150/matmul/simple_matmul.mlir}}
 ```
 
 Couple things to point out about this process:

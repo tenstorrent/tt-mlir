@@ -13,12 +13,19 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallString.h"
 
+namespace mlir::bufferization {
+struct OneShotBufferizationOptions;
+} // namespace mlir::bufferization
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+
+void initializeOneShotBufferizationOptions(
+    mlir::bufferization::OneShotBufferizationOptions &options);
 } // namespace mlir::tt::ttir
 
 #endif
