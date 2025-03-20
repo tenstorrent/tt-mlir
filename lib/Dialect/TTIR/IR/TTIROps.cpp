@@ -2184,10 +2184,9 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   // Input tensor is assumed to be in NHWC format.
   enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
   if (inputShape[DIM_H] * scaleH != outputShape[DIM_H]) {
-    1 return emitOpError(
-        "Expected output H dimension to be input H dimension * "
-        "scaleH = ")
-        << (inputShape[DIM_H] * scaleH) << ", got " << outputShape[DIM_H];
+    return emitOpError("Expected output H dimension to be input H dimension * "
+                       "scaleH = ")
+           << (inputShape[DIM_H] * scaleH) << ", got " << outputShape[DIM_H];
   }
   if (inputShape[DIM_W] * scaleW != outputShape[DIM_W]) {
     return emitOpError("Expected output W dimension to be input W dimension * "
