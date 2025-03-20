@@ -10,6 +10,7 @@
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include <cstdint>
+#include <mlir/Pass/PassManager.h>
 #include <pybind11/stl_bind.h>
 
 // Make Opaque so Casts & Copies don't occur
@@ -294,7 +295,10 @@ void populatePassesModule(py::module &m) {
       "stablehlo_to_ttir_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getName());
+        // Implicit nesting required to call the stablehlo.composite ->
+        // func.call conversion.
+        mlir::PassManager pm(moduleOp->getName(),
+                             mlir::PassManager::Nesting::Implicit);
 
         mlir::DialectRegistry registry;
         mlir::tt::registerAllDialects(registry);

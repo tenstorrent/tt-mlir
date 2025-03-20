@@ -49,4 +49,4 @@ def test_execute(print_results: bool = False):
 
 if __name__ == "__main__":
     test_compile(True)
-    # test_execute(True)
+    test_execute(True)
