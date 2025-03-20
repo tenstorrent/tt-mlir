@@ -1344,6 +1344,21 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let hasVerifier = 1;
 }
 
+def TTNN_ConstructTensorOp : TTNN_Op<"construct_tensor"> {
+    let summary = "Construct empty tensor on host op.";
+    let description = [{
+      Invoke tensor ctor to create an empty tensor on host.
+    }];
+
+    let arguments = (ins TTNN_ShapeAttr:$shape,
+                         TT_DataTypeAttr:$dtype,
+                         TTNN_LayoutAttr:$layout);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_ArangeOp : TTNN_Op<"arange"> {
   let summary = "Arange operation.";
   let description = [{

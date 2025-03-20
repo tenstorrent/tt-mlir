@@ -73,6 +73,13 @@ table EmptyOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table ConstructTensorOp {
+  shape: [int64];
+  dtype: DataType;
+  layout: TensorLayout;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table ZerosOp {
   shape: [int64];
   dtype: DataType = null;
@@ -457,6 +464,7 @@ union OpType {
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
+  ConstructTensorOp,
   ZerosOp,
   OnesOp,
   FullOp,
