@@ -17,6 +17,9 @@ template <typename Ty>
 class TTIgnoreConstEvalTrait
     : public mlir::OpTrait::TraitBase<Ty, TTIgnoreConstEvalTrait> {};
 
+template <typename Ty>
+class TTForkConstEvalTrait
+    : public mlir::OpTrait::TraitBase<Ty, TTForkConstEvalTrait> {};
 } // namespace mlir::tt::Trait
 
 #endif

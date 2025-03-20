@@ -46,6 +46,13 @@ struct ConstEvalSubgraph {
 } // namespace
 
 namespace {
+struct ConstEvalAnalysisResults {
+  llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs;
+  llvm::SmallVector<Operation *, 1> sharedOps;
+};
+} // namespace
+
+namespace {
 // Analyzer class to detect const-eval subgraphs in a given FuncOp.
 // Template argument allows user to specify set of ops to not consider hoisting.
 class ConstEvalAnalyze {
@@ -55,13 +62,13 @@ public:
     buildConstEvalSubgraphs(funcOp);
   }
 
-  llvm::SmallVector<ConstEvalSubgraph, 4> getAnalysisResults() {
-    llvm::SmallVector<ConstEvalSubgraph, 4> results;
-    results.reserve(subgraphMap.size());
+  ConstEvalAnalysisResults getAnalysisResults() {
+    llvm::SmallVector<ConstEvalSubgraph, 4> subgraphVector;
+    subgraphVector.reserve(subgraphMap.size());
     for (const auto &[_, subgraph] : subgraphMap) {
-      results.emplace_back(subgraph);
+      subgraphVector.emplace_back(subgraph);
     }
-    return results;
+    return ConstEvalAnalysisResults{subgraphVector, sharedOps};
   }
 
 private:
@@ -123,6 +130,12 @@ private:
     // which depends on them, to prevent spuriously hoisting all creation
     // ops. We also completely ignore certain ops.
     if (isUnhoistableOp(op) || isCreationOp(op)) {
+      return;
+    }
+
+    // Some specific ops need to be duplicated
+    if (isSharedOp(op)) {
+      sharedOps.push_back(op);
       return;
     }
 
@@ -198,10 +211,15 @@ private:
 
     // Case 3: this operand is an intermediate tensor from a neutral
     // creation op.
-    if (mlir::Operation *defOp = operand.getDefiningOp();
-        defOp != nullptr && !isUnhoistableOp(defOp) && isCreationOp(defOp)) {
-      creationOps.insert(defOp);
-      return true;
+    if (mlir::Operation *defOp = operand.getDefiningOp(); defOp != nullptr) {
+      // Shared ops will always be available in all subgraphs (but not in
+      // valueToSubgraphMap).
+      if (isSharedOp(defOp)) {
+        return true;
+      } else if (!isUnhoistableOp(defOp) && isCreationOp(defOp)) {
+        creationOps.insert(defOp);
+        return true;
+      }
     }
     // If all 3 cases fail, this operand is not const-eval, so this
     // operation cannot be const-eval'ed.
@@ -220,6 +238,11 @@ private:
   bool isUnhoistableOp(mlir::Operation *op) {
     assert(op != nullptr);
     return op->hasTrait<mlir::tt::Trait::TTIgnoreConstEvalTrait>();
+  }
+
+  bool isSharedOp(mlir::Operation *op) {
+    assert(op != nullptr);
+    return op->hasTrait<mlir::tt::Trait::TTForkConstEvalTrait>();
   }
 
   // Merge content of all subgraphs in subgraphIdxs into the subgraph at the
@@ -280,6 +303,8 @@ private:
   llvm::DenseMap<mlir::Value, size_t> valueToSubgraphMap;
   // Set of params to original func which can be const-eval'ed.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
+  // Set of ops which every subgraph + original graph must duplicate.
+  llvm::SmallVector<mlir::Operation *, 1> sharedOps;
 };
 } // namespace
 
@@ -308,18 +333,21 @@ private:
     }
     // Run the analysis to identify const-eval subgraphs
     ConstEvalAnalyze analyzer(funcOp);
-    auto constEvalOpSets = analyzer.getAnalysisResults();
+    ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
+    llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
+        analysisResults.subgraphs;
+    llvm::SmallVector<Operation *, 1> sharedOps = analysisResults.sharedOps;
 
-    if (constEvalOpSets.empty()) {
+    if (subgraphs.empty()) {
       return;
     }
 
     // Create new functions for each subgraph
-    for (size_t i = 0; i < constEvalOpSets.size(); ++i) {
-      auto &subgraph = constEvalOpSets[i];
+    for (size_t i = 0; i < subgraphs.size(); ++i) {
+      auto &subgraph = subgraphs[i];
 
       // Create a new function for this const-eval subgraph
-      createConstEvalFunction(funcOp, subgraph, i);
+      createConstEvalFunction(funcOp, subgraph, sharedOps, i);
     }
   }
 
@@ -327,6 +355,7 @@ private:
   // ops with a call
   void createConstEvalFunction(func::FuncOp originalFunc,
                                ConstEvalSubgraph &subgraph,
+                               llvm::SmallVector<Operation *, 1> sharedOps,
                                size_t subgraphIdx) {
     mlir::MLIRContext *context = &this->getContext();
     mlir::OpBuilder builder(context);
@@ -373,31 +402,12 @@ private:
       valueMap.insert({inputs[i], newEntryBlock->getArgument(i)});
     }
 
-    // Clone operations into the new function in their original order.
+    // Clone operations into the new function.
+    for (auto *op : sharedOps) {
+      processOp(op, valueMap, builder);
+    }
     for (auto *op : subgraph.ops) {
-      if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
-        continue;
-      }
-
-      llvm::SmallVector<mlir::Value, 4> remappedOperands;
-      for (auto operand : op->getOperands()) {
-        auto it = valueMap.find(operand);
-        assert(it != valueMap.end() &&
-               "Subgraph did not receive needed values from its params.");
-        remappedOperands.push_back(it->second);
-      }
-
-      auto *clonedOp = builder.clone(*op);
-
-      // Update operands to use new func's params.
-      for (size_t i = 0; i < clonedOp->getNumOperands(); ++i) {
-        clonedOp->setOperand(i, remappedOperands[i]);
-      }
-
-      // Map original values to new results.
-      for (size_t i = 0; i < clonedOp->getNumResults(); ++i) {
-        valueMap.insert({op->getResult(i), clonedOp->getResult(i)});
-      }
+      processOp(op, valueMap, builder);
     }
 
     // Create return operation.
@@ -439,6 +449,33 @@ private:
     // dependencies).
     for (auto it = subgraph.ops.rbegin(); it != subgraph.ops.rend(); ++it) {
       (*it)->erase();
+    }
+  }
+
+  void processOp(mlir::Operation *op,
+                 llvm::DenseMap<mlir::Value, mlir::Value> &valueMap,
+                 mlir::OpBuilder &builder) {
+    // In relevant IRs, terminators are always func::ReturnOp, which can't be
+    // hoisted.
+    assert(!op->hasTrait<mlir::OpTrait::IsTerminator>());
+
+    llvm::SmallVector<mlir::Value, 4> remappedOperands;
+    for (auto operand : op->getOperands()) {
+      auto it = valueMap.find(operand);
+      assert(it != valueMap.end() && "Subgraph depends on out-of-scope value!");
+      remappedOperands.push_back(it->second);
+    }
+
+    auto *clonedOp = builder.clone(*op);
+
+    // Update operands to use new func's params.
+    for (size_t i = 0; i < clonedOp->getNumOperands(); ++i) {
+      clonedOp->setOperand(i, remappedOperands[i]);
+    }
+
+    // Map original values to new results.
+    for (size_t i = 0; i < clonedOp->getNumResults(); ++i) {
+      valueMap.insert({op->getResult(i), clonedOp->getResult(i)});
     }
   }
 
