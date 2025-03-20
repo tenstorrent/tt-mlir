@@ -38,9 +38,10 @@ struct IDevice;
 struct Tensor;
 
 namespace operations::creation::detail {
-struct OptionalAnyDevice;
-}
 
+struct OptionalAnyDevice;
+
+} // namespace operations::creation::detail
 } // namespace ttnn
 
 namespace mlir {
@@ -825,7 +826,11 @@ public:
   template <typename TargetTy = ::ttnn::IDevice *>
   mlir::Attribute
   emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
-    if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *>) {
+    if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *> ||
+                  std::is_same_v<TargetTy, ::ttnn::IDevice>) {
+      if (!device) {
+        return emit(std::nullopt);
+      }
       mlir::OpOperand *opOperand = std::find_if(
           op->getOpOperands().begin(), op->getOpOperands().end(),
           [&](OpOperand &operand) { return operand.get() == device; });
@@ -837,6 +842,7 @@ public:
     } else if constexpr (std::is_same<TargetTy,
                                       ::ttnn::operations::creation::detail::
                                           OptionalAnyDevice>::value) {
+
       mlir::OpOperand *opOperand = std::find_if(
           op->getOpOperands().begin(), op->getOpOperands().end(),
           [&](OpOperand &operand) { return operand.get() == device; });
