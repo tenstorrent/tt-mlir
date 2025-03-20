@@ -192,7 +192,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<
       ElementwiseBinaryOpConversionPattern<ttir::AddOp, linalg::AddOp>,
       ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
-      ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>>(
+      ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>,
+      ElementwiseBinaryOpConversionPattern<ttir::DivOp, linalg::DivOp>>(
       typeConverter, ctx);
 }
 
