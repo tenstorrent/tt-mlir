@@ -21,8 +21,10 @@ def stablehlo_to_ttir(module: Module) -> Module:
     return module
 
 
-def ttir_to_ttnn(module: Module) -> Module:
-    ttir_to_ttnn_backend_pipeline(module)
+def ttir_to_ttnn(
+    module: Module, system_desc: str = "ttrt-artifacts/system_desc.ttsys"
+) -> Module:
+    ttir_to_ttnn_backend_pipeline(module, f"system-desc-path={system_desc}")
     return module
 
 
