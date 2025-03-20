@@ -1230,91 +1230,12 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
-                         I32Attr:$groups);
+                         I32Attr:$groups,
+                         OptionalAttr<TTIR_FlattenedCompatAttr>:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-}
-
-def TTIR_Conv2dFlattenedCompatOp : TTIR_NamedOp<"flattened_compat_conv2d"> {
-    let summary = "Conv2d operation.";
-    let description = [{
-
-      This op is identical to `ttir.conv2d`, except its input must be flattned to (1, 1, N*H_in*W_in, C_in).
-      Its output remains flattened as (1, 1, N*H_out*W_out, C_out).
-
-      Applies a 2D convolution over an input image composed of several input planes.
-
-      Inputs:
-      - `input` (AnyRankedTensor): expected in the following flattened format (1, 1, N * H_in * W_in, C) where:
-        - N is the batch size
-        - H_in is the height of the input planes
-        - W_in is the width of the input planes
-        - C is the number of channels
-      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K_H, K_W).
-      - `bias` (Optional<AnyRankedTensor>): expected in the following format (1, 1, 1, O) where:
-        - C is the number of input channels
-        - O is the number of output channels
-        - G is the number of groups
-        - K_H is the height of the kernel
-        - K_W is the width of the kernel
-
-      Attributes:
-      - `in_channels` (i32): The number of input channels.
-      - `out_channels` (i32): The number of output channels.
-      - `batch_size` (i32): The batch size.
-      - `input_height` (i32): The input height.
-      - `input_width` (i32): The input width.
-      - `kernel_size` (array<2xi32>): [K_H, K_W] where K_H is the kernel height and K_W is the kernel width.
-      - `stride` (array<2xi32>): [sH, sW] where sH is stride for height and sW is stride for width.
-      - `padding` (array<2xi32>): [pH, pW] where pH is padding for height (top/bottom) and pW is padding for width (left/right).
-      - `dilation` (array<2xi32>): [dH, dW] where dH is dilation for height and dW is dilation for width.
-      - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
-
-      Outputs:
-      - `result` (AnyRankedTensor): returned in the following flattened format (1, 1, N * H_out * W_out, O) where:
-        - `H_out = (H_in + 2 * pH - dH * (K_H - 1) - 1) / sH + 1`
-        - `W_out = (W_in + 2 * pW - dW * (K_W - 1) - 1) / sW + 1`
-
-      Example:
-        %input = tensor.empty() : () -> tensor<1x1x1024x64xbf16>
-        %weight = tensor.empty() : () -> tensor<64x64x3x3xbf16>
-        %bias = tensor.empty() : () -> tensor<1x1x1x64xbf16>
-        %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
-        %0 = "ttnn.conv2d"(%input, %weight, %bias, %device)
-          <{
-            in_channels = 64: i32,
-            out_channels = 64: i32,
-            batch_size = 1: i32,
-            input_height = 32: i32,
-            input_width = 32: i32,
-            kernel_size = array<i32: 3, 3>,
-            stride = array<i32: 1, 1>,
-            padding = array<i32: 0, 0>,
-            dilation = array<i32: 1, 1>,
-            groups = 1: i32
-          }> : (tensor<1x1x1024x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, !tt.device<#device>) -> tensor<1x1x900x64xbf16>
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$weight,
-                         Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
-                         I32Attr:$in_channels,
-                         I32Attr:$out_channels,
-                         I32Attr:$batch_size,
-                         I32Attr:$input_height,
-                         I32Attr:$input_width,
-                         DenseI32ArrayAttr:$kernel_size,
-                         DenseI32ArrayAttr:$stride,
-                         DenseI32ArrayAttr:$padding,
-                         DenseI32ArrayAttr:$dilation,
-                         I32Attr:$groups);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    // let hasVerifier = 1;
 }
 
 def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
@@ -1465,7 +1386,8 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
                          SI32Attr:$padding_left,
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
-                         SI32Attr:$padding_bottom);
+                         SI32Attr:$padding_bottom,
+                         OptionalAttr<TTIR_FlattenedCompatAttr>:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
 

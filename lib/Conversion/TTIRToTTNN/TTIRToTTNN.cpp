@@ -980,21 +980,32 @@ public:
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    if (!adaptor.getFlattenedCompatInfo().has_value()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN only supports flattened input tensors for Conv2dOp. Please "
+              "run the FlattenSlidingWindow pass before lowering to TTNN.");
+    }
+    auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo().value();
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    // auto inputTy =
+    // mlir::cast<RankedTensorType>(adaptor.getInput().getType()); auto kernelTy
+    // = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = op.getResult().getType();
 
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
-    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
-    auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
+    auto batchSizeAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getBatchSize());
+    auto inputHeightAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputHeight());
+    auto inputWidthAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputWidth());
+    auto inChannelsAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInChannels());
+    auto outChannelsAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getOutChannels());
 
     auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(kernelTy.getDimSize(2)),
-         static_cast<int32_t>(kernelTy.getDimSize(3))});
+        SmallVector<int32_t>(flattenedCompatInfo.getKernelSize()));
 
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {
@@ -1090,31 +1101,6 @@ private:
                                      elementCount);
     }
     }
-  }
-};
-} // namespace
-
-namespace {
-class Conv2dFlattenedCompatOpConversionPattern
-    : public OpConversionPattern<ttir::Conv2dFlattenedCompatOp> {
-public:
-  using OpConversionPattern<ttir::Conv2dFlattenedCompatOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::Conv2dFlattenedCompatOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
-        adaptor.getInChannelsAttr(), adaptor.getOutChannelsAttr(),
-        adaptor.getBatchSizeAttr(), adaptor.getInputHeightAttr(),
-        adaptor.getInputWidthAttr(), adaptor.getKernelSizeAttr(),
-        adaptor.getStrideAttr(), adaptor.getPaddingAttr(),
-        adaptor.getDilationAttr(), adaptor.getGroupsAttr(),
-        /*memory_config*/ nullptr);
-    return success();
   }
 };
 } // namespace
@@ -1682,7 +1668,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LinearOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
-           Conv2dFlattenedCompatOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
            MaxPool2dFlattenedCompatOpConversionPattern,

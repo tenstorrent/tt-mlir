@@ -205,7 +205,9 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
   constexpr unsigned int BATCH_DIM = 0, HEIGHT_DIM = 1, WIDTH_DIM = 2,
                          CHANNEL_DIM = 3;
-  uint32_t batchSize = inputType.getDimSize(BATCH_DIM);
+  uint32_t batchSize = getFlattenedCompatInfo().has_value()
+                           ? getFlattenedCompatInfo()->getBatchSize()
+                           : inputType.getDimSize(BATCH_DIM);
   if (batchSize != outputType.getDimSize(BATCH_DIM)) {
     return emitOpError()
            << "Batch size from the input tensor (" << batchSize
@@ -217,6 +219,12 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   uint32_t inputWidth = inputType.getDimSize(WIDTH_DIM);
   uint32_t inChannels = inputType.getDimSize(CHANNEL_DIM);
   uint32_t outChannels = outputType.getDimSize(CHANNEL_DIM);
+  if (getFlattenedCompatInfo().has_value()) {
+    inputHeight = getFlattenedCompatInfo()->getInputHeight();
+    inputWidth = getFlattenedCompatInfo()->getInputWidth();
+    inChannels = getFlattenedCompatInfo()->getInChannels();
+    outChannels = getFlattenedCompatInfo()->getOutChannels();
+  }
 
   auto stride = ttmlir::utils::getPairOfInteger<int32_t>(getStride());
   if (auto error = stride.takeError()) {
@@ -251,9 +259,14 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 0, WEIGHT_IN_CHANNEL_DIM = 1;
   constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 2,
                          WEIGHT_KERNEL_WIDTH_DIM = 3;
-  llvm::SmallVector<int32_t, 2> kernelSize{
+  llvm::SmallVector<int64_t> kernelSize{
       static_cast<int32_t>(weightType.getDimSize(WEIGHT_KERNEL_HEIGHT_DIM)),
       static_cast<int32_t>(weightType.getDimSize(WEIGHT_KERNEL_WIDTH_DIM))};
+
+  if (getFlattenedCompatInfo().has_value()) {
+    kernelSize =
+        llvm::SmallVector<int64_t>(getFlattenedCompatInfo()->getKernelSize());
+  }
 
   llvm::SmallVector<uint32_t, 2> paddedInputSize{
       inputHeight + verticalPadding, inputWidth + horizontalPadding};
@@ -321,17 +334,18 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
                             dilation->second * (kernelSize[1] - 1) - 1) /
                                stride->second +
                            1;
-  if (calculatedHOut != outputType.getDimSize(HEIGHT_DIM) ||
-      calculatedWOut != outputType.getDimSize(WIDTH_DIM)) {
-    return emitOpError()
-           << "Mismatch between calculated and got output height and width. "
-           << "Calculated: (" << calculatedHOut << " x " << calculatedWOut
-           << "). "
-           << "Got output tensor height and width: ("
-           << outputType.getDimSize(HEIGHT_DIM) << " x "
-           << outputType.getDimSize(WIDTH_DIM) << ")";
+  if (!getFlattenedCompatInfo().has_value()) {
+    if (calculatedHOut != outputType.getDimSize(HEIGHT_DIM) ||
+        calculatedWOut != outputType.getDimSize(WIDTH_DIM)) {
+      return emitOpError()
+             << "Mismatch between calculated and got output height and width. "
+             << "Calculated: (" << calculatedHOut << " x " << calculatedWOut
+             << "). "
+             << "Got output tensor height and width: ("
+             << outputType.getDimSize(HEIGHT_DIM) << " x "
+             << outputType.getDimSize(WIDTH_DIM) << ")";
+    }
   }
-
   return success();
 }
 
