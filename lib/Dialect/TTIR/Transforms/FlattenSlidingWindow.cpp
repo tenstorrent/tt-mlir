@@ -136,24 +136,17 @@ public:
                                            outputTy.getElementType(),
                                            outputTy.getEncoding());
 
-    auto convDPS = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), outputTy.getShape(), outputTy.getElementType());
-    // ttir::Conv2dFlattenedCompatOp newConv =
-    //     rewriter.create<ttir::Conv2dFlattenedCompatOp>(
-    //         op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
-    //         adaptor.getBias(), convDPS, inChannelsAttr, outChannelsAttr,
-    //         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-    //         *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr);
-
     auto flattenedCompatAttr = ttir::FlattenedCompatAttr::get(
         getContext(), inputTy.getDimSize(3), outputTy.getDimSize(3),
         inputTy.getDimSize(0), inputTy.getDimSize(1), inputTy.getDimSize(2),
         {kernelTy.getDimSize(2), kernelTy.getDimSize(3)});
 
+    auto newConvDPS = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), outputTy.getShape(), outputTy.getElementType());
     auto newConv = cast<ttir::Conv2dOp>(rewriter.clone(*op));
     newConv.setFlattenedCompatInfoAttr(flattenedCompatAttr);
     newConv->setOperand(0, flattenedInput);
-    newConv.setDpsInitOperand(0, convDPS);
+    newConv.setDpsInitOperand(0, newConvDPS);
     newConv.getResult().setType(outputTy);
 
     Value output = generateTTIRReshape(newConv, outputShape, rewriter);
@@ -216,10 +209,6 @@ public:
            "separately");
 
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> inputShape = inputType.getShape();
-
-    auto batchSize = static_cast<int32_t>(inputShape[inputShape.size() - 4]);
-    auto channels = static_cast<int32_t>(inputShape[inputShape.size() - 1]);
 
     Value flattenedInput = generateTTIRNHWFlatten(
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
@@ -231,32 +220,24 @@ public:
     llvm::SmallVector<int64_t> flattenedOutputShape{
         1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
 
-    outputType = mlir::RankedTensorType::get(flattenedOutputShape,
-                                             outputType.getElementType(),
-                                             outputType.getEncoding());
+    auto newOutputType = mlir::RankedTensorType::get(
+        flattenedOutputShape, outputType.getElementType(),
+        outputType.getEncoding());
 
-    DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+    auto newPoolDPS = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), newOutputType.getShape(), newOutputType.getElementType());
+
+    auto flattenedCompatAttr = ttir::FlattenedCompatAttr::get(
+        getContext(), inputType.getDimSize(3), outputType.getDimSize(3),
+        inputType.getDimSize(0), inputType.getDimSize(1),
+        inputType.getDimSize(2),
         {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
 
-    DenseI32ArrayAttr strideAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getStrideHeight(), adaptor.getStrideWidth()});
-
-    assert(adaptor.getPaddingTop() == adaptor.getPaddingBottom());
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight());
-    DenseI32ArrayAttr paddingAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getPaddingTop(), adaptor.getPaddingLeft()});
-
-    DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
-        {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
-
-    auto poolDPS = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), outputType.getShape(), outputType.getElementType());
-    auto newPool = rewriter.create<ttir::MaxPool2dFlattenedCompatOp>(
-        op.getLoc(), outputType, flattenedInput, poolDPS, batchSize,
-        static_cast<int32_t>(inputShape[inputShape.size() - 3]),
-        static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
-        kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
-        adaptor.getCeilMode());
+    auto newPool = cast<ttir::MaxPool2dOp>(rewriter.clone(*op));
+    newPool.setFlattenedCompatInfoAttr(flattenedCompatAttr);
+    newPool->setOperand(0, flattenedInput);
+    newPool.setDpsInitOperand(0, newPoolDPS);
+    newPool.getResult().setType(newOutputType);
 
     Value output = generateTTIRReshape(newPool, outputShape, rewriter);
 
@@ -293,7 +274,9 @@ public:
     target.addDynamicallyLegalOp<ttir::Conv2dOp>([&](ttir::Conv2dOp op) {
       return op.getFlattenedCompatInfo().has_value();
     });
-    // target.addIllegalOp<ttir::MaxPool2dOp>();
+    target.addDynamicallyLegalOp<ttir::MaxPool2dOp>([&](ttir::MaxPool2dOp op) {
+      return op.getFlattenedCompatInfo().has_value();
+    });
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(conversionPatternSet)))) {

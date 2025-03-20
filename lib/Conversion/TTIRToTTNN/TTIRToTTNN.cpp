@@ -1232,7 +1232,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
+    if (!adaptor.getFlattenedCompatInfo().has_value()) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "TTNN only supports flattened input tensors for MaxPool2dOp. Please "
+          "run the FlattenSlidingWindow pass before lowering to TTNN.");
+    }
     assert(adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
            "TTNN max_pool2d does not support padding top/bottom/left/right "
            "separately");
@@ -1276,9 +1281,9 @@ public:
 
     auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
         op.getLoc(), this->getTypeConverter()->convertType(outputType),
-        flattenedInput, batchSize,
-        static_cast<int32_t>(inputShape[inputShape.size() - 3]),
-        static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
+        flattenedInput, device, batchSize,
+        adaptor.getFlattenedCompatInfo()->getInputHeight(),
+        adaptor.getFlattenedCompatInfo()->getInputWidth(), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
         adaptor.getCeilMode());
 
@@ -1287,29 +1292,6 @@ public:
 
     rewriter.replaceOp(op, output);
 
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class MaxPool2dFlattenedCompatOpConversionPattern
-    : public OpConversionPattern<ttir::MaxPool2dFlattenedCompatOp> {
-public:
-  using OpConversionPattern<
-      ttir::MaxPool2dFlattenedCompatOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::MaxPool2dFlattenedCompatOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getBatchSize(),
-        adaptor.getInputHeight(), adaptor.getInputWidth(),
-        adaptor.getChannels(), adaptor.getKernelSize(), adaptor.getStride(),
-        adaptor.getPadding(), adaptor.getDilation(), adaptor.getCeilMode());
     return success();
   }
 };
@@ -1670,7 +1652,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            Conv2dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
-           MaxPool2dFlattenedCompatOpConversionPattern,
            SubtractOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,

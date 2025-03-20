@@ -1394,32 +1394,6 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
-def TTNN_MaxPool2dFlattenedCompatOp : TTIR_NamedOp<"flattened_compat_max_pool2d"> {
-    let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
-    let description = [{
-      This op is equivalent to `ttir.max_pool2d`, except its input must be flattened to (1, 1, N*H_in*W_in, C_in).
-      Its output remains flattened as (1, 1, N*H_out*W_out, C).
-
-      Applies a 2D max pooling over an input signal composed of several input planes.
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
-                         SI32Attr:$batch_size,
-                         SI32Attr:$input_height,
-                         SI32Attr:$input_width,
-                         SI32Attr:$channels,
-                         DenseI32ArrayAttr:$kernel_size,
-                         DenseI32ArrayAttr:$stride,
-                         DenseI32ArrayAttr:$padding,
-                         DenseI32ArrayAttr:$dilation,
-                         BoolAttr:$ceil_mode);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    // let hasVerifier = 1;
-}
-
 def TTIR_ReshapeOp: TTIR_NamedOp<"reshape"> {
     let summary = "Reshape op.";
     let description = [{

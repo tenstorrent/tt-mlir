@@ -607,15 +607,28 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
            << inputType.getRank() << ". Shape: (" << inputShape << ").";
   }
 
+  if (getFlattenedCompatInfo().has_value()) {
+    inputShape[0] = getFlattenedCompatInfo()->getBatchSize();
+    inputShape[1] = getFlattenedCompatInfo()->getInputHeight();
+    inputShape[2] = getFlattenedCompatInfo()->getInputWidth();
+    inputShape[3] = getFlattenedCompatInfo()->getInChannels();
+  }
+
   if (getKernelHeight() > inputShape[1]) {
     return emitOpError() << "Kernel height " << getKernelHeight()
                          << " is greater than input height " << inputShape[1]
+                         << (getFlattenedCompatInfo().has_value()
+                                 ? "(as defined in flattened_compat_info)"
+                                 : "")
                          << ". This MaxPool2d configuration is invalid.";
   }
 
   if (getKernelWidth() > inputShape[2]) {
     return emitOpError() << "Kernel width " << getKernelWidth()
                          << " is greater than input width " << inputShape[2]
+                         << (getFlattenedCompatInfo().has_value()
+                                 ? "(as defined in flattened_compat_info)"
+                                 : "")
                          << ". This MaxPool2d configuration is invalid.";
   }
 
