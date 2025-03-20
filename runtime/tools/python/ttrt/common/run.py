@@ -424,16 +424,21 @@ class Run:
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_runtime()
-            self.logging.debug(f"opening devices={self.query.device_ids}")
-            dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
+
+            open_device_options = ttrt.runtime.OpenDeviceOptions()
+            open_device_options.enable_async_ttnn = self["--enable-async-ttnn"]
+            open_device_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
 
             if self["--disable-eth-dispatch"]:
-                dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
+                open_device_options.dispatch_core_type = (
+                    ttrt.runtime.DispatchCoreType.WORKER
+                )
+
+            self.logging.debug(f"opening devices={self.query.device_ids}")
 
             device = ttrt.runtime.open_device(
                 self.query.device_ids,
-                dispatch_core_type=dispatch_core_type,
-                enable_async_ttnn=self["--enable-async-ttnn"],
+                open_device_options,
             )
 
             callback_runtime_config = CallbackRuntimeConfig(

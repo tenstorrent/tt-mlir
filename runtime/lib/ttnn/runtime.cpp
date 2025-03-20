@@ -204,30 +204,31 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize,
-                  std::optional<DispatchCoreType> dispatchCoreType,
-                  std::optional<bool> enableAsyncTTNN) {
+Device openDevice(DeviceIds const &deviceIds,
+                  OpenDeviceOptions const &options) {
 
   ::tt::tt_metal::DispatchCoreType type =
-      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+      tt::runtime::common::getDispatchCoreType(options.dispatchCoreType);
 
   LOG_ASSERT(deviceIds.size(), "No devices specified");
+
   ::tt::tt_metal::distributed::MeshShape grid{
       1, static_cast<uint32_t>(deviceIds.size())};
-  size_t l1SmallSizeValue = l1SmallSize.value_or(tt::constants::L1_SMALL_SIZE);
+
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid,
                                                     .offset = {}},
-      l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
+      options.l1SmallSize, DEFAULT_TRACE_REGION_SIZE, options.numHWCQs, type);
 
   CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
   LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
            "}");
 
-  bool enableAsyncValue = enableAsyncTTNN.value_or(false);
   for (::ttnn::IDevice *device : meshDevice->get_devices()) {
-    device->enable_async(enableAsyncValue);
+    device->enable_async(options.enableAsyncTTNN);
+    if (options.enableProgramCache) {
+      device->enable_program_cache();
+    }
   }
 
   return Device(std::static_pointer_cast<void>(meshDevice),

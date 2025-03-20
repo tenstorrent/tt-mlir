@@ -17,6 +17,8 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #pragma clang diagnostic pop
 
+#include "Constants.h"
+
 namespace tt::runtime {
 /*
 MemoryBlockTable is a list of memory blocks in the following format:
@@ -42,6 +44,14 @@ enum class DeviceRuntime {
 enum class DispatchCoreType {
   WORKER,
   ETH,
+};
+
+struct OpenDeviceOptions {
+  size_t numHWCQs{1};
+  size_t l1SmallSize{tt::constants::L1_SMALL_SIZE};
+  std::optional<DispatchCoreType> dispatchCoreType{std::nullopt};
+  bool enableAsyncTTNN{false};
+  bool enableProgramCache{false};
 };
 
 namespace detail {

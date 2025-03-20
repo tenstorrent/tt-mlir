@@ -44,6 +44,17 @@ PYBIND11_MODULE(_C, m) {
       .def_readonly("stride", &tt::runtime::TensorDesc::stride)
       .def_readonly("item_size", &tt::runtime::TensorDesc::itemsize)
       .def_readonly("dtype", &tt::runtime::TensorDesc::dataType);
+  py::class_<tt::runtime::OpenDeviceOptions>(m, "OpenDeviceOptions")
+      .def(py::init<>())
+      .def_readwrite("num_hw_cqs", &tt::runtime::OpenDeviceOptions::numHWCQs)
+      .def_readwrite("l1_small_size",
+                     &tt::runtime::OpenDeviceOptions::l1SmallSize)
+      .def_readwrite("dispatch_core_type",
+                     &tt::runtime::OpenDeviceOptions::dispatchCoreType)
+      .def_readwrite("enable_async_ttnn",
+                     &tt::runtime::OpenDeviceOptions::enableAsyncTTNN)
+      .def_readwrite("enable_program_cache",
+                     &tt::runtime::OpenDeviceOptions::enableProgramCache);
   py::class_<tt::runtime::Tensor>(m, "Tensor")
       .def("get_shape",
            [](tt::runtime::Tensor self) {
@@ -158,10 +169,7 @@ PYBIND11_MODULE(_C, m) {
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
-        py::arg("num_hw_cqs") = size_t{1},
-        py::arg("l1_small_size") = py::none(),
-        py::arg("dispatch_core_type") = py::none(),
-        py::arg("enable_async_ttnn") = py::none(),
+        py::arg("open_device_options") = tt::runtime::OpenDeviceOptions(),
         "Open a mesh of devices for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
