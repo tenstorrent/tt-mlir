@@ -20,7 +20,7 @@ void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
 
   // Create buffer using shared utility
   ::tt::tt_metal::OwnedBuffer ownedBuffer =
-      utils::createTypedBufferFromData(target_dtype, op->data());
+      utils::createTypedBuffer(target_dtype, shape.volume(), op->data());
 
   ::ttnn::DataType dtype =
       ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
