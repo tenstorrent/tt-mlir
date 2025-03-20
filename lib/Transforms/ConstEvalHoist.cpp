@@ -216,7 +216,8 @@ private:
       // valueToSubgraphMap).
       if (isSharedOp(defOp)) {
         return true;
-      } else if (!isUnhoistableOp(defOp) && isCreationOp(defOp)) {
+      }
+      if (!isUnhoistableOp(defOp) && isCreationOp(defOp)) {
         creationOps.insert(defOp);
         return true;
       }
@@ -242,7 +243,7 @@ private:
 
   bool isSharedOp(mlir::Operation *op) {
     assert(op != nullptr);
-    return op->hasTrait<mlir::tt::Trait::TTForkConstEvalTrait>();
+    return op->hasTrait<mlir::tt::Trait::TTSharedConstEvalTrait>();
   }
 
   // Merge content of all subgraphs in subgraphIdxs into the subgraph at the
