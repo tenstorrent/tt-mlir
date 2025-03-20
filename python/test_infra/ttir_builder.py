@@ -954,7 +954,7 @@ class TTIRBuilder:
         weight: Operand,
         bias: Optional[Operand],
         in1: Operand,
-        stride: Union[int, IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
         output_padding: Union[IntegerAttr, DenseI32ArrayAttr],
         dilation: Union[IntegerAttr, DenseI32ArrayAttr],

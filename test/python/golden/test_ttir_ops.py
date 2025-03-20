@@ -12,12 +12,6 @@ from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
 from ttmlir.ir import *
-from ttmlir.ir import (
-    DenseI64ArrayAttr,
-    DenseI32ArrayAttr,
-    IntegerAttr,
-    IntegerType,
-)
 
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371
