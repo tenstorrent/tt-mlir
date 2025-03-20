@@ -71,12 +71,6 @@ if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     -fPIC
   )
   target_link_options(coverage_config INTERFACE --coverage)
-
-  # Apply coverage flags globally
-  # set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_COVERAGE}" CACHE STRING "C Flags with coverage" FORCE)
-  # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_COVERAGE}" CACHE STRING "C++ Flags with coverage" FORCE)
-  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS_COVERAGE}" CACHE STRING "Executable Linker Flags with coverage" FORCE)
-  # set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS_COVERAGE}" CACHE STRING "Shared Linker Flags with coverage" FORCE)
 endif()
 
 install(TARGETS coverage_config EXPORT TTNNOpModelLibTargets)

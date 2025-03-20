@@ -484,17 +484,9 @@ jobs:
 
     - name: Prepare code coverage report
       run: |
-        echo "ls"
-        ls -la ${{ steps.strings.outputs.build-output-dir }}
-        echo "find gcda gcno"
-        find ${{ steps.strings.outputs.build-output-dir }} -name "*.gcda" -o -name "*.gcno"
-        echo "lcov 1"
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        echo "lcov 2"
         lcov --extract coverage.info '**/tt-mlir/*' --output-file coverage.info
-        echo "sed"
         sed -i 's|SF:/__w/tt-mlir/tt-mlir/|SF:|' coverage.info
-        echo "lcov 3"
         lcov --list coverage.info
 
     - name: Upload coverage reports to Codecov
