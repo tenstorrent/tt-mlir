@@ -43,7 +43,6 @@ class TT_Trait<string name> : NativeOpTrait<name> {
   let cppNamespace = "::mlir::tt::Trait";
 }
 
-// GenericRegionOpTrait is a trait that acts as a label for all generic region operations.
 def TT_IgnoreConstEvalTrait : TT_Trait<"TTIgnoreConstEvalTrait">;
 def TT_CreationOpTrait : TT_Trait<"TTCreationOpTrait">;
 #endif
