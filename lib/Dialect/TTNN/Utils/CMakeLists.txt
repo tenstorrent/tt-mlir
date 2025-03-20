@@ -8,3 +8,5 @@ add_mlir_dialect_library(TTMLIRTTNNUtils
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/TTNN
 )
+
+target_link_libraries(TTMLIRTTNNUtils PUBLIC coverage_config)
