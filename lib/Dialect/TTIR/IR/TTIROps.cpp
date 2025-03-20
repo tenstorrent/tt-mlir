@@ -763,13 +763,7 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   }
 
   // Back to back reshapes can be replaced with the final reshape.
-  if (auto reshapeOperand =
-          dyn_cast_or_null<ReshapeOp>(getOperand(0).getDefiningOp())) {
-    // If the producer has users other than this op, we cannot fold.
-    if (SmallVector<OpOperand>(reshapeOperand->getUsers()).size() != 1) {
-      return nullptr;
-    }
-
+  if (auto reshapeOperand = getOperand(0).getDefiningOp<ReshapeOp>()) {
     setOperand(0, reshapeOperand.getInput());
     return getResult();
   }

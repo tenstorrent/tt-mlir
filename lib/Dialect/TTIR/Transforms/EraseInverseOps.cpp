@@ -13,15 +13,19 @@
 #include "ttmlir/Utils.h"
 #include "llvm/Support/LogicalResult.h"
 #include <cstdint>
+#include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/Sequence.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/ErrorHandling.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Location.h>
 #include <mlir/IR/OperationSupport.h>
 #include <mlir/IR/PatternMatch.h>
+#include <mlir/Support/LLVM.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <numeric>
 
@@ -131,7 +135,6 @@ private:
           operandType.getElementType()));
 
       TMOpType newTM = cast<TMOpType>(rewriter.clone(*user));
-      handlePlaceOnImplicitBroadcast(newTM, operands[operandIdx]);
       newTM->setOperand(newTM->getNumOperands() - 1,
                         newTMDPSOperands[operandIdx]);
       newTMs.push_back(newTM);
@@ -161,43 +164,6 @@ private:
     for (auto *user : users) {
       rewriter.replaceOp(user, newEltwise);
     }
-  }
-
-  void handlePlaceOnImplicitBroadcast(Operation *newTM, Value operand) const {
-    // If the TMOpType is a transpose, we need to place it on the implicit
-    // broadcast path
-    auto operandShape = cast<RankedTensorType>(operand.getType()).getShape();
-    auto resultShape =
-        cast<RankedTensorType>(newTM->getResult(0).getType()).getShape();
-    int64_t operandVolume =
-        std::accumulate(operandShape.begin(), operandShape.end(), 1,
-                        std::multiplies<int64_t>());
-    int64_t resultVolume = std::accumulate(
-        resultShape.begin(), resultShape.end(), 1, std::multiplies<int64_t>());
-    if (operandVolume == resultVolume) {
-      return;
-    }
-
-    SmallVector<int64_t> newShape(resultShape);
-    if (auto transpose = dyn_cast_or_null<ttir::TransposeOp>(newTM)) {
-      newShape[transpose.getDim0()] = operandShape[transpose.getDim0()];
-      newShape[transpose.getDim1()] = operandShape[transpose.getDim1()];
-    } else if (auto permute = dyn_cast_or_null<ttir::PermuteOp>(newTM)) {
-      auto permutation = permute.getPermutation();
-      for (int64_t i = 0; i < static_cast<int64_t>(permutation.size()); i++) {
-        newShape[permutation[i]] = operandShape[i];
-      }
-    } else if (auto reshape = dyn_cast_or_null<ttir::ReshapeOp>(newTM)) {
-      // auto afterBroadcastShape = resultShape;
-
-    } else {
-      llvm_unreachable("newTM must be one of ttir::TransposeOp, "
-                       "ttir::PermuteOp, ttir::ReshapeOp");
-    }
-    auto resultType = cast<RankedTensorType>(newTM->getResult(0).getType());
-    auto newResultType =
-        resultType.cloneWith(newShape, resultType.getElementType());
-    newTM->getResult(0).setType(newResultType);
   }
 };
 
@@ -241,6 +207,79 @@ private:
 } // namespace
 
 namespace {
+
+SmallVector<int64_t> getContiguousStrides(ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> strides(shape.size(), 1);
+  for (int64_t i = shape.size() - 2; i >= 0; i--) {
+    strides[i] = shape[i + 1] * strides[i + 1];
+  }
+  return strides;
+}
+
+SmallVector<int64_t> getStrideAfterBroadcast(ArrayRef<int64_t> originalShape,
+                                             ArrayRef<int64_t> broadcastShape) {
+  SmallVector<int64_t> strides = getContiguousStrides(originalShape);
+  SmallVector<int64_t> newStrides(originalShape.size(), 0);
+  for (int64_t i = originalShape.size() - 1; i >= 0; i--) {
+    if (originalShape[i] == broadcastShape[i]) {
+      newStrides[i] = strides[i];
+    } else {
+      newStrides[i] = 0;
+    }
+  }
+  return newStrides;
+}
+
+std::optional<SmallVector<int64_t>>
+getStrideAfterBroadcastReshape(ArrayRef<int64_t> originalShape,
+                               ArrayRef<int64_t> broadcastShape,
+                               ArrayRef<int64_t> finalShape) {
+  auto stridesAfterBroadcast =
+      getStrideAfterBroadcast(originalShape, broadcastShape);
+
+  // The following algorith is based upon the implementation of pytorch's
+  // `view` op implementation. Specifically the helper that computes the new
+  // stride.
+  //
+  // Source:
+  // https://github.com/pytorch/pytorch/blob/842a072fd3d219aca538435d4e956053e76817df/aten/src/ATen/TensorUtils.cpp#L364
+  SmallVector<int64_t> newStrides(finalShape.size(), 0);
+
+  int64_t viewD = finalShape.size() - 1;
+  int64_t tensorNumel = 1;
+  int64_t viewNumel = 1;
+  int64_t chunkBaseStride = stridesAfterBroadcast.back();
+
+  for (int64_t tensorD = broadcastShape.size() - 1; tensorD >= 0; tensorD--) {
+    tensorNumel *= broadcastShape[tensorD];
+    if (tensorD == 0 ||
+        (broadcastShape[tensorD - 1] != 1 &&
+         stridesAfterBroadcast[tensorD - 1] != tensorNumel * chunkBaseStride)) {
+
+      while (viewD >= 0 &&
+             (viewNumel < tensorNumel || finalShape[viewD] == 1)) {
+        newStrides[viewD] = viewNumel * chunkBaseStride;
+        viewNumel *= finalShape[viewD];
+        viewD--;
+      }
+
+      if (viewNumel != tensorNumel) {
+        return std::nullopt;
+      }
+
+      if (tensorD > 0) {
+        chunkBaseStride = stridesAfterBroadcast[tensorD - 1];
+        tensorNumel = 1;
+        viewNumel = 1;
+      }
+    }
+  }
+  if (viewD != -1) {
+    return std::nullopt;
+  }
+  return newStrides;
+}
+
 class TTIRCommuteTmsAboveBroadcast
     : public OpRewritePattern<ttir::BroadcastOp> {
   using OpRewritePattern<ttir::BroadcastOp>::OpRewritePattern;
@@ -312,7 +351,69 @@ class TTIRCommuteTmsAboveBroadcast
           op->getLoc(), newTMResultType, operand, permuteDPS, permutation);
 
     } else if (auto reshape = dyn_cast_or_null<ttir::ReshapeOp>(originalTM)) {
-      return rewriter.notifyMatchFailure(op, "Reshape not supported yet");
+      // The following points are true about about reshaping and broadcasting
+      // tensors that have stride attributes:
+      //
+      // 1. You can always reshape a contiguous tensor by editing the strides
+      // 2. You can always broadcast a tesnsor by editing the strides
+      // 3. You can NOT always reshape a tensor that is not contiguous (only
+      // sometimes)
+      //
+      // We can always assume that the input tensor to this broadcast -> reshape
+      // sequence is contiguous, since TTIR ops do not edit strides. If the
+      // reshape which follows the broadcast shuffles broadcasted data into the
+      // same subspace(s) as real data, then we cannot move the reshape before
+      // the broadcast and get the same result; as it would be impossible to
+      // have real data shuffled into the same subspace(s) as broadcasted data
+      // because the broadcast operation cannot do that alone.
+      //
+      // We can check if the reshape can commute above the broadcast by checking
+      // whether or not the reshape can be done by editing strides alone (point
+      // #3).
+      //
+
+      auto originalShape = cast<RankedTensorType>(operand.getType()).getShape();
+      auto broadcastShape =
+          cast<RankedTensorType>(op.getResult().getType()).getShape();
+      auto finalShape = resultShape;
+
+      std::optional<SmallVector<int64_t>> finalStrides =
+          getStrideAfterBroadcastReshape(originalShape, broadcastShape,
+                                         finalShape);
+      if (!finalStrides) {
+        return rewriter.notifyMatchFailure(
+            op, "Cannot commute reshape above broadcast");
+      }
+
+      SmallVector<int64_t> newReshapeShape(finalShape);
+
+      for (uint64_t i = 0; i < finalShape.size(); i++) {
+        if (finalStrides.value()[i] == 0) {
+          newReshapeShape[i] = 1;
+        }
+      }
+
+      SmallVector<int64_t> newBroadcastDims(finalShape);
+      for (uint64_t i = 0; i < finalShape.size(); i++) {
+        if (finalStrides.value()[i] != 0) {
+          newBroadcastDims[i] = 1;
+        }
+      }
+
+      auto newTMResultType = tmResultType.cloneWith(
+          newReshapeShape, tmResultType.getElementType());
+
+      auto reshapeDps = rewriter.create<tensor::EmptyOp>(
+          op->getLoc(), newTMResultType.getShape(),
+          newTMResultType.getElementType());
+
+      newTM = rewriter.create<ttir::ReshapeOp>(
+          op->getLoc(), newTMResultType, operand, reshapeDps,
+          rewriter.getI32ArrayAttr(SmallVector<int32_t>(
+              newReshapeShape.begin(), newReshapeShape.end())));
+
+      newBroadcastDimensions = newBroadcastDims;
+
     } else {
       llvm_unreachable("newTM must be one of ttir::TransposeOp, "
                        "ttir::PermuteOp, ttir::ReshapeOp");
