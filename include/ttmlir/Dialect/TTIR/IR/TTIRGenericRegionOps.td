@@ -85,6 +85,16 @@ def TTIR_TileLogOp : TTIR_GenericRegionOp<"tile_log">{
     let results = (outs TT_Tile:$result);
 }
 
+def TTIR_TileMaximumOp : TTIR_GenericRegionOp<"tile_maximum">{
+    let summary = "TTIR Tile Maximum Op";
+    let description = [{
+        The `tile_maximum` operation calculates the maximum of two tensors element-wise.
+    }];
+
+    let arguments = (ins TT_Tile:$lhs, TT_Tile:$rhs);
+    let results = (outs TT_Tile:$result);
+}
+
 def TTIR_TileReduceSumOp : TTIR_GenericRegionOp<"tile_reduce_sum">{
     let summary = "TTIR Tile Reduce Sum Op";
     let description = [{
@@ -106,6 +116,15 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
     let arguments = (ins TT_Tile:$a,
                          TT_Tile:$b,
                          TTIR_ReduceDimAttr:$reduce_dim);
+    let results = (outs TT_Tile:$result);
+}
+
+def TTIR_TileMatmulOp : TTIR_GenericRegionOp<"tile_matmul">{
+    let summary = "TTIR Tile Matmul Op";
+    let description = [{
+    }];
+
+    let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$accum);
     let results = (outs TT_Tile:$result);
 }
 
@@ -177,32 +196,32 @@ def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
       different memory spaces. This op comes in a few flavors and is capable of roughly expressing everything
       that underlying Noc hardware can do. The op can be used to express a wide range of data movement operations:
 
-      - Local to local
+      - Local to local // noc_async_write 1
       ```mlir
       %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
-      - Local to remote dram
+      - Local to remote dram // noc_async_write 2
       ```mlir
       %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #dram>) -> !ttir.mem_tx
       ```
 
-      - Remote dram to local
+      - Remote dram to local // noc_async_read 3
       ```mlir
       %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #dram>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
-      - Local to remote L1, e.g. core[1, 2]
+      - Local to remote L1, e.g. core[1, 2] // noc_async_write 4
       ```mlir
       %tx = ttir.dma %src, %dst, core[%c1, %c2] : (memref<6x8x!tt.tile<32x32, f32>, #dram>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
-      - Local to mcast, e.g. starting at offset core[1, 2] with mcast shape [4, 4] (src and dst have the same SSA value, implies NoC doesn't loopback)
+      - Local to mcast, e.g. starting at offset core[1, 2] with mcast shape [4, 4] (src and dst have the same SSA value, implies NoC doesn't loopback) // noc_async_write_multicast 5
       ```mlir
       %tx = ttir.dma %foo, %foo, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
-      - Local to mcast w/ loopback (same as above but src and dst are different SSA values)
+      - Local to mcast w/ loopback (same as above but src and dst are different SSA values) // noc_async_write_multicast_loopback_src 6
       ```mlir
       %tx = ttir.dma %src, %dst, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
