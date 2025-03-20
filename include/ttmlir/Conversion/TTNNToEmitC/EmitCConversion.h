@@ -854,7 +854,7 @@ public:
 
       emitc::ApplyOp applyOp = rewriter.create<emitc::ApplyOp>(
           op.getLoc(),
-          emitc::OpaqueType::get(rewriter.getContext(), "ttnn::IDevice"), "*",
+          emitc::OpaqueType::get(rewriter.getContext(), "ttnn::IDevice&"), "*",
           deviceValueFromOperandsList);
 
       emitc::CallOpaqueOp newDevice = rewriter.create<emitc::CallOpaqueOp>(
