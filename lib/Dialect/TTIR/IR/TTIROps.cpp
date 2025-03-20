@@ -517,23 +517,20 @@ verifyQuantizeOpCommon(::mlir::Operation *op,
 
 // QuantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::QuantizeOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
-  return verifyQuantizeOpCommon(*this, inputType, outputType);
+  return verifyQuantizeOpCommon(*this, getInput().getType(),
+                                getOutput().getType());
 }
 
 // DequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::DequantizeOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
-  return verifyQuantizeOpCommon(*this, inputType, outputType);
+  return verifyQuantizeOpCommon(*this, getInput().getType(),
+                                getOutput().getType());
 }
 
 // RequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::RequantizeOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
-  return verifyQuantizeOpCommon(*this, inputType, outputType);
+  return verifyQuantizeOpCommon(*this, getInput().getType(),
+                                getOutput().getType());
 }
 
 //===----------------------------------------------------------------------===//

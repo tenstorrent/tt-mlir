@@ -8,10 +8,10 @@
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 960 + d1 * 320 + d2, d3), <1x1>, memref<30x10x!tt.tile<32x32, u8>, #dram>, <interleaved>>
 
 module {
-  func.func @forward(%arg0: tensor<1x3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i8:f32, 0.1>> {
-    %0 = tensor.empty() : tensor<1x3x320x320x!quant.uniform<i8:f32, 0.1>>
-    %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i8:f32, 0.1>>) -> tensor<1x3x320x320x!quant.uniform<i8:f32, 0.1>>
+  func.func @forward(%arg0: tensor<1x3x320x320xf32>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 0.1>> {
+    %0 = tensor.empty() : tensor<1x3x320x320x!quant.uniform<i32:f32, 0.1>>
+    %1 = "ttir.quantize"(%arg0, %0) : (tensor<1x3x320x320xf32>, tensor<1x3x320x320x!quant.uniform<i32:f32, 0.1>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32, 0.1>>
     // CHECK: "ttnn.quantize"
-    return %1 : tensor<1x3x320x320x!quant.uniform<i8:f32, 0.1>>
+    return %1 : tensor<1x3x320x320x!quant.uniform<i32:f32, 0.1>>
   }
 }
