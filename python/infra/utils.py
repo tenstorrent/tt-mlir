@@ -5,7 +5,7 @@
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from ttmlir.dialects import stablehlo, tt, ttir, ttnn
 from ttmlir.ir import Context, Module, OpAttributeMap, OpView, Type
@@ -76,6 +76,7 @@ class ModuleWrapper:
     generated_from: Optional[OpWrapper] = None
 
 
+# TODO can return ModuleWrapper to store dialect as well
 def parse_module_str(module_str: str) -> Module:
     """
     Within a temporary context registers necessary dialects and parses `module_str`
@@ -87,7 +88,7 @@ def parse_module_str(module_str: str) -> Module:
         loc_pattern = re.compile(r"\s*loc\([^)]*\)")
         return re.sub(loc_pattern, "", module_str)
 
-    def register_dialect(module_str: str, ctx: Context) -> ModuleDialect:
+    def detect_and_register_dialect(module_str: str, ctx: Context) -> ModuleDialect:
         """
         Detects dialect used in `module_str` and registers it with context `ctx`.
         """
@@ -119,8 +120,23 @@ def parse_module_str(module_str: str) -> Module:
 
     with Context() as ctx:
         module = preprocess_module_str(module_str)
-        register_dialect(module, ctx)
+        detect_and_register_dialect(module, ctx)
         return Module.parse(module)
+
+
+def convert_str_to_module(func: Callable) -> Callable:
+    """
+    Decorator to ensure that the `module` argument is always of type `Module`.
+    If it's a string, it will be parsed using `parse_module_str`.
+    """
+
+    def wrapper(self, module: str | Module, *args, **kwargs):
+        # Convert string to Module if necessary.
+        m = parse_module_str(module) if isinstance(module, str) else module
+        # Call the original function with the converted module.
+        return func(self, m, *args, **kwargs)
+
+    return wrapper
 
 
 def wrap_in_module_str(
@@ -159,3 +175,38 @@ def wrap_in_module_str(
         f"\t}} \n"
         f"}}"
     )
+
+
+# def split_compile_and_run(self) -> List[ExecutionResult]:
+#     results = []
+
+#     for i, sub_module in enumerate(self._split()):
+#         compilation_result = self._compile(sub_module, f"ttnn_fb{i+1}.ttnn")
+
+#         if not compilation_result.flatbuffer_generated:
+#             results.append(compilation_result)
+#         else:
+#             run_result = self._run(compilation_result.flatbuffer)
+#             results.append(run_result)
+
+
+# def compile_split_and_run(self) -> List[ExecutionResult]:
+#     results = []
+
+#     compilation_result = self._compile(self._module)
+
+#     if not compilation_result.flatbuffer_generated:
+#         results.append(compilation_result)
+#         return results
+
+#     ttnn_module = compilation_result.last_generated_module
+#     ttnn_executor = TTNNExecutor.create_from_module(ttnn_module)
+
+#     for i, sub_module in enumerate(ttnn_executor._split()):
+#         compilation_result = ttnn_executor._compile(sub_module, f"ttnn_fb{i+1}.ttnn")
+
+#         if not compilation_result.flatbuffer_generated:
+#             results.append(compilation_result)
+
+#         run_result = ttnn_executor._run(compilation_result.flatbuffer)
+#         results.append(run_result)

@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from ttmlir.mlir_module_executor import ExecutionPhase, ExecutionResult
 from ttmlir.ttir_executor import TTIRExecutor
 
 
-def test_compile_full_module(print_results: bool = False):
+def test_compile(print_results: bool = False):
     ttir_module_str = """
         module {
             func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
@@ -22,14 +23,14 @@ def test_compile_full_module(print_results: bool = False):
         }
     """
 
-    compiler = TTIRExecutor.create_from_module_str(ttir_module_str)
-    fb = compiler.compile_full_module()
+    ex = TTIRExecutor()
+    result = ex.compile(ttir_module_str)
 
     if print_results:
-        fb.print()
+        print(result)
 
 
-def test_compile_op_by_op(print_results: bool = False):
+def test_execute(print_results: bool = False):
     ttir_module_str = """
         module {
             func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
@@ -46,16 +47,16 @@ def test_compile_op_by_op(print_results: bool = False):
         }
     """
 
-    compiler = TTIRExecutor.create_from_module_str(ttir_module_str)
-    fbs = compiler.compile_op_by_op()
+    ex = TTIRExecutor()
+    result: ExecutionResult = ex.execute(ttir_module_str)
 
-    assert len(fbs) == 8, "Compiler isn't working as expected"
+    assert result.execution_phase == ExecutionPhase.EXECUTED_FLATBUFFER
 
     if print_results:
-        for fb in fbs:
-            fb.print()
+        result.flatbuffer.print()
+        print("Run on device passed: ", result.device_run_passed)
 
 
 if __name__ == "__main__":
-    test_compile_full_module(True)
-    test_compile_op_by_op(True)
+    # test_compile(True)
+    test_execute(True)

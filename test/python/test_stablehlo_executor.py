@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from ttmlir.mlir_module_executor import ExecutionPhase, ExecutionResult
 from ttmlir.stablehlo_executor import StableHLOExecutor
 
 
-def test_compile_full_module():
+def test_compile(print_results: bool = False):
     shlo_module_str = """
         module {
             func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
@@ -17,11 +18,14 @@ def test_compile_full_module():
         }
     """
 
-    compiler = StableHLOExecutor.create_from_module_str(shlo_module_str)
-    compiler.compile_full_module()
+    ex = StableHLOExecutor()
+    result = ex.compile(shlo_module_str)
+
+    if print_results:
+        print(result)
 
 
-def test_compile_op_by_op():
+def test_execute(print_results: bool = False):
     shlo_module_str = """
         module {
             func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
@@ -33,9 +37,16 @@ def test_compile_op_by_op():
         }
     """
 
-    compiler = StableHLOExecutor.create_from_module_str(shlo_module_str)
-    compiler.compile_op_by_op()
+    ex = StableHLOExecutor()
+    result: ExecutionResult = ex.execute(shlo_module_str)
+
+    assert result.execution_phase == ExecutionPhase.EXECUTED_FLATBUFFER
+
+    if print_results:
+        result.flatbuffer.print()
+        print("Run on device passed: ", result.device_run_passed)
 
 
 if __name__ == "__main__":
-    test_compile_full_module()
+    test_compile(True)
+    # test_execute(True)

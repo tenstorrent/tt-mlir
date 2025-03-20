@@ -5,36 +5,21 @@
 from __future__ import annotations
 
 from ttmlir.ir import Module
-from ttrt.common.util import Binary
 
-from .compile_and_run import ttnn_to_flatbuffer
-from .mlir_module_executor import ExecutionStatus, MLIRModuleExecutor
-from .ttnn_splitter import TTNNSplitter
+from .mlir_module_executor import ExecutionPhase, MLIRModuleExecutor
 
 
 class TTNNExecutor(MLIRModuleExecutor):
-    """Compiler for TTNN MLIR modules."""
+    """Executor for TTNN MLIR modules."""
 
     # ----- Public methods -----
 
-    @staticmethod
-    def create_from_module(module: Module) -> TTNNExecutor:
-        module_splitter = TTNNSplitter.create_from_module(module)
-        return TTNNExecutor(module_splitter.get_module(), module_splitter)
-
-    @staticmethod
-    def create_from_module_str(module_str: str) -> TTNNExecutor:
-        module_splitter = TTNNSplitter.create_from_module_str(module_str)
-        return TTNNExecutor(module_splitter.get_module(), module_splitter)
+    def __init__(self) -> None:
+        super().__init__(ExecutionPhase.GENERATED_TTNN)
 
     # ----- Private methods -----
 
-    def __init__(self, module: Module, module_splitter: TTNNSplitter) -> None:
-        super().__init__(module, module_splitter, ExecutionStatus.GENERATED_TTNN)
-
     # @override
-    def _compile(self, module: Module, flatbuffer_name: str = "ttnn_fb.ttnn") -> Binary:
-        flatbuffer = ttnn_to_flatbuffer(module, flatbuffer_name)
-        self._mark_execution_status(ExecutionStatus.GENERATED_FLATBUFFER)
-
-        return flatbuffer
+    def _compile(self) -> Module:
+        # Trivial, original module was already a TTNN module.
+        return self._module
