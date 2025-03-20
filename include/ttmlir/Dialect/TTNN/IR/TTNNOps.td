@@ -19,7 +19,7 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TT_ForkConstEvalTrait]> {
+def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TT_SharedConstEvalTrait]> {
     let summary = "Get Device op.";
     let description = [{
       This op returns the current runtime device.
