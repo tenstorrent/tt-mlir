@@ -826,11 +826,13 @@ public:
   template <typename TargetTy = ::ttnn::IDevice *>
   mlir::Attribute
   emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
+
+    if (!device) {
+      return emit(std::nullopt);
+    }
+
     if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *> ||
                   std::is_same_v<TargetTy, ::ttnn::IDevice>) {
-      if (!device) {
-        return emit(std::nullopt);
-      }
       mlir::OpOperand *opOperand = std::find_if(
           op->getOpOperands().begin(), op->getOpOperands().end(),
           [&](OpOperand &operand) { return operand.get() == device; });
