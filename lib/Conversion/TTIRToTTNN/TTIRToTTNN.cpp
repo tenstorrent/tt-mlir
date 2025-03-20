@@ -989,7 +989,6 @@ public:
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    auto outputTy = op.getResult().getType();
 
     auto batchSizeAttr =
         rewriter.getI32IntegerAttr(flattenedCompatInfo.getBatchSize());
@@ -1039,32 +1038,13 @@ public:
 
     auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
-    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter);
+    rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
+        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
+        inputWidthAttr, kernelSizeAttr, *strideAttr, reducedPaddingAttr,
+        *dilationAttr, groupsAttr, nullptr);
 
-    // Convolution in ttnn returns a tensor in a flattened shape
-    // (1 x 1 x N * H * W x C)
-    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
-    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
-
-    outputTy = mlir::RankedTensorType::get(flattenedOutputShape,
-                                           outputTy.getElementType(),
-                                           outputTy.getEncoding());
-
-    ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
-        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
-
-    Value output =
-        ttir_to_ttnn::utils::generateReshape(newConv, outputShape, rewriter);
-
-    rewriter.replaceOp(op, output);
     return success();
   }
 
@@ -1250,20 +1230,6 @@ public:
     auto batchSize = static_cast<int32_t>(inputShape[inputShape.size() - 4]);
     auto channels = static_cast<int32_t>(inputShape[inputShape.size() - 1]);
 
-    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter);
-
-    auto outputType = op.getResult().getType();
-    llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
-
-    llvm::SmallVector<int64_t> flattenedOutputShape{
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-
-    outputType = mlir::RankedTensorType::get(flattenedOutputShape,
-                                             outputType.getElementType(),
-                                             outputType.getEncoding());
-
     DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
 
@@ -1278,18 +1244,13 @@ public:
     DenseI32ArrayAttr dilationAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getDilationHeight(), adaptor.getDilationWidth()});
 
-    auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
-        op.getLoc(), this->getTypeConverter()->convertType(outputType),
-        flattenedInput, device, batchSize,
+    rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), device, batchSize,
         adaptor.getFlattenedCompatInfo()->getInputHeight(),
         adaptor.getFlattenedCompatInfo()->getInputWidth(), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
         adaptor.getCeilMode());
-
-    Value output =
-        ttir_to_ttnn::utils::generateReshape(newPool, outputShape, rewriter);
-
-    rewriter.replaceOp(op, output);
 
     return success();
   }

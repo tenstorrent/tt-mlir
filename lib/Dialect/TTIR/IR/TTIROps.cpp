@@ -205,12 +205,11 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
   constexpr unsigned int BATCH_DIM = 0, HEIGHT_DIM = 1, WIDTH_DIM = 2,
                          CHANNEL_DIM = 3;
-  uint32_t batchSize = getFlattenedCompatInfo().has_value()
-                           ? getFlattenedCompatInfo()->getBatchSize()
-                           : inputType.getDimSize(BATCH_DIM);
-  if (batchSize != outputType.getDimSize(BATCH_DIM)) {
+  if (!getFlattenedCompatInfo().has_value() &&
+      inputType.getDimSize(BATCH_DIM) != outputType.getDimSize(BATCH_DIM)) {
     return emitOpError()
-           << "Batch size from the input tensor (" << batchSize
+           << "Batch size from the input tensor ("
+           << inputType.getDimSize(BATCH_DIM)
            << ") must match the first dimension of the output tensor ("
            << outputType.getDimSize(BATCH_DIM) << ")";
   }
