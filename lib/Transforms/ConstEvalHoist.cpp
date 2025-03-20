@@ -337,10 +337,6 @@ private:
 
   // Set of params to original func which can be const-eval'ed.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
-<<<<<<< HEAD
-
-=======
->>>>>>> b6276f6b9 (add support for handling SharedOps -- e.g. ttnn.get_device must be duplicated across all subgraphs)
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
 };
