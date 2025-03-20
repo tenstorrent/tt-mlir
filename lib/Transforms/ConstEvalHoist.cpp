@@ -32,19 +32,15 @@ struct ConstEvalSubgraph {
   llvm::SmallPtrSet<mlir::BlockArgument, 4> inputParameters;
   // Ops from the original function that this subgraph contains.
   llvm::SmallVector<mlir::Operation *, 4> ops;
-  // Values produced by operations in this subgraph -- this is useful for
-  // merging dependent subgraph during analysis
-  llvm::SmallPtrSet<mlir::Value, 4> values;
 
   void insert(SmallPtrSet<BlockArgument, 4> inputParameters,
-              SmallVector<Operation *, 4> ops, SmallPtrSet<Value, 4> values) {
+              SmallVector<Operation *, 4> ops) {
     ConstEvalSubgraph::inputParameters.insert(inputParameters.begin(),
                                               inputParameters.end());
     ConstEvalSubgraph::ops.append(ops.begin(), ops.end());
-    ConstEvalSubgraph::values.insert(values.begin(), values.end());
   }
   void insert(ConstEvalSubgraph const &other) {
-    insert(other.inputParameters, other.ops, other.values);
+    insert(other.inputParameters, other.ops);
   }
 };
 } // namespace
@@ -57,7 +53,12 @@ public:
   ConstEvalAnalyze(func::FuncOp funcOp) { populateHoistOpSet(funcOp); }
 
   llvm::SmallVector<ConstEvalSubgraph, 4> getAnalysisResults() {
-    return constEvalSubgraphs;
+    llvm::SmallVector<ConstEvalSubgraph, 4> results;
+    results.reserve(subgraphMap.size());
+    for (const auto &[_, subgraph] : subgraphMap) {
+      results.emplace_back(subgraph);
+    }
+    return results;
   }
 
 private:
@@ -110,7 +111,6 @@ private:
   void buildConstEvalSubgraphs(
       func::FuncOp funcOp,
       const llvm::SmallPtrSet<mlir::BlockArgument, 4> &constParams) {
-
     // Iterate over all blocks in the function
     for (auto &block : funcOp.getBlocks()) {
       // Iterate over all operations in the block
@@ -148,19 +148,12 @@ private:
                                                         creationOps.end());
     opsToInsert.push_back(op);
 
-    llvm::SmallPtrSet<mlir::Value, 4> valuesToInsert;
-    for (auto *opToMove : opsToInsert) {
-      for (auto result : opToMove->getResults()) {
-        valuesToInsert.insert(result);
-      }
-    }
-
     size_t targetIdx{};
     if (subgraphIdxs.empty()) {
       // This op does not depend on any existing subgraphs, create a new
       // one.
-      targetIdx = constEvalSubgraphs.size();
-      constEvalSubgraphs.emplace_back();
+      targetIdx = nextSubgraphId++;
+      subgraphMap[targetIdx] = {};
     } else if (subgraphIdxs.size() == 1) {
       // This op can be added to a single existing subgraph.
       targetIdx = *subgraphIdxs.begin();
@@ -168,9 +161,15 @@ private:
       // This op is connected to multiple subgraphs, must merge them all.
       targetIdx = mergeSetOfSubgraphs(subgraphIdxs);
     }
-    assert(targetIdx < constEvalSubgraphs.size());
-    ConstEvalSubgraph &targetSubgraph = constEvalSubgraphs[targetIdx];
-    targetSubgraph.insert(inputParams, opsToInsert, valuesToInsert);
+    auto it = subgraphMap.find(targetIdx);
+    assert(it != subgraphMap.end());
+    ConstEvalSubgraph &targetSubgraph = it->second;
+    targetSubgraph.insert(inputParams, opsToInsert);
+    for (auto *opToMove : opsToInsert) {
+      for (auto result : opToMove->getResults()) {
+        valueToSubgraphMap[result] = targetIdx;
+      }
+    }
   }
 
   // Process an operand, returning true + modifying appropriate input data
@@ -195,12 +194,10 @@ private:
 
     // Case 2: this operand is result of an existing op in a const-eval
     // subgraph.
-    for (size_t i = 0; i < constEvalSubgraphs.size(); ++i) {
-      const auto &subgraph = constEvalSubgraphs[i];
-      if (subgraph.values.contains(operand)) {
-        subgraphIdxs.insert(i);
-        return true;
-      }
+    if (auto it = valueToSubgraphMap.find(operand);
+        it != valueToSubgraphMap.end()) {
+      subgraphIdxs.insert(it->second);
+      return true;
     }
 
     // Case 3: this operand is an intermediate tensor from a neutral
@@ -255,19 +252,36 @@ private:
   // Merge all contents of subgraph at sourceIdx into subgraph at targetIdx +
   // erase source subgraph.
   void mergeSubgraphs(size_t targetIdx, size_t sourceIdx) {
-    assert(targetIdx < constEvalSubgraphs.size() &&
-           sourceIdx < constEvalSubgraphs.size());
+    auto targetIt = subgraphMap.find(targetIdx);
+    auto sourceIt = subgraphMap.find(sourceIdx);
+    assert(targetIt != subgraphMap.end() && sourceIt != subgraphMap.end());
 
-    auto &target = constEvalSubgraphs[targetIdx];
-    auto &source = constEvalSubgraphs[sourceIdx];
+    ConstEvalSubgraph &target = targetIt->second;
+    ConstEvalSubgraph &source = sourceIt->second;
+
+    // Update mapping for all values produced by operations in the source
+    // subgraph
+    for (Operation *op : subgraphMap[sourceIdx].ops) {
+      for (Value result : op->getResults()) {
+        valueToSubgraphMap[result] = targetIdx;
+      }
+    }
 
     target.insert(source);
 
-    constEvalSubgraphs.erase(constEvalSubgraphs.begin() + sourceIdx);
+    subgraphMap.erase(sourceIdx);
   }
 
+private:
   // Internal representation of subgraphs
-  llvm::SmallVector<ConstEvalSubgraph, 4> constEvalSubgraphs;
+  // This is a map so that we can efficiently erase elements in the middle
+  // without invalidating indices.
+  llvm::DenseMap<size_t, ConstEvalSubgraph> subgraphMap;
+  // Index counter we use to ensure each subgraph has a unique id.
+  size_t nextSubgraphId = 0;
+
+  // Map to determine which subgraph a value belongs to (if any).
+  llvm::DenseMap<mlir::Value, size_t> valueToSubgraphMap;
 };
 } // namespace
 
@@ -299,7 +313,7 @@ private:
     auto constEvalOpSets = analyzer.getAnalysisResults();
 
     if (constEvalOpSets.empty()) {
-      return; // No const-eval sets found
+      return;
     }
 
     // Create new functions for each subgraph
