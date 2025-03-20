@@ -453,6 +453,30 @@ public:
 
 // init cleanup pass ?
 
+namespace {
+
+class TTIRCoreIndexRewriter : public OpRewritePattern<ttir::CoreIndexOp> {
+public:
+  using OpRewritePattern<ttir::CoreIndexOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::CoreIndexOp op,
+                                PatternRewriter &rewriter) const final {
+    assert(op.getDim() == 0 ||
+           op.getDim() == 1 &&
+               "Expected core index dim to be in range 0-1, failing.");
+    if (op.getDim()) {
+      auto coreIndex = rewriter.create<ttkernel::MyYOp>(op.getLoc(), nullptr);
+      rewriter.replaceOp(op, coreIndex);
+    } else {
+      auto coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
+      rewriter.replaceOp(op, coreIndex);
+    }
+    return success();
+  }
+};
+
+} // namespace
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
@@ -464,7 +488,7 @@ void populateTTIRToTTKernelInnerRegionPatterns(
   patterns.add<ttkernel::TTIRTileOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
                ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
-               ttkernel::TTIRDMARewriter>(ctx);
+               ttkernel::TTIRDMARewriter, ttkernel::TTIRCoreIndexRewriter>(ctx);
 }
 
 void populateTTIRToTTKernelTopLevelPatterns(MLIRContext *ctx,
