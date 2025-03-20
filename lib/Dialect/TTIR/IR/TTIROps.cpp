@@ -38,6 +38,7 @@
 // BitwiseXorOp canonicalization
 void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // x ^ x == 0
   patterns.add(
       +[](mlir::tt::ttir::BitwiseXorOp op, mlir::PatternRewriter &rewriter) {
@@ -58,12 +59,11 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
         }
         auto resultType = mlir::SplatElementsAttr::get(tensorType, zeroAttr);
 
-        // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
         rewriter.replaceOpWithNewOp<ttir::ConstantOp>(
             op, op->getOperand(0).getType(), resultType);
-        // NOLINTEND(clang-analyzer-core.StackAddressEscape)
         return mlir::success();
       });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -1239,6 +1239,7 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // TransposeOp canonicalization
 void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
   patterns.add(
       +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
@@ -1258,11 +1259,9 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
           return mlir::failure();
         }
 
-        // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
         rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
             op, op.getType(), op.getInput(), op.getOutput(), op.getDim1(),
             op.getDim0());
-        // NOLINTEND(clang-analyzer-core.StackAddressEscape)
         return mlir::success();
       });
 
@@ -1305,6 +1304,7 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
         rewriter.replaceAllOpUsesWith(op, producerOp.getInput());
         return mlir::success();
       });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -1931,14 +1931,13 @@ getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
 // LinearOp canonicalization
 void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // If bias is not provided, linear operation is equivalent to matmul.
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
     if (!op.getBias()) {
-      // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
       rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
           op, op.getType(), op.getA(), op.getB(), op.getOutput(),
           op.getTransposeA(), op.getTransposeB());
-      // NOLINTEND(clang-analyzer-core.StackAddressEscape)
       return mlir::success();
     }
     return mlir::failure();
@@ -1952,11 +1951,9 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     rewriter.replaceOpWithNewOp<ttir::LinearOp>(
         op, op.getType(), *inputACanonical, op.getB(), op.getBias(),
         op.getOutput(), !op.getTransposeA(), op.getTransposeB());
-    // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
     return mlir::success();
   });
@@ -1969,14 +1966,13 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     rewriter.replaceOpWithNewOp<ttir::LinearOp>(
         op, op.getType(), op.getA(), *inputBCanonical, op.getBias(),
         op.getOutput(), op.getTransposeA(), !op.getTransposeB());
-    // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
     return mlir::success();
   });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -2113,6 +2109,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 // MatmulOp canonicalization
 void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // matmul(transpose(a), b, transpose_a, transpose_b) ->
   //   matmul(a, b, !transpose_a, transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
@@ -2121,11 +2118,9 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
         op, op.getType(), *inputACanonical, op.getB(), op.getOutput(),
         !op.getTransposeA(), op.getTransposeB());
-    // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
     return mlir::success();
   });
@@ -2138,14 +2133,13 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
-    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
         op, op.getType(), op.getA(), *inputBCanonical, op.getOutput(),
         op.getTransposeA(), !op.getTransposeB());
-    // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
     return mlir::success();
   });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -2721,6 +2715,7 @@ bool matchSimpleBlock(mlir::Region &region) {
 // ReverseOp canonicalization
 void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // Reverse dimensions of two consecutive ReverseOps can be folded into a
   // single ReverseOp where the dimensions are the symmetric difference of the
   // two sets of dimensions.
@@ -2744,10 +2739,8 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
                   std::back_inserter(setIndices),
                   [&](int64_t i) { return reverseDimensions.test(i); });
 
-    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     rewriter.replaceOpWithNewOp<ttir::ReverseOp>(
         op, op.getType(), producerOp.getInput(), op.getOutput(), setIndices);
-    // NOLINTEND(clang-analyzer-core.StackAddressEscape)
     return success();
   });
 
@@ -2761,6 +2754,7 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
         rewriter.replaceAllOpUsesWith(op, op.getInput());
         return mlir::success();
       });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -2802,6 +2796,7 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
 // PermuteOp canonicalization
 void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // Permute dimensions of two consecutive PermuteOps can be folded into a
   // single PermuteOp where the permutation is the composition of the two
   // permutations.
@@ -2821,11 +2816,9 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         llvm::SmallVector<int64_t> composedPermutation =
             ttmlir::utils::applyPermutation(producerOp.getPermutation(),
                                             op.getPermutation());
-        // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
         rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
             op, op.getType(), producerOp.getInput(), op.getOutput(),
             composedPermutation);
-        // NOLINTEND(clang-analyzer-core.StackAddressEscape)
         return mlir::success();
       });
 
@@ -2838,6 +2831,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         }
         return mlir::failure();
       });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
