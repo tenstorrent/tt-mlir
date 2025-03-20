@@ -43,6 +43,10 @@ class TT_Trait<string name> : NativeOpTrait<name> {
   let cppNamespace = "::mlir::tt::Trait";
 }
 
+// Trait for ops which should never be hoisted by const-eval pass.
 def TT_IgnoreConstEvalTrait : TT_Trait<"TTIgnoreConstEvalTrait">;
+// Trait for ops which should be duplicated in all const-eval subgraphs + original.
+def TT_ForkConstEvalTrait : TT_Trait<"TTForkConstEvalTrait">;
+// Trait for ops which create tensors -- these ops will be const-eval hoisted if any of uses are const-eval ops.
 def TT_CreationOpTrait : TT_Trait<"TTCreationOpTrait">;
 #endif
