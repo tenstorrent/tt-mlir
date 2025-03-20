@@ -17,7 +17,7 @@ def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
     # CHECK: %[[DST_ADDR:.*]] = memref.alloca(){{.*}}
     # CHECK: %[[BANK_ID:.*]] = "ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    dst_addr: int = rt_args[0]
+    dst_addr = rt_args[0]
     bank_id = rt_args[1]
     num_tiles = rt_args[2]
 

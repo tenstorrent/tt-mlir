@@ -17,7 +17,7 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
     # CHECK: %[[SRC_ADDR:.*]] = memref.alloca(){{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    src_addr: int = rt_args[0]
+    src_addr = rt_args[0]
     bank_id, num_tiles = rt_args[1:3]
 
     # CHECK: {{.*}}"ttkernel.get_tile_size"{{.*}}
@@ -45,6 +45,8 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
         # CHECK: {{.*}}arith.addi{{.*}}
         # CHECK: memref.store {{.*}} %[[SRC_ADDR]]{{.*}}
         src_addr = src_addr + ublock_size_bytes
+
+    src_addr = src_addr + 1
 
     return
 

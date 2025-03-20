@@ -242,13 +242,105 @@ class TTKernelCompiler(ast.NodeVisitor):
         if isinstance(step.type, memref.MemRefType):
             step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0))
 
-        for_op = scf.ForOp(lower_bound, upper_bound, step)
+        # Utility function to recursively get all the Assign Ops from an if_based control flow:
+        def _recurse_and_find_assign(r_node):
+            if isinstance(r_node, ast.Assign):
+                return [r_node]
+            elif isinstance(r_node, ast.If):
+                result = []
+                for statement in r_node.body:
+                    result.extend(_recurse_and_find_assign(statement))
+                for statement in r_node.orelse:
+                    result.extend(_recurse_and_find_assign(statement))
+                return result
+            return []
+
+        iter_args = {}
+        created_buffers = []
+        _0_index = None
+
+        def _optimize_assign(assign: ast.Assign):
+            nonlocal iter_args, created_buffers, _0_index
+            value = self.visit(assign.targets[0])
+            if value is None:
+                # Not defined in current scope, no reason to continue processing
+                return
+
+            if isinstance(value, BlockArgument):
+                # Already assigned as an iter_arg, no reason to continue processing
+                return
+
+            # Need to create a shared 0-index object, helps reduce clutter
+            if _0_index is None:
+                _0_index = arith.ConstantOp(IndexType.get(self.ctx), 0)
+
+            # Create buffer for externally defined value
+            _memref_type = MemRefType.get([1], value.type)
+            _allocated = memref.alloca(_memref_type, [], [])
+            # Store reference to buffer for later manipulation
+            created_buffers.append(_allocated)
+            # Store current value of variable into buffer
+            memref.StoreOp(value, _allocated, [_0_index])
+            # Add to iter_args from where value can be loaded.
+            iter_args[assign.targets[0].id] = memref.LoadOp(
+                _allocated, [_0_index]
+            ).result
+
+        # Analyze Assign calls within for loop body, extract those that are taken from outside values
+        # Those that access and modify a variable defined outside the scope of the for loop are taken in as iter_args
+        # iter_args are a part of the scf.ForOp, and don't require specific AnnAssign calls to allocate them.
+        for statement in node.body:
+            if isinstance(statement, ast.Assign):
+                # Parse the assign and check to see if the symbol is defined in an external scope
+                _optimize_assign(statement)
+            elif isinstance(statement, ast.If):
+                assigns = _recurse_and_find_assign(statement)
+                for assign in assigns:
+                    _optimize_assign(assign)
+
+        for_op = scf.ForOp(lower_bound, upper_bound, step, iter_args=iter_args.values())
+
+        # Update symbol table values with the iter_arg values, update accordingly
+        for i, arg in enumerate(iter_args):
+            for sym_table in reversed(self.symbol_tables):
+                if arg in sym_table:
+                    sym_table[arg] = for_op.inner_iter_args[i]
+
         with (InsertionPoint(for_op.body)), Location.unknown():
             self.symbol_tables.append({})
+            to_yield = []
             for stmt in node.body:
+                # Do some further analysis here to determine accesses to externally defined variables
                 self.visit(stmt)
-            scf.YieldOp([])
+                if isinstance(stmt, ast.Assign):
+                    if stmt.targets[0].id in iter_args:
+                        # Need to yield the result from this point:
+                        sym_table = self.symbol_tables[-1]
+                        if stmt.targets[0].id in sym_table:
+                            to_yield.append(sym_table[stmt.targets[0].id])
+                elif isinstance(stmt, ast.If):
+                    assigns = _recurse_and_find_assign(stmt)
+                    for assign in assigns:
+                        if assign.targets[0].id in iter_args:
+                            # Unfortunately not trivial to get sym_table
+                            # Since the variables within the scope have been popped by the time the IfOp has been parsed
+                            # TODO: Figure out how to preserve this as the value after arith.addi instead of the iter_arg.
+                            sym_table = self.var_exists(assign.targets[0].id)
+                            if sym_table:
+                                to_yield.append(sym_table[assign.targets[0].id])
+            scf.YieldOp(to_yield)
             self.symbol_tables.pop()
+
+        # Use the results from the scf.ForOp.results to then re-populate the values defined above
+
+        for memory, result, arg in zip(created_buffers, for_op.results, iter_args):
+            # Assign the values in "order", no longer needing to reference the initial value, but use the allocated buffer for it
+            memref.StoreOp(result, memory, [_0_index])
+            # For the rest of the symbol_table accessing the initial argument,
+            # we should set these to the created_buffer value outside of the loop
+            for sym_table in reversed(self.symbol_tables):
+                if arg in sym_table:
+                    sym_table[arg] = memory
 
     def visit_While(self, node):
         # TODO: while cond like if stmt, need support for at least: Name, Expr, Compare, Call, UnaryOp, BoolOp
