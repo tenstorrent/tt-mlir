@@ -35,21 +35,21 @@ func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32,
 #parallel = #tt.iterator_type<parallel>
 #reduction = #tt.iterator_type<reduction>
 #l1_ = #tt.memory_space<l1>
-#layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x3>, memref<4x4x!tt.tile<32x32, f32>, #l1_>>
+#layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <4x3>, memref<2x4x!tt.tile<32x32, f32>, #l1_>>
 #layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <4x1>, memref<2x1x!tt.tile<32x32, f32>, #l1_>>
 
 func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
   // CHECK: tensor.empty() : tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>
   %0 = tensor.empty() : tensor<256x32xf32, #layout2>
-  // CHECK: : (tensor<2x3x4x4x!tt.tile<32x32, f32>, #layout>, tensor<2x3x4x4x!tt.tile<32x32, f32>, #layout>, tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>) -> tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>
+  // CHECK: : (tensor<4x3x2x4x!tt.tile<32x32, f32>, #layout>, tensor<4x3x2x4x!tt.tile<32x32, f32>, #layout>, tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>) -> tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<4x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
-        ^bb0(%arg2: memref<4x4x!tt.tile<32x32, f32>, #l1_>,
-            %arg3: memref<4x4x!tt.tile<32x32, f32>, #l1_>,
+        ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>,
+            %arg3: memref<2x4x!tt.tile<32x32, f32>, #l1_>,
             %arg4: memref<2x1x!tt.tile<32x32, f32>, #l1_>):
         "ttir.yield"() : () -> ()
         }) : (tensor<256x384xf32, #layout1>, tensor<256x384xf32, #layout1>, tensor<256x32xf32, #layout2>) -> tensor<256x32xf32, #layout2>

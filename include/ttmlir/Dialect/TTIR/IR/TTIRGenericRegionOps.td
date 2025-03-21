@@ -233,7 +233,7 @@ _tx
                          OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
-    let assemblyFormat = [{ $src ($srcAffineMap^)? (`[` $srcIndices^ `]`)? `,` $dst ($dstAffineMap^)? (`[` $dstIndices^ `]`)? (`,` $optNumElems^)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? (`[` $srcAffineMap^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`[` $dstAffineMap^ `]`)? (`,` $optNumElems^)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -389,7 +389,8 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
 // TTIR Generic Region Indexing Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-class TTIR_IndexOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic,
+class TTIR_IndexOp<string mnemonic, list<Trait> traits = []> : TTIR_GenericRegionOp<mnemonic,
+  traits #
   [ Pure
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   ]> {
@@ -405,11 +406,12 @@ def TTIR_IterIndexOp : TTIR_IndexOp<"iter_index"> {
     }];
 }
 
-def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index"> {
+def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index", [ConstantLike]> {
     let summary = "Core Index op.";
     let description = [{
       Return the index of this core's coordinate inside the generic op's grid dimension.
     }];
+    let hasFolder = true;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD

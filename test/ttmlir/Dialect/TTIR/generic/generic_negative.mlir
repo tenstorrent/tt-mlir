@@ -102,6 +102,23 @@ func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1
 
 #l1_ = #tt.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
+#map1 = affine_map<(d0, d1, d2) -> (d0, d1)>
+#parallel = #tt.iterator_type<parallel>
+
+// CHECK: error: 'ttir.generic' op all indexing maps must have the same number of dimensions
+
+func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
+  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map1], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 1>}> ({
+  ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+  }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
+  return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
+}
+
+// -----
+
+#l1_ = #tt.memory_space<l1>
+#map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #tt.iterator_type<parallel>
 
 // CHECK: error: 'ttir.generic' op all regions must have the same argument types
@@ -114,4 +131,42 @@ func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1
   ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg5: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
   }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
+}
+
+// -----
+
+#l1_ = #tt.memory_space<l1>
+#lhs = affine_map<(d0, d1, d2) -> (d0, d2)>
+#rhs = affine_map<(d0, d1, d2) -> (d2, d1)>
+#out = affine_map<(d0, d1, d2) -> (d0, d1)>
+#parallel = #tt.iterator_type<parallel>
+#reduction = #tt.iterator_type<reduction>
+
+// CHECK: error: 'ttir.generic' op grid shape mismatch between operand[1] grid_shape=[1, 2] and operand[2] grid_shape=[1, 1] at affine dim d1
+
+func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<1x2x2x2x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_> {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_>
+  "ttir.generic"(%arg0, %arg1, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#lhs, #rhs, #out], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
+  ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg3: memref<2x2x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+  }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_>) -> ()
+  return %alloc : memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_>
+}
+
+// -----
+
+#l1_ = #tt.memory_space<l1>
+#lhs = affine_map<(d0, d1, d2) -> (d0, d2)>
+#rhs = affine_map<(d0, d1, d2) -> (d2, d1)>
+#out = affine_map<(d0, d1, d2) -> (d0, d1)>
+#parallel = #tt.iterator_type<parallel>
+#reduction = #tt.iterator_type<reduction>
+
+// CHECK: error: 'ttir.generic' op grid shape mismatch between operand[0] grid_shape=[1, 1] and operand[1] grid_shape=[2, 1] at affine dim d2
+
+func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<2x1x2x2x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_> {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_>
+  "ttir.generic"(%arg0, %arg1, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#lhs, #rhs, #out], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
+  ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg3: memref<2x2x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+  }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<2x1x2x2x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_>) -> ()
+  return %alloc : memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_>
 }
