@@ -185,6 +185,31 @@ public:
 
 } // namespace
 
+namespace {
+// General elementwise conversion pattern, without implicit broadcasting etc.
+// Appropriate for unary ops, or other ops without broadcasting.
+template <typename TTIROpTy, typename LinAlgOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
+class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<LinAlgOpTy>(
+        op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -192,7 +217,18 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<
       ElementwiseBinaryOpConversionPattern<ttir::AddOp, linalg::AddOp>,
       ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
-      ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>>(
+      ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>,
+      ElementwiseBinaryOpConversionPattern<ttir::DivOp, linalg::DivOp>,
+      ElementwiseBinaryOpConversionPattern<ttir::PowerOp, linalg::PowFOp>,
+      ElementwiseOpConversionPattern<ttir::AbsOp, linalg::AbsOp>,
+      ElementwiseOpConversionPattern<ttir::SqrtOp, linalg::SqrtOp>,
+      ElementwiseOpConversionPattern<ttir::RsqrtOp, linalg::RsqrtOp>,
+      ElementwiseOpConversionPattern<ttir::ExpOp, linalg::ExpOp>,
+      ElementwiseOpConversionPattern<ttir::LogOp, linalg::LogOp>,
+      ElementwiseOpConversionPattern<ttir::CeilOp, linalg::CeilOp>,
+      ElementwiseOpConversionPattern<ttir::FloorOp, linalg::FloorOp>,
+      ElementwiseOpConversionPattern<ttir::TanhOp, linalg::TanhOp>,
+      ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>>(
       typeConverter, ctx);
 }
 
