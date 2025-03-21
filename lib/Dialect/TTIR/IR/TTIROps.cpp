@@ -592,7 +592,9 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  std::vector<int64_t> inputShape = getInput().getType().getShape().vec();
+  std::vector<int64_t> inputShape = inputType.getShape().vec();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  std::vector<int64_t> outputShape = outputType.getShape().vec();
 
   if (inputType.getRank() != 4) {
     return emitOpError()
@@ -614,6 +616,12 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
                            << getFlattenedCompatInfo()->getOutChannels()
                            << ") as defined in flattened_compat_info.";
     }
+  }
+
+  if (outputShape.back() != inputShape.back()) {
+    return emitOpError() << "Output tensor channels (" << outputShape.back()
+                         << ") must match input tensor channels ("
+                         << inputShape.back() << ").";
   }
 
   if (getKernelHeight() > inputShape[1]) {
