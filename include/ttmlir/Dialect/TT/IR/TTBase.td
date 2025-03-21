@@ -46,7 +46,7 @@ class TT_Trait<string name> : NativeOpTrait<name> {
 // Trait for ops which should never be hoisted by const-eval pass.
 def TT_IgnoreConstEvalTrait : TT_Trait<"TTIgnoreConstEvalTrait">;
 // Trait for ops which should be duplicated in all const-eval subgraphs + original.
-def TT_SharedConstEvalTrait : TT_Trait<"TTSharedConstEvalTrait">;
+def TT_DuplicateConstEvalTrait : TT_Trait<"TTDuplicateConstEvalTrait">;
 // Trait for ops which create tensors -- these ops will be const-eval hoisted if any of uses are const-eval ops.
 def TT_CreationOpTrait : TT_Trait<"TTCreationOpTrait">;
 #endif
