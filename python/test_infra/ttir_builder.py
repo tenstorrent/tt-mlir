@@ -1086,10 +1086,17 @@ class TTIRBuilder:
         dilation: tuple[int],
         ceil_mode: bool,
     ):
+        # TTIR  max_pool2d is channels last. PyTorch max_pool2d is channels first.
+        # We need to transpose the input tensor to channels first before applying max_pool2d,
+        # and transpose back to channels last afterward to properly calculate the golden tensor.
         maxpool_object = torch.nn.MaxPool2d(
             kernel_size, stride, padding, dilation, ceil_mode
         )
-        return maxpool_object(input_tensor)
+        return (
+            maxpool_object(input_tensor.transpose(-2, -1).transpose(-3, -2))
+            .transpose(-3, -2)
+            .transpose(-2, -1)
+        )
 
     def reshape(self, in0: Operand, shape: Shape) -> OpView:
         kwargs = {"shape": shape}
