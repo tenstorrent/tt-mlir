@@ -1315,7 +1315,8 @@ public:
         emitter.emit(srcOp.getShape()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
-        emitter.emit(srcOp.getDevice()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalAnyDevice>(
+            srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };
