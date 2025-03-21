@@ -219,7 +219,6 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     // NOLINTBEGIN
     LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
                "DType: ", lhsTensor->get_dtype(), ", ", rhsTensor->get_dtype());
-    // NOLINTEND
     LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
                "Layout: ", static_cast<int>(lhsTensor->get_layout()), ", ",
                static_cast<int>(rhsTensor->get_layout()));
@@ -246,6 +245,7 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
         return false;
       }
     }
+    // NOLINTEND
   }
 
   return true;
