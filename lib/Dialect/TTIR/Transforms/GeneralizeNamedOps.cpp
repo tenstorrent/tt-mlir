@@ -128,13 +128,12 @@ private:
 
       // populate 'block':
       {
-        std::for_each(op->getOperandTypes().begin(),
-                      op->getOperandTypes().end(), [&](Type t) {
-                        RankedTensorType tt = mlir::cast<RankedTensorType>(t);
-                        MetalLayoutAttr layout =
-                            mlir::cast<MetalLayoutAttr>(tt.getEncoding());
-                        block->addArgument(layout.getMemref(), loc);
-                      });
+        llvm::for_each(op->getOperandTypes(), [&](Type t) {
+          RankedTensorType tt = mlir::cast<RankedTensorType>(t);
+          MetalLayoutAttr layout =
+              mlir::cast<MetalLayoutAttr>(tt.getEncoding());
+          block->addArgument(layout.getMemref(), loc);
+        });
         auto blockArgs = block->getArguments();
 
         // create 'linalg.generic' accepting 'blockArgs':
@@ -263,13 +262,12 @@ private:
 
       // populate 'block':
       {
-        std::for_each(op->getOperandTypes().begin(),
-                      op->getOperandTypes().end(), [&](Type t) {
-                        RankedTensorType tt = mlir::cast<RankedTensorType>(t);
-                        MetalLayoutAttr layout =
-                            mlir::cast<MetalLayoutAttr>(tt.getEncoding());
-                        block->addArgument(layout.getMemref(), loc);
-                      });
+        llvm::for_each(op->getOperandTypes(), [&](Type t) {
+          RankedTensorType tt = mlir::cast<RankedTensorType>(t);
+          MetalLayoutAttr layout =
+              mlir::cast<MetalLayoutAttr>(tt.getEncoding());
+          block->addArgument(layout.getMemref(), loc);
+        });
         auto blockArgs = block->getArguments();
 
         // create 'linalg.generic' accepting 'blockArgs':
@@ -470,16 +468,15 @@ private:
 
       // populate 'block':
       {
-        std::for_each(op->getOperandTypes().begin(),
-                      op->getOperandTypes().end(), [&](Type t) {
-                        RankedTensorType tt = mlir::cast<RankedTensorType>(t);
-                        MetalLayoutAttr layout =
-                            mlir::cast<MetalLayoutAttr>(tt.getEncoding());
-                        block->addArgument(layout.getMemref(), loc);
-                      });
+        llvm::for_each(op->getOperandTypes(), [&](Type t) {
+          RankedTensorType tt = mlir::cast<RankedTensorType>(t);
+          MetalLayoutAttr layout =
+              mlir::cast<MetalLayoutAttr>(tt.getEncoding());
+          block->addArgument(layout.getMemref(), loc);
+        });
         auto blockArgs = block->getArguments();
 
-        // delegate next level of nesting to a "blocked" 'TileOp':
+        // delegate next level of nesting to a "block", not tile, op:
 
         rewriter.create<TileMatmulBlockOp>(loc,
                                            /* resultTypes */ mlir::TypeRange(),
