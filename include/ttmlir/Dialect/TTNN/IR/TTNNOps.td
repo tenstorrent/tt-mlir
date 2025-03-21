@@ -19,7 +19,7 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
+def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TT_DuplicateConstEvalTrait]> {
     let summary = "Get Device op.";
     let description = [{
       This op returns the current runtime device.
@@ -1328,7 +1328,7 @@ def TTNN_ClampOp : TTNN_Op<"clamp"> {
     let hasVerifier = 1;
 }
 
-def TTNN_EmptyOp : TTNN_Op<"empty"> {
+def TTNN_EmptyOp : TTNN_Op<"empty", [TT_CreationOpTrait]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1345,7 +1345,7 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConstructTensorOp : TTNN_Op<"construct_tensor"> {
+def TTNN_ConstructTensorOp : TTNN_Op<"construct_tensor",  [TT_CreationOpTrait]> {
     let summary = "Construct empty tensor on host op.";
     let description = [{
       Invoke tensor ctor to create an empty tensor on host.
@@ -1360,7 +1360,7 @@ def TTNN_ConstructTensorOp : TTNN_Op<"construct_tensor"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ArangeOp : TTNN_Op<"arange"> {
+def TTNN_ArangeOp : TTNN_Op<"arange", [TT_CreationOpTrait]> {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
@@ -1386,7 +1386,7 @@ def TTNN_ArangeOp : TTNN_Op<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTNN_ZerosOp : TTNN_Op<"zeros"> {
+def TTNN_ZerosOp : TTNN_Op<"zeros", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.
@@ -1407,7 +1407,7 @@ def TTNN_ZerosOp : TTNN_Op<"zeros"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_OnesOp : TTNN_Op<"ones"> {
+def TTNN_OnesOp : TTNN_Op<"ones", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     Tensor operation to create a tensor filled with ones.
@@ -1428,7 +1428,7 @@ def TTNN_OnesOp : TTNN_Op<"ones"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_FullOp : TTNN_Op<"full"> {
+def TTNN_FullOp : TTNN_Op<"full", [TT_CreationOpTrait]> {
     let summary = "Full op.";
     let description = [{
       Tensor full operation
@@ -1446,7 +1446,7 @@ def TTNN_FullOp : TTNN_Op<"full"> {
     }];
 }
 
-def TTNN_AllocOp : TTNN_Op<"alloc"> {
+def TTNN_AllocOp : TTNN_Op<"alloc", [TT_CreationOpTrait]> {
     let summary = "Alloc op.";
     let description = [{
       Tensor Alloc operation
