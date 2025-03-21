@@ -2194,7 +2194,7 @@ public:
         outputType,                            // result type
         adaptor.getOperand(),                  // input
         rewriter.getDenseI32ArrayAttr(padDim), // padding dimensions
-        rewriter.getF32FloatAttr(value)        // padding value
+        rewriter.getF32FloatAttr(value)        // padding f32 value
     );
 
     return success();

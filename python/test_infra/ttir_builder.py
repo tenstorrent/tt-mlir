@@ -1287,10 +1287,19 @@ class TTIRBuilder:
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
-            [in0],
-            golden_kwargs={"pad": golden_padding, "mode": "constant", "value": value},
+            [in0, in1],
+            golden_kwargs={
+                "pad": tuple(golden_padding),
+                "mode": "constant",
+                "value": value,
+            },
             ttir_kwargs={"padding": padding, "value": value},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                i[1],
+            ),
         )
 
     def select(
