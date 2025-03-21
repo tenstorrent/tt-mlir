@@ -33,6 +33,7 @@ struct SmallVector {
   using value_type = T;
 };
 
+struct AnyDevice;
 struct IDevice;
 
 struct Tensor;
@@ -140,6 +141,11 @@ template <typename... Types>
 struct TypeName<std::tuple<Types...>> {
   inline static const std::string value =
       "::std::tuple<" + JoinTypeNamesV<Types...> + ">";
+};
+
+template <>
+struct TypeName<::ttnn::AnyDevice> {
+  inline static const std::string value = "::ttnn::AnyDevice";
 };
 
 template <>
@@ -748,11 +754,7 @@ public:
       return emit(std::nullopt);
     }
 
-    mlir::OpOperand *opOperand =
-        std::find_if(op->getOpOperands().begin(), op->getOpOperands().end(),
-                     [&](OpOperand &operand) { return operand.get() == val; });
-
-    unsigned index = opOperand->getOperandNumber();
+    unsigned index = getOperandIndex(val);
     operands.push_back(adaptor.getOperands()[index]);
     return rewriter.getIndexAttr(index);
   }
@@ -823,50 +825,82 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(result);
   }
 
+  // Handles conversion of DeviceType objects to:
+  // - ::ttnn::IDevice*
+  // - ::ttnn::IDevice
+  // - ::ttnn::operations::creation::detail::OptionalAnyDevice>
+  //
+  // Will return `std::nullopt` if DeviceType is null
+  //
   template <typename TargetTy = ::ttnn::IDevice *>
   mlir::Attribute
   emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
-
     if (!device) {
       return emit(std::nullopt);
     }
 
     if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *> ||
                   std::is_same_v<TargetTy, ::ttnn::IDevice>) {
-      mlir::OpOperand *opOperand = std::find_if(
-          op->getOpOperands().begin(), op->getOpOperands().end(),
-          [&](OpOperand &operand) { return operand.get() == device; });
-
-      unsigned index = opOperand->getOperandNumber();
+      unsigned index = getOperandIndex(device);
       operands.push_back(adaptor.getOperands()[index]);
 
       return rewriter.getIndexAttr(index);
-    } else if constexpr (std::is_same<TargetTy,
-                                      ::ttnn::operations::creation::detail::
-                                          OptionalAnyDevice>::value) {
-
-      mlir::OpOperand *opOperand = std::find_if(
-          op->getOpOperands().begin(), op->getOpOperands().end(),
-          [&](OpOperand &operand) { return operand.get() == device; });
-      unsigned index = opOperand->getOperandNumber();
-
+    } else if constexpr (std::is_same_v<TargetTy,
+                                        ::ttnn::operations::creation::detail::
+                                            OptionalAnyDevice>) {
+      unsigned index = getOperandIndex(device);
       mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
 
-      emitc::ApplyOp applyOp = rewriter.create<emitc::ApplyOp>(
-          op.getLoc(),
-          emitc::OpaqueType::get(rewriter.getContext(), "ttnn::IDevice&"), "*",
-          deviceValueFromOperandsList);
+      // Use emitc::ExpressionOp to inline:
+      //
+      // AnyDevice anyDevice = AnyDevice(IDevice*)
+      // OptionalAnyDevice optionalAnyDevice = OptionalAnyDevice(anyDevice)
+      //
+      emitc::ExpressionOp fullDeviceConversionExpressionOp =
+          rewriter.create<emitc::ExpressionOp>(
+              op.getLoc(),
+              emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  TypeNameV<
+                      ::ttnn::operations::creation::detail::OptionalAnyDevice>),
+              /*do_not_inline=*/false);
+      Block &bodyBlock =
+          fullDeviceConversionExpressionOp.getBodyRegion().emplaceBlock();
 
-      emitc::CallOpaqueOp newDevice = rewriter.create<emitc::CallOpaqueOp>(
+      // Save insertion checkpoint, and set rewriter to write within the
+      // ExpressionOp's block.
+      //
+      Block::iterator insertionCheckpoint = rewriter.getInsertionPoint();
+      rewriter.setInsertionPointToStart(&bodyBlock);
+
+      // AnyDevice(IDevice*)
+      //
+      emitc::CallOpaqueOp anyDeviceOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(),
+                                 TypeNameV<::ttnn::AnyDevice>),
+          TypeNameV<::ttnn::AnyDevice>, deviceValueFromOperandsList);
+
+      // OptionalAnyDevice(AnyDevice)
+      //
+      emitc::CallOpaqueOp optionalAnyDeviceOp = rewriter.create<
+          emitc::CallOpaqueOp>(
           op.getLoc(),
           emitc::OpaqueType::get(
               rewriter.getContext(),
-              "::ttnn::operations::creation::detail::OptionalAnyDevice"),
-          "::ttnn::operations::creation::detail::OptionalAnyDevice",
-          applyOp.getResult(), nullptr, nullptr);
+              TypeNameV<
+                  ::ttnn::operations::creation::detail::OptionalAnyDevice>),
+          TypeNameV<::ttnn::operations::creation::detail::OptionalAnyDevice>,
+          anyDeviceOp.getResult(0));
 
-      operands.push_back(newDevice.getResult(0));
+      rewriter.create<emitc::YieldOp>(op.getLoc(),
+                                      optionalAnyDeviceOp.getResult(0));
 
+      // Return insertion point to checkpoint.
+      //
+      rewriter.setInsertionPoint(op->getBlock(), insertionCheckpoint);
+
+      operands.push_back(fullDeviceConversionExpressionOp->getResult(0));
       return rewriter.getIndexAttr(operands.size() - 1);
     } else {
       llvm_unreachable("Unknown TargetTy");
@@ -940,6 +974,14 @@ private:
             tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
             nullptr, operands)
         ->getResult(0);
+  }
+
+  unsigned getOperandIndex(mlir::Value value) {
+    mlir::OpOperand *opOperand = std::find_if(
+        op->getOpOperands().begin(), op->getOpOperands().end(),
+        [&](OpOperand &operand) { return operand.get() == value; });
+
+    return opOperand->getOperandNumber();
   }
 
   TTNNOp op;
