@@ -18,3 +18,5 @@ add_mlir_conversion_library(TTMLIRTTNNToEmitC
   MLIRFuncTransforms
   MLIRTargetCpp
 )
+
+target_link_libraries(TTMLIRTTNNToEmitC PUBLIC coverage_config)

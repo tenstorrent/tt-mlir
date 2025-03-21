@@ -39,6 +39,8 @@ target_include_directories(${LIB_NAME}
     ${CMAKE_CURRENT_SOURCE_DIR}/
     ${PROJECT_SOURCE_DIR}/include/ttmlir/OpModel/TTNN/)
 
+target_link_libraries(${LIB_NAME} PUBLIC coverage_config)
+
 
 # Add TTNNOpModelLib to the export set
 install(TARGETS ${LIB_NAME}
