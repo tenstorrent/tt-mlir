@@ -14,29 +14,11 @@
 
 namespace mlir::tt::ttir {
 
-LogicalResult checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
-  Operation *firstUser = users[0];
-  for (auto *user : users) {
-    if (user->getAttrDictionary() != firstUser->getAttrDictionary()) {
-      return failure();
-    }
-  }
-  return success(isa<TransposeOp, PermuteOp, ReshapeOp>(firstUser));
-}
-
-LogicalResult checkAtLeastOneUserIsTm(SmallVector<Operation *> users) {
-  for (auto *user : users) {
-    if (isa<TransposeOp, PermuteOp, ReshapeOp>(user)) {
-      return success();
-    }
-  }
-  return failure();
-}
-
 template <typename TMOpType, typename CommutableOpType>
 class TTIRCommuteRewritePattern : public RewritePattern {
 
-  // TODO: Find a better way of stopping users from using a non-tm as TMOpType
+  // TODO(LPanosTT): Find a better way of stopping users from using a non-tm as
+  // TMOpType
   static_assert(std::is_same<TMOpType, TransposeOp>::value ||
                     std::is_same<TMOpType, PermuteOp>::value ||
                     std::is_same<TMOpType, ReshapeOp>::value,
@@ -78,25 +60,37 @@ public:
   }
 
 private:
+  // This should return `success()` if at least one user of `op` is a `TMOpType`
+  // and that `TM` is able to commute above `op`.
   LogicalResult virtual matchCommutePattern(CommutableOpType op,
                                             ArrayRef<Value> operands,
                                             ArrayRef<Operation *> users) const {
     llvm_unreachable("This must be implemented by the subclass.");
-  };
+  }
 
+  // This should return `success()` if there is a user of `op` that we should
+  // commute above `op`. Note that the difference between this method and
+  // `matchCommutePattern` is that this function should be used to determine if
+  // commuting is beneficial, while `matchCommutePattern` should be used to
+  // determine if commuting is possible.
   LogicalResult virtual shouldCommute(CommutableOpType op,
                                       ArrayRef<Value> operands,
                                       ArrayRef<Operation *> users) const {
     llvm_unreachable("This must be implemented by the subclass.");
-  };
+  }
 
   void virtual performCommuteRewrite(CommutableOpType op,
                                      ArrayRef<Value> operands,
                                      ArrayRef<Operation *> users,
                                      PatternRewriter &rewriter) const {
     llvm_unreachable("This must be implemented by the subclass.");
-  };
+  }
 };
+
+void populateElementwiseCommutePatterns(MLIRContext *ctx,
+                                        RewritePatternSet &patterns);
+void populateBroadcastCommutePatterns(MLIRContext *ctx,
+                                      RewritePatternSet &patterns);
 
 } // namespace mlir::tt::ttir
 
