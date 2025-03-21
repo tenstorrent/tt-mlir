@@ -170,6 +170,7 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(tt::createTTUnwrapDeviceModulePass());
+  pm.addPass(createTTNNClusterOps());
   pm.addPass(createTTNNCreateInputGenerators());
   pm.addPass(createConvertTTNNToEmitCPass());
 }

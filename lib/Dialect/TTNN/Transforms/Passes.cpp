@@ -23,9 +23,14 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+#include <llvm/Support/raw_os_ostream.h>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/MLIRContext.h>
+#include <mlir/Support/LLVM.h>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
+#define GEN_PASS_DEF_TTNNCLUSTEROPS
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNMODIFYSIGNATURESFORDYLIB
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
@@ -115,6 +120,115 @@ public:
         }
       });
     });
+  }
+};
+
+class TTNNClusterOps : public impl::TTNNClusterOpsBase<TTNNClusterOps> {
+public:
+  using impl::TTNNClusterOpsBase<TTNNClusterOps>::TTNNClusterOpsBase;
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    module->walk([&](func::FuncOp funcOp) {
+      auto x = processFunc(funcOp);
+      (void)x;
+    });
+
+    (void)module;
+    (void)rewriter;
+  }
+
+private:
+  std::string locationToStr(const mlir::Location &loc) {
+    std::string locStr;
+    llvm::raw_string_ostream(locStr) << loc;
+    return locStr;
+  }
+
+  std::tuple<std::string, std::vector<std::string>, std::string>
+  splitLocationIntoChunks(mlir::Location loc) {
+    const std::string &locationStr = locationToStr(loc);
+    std::string opName;
+    std::vector<std::string> components;
+    std::string fullPath;
+
+    // Find the opening quote of the op name
+    size_t opNameStart = locationStr.find('"');
+    if (opNameStart == std::string::npos) {
+      return std::make_tuple("", std::vector<std::string>{},
+                             ""); // Explicit vector type
+    }
+
+    // Find the closing quote of the op name
+    size_t opNameEnd = locationStr.find('"', opNameStart + 1);
+    if (opNameEnd == std::string::npos) {
+      return std::make_tuple("", std::vector<std::string>{},
+                             ""); // Explicit vector type
+    }
+
+    // Extract the op name
+    opName = locationStr.substr(opNameStart + 1, opNameEnd - opNameStart - 1);
+
+    // Find the start of the location path
+    size_t pathStart = locationStr.find("(\"", opNameEnd);
+    if (pathStart == std::string::npos) {
+      return std::make_tuple(opName, std::vector<std::string>{},
+                             ""); // Explicit vector type
+    }
+
+    // Find the end of the location path.
+    size_t pathEnd = locationStr.find("\":", pathStart);
+    if (pathEnd == std::string::npos) {
+      return std::make_tuple(opName, std::vector<std::string>{},
+                             ""); // Explicit vector type
+    }
+
+    std::string pathString =
+        locationStr.substr(pathStart + 2, pathEnd - pathStart - 2);
+
+    // Split the path string into components
+    std::stringstream ss(pathString);
+    std::string component;
+    while (std::getline(ss, component, '/')) {
+      components.push_back(component);
+      if (!fullPath.empty()) {
+        fullPath += "/";
+      }
+      fullPath += component;
+    }
+
+    return std::make_tuple(opName, components, fullPath);
+  }
+
+  // Should this take in region/body instead of whole func?
+  mlir::LogicalResult annotateOps(func::FuncOp funcOp) {
+    assert(funcOp.getBlocks().size() == 1);
+
+    funcOp->walk([&](mlir::Operation *op) {
+      auto [opName, components, fullPath] =
+          splitLocationIntoChunks(op->getLoc());
+
+      llvm::outs() << "PRINTING OP LOC CHUNKS:" << "\n";
+
+      for (std::string &chunk : components) {
+        llvm::outs() << "    " << chunk << "\n";
+      }
+
+      if (mlir::isa<ttnn::Conv2dOp>(op)) {
+        op->setAttr("added_attr_string",
+                    mlir::StringAttr::get(op->getContext(),
+                                          locationToStr(op->getLoc())));
+      }
+      (void)op;
+    });
+
+    return mlir::success();
+  }
+
+  mlir::LogicalResult processFunc(func::FuncOp funcOp) {
+    return annotateOps(funcOp);
   }
 };
 

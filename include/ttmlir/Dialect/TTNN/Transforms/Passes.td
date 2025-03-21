@@ -51,6 +51,13 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNClusterOps: Pass<"ttnn-cluster-ops", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    ...
+  }];
+}
+
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
   let summary = "Create input generators for the forward functions.";
   let description = [{
