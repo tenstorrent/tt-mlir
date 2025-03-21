@@ -33,10 +33,7 @@ class ExecutionResult:
 
     @property
     def compilation_finished(self) -> bool:
-        return (
-            self.execution_phase == ExecutionPhase.GENERATED_TTNN
-            and self.last_generated_module is not None
-        )
+        return self.execution_phase == ExecutionPhase.GENERATED_TTNN
 
     @property
     def flatbuffer_generated(self) -> bool:
@@ -48,6 +45,9 @@ class ExecutionResult:
     @property
     def run_finished(self) -> bool:
         return self.execution_phase == ExecutionPhase.EXECUTED_FLATBUFFER
+
+    def __repr__(self) -> str:
+        return f"ExecutionResult({self.execution_phase.name})"
 
 
 class MLIRModuleExecutor(ABC):
@@ -62,14 +62,30 @@ class MLIRModuleExecutor(ABC):
 
     @convert_str_to_module
     def compile(self, module: Module) -> Module:
+        """
+        Compiles MLIR `module`, returning a generated TTNN module.
+
+        Asserts if compilation doesn't reach TTNN.
+        """
+        print("Running compile on module")
         # Each time `compile` is called, prepare for new run by forgetting results of
         # previous run and storing new module to work on.
         self._reset(module)
         # Run compilation steps on stored module.
-        return self._compile()
+        compiled = self._compile()
+
+        # If we failed to generate TTNN module, there is no point in proceeding.
+        assert self._execution_result.compilation_finished, (
+            f"WARNING: Couldn't generate TTNN module. "
+            f"Managed to get to compilation phase: "
+            f"{self._execution_result.execution_phase.name}"
+        )
+
+        return compiled
 
     @convert_str_to_module
     def execute(self, module: Module) -> ExecutionResult:
+        print("Running execute on module")
         # Each time `compile` is called, prepare for new run by forgetting results of
         # previous run and storing new module to work on.
         self._reset(module)

@@ -137,6 +137,7 @@ declare_mlir_python_sources(TTMLIRPythonInfra.Main
     compile_and_run.py
     mlir_module_executor.py
     mlir_module_splitter.py
+    op_by_op.py
     pydantic_models.py
     stablehlo_executor.py
     test_optimizer_overrides.py

@@ -23,9 +23,7 @@ class StableHLOExecutor(MLIRModuleExecutor):
     # @override
     def _compile(self) -> Module:
         try:
-            print(self._module)
             ttir = stablehlo_to_ttir(self._module)
-            print(ttir)
             self._mark_execution_step(ExecutionPhase.GENERATED_TTIR, ttir)
 
             ttnn = ttir_to_ttnn(ttir)

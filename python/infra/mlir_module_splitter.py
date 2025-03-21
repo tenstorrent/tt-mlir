@@ -66,11 +66,17 @@ class MLIRModuleSplitter:
         Splits `module` and returns list of constituent ops each wrapped in a MLIR
         module (i.e. returns list of sub modules).
         """
+        print("Running split on module")
         # Each time `split` is called, prepare for new run by forgetting results of
         # previous run and storing new module to work on.
         self._reset(module)
+        print(str(module))
         # Run the splitting algorithm on stored module.
-        return self._split()
+        s = self._split()
+        print("Splits")
+        for a in s:
+            print(str(a))
+        return s
 
     # -- Convenience read-only properties for easy access --
 

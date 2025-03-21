@@ -130,7 +130,7 @@ def convert_str_to_module(func: Callable) -> Callable:
     If it's a string, it will be parsed using `parse_module_str`.
     """
 
-    def wrapper(self, module: str | Module, *args, **kwargs):
+    def wrapper(self, module: str | Module, *args, **kwargs) -> List[Module]:
         # Convert string to Module if necessary.
         m = parse_module_str(module) if isinstance(module, str) else module
         # Call the original function with the converted module.
@@ -175,38 +175,3 @@ def wrap_in_module_str(
         f"\t}} \n"
         f"}}"
     )
-
-
-# def split_compile_and_run(self) -> List[ExecutionResult]:
-#     results = []
-
-#     for i, sub_module in enumerate(self._split()):
-#         compilation_result = self._compile(sub_module, f"ttnn_fb{i+1}.ttnn")
-
-#         if not compilation_result.flatbuffer_generated:
-#             results.append(compilation_result)
-#         else:
-#             run_result = self._run(compilation_result.flatbuffer)
-#             results.append(run_result)
-
-
-# def compile_split_and_run(self) -> List[ExecutionResult]:
-#     results = []
-
-#     compilation_result = self._compile(self._module)
-
-#     if not compilation_result.flatbuffer_generated:
-#         results.append(compilation_result)
-#         return results
-
-#     ttnn_module = compilation_result.last_generated_module
-#     ttnn_executor = TTNNExecutor.create_from_module(ttnn_module)
-
-#     for i, sub_module in enumerate(ttnn_executor._split()):
-#         compilation_result = ttnn_executor._compile(sub_module, f"ttnn_fb{i+1}.ttnn")
-
-#         if not compilation_result.flatbuffer_generated:
-#             results.append(compilation_result)
-
-#         run_result = ttnn_executor._run(compilation_result.flatbuffer)
-#         results.append(run_result)
