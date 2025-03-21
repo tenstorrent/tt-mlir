@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
+
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -1509,8 +1510,8 @@ public:
     auto outputElementType =
         mlir::dyn_cast<mlir::quant::QuantizedType>(outputType.getElementType());
 
-    if (inputElementType && outputElementType) {
-      // This is a Requantize op.
+    if (mlir::isa<ttir::RequantizeOp>(srcOp) && inputElementType &&
+        outputElementType) {
       auto [inputScale, inputZeroPoint] =
           getScaleAndZeroPoint(inputElementType, rewriter);
       // If the input/output scales do not belong to a QuantUniformType (per
@@ -1536,8 +1537,7 @@ public:
       return success();
     }
 
-    if (inputElementType) {
-      // This is a Dequantize Op.
+    if (mlir::isa<ttir::DequantizeOp>(srcOp) && inputElementType) {
       auto [inputScale, inputZeroPoint] =
           getScaleAndZeroPoint(inputElementType, rewriter);
       // If the input scale does not belong to a QuantUniformType (per tensor),
@@ -1557,8 +1557,7 @@ public:
       return success();
     }
 
-    if (outputElementType) {
-      // This is a Quantize op.
+    if (mlir::isa<ttir::QuantizeOp>(srcOp) && outputElementType) {
       auto [outputScale, outputZeroPoint] =
           getScaleAndZeroPoint(outputElementType, rewriter);
       // If the output scale does not belong to a QuantUniformType (per tensor),
