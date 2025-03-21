@@ -501,6 +501,35 @@ class TTIRBuilder:
     ) -> torch.Tensor:
         return torch.tensor([in0.size(dimension)])
 
+    def dot_general(
+        self,
+        in0: Operand,
+        in1: Operand,
+        batch_dims_lhs=List[int],
+        contract_dims_lhs=List[int],
+        batch_dims_rhs=List[int],
+        contract_dims_rhs=List[int],
+    ) -> OpView:
+        lhs = contract_dims_lhs + batch_dims_lhs
+        rhs = contract_dims_rhs + batch_dims_rhs
+        return self.op_proxy(
+            torch.tensordot,
+            ttir.DotGeneralOp,
+            [in0, in1],
+            golden_kwargs={"dims": (lhs, rhs)},
+            ttir_kwargs={
+                "batch_dims_lhs": batch_dims_lhs,
+                "contract_dims_lhs": contract_dims_lhs,
+                "batch_dims_rhs": batch_dims_rhs,
+                "contract_dims_rhs": contract_dims_rhs,
+            },
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            output_shape=[4, 10, 3, 7, 10, 7, 3],
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(in0).dtype
+            ),
+        )
+
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp
 
