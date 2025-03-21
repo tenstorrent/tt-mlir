@@ -119,12 +119,6 @@ struct TypeName<std::vector<T>> {
   inline static const std::string value = "::std::vector<" + TypeNameV<T> + ">";
 };
 
-template <>
-struct TypeName<::ttnn::operations::creation::detail::OptionalAnyDevice> {
-  inline static const std::string value =
-      "::ttnn::operations::creation::detail::OptionalAnyDevice";
-};
-
 template <typename T>
 struct TypeName<::ttnn::SmallVector<T>> {
   inline static const std::string value =
@@ -151,6 +145,12 @@ struct TypeName<::ttnn::AnyDevice> {
 template <>
 struct TypeName<::ttnn::IDevice> {
   inline static const std::string value = "::ttnn::IDevice";
+};
+
+template <>
+struct TypeName<::ttnn::operations::creation::detail::OptionalAnyDevice> {
+  inline static const std::string value =
+      "::ttnn::operations::creation::detail::OptionalAnyDevice";
 };
 
 template <>
@@ -828,7 +828,9 @@ public:
   // Handles conversion of DeviceType objects to:
   // - ::ttnn::IDevice*
   // - ::ttnn::IDevice
-  // - ::ttnn::operations::creation::detail::OptionalAnyDevice>
+  // - ::ttnn::AnyDevice
+  // - ::ttnn::operations::creation::detail::OptionalAnyDevice
+  //    - converts to ::ttnn::AnyDevice, see comment below
   //
   // Will return `std::nullopt` if DeviceType is null
   //
@@ -847,60 +849,22 @@ public:
       return rewriter.getIndexAttr(index);
     } else if constexpr (std::is_same_v<TargetTy,
                                         ::ttnn::operations::creation::detail::
-                                            OptionalAnyDevice>) {
+                                            OptionalAnyDevice> ||
+                         std::is_same_v<TargetTy, ::ttnn::AnyDevice>) {
+      // Whether the desired target type is OptionalAnyDevice or AnyDevice, we
+      // can convert to AnyDevice in both scenarios, as there's an implicit
+      // constructor OptionalAnyDevice(AnyDevice).
+
       unsigned index = getOperandIndex(device);
       mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
 
-      // Use emitc::ExpressionOp to inline:
-      //
-      // AnyDevice anyDevice = AnyDevice(IDevice*)
-      // OptionalAnyDevice optionalAnyDevice = OptionalAnyDevice(anyDevice)
-      //
-      emitc::ExpressionOp fullDeviceConversionExpressionOp =
-          rewriter.create<emitc::ExpressionOp>(
-              op.getLoc(),
-              emitc::OpaqueType::get(
-                  rewriter.getContext(),
-                  TypeNameV<
-                      ::ttnn::operations::creation::detail::OptionalAnyDevice>),
-              /*do_not_inline=*/false);
-      Block &bodyBlock =
-          fullDeviceConversionExpressionOp.getBodyRegion().emplaceBlock();
-
-      // Save insertion checkpoint, and set rewriter to write within the
-      // ExpressionOp's block.
-      //
-      Block::iterator insertionCheckpoint = rewriter.getInsertionPoint();
-      rewriter.setInsertionPointToStart(&bodyBlock);
-
-      // AnyDevice(IDevice*)
-      //
       emitc::CallOpaqueOp anyDeviceOp = rewriter.create<emitc::CallOpaqueOp>(
           op.getLoc(),
           emitc::OpaqueType::get(rewriter.getContext(),
                                  TypeNameV<::ttnn::AnyDevice>),
           TypeNameV<::ttnn::AnyDevice>, deviceValueFromOperandsList);
 
-      // OptionalAnyDevice(AnyDevice)
-      //
-      emitc::CallOpaqueOp optionalAnyDeviceOp = rewriter.create<
-          emitc::CallOpaqueOp>(
-          op.getLoc(),
-          emitc::OpaqueType::get(
-              rewriter.getContext(),
-              TypeNameV<
-                  ::ttnn::operations::creation::detail::OptionalAnyDevice>),
-          TypeNameV<::ttnn::operations::creation::detail::OptionalAnyDevice>,
-          anyDeviceOp.getResult(0));
-
-      rewriter.create<emitc::YieldOp>(op.getLoc(),
-                                      optionalAnyDeviceOp.getResult(0));
-
-      // Return insertion point to checkpoint.
-      //
-      rewriter.setInsertionPoint(op->getBlock(), insertionCheckpoint);
-
-      operands.push_back(fullDeviceConversionExpressionOp->getResult(0));
+      operands.push_back(anyDeviceOp->getResult(0));
       return rewriter.getIndexAttr(operands.size() - 1);
     } else {
       llvm_unreachable("Unknown TargetTy");
