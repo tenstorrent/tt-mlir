@@ -25,6 +25,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
+#include <mlir/IR/OpDefinition.h>
 #include <numeric>
 #include <string>
 
@@ -782,18 +783,32 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
+mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttir::ReshapeOp op) {
+  // Fold the operation if the type of the input and output types are the same.
+  if (op.getType() == op.getInput().getType()) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult foldOperandReshape(mlir::tt::ttir::ReshapeOp op) {
+  // Back to back reshapes can be replaced with the final reshape.
+  if (auto reshapeOperand =
+          op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>()) {
+    op.setOperand(0, reshapeOperand.getInput());
+    return op.getResult();
+  }
+  return nullptr;
+}
+
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
-  // Fold the operation if the type of the input and output tensors are the
-  // same. (that implicates the shape before and after are identical).
-  if (getType() == getOperand(0).getType()) {
-    return getOperand(0);
+  if (auto foldResult = foldIdentityReshape(*this)) {
+    return foldResult;
   }
 
-  // Back to back reshapes can be replaced with the final reshape.
-  if (auto reshapeOperand = getOperand(0).getDefiningOp<ReshapeOp>()) {
-    setOperand(0, reshapeOperand.getInput());
-    return getResult();
+  if (auto foldResult = foldOperandReshape(*this)) {
+    return foldResult;
   }
 
   return nullptr;
@@ -1275,60 +1290,72 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
-// TransposeOp folder
-mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
+mlir::OpFoldResult foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
   // TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
-  if (getDim0() == getDim1()) {
-    return getInput();
+  if (op.getDim0() == op.getDim1()) {
+    return op.getInput();
   }
+  return nullptr;
+}
 
+mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
   // Rewrite a transpose of to a canonical form where the 'dim0' is less than
   // 'dim1'.
-  if (getDim0() > getDim1()) {
-    auto tmp = getDim0();
-    setDim0(getDim1());
-    setDim1(tmp);
-    return getResult();
+  if (op.getDim0() > op.getDim1()) {
+    auto tmp = op.getDim0();
+    op.setDim0(op.getDim1());
+    op.setDim1(tmp);
+    return op.getResult();
   }
+  return nullptr;
+}
 
+mlir::OpFoldResult forcePositiveTransposeDims(mlir::tt::ttir::TransposeOp op) {
   // Rewrite tranpose dims to a canonical form where the 'dim0' and 'dim1' are
   // in range [0, N), where N is a rank of input tensor.
-  if (getDim0() < 0 || getDim1() < 0) {
-    if (getDim0() < 0) {
-      setDim0(getDim0() + getInput().getType().getRank());
+  if (op.getDim0() < 0 || op.getDim1() < 0) {
+    if (op.getDim0() < 0) {
+      op.setDim0(op.getDim0() + op.getInput().getType().getRank());
     }
-    if (getDim1() < 0) {
-      setDim1(getDim1() + getInput().getType().getRank());
+    if (op.getDim1() < 0) {
+      op.setDim1(op.getDim1() + op.getInput().getType().getRank());
     }
-    return getResult();
+    return op.getResult();
   }
+  return nullptr;
+}
 
+mlir::OpFoldResult foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
   // Transposing twice in the row over the same dimensions results in identity,
   // hence y = T(T(x)) can be replaced with y = x.
   if (auto producerOp =
-          getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>()) {
-
-    // If the producers users are not all identical TransposeOps, we cannot fold
-    // the transpose.
-    SmallVector<OpOperand> users(producerOp->getUsers());
-    SmallVector<TransposeOp> transposeUsers;
-    for (OpOperand &user : users) {
-      if (auto transposeUser = dyn_cast_or_null<TransposeOp>(user.getOwner())) {
-        if (transposeUser.getDim0() != getDim0() ||
-            transposeUser.getDim1() != getDim1()) {
-          return nullptr;
-        }
-        transposeUsers.push_back(transposeUser);
-      } else {
-        return nullptr;
-      }
-    }
-
-    if (getDim0() == producerOp.getDim0() &&
-        getDim1() == producerOp.getDim1()) {
+          op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>()) {
+    if (op.getDim0() == producerOp.getDim0() &&
+        op.getDim1() == producerOp.getDim1()) {
       return producerOp.getInput();
     }
   }
+  return nullptr;
+}
+
+// TransposeOp folder
+mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityTranspose(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = sortTansposeDims(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = forcePositiveTransposeDims(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldInverseTransposeOperand(*this)) {
+    return foldResult;
+  }
+
   return nullptr;
 }
 
@@ -2797,60 +2824,39 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
   return success();
 }
 
+mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttir::PermuteOp op) {
+  // PermuteOp with identity permutation is a no-op.
+  // The input can be used directly as the output.
+  if (llvm::is_sorted(op.getPermutation())) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult foldOperandPermute(mlir::tt::ttir::PermuteOp op) {
+  // If the producer is a PermuteOp we can compose the permutation attributes
+  // into `op`, and set the input to the producers input.
+  if (auto producerOp =
+          op.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>()) {
+    llvm::SmallVector<int64_t> composedPermutation =
+        ttmlir::utils::applyPermutation(producerOp.getPermutation(),
+                                        op.getPermutation());
+    op.setPermutation(composedPermutation);
+    op->setOperand(0, producerOp.getInput());
+    return op.getResult();
+  }
+  return nullptr;
+}
+
 // PermuteOp folder
 mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
 
-  // PermuteOp with identity permutation is a no-op.
-  // The input can be used directly as the output.
-  if (llvm::is_sorted(getPermutation())) {
-    return getInput();
+  if (auto foldResult = foldIdentityPermute(*this)) {
+    return foldResult;
   }
 
-  // If the producer is a PermuteOp and the back-to-back permutation is an
-  // identity permutation, we can replace this op with the producer input.
-  if (auto producerOp =
-          dyn_cast_or_null<PermuteOp>(getInput().getDefiningOp())) {
-    llvm::SmallVector<int64_t> composedPermutation =
-        ttmlir::utils::applyPermutation(producerOp.getPermutation(),
-                                        getPermutation());
-    if (llvm::is_sorted(composedPermutation)) {
-      return producerOp.getInput();
-    }
-  }
-
-  // If the producer is a Permuteop, and the only user of the producer is this
-  // op we can fold the permutations into a single permutation. Note that if the
-  // resulting permutation is an identity permutation, this will have already
-  // been replaced by the producer input due to the check above.
-  if (auto producerOp =
-          dyn_cast_or_null<PermuteOp>(getInput().getDefiningOp())) {
-
-    // If the producers users are not all identical PermuteOps, we cannot fold
-    // the permutation.
-    SmallVector<OpOperand> users(producerOp->getUsers());
-    if (users.size() != 1) {
-      return nullptr;
-    }
-    // PermuteOp with identity permutation is a no-op.
-    llvm::SmallVector<int64_t> composedPermutation =
-        ttmlir::utils::applyPermutation(producerOp.getPermutation(),
-                                        getPermutation());
-
-    setPermutation(composedPermutation);
-    setOperand(0, producerOp.getInput());
-
-    // Make sure to set output result type and DPS result type.
-    auto inputType = cast<RankedTensorType>(producerOp.getInput().getType());
-    auto inputShape = inputType.getShape();
-    auto resultShape =
-        ttmlir::utils::applyPermutation(inputShape, composedPermutation);
-    auto resultType =
-        RankedTensorType::get(resultShape, inputType.getElementType());
-
-    getResult().setType(resultType);
-    getOutput().setType(resultType);
-
-    return getResult();
+  if (auto foldResult = foldOperandPermute(*this)) {
+    return foldResult;
   }
 
   return nullptr;
