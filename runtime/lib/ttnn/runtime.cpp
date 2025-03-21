@@ -607,7 +607,13 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRef = opContext.type_as_MeshShardOp()->out();
+    // Under the current implementation, we can access the output tensor only if
+    // shard_direction is ShardToFull. Otherwise, we cannot access it because
+    // the tensor is placed on the device side.
+    if (opContext.type_as_MeshShardOp()->shard_direction() ==
+        tt::target::ttnn::MeshShardDirection::ShardToFullShape) {
+      tensorRef = opContext.type_as_MeshShardOp()->out();
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
