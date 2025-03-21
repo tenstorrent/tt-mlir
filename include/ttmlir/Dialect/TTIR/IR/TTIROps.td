@@ -117,6 +117,13 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
+      unsigned getNumLoops();
+      unsigned getNumDims();
+      SmallVector<int64_t> getLoopBounds();
+      SmallVector<AffineMap> getIndexingMapsValue();
+      SmallVector<IteratorType> getIteratorTypesValue();
+      SmallVector<SmallVector<int64_t>> getOperandShardShapes();
+      SmallVector<SmallVector<int64_t>> getOperandGridShapes();
     }];
 }
 
@@ -1931,7 +1938,7 @@ def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
 
 //===----------------------------------------------------------------------===//
 
-def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
+def TTIR_ScatterOp: TTIR_NamedOp<"scatter", [NoTerminator]> {
   let summary = "Scatter operation";
   let description = [{
     Produces a 'result' tensor which are equal to `input` tensor except that
