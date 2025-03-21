@@ -352,23 +352,11 @@ def min(in0: Operand, builder: TTIRBuilder):
     return builder.min(in0)
 
 
-@compile_to_flatbuffer(
-    [
-        (32, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_reshape(in0: Operand, builder: TTIRBuilder):
+def reshape(in0: Operand, builder: TTIRBuilder):
     return builder.reshape(in0, [2048])
 
 
-@compile_to_flatbuffer(
-    [
-        (32, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_transpose(in0: Operand, builder: TTIRBuilder):
+def transpose(in0: Operand, builder: TTIRBuilder):
     return builder.transpose(in0)
 
 
@@ -680,22 +668,6 @@ def test_update_cache(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBui
     return builder.update_cache(in0, in1, in2)
 
 
-@compile_to_flatbuffer(
-    [
-        (32, 32),
-        (32, 32),
-        (32, 32),
-    ],
-    targets=["ttnn"],
-)
-def test_arbitrary_op_chain(
-    in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
-):
-    add = builder.add(in0, in1)
-    exp = builder.exp(in2)
-    return builder.multiply(add, exp)
-
-
 def hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     # Use op_proxy directly since it accepts ttir_kwargs
     return builder.op_proxy(
@@ -816,6 +788,18 @@ def test_binary_ops_to_flatbuffer(
     _compile_to_flatbuffer(test_fn, inputs_shapes=[shape, shape], test_name=request.node.name)
 
 
+@pytest.mark.parametrize("test_fn,inputs_shapes,inputs_dtypes", [
+    (transpose,[(64,32)],None),
+    (reshape,[(64,32)],None),
+    ])
+def test_unique_ops_to_flatbuffer(
+        test_fn: Callable,
+        inputs_shapes: List[Shape],
+        inputs_dtypes: List[torch.dtype]
+        ):
+    _compile_to_flatbuffer(test_fn, inputs_shapes=inputs_shapes, inputs_types=inputs_dtypes)
+
+
 def _compile_to_flatbuffer(
     test_fn: Callable,
     inputs_shapes: List[Shape],
@@ -841,7 +825,7 @@ def _compile_to_flatbuffer(
     module_logger.attach_context(module.context)
     module = ttir_to_ttnn(module, module_dump, test_base + "_ttnn.mlir")
     ttnn_to_flatbuffer(
-        module, builder, test_base + ".ttnn", module_logger.module_log
+        module, builder, output_file_name=test_base + ".ttnn", module_log=module_logger.module_log
     )
 
     # TODO: execute the flatbuffer here to check goldens
