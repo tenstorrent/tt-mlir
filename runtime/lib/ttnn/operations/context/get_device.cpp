@@ -29,9 +29,9 @@ calculateMeshCoordinate(const ::ttnn::MeshDevice &parentMesh,
 }
 
 static std::shared_ptr<::ttnn::MeshDevice>
-createSubMesh(::ttnn::MeshDevice &parentMesh,
-              const std::unordered_set<uint32_t> &desiredDeviceIds,
-              const ::tt::target::Dim2d *subMeshShape) {
+createSubMeshDevice(::ttnn::MeshDevice &parentMesh,
+                    const std::unordered_set<uint32_t> &desiredDeviceIds,
+                    const ::tt::target::Dim2d *subMeshShape) {
   // Carve out a submesh from the parentMesh
   MeshShape meshShape(subMeshShape->y(), subMeshShape->x());
   MeshCoordinate coordinate =
@@ -57,7 +57,7 @@ void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
              meshDevice.shape()[1], "]");
   }
   std::shared_ptr<::ttnn::MeshDevice> subMesh =
-      createSubMesh(meshDevice, desiredDeviceIds, subMeshShape);
+      createSubMeshDevice(meshDevice, desiredDeviceIds, subMeshShape);
   context.addSubMesh(op->out()->global_id(), subMesh);
 }
 } // namespace tt::runtime::ttnn::operations::context

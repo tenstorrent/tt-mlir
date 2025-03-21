@@ -46,14 +46,55 @@ class Helper:
 
 
 class DeviceContext:
-    def __init__(self, device_ids):
-        self.device = ttrt.runtime.open_device(device_ids)
+    def __init__(self, mesh_shape, mesh_offset=None, enable_async=None):
+        options = ttrt.runtime.MeshDeviceOptions()
+        options.mesh_shape = mesh_shape
+        options.mesh_offset = mesh_offset
+        options.enable_async_ttnn = enable_async
+        self.device = ttrt.runtime.open_mesh_device(options)
 
     def __enter__(self):
         return self.device
 
     def __exit__(self, exc_type, exc_value, traceback):
-        ttrt.runtime.close_device(self.device)
+        ttrt.runtime.close_mesh_device(self.device)
+
+
+def get_runtime_tensor_from_torch(torch_tensor):
+    runtime_dtype = Binary.Program.to_data_type(torch_tensor.dtype)
+    runtime_tensor = ttrt.runtime.create_tensor(
+        torch_tensor.data_ptr(),
+        list(torch_tensor.shape),
+        list(torch_tensor.stride()),
+        torch_tensor.element_size(),
+        runtime_dtype,
+    )
+    return runtime_tensor
+
+
+def get_torch_and_runtime_inputs(program):
+    inputs_torch = []
+    inputs_runtime = []
+    for i, program_input in enumerate(program.program["inputs"]):
+        torch_tensor = torch.randn(
+            program_input["desc"]["shape"],
+            dtype=Binary.Program.from_data_type(
+                program_input["desc"]["layout"]["memory_desc"]["data_type"]
+            ),
+        )
+        inputs_torch.append(torch_tensor)
+        inputs_runtime.append(get_runtime_tensor_from_torch(torch_tensor))
+    return inputs_torch, inputs_runtime
+
+
+def get_torch_output_container(program):
+    torch_result_container = torch.randn(
+        program.program["outputs"][0]["desc"]["shape"],
+        dtype=Binary.Program.from_data_type(
+            program.program["outputs"][0]["desc"]["layout"]["memory_desc"]["data_type"]
+        ),
+    )
+    return torch_result_container
 
 
 def assert_tensors_match(tensor1, tensor2):

@@ -273,9 +273,9 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
           ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = meshShape,
                                                         .offset = {}},
           DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
-  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
-  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
-           "}");
+  LOG_DEBUG("Device grid size = { ",
+            meshDevice->compute_with_storage_grid_size().x, ", ",
+            meshDevice->compute_with_storage_grid_size().y, " }");
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {
