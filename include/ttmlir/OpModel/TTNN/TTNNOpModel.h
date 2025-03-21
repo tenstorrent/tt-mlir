@@ -15,6 +15,10 @@
 
 namespace mlir::tt::op_model::ttnn {
 
+// Checks if the tensor layout is legal for the given operation.
+bool isTensorLayoutLegalForOp(Operation *op,
+                              mlir::tt::ttnn::TTNNLayoutAttr layout);
+
 //===----------------------------------------------------------------------===//
 // Device
 //===----------------------------------------------------------------------===//
