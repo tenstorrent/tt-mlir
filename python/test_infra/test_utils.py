@@ -416,7 +416,7 @@ def compile_to_flatbuffer(
                     module, module_dump, test_base + "_ttnn.mlir", mesh_shape=mesh_shape
                 )
                 ttnn_to_flatbuffer(
-                    module, builder, test_base + ".ttnn", module_logger.module_log
+                    module, builder, test_base + ".ttnn", module_log=module_logger.module_log
                 )
 
         return wrapper
