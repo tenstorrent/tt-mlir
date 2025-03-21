@@ -160,11 +160,11 @@ def TT_LoadCachedOp : TT_Op<"load_cached", []> {
 
   let arguments = (ins
     FlatSymbolRefAttr:$callee,
-    Variadic<AnyType>:$inputs
+    Variadic<AnyRankedTensor>:$inputs
   );
 
   let results = (outs
-    Variadic<AnyType>:$results
+    Variadic<AnyRankedTensor>:$results
   );
 
   let assemblyFormat = [{

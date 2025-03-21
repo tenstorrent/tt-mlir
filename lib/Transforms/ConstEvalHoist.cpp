@@ -243,7 +243,7 @@ private:
 
   bool isSharedOp(mlir::Operation *op) {
     assert(op != nullptr);
-    return op->hasTrait<mlir::tt::Trait::TTSharedConstEvalTrait>();
+    return op->hasTrait<mlir::tt::Trait::TTDuplicateConstEvalTrait>();
   }
 
   // Merge content of all subgraphs in subgraphIdxs into the subgraph at the
