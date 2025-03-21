@@ -2,7 +2,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
         Constant.cpp
-        EraseInverseOps.cpp
+        EraseInverseOps/EraseInverseOps.cpp
         FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
