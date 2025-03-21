@@ -1275,14 +1275,15 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let hasVerifier = 1;
 }
 
-def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
+def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_Device:$device,
                          SI32Attr:$batch_size,
                          SI32Attr:$input_height,
                          SI32Attr:$input_width,

@@ -1386,12 +1386,10 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
-  auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateMaxPool2dOp(
-      *cache.fbb, in, out, cache.at<::tt::target::DeviceRef>(device),
-      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), kernelSize, stride, padding, dilation,
-      op.getCeilMode());
+      *cache.fbb, in, out, op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
+      dilation, op.getCeilMode());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
