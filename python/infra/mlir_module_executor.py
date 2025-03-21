@@ -5,69 +5,31 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
-from ttmlir.ir import Module
 from ttrt.common.util import Binary
 
 from .compile_and_run import run_flatbuffer, ttnn_to_flatbuffer
-from .utils import convert_str_to_module
-
-
-class ExecutionPhase(Enum):
-    GENERATED_STABLE_HLO = 1
-    GENERATED_TTIR = 2
-    GENERATED_TTNN = 3
-    GENERATED_FLATBUFFER = 4
-    EXECUTED_FLATBUFFER = 5
-
-
-@dataclass
-class ExecutionResult:
-    execution_phase: ExecutionPhase
-    last_generated_module: Module
-    flatbuffer: Optional[Binary] = None
-    device_run_passed: bool = False
-
-    @property
-    def compilation_finished(self) -> bool:
-        return self.execution_phase == ExecutionPhase.GENERATED_TTNN
-
-    @property
-    def flatbuffer_generated(self) -> bool:
-        return (
-            self.execution_phase == ExecutionPhase.GENERATED_FLATBUFFER
-            and self.flatbuffer is not None
-        )
-
-    @property
-    def run_finished(self) -> bool:
-        return self.execution_phase == ExecutionPhase.EXECUTED_FLATBUFFER
-
-    def __repr__(self) -> str:
-        return f"ExecutionResult({self.execution_phase.name})"
+from .utils import (
+    ExecutionPhase,
+    ExecutionResult,
+    ModuleWrapper,
+    convert_to_module_wrapper,
+)
 
 
 class MLIRModuleExecutor(ABC):
-    """
-    Abstract base class used to compile and run on device a given MLIR module.
-
-    Instantiate one of concrete subclasses by giving it a MLIR module (or module str)
-    and use provided public methods  TODO
-    """
+    """Abstract base class used to compile or execute on device a given MLIR module."""
 
     # ----- Public methods -----
 
-    @convert_str_to_module
-    def compile(self, module: Module) -> Module:
+    @convert_to_module_wrapper
+    def compile(self, module: ModuleWrapper) -> ModuleWrapper:
         """
         Compiles MLIR `module`, returning a generated TTNN module.
 
         Asserts if compilation doesn't reach TTNN.
         """
-        print("Running compile on module")
         # Each time `compile` is called, prepare for new run by forgetting results of
         # previous run and storing new module to work on.
         self._reset(module)
@@ -83,12 +45,20 @@ class MLIRModuleExecutor(ABC):
 
         return compiled
 
-    @convert_str_to_module
-    def execute(self, module: Module) -> ExecutionResult:
-        print("Running execute on module")
+    @convert_to_module_wrapper
+    def execute(self, module: ModuleWrapper) -> ExecutionResult:
         # Each time `compile` is called, prepare for new run by forgetting results of
         # previous run and storing new module to work on.
         self._reset(module)
+
+        # TODO special case where module consists solely of dealloc op. See what should
+        # be done with it.
+        if (
+            module.is_generated_from_op
+            and "ttnn.dealloc" in module.generated_from_op.name
+        ):
+            return self._execution_result
+
         # Run execution steps on stored module.
         return self._execute()
 
@@ -103,10 +73,10 @@ class MLIRModuleExecutor(ABC):
         # execution steps.
         self._starting_execution_phase = starting_execution_phase
 
-        self._module: Module = None
+        self._module: ModuleWrapper = None
         self._execution_result: ExecutionResult = None
 
-    def _reset(self, module: Module) -> None:
+    def _reset(self, module: ModuleWrapper) -> None:
         """Resets internal state, gets ready for a new run."""
         self._module = module
         self._execution_result = ExecutionResult(self._starting_execution_phase, module)
@@ -114,7 +84,7 @@ class MLIRModuleExecutor(ABC):
     def _mark_execution_step(
         self,
         new_phase: ExecutionPhase,
-        generated_module: Optional[Module] = None,
+        generated_module: Optional[ModuleWrapper] = None,
         generated_flatbuffer: Optional[Binary] = None,
         run_passed: Optional[bool] = None,
     ) -> None:
@@ -128,7 +98,7 @@ class MLIRModuleExecutor(ABC):
             self._execution_result.device_run_passed = run_passed
 
     @abstractmethod
-    def _compile(self) -> Module:
+    def _compile(self) -> ModuleWrapper:
         """
         Attempts compiling stored module down to TTNN.
 
@@ -148,7 +118,7 @@ class MLIRModuleExecutor(ABC):
 
         try:
             flatbuffer = ttnn_to_flatbuffer(
-                self._execution_result.last_generated_module, flatbuffer_name
+                self._execution_result.last_generated_module.module, flatbuffer_name
             )
             self._mark_execution_step(
                 ExecutionPhase.GENERATED_FLATBUFFER, generated_flatbuffer=flatbuffer
@@ -167,9 +137,8 @@ class MLIRModuleExecutor(ABC):
 
         try:
             return_code = run_flatbuffer(self._execution_result.flatbuffer)
-            run_passed = return_code == 0
             self._mark_execution_step(
-                ExecutionPhase.EXECUTED_FLATBUFFER, run_passed=run_passed
+                ExecutionPhase.EXECUTED_FLATBUFFER, run_passed=(return_code == 0)
             )
         finally:
             return self._execution_result.device_run_passed

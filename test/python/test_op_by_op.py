@@ -5,6 +5,7 @@
 # TODO This is what will be exposed to FEs.
 
 from ttmlir.op_by_op import compile_split_and_execute, split_and_execute
+from ttmlir.utils import ExecutionPhase
 
 
 def test1(print_results: bool = False):
@@ -20,11 +21,20 @@ def test1(print_results: bool = False):
     """
     results = split_and_execute(shlo_module_str)
 
+    assert all(
+        result.execution_phase == ExecutionPhase.EXECUTED_FLATBUFFER
+        for result in results
+    ), f"Expected all results to be in EXECUTED_FLATBUFFER phase, got: {results}"
+
     if print_results:
         print(results)
 
 
 def test2(print_results: bool = False):
+    # assert (
+    #     False
+    # ), f"Fails due to deallocate being one op in module but reports that it executed ok"
+
     shlo_module_str = """
         module {
             func.func @main(%arg0: tensor<1x128xf32>, %arg1: tensor<128xf32>) -> tensor<1x128xf32> {
@@ -35,10 +45,17 @@ def test2(print_results: bool = False):
             }
         }
     """
-    assert (
-        False
-    ), f"Fails due to deallocate being one op in module but reports that it executed ok"
     results = compile_split_and_execute(shlo_module_str)
+
+    # TODO special case where module consists solely of dealloc op. See what should
+    # be done with it.
+    last = results.pop()
+    assert last.execution_phase == ExecutionPhase.GENERATED_TTNN
+
+    assert all(
+        result.execution_phase == ExecutionPhase.EXECUTED_FLATBUFFER
+        for result in results
+    ), f"Expected all results to be in EXECUTED_FLATBUFFER phase, got: {results}"
 
     if print_results:
         print(results)
@@ -62,6 +79,11 @@ def test3(print_results: bool = False):
     """
     results = split_and_execute(ttir_module_str)
 
+    assert all(
+        result.execution_phase == ExecutionPhase.EXECUTED_FLATBUFFER
+        for result in results
+    ), f"Expected all results to be in EXECUTED_FLATBUFFER phase, got: {results}"
+
     if print_results:
         print(results)
 
@@ -84,12 +106,22 @@ def test4(print_results: bool = False):
     """
     results = compile_split_and_execute(ttir_module_str)
 
+    # TODO special case where module consists solely of dealloc op. See what should
+    # be done with it.
+    last = results.pop()
+    assert last.execution_phase == ExecutionPhase.GENERATED_TTNN
+
+    assert all(
+        result.execution_phase == ExecutionPhase.EXECUTED_FLATBUFFER
+        for result in results
+    ), f"Expected all results to be in EXECUTED_FLATBUFFER phase, got: {results}"
+
     if print_results:
         print(results)
 
 
 if __name__ == "__main__":
     test1(True)
-    # test2(True)
+    test2(True)
     test3(True)
-    # test4(True)
+    test4(True)

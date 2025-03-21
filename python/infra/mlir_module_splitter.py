@@ -4,19 +4,18 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 from ttmlir.dialects import func
-from ttmlir.ir import Module, OpAttributeMap
 
-from .utils import OpWrapper, convert_str_to_module, parse_module_str
+from .utils import ModuleWrapper, OpWrapper, convert_to_module_wrapper
 
 
 class MLIRModuleSplitter:
     """
     Used to split a MLIR module into constituent ops.
 
-    Module is expected to consist of one `@main` func and possible other funcs which are
+    ModuleWrapper is expected to consist of one `@main` func and possible other funcs which are
     either called from main or call each other.
 
     ```
@@ -49,39 +48,32 @@ class MLIRModuleSplitter:
 
     def __init__(self) -> None:
         """Constructor."""
-        # Original module passed to `split` and its attributes.
+        # Original module passed to `split`.
         self._module = None
-        self._module_attributes = None
 
         # Container for sub operations of original module.
         self._sub_ops: List[OpWrapper] = []
         # Container for sub modules of original module.
-        self._sub_modules: List[Module] = []
+        self._sub_modules: List[ModuleWrapper] = []
         # Maps function names to the functions themselves, for easier retrieval.
         self._func_map = {}
 
-    @convert_str_to_module
-    def split(self, module: Module) -> List[Module]:
+    @convert_to_module_wrapper
+    def split(self, module: ModuleWrapper) -> List[ModuleWrapper]:
         """
         Splits `module` and returns list of constituent ops each wrapped in a MLIR
         module (i.e. returns list of sub modules).
         """
-        print("Running split on module")
         # Each time `split` is called, prepare for new run by forgetting results of
         # previous run and storing new module to work on.
         self._reset(module)
-        print(str(module))
         # Run the splitting algorithm on stored module.
-        s = self._split()
-        print("Splits")
-        for a in s:
-            print(str(a))
-        return s
+        return self._split()
 
     # -- Convenience read-only properties for easy access --
 
     @property
-    def module(self) -> Module:
+    def module(self) -> ModuleWrapper:
         """Returns the original MLIR module passed to the splitter."""
         return self._module
 
@@ -97,29 +89,20 @@ class MLIRModuleSplitter:
         return self._sub_ops
 
     @property
-    def sub_modules(self) -> List[Module]:
+    def sub_modules(self) -> List[ModuleWrapper]:
         """Returns list of constituent ops each wrapped in a MLIR module."""
         return self._sub_modules
 
     # ----- Private methods -----
 
-    def _reset(self, module: Module) -> None:
+    def _reset(self, module: ModuleWrapper) -> None:
         """Resets internal state, gets ready for a new run."""
         self._module = module
-        self._module_attributes = self._get_module_attributes()
-        self._sub_ops = []
-        self._sub_modules = []
+        self._sub_ops: List[OpWrapper] = []
+        self._sub_modules: List[ModuleWrapper] = []
         self._func_map = {}
 
-    def _get_module_attributes(self) -> Optional[OpAttributeMap]:
-        """Returns module attributes if any, otherwise None."""
-        return (
-            self._module.operation.attributes
-            if len(self._module.operation.attributes) > 0
-            else None
-        )
-
-    def _split(self) -> List[Module]:
+    def _split(self) -> List[ModuleWrapper]:
         """Splits the original module into constituent operations."""
         self._build_func_map()
         self._process_func_op(self._main_func)
@@ -131,7 +114,7 @@ class MLIRModuleSplitter:
         Builds a map of function names to their corresponding func.func operations.
         """
         self._func_map = {
-            func_op.name.value: func_op for func_op in self._module.body.operations
+            func_op.name.value: func_op for func_op in self._module.operations
         }
 
     @property
@@ -144,9 +127,7 @@ class MLIRModuleSplitter:
         From sub ops of original module creates and stores list of constituent ops each
         wrapped in a MLIR module.
         """
-        self._sub_modules = [
-            parse_module_str(op.as_module_str()) for op in self._sub_ops
-        ]
+        self._sub_modules = [op.as_module() for op in self._sub_ops]
 
     def _process_func_op(self, func_op: func.FuncOp):
         """Processes a single func.func operation and its operations in SSA order."""
@@ -165,7 +146,7 @@ class MLIRModuleSplitter:
                     self._process_call_op(op)
                 else:
                     # Store captured op along with attributes from original module.
-                    self._sub_ops.append(OpWrapper(op, self._module_attributes))
+                    self._sub_ops.append(OpWrapper(op, self._module.attributes))
 
     def _process_call_op(self, call_op: func.CallOp):
         """Processes a func.call operation by processing the function it is calling."""

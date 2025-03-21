@@ -4,9 +4,8 @@
 
 from __future__ import annotations
 
-from ttmlir.ir import Module
-
 from .mlir_module_executor import ExecutionPhase, MLIRModuleExecutor
+from .utils import ModuleWrapper
 
 
 class TTNNExecutor(MLIRModuleExecutor):
@@ -20,6 +19,6 @@ class TTNNExecutor(MLIRModuleExecutor):
     # ----- Private methods -----
 
     # @override
-    def _compile(self) -> Module:
+    def _compile(self) -> ModuleWrapper:
         # Trivial, original module was already a TTNN module.
         return self._module
