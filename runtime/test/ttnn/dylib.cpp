@@ -141,6 +141,33 @@ static std::string toString(SupportedTypes &v) {
       v);
 }
 
+// Compare two values of the same type for equality. We compare byte by byte, so
+// that even special values are compared correctly.
+//
+bool areEqual(const SupportedTypes &lhs, const SupportedTypes &rhs) {
+  size_t size = std::visit(
+      [&](const auto &val) {
+        using T = std::decay_t<decltype(val)>;
+        return sizeof(T);
+      },
+      lhs);
+  for (size_t i = 0; i < size; i++) {
+    if (reinterpret_cast<const uint8_t *>(&lhs)[i] !=
+        reinterpret_cast<const uint8_t *>(&rhs)[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool operator==(const SupportedTypes &lhs, const SupportedTypes &rhs) {
+  return areEqual(lhs, rhs);
+}
+
+bool operator!=(const SupportedTypes &lhs, const SupportedTypes &rhs) {
+  return !(lhs == rhs);
+}
+
 using IndexTy = std::vector<size_t>;
 
 IndexTy getIndex(const ::ttnn::Shape &shape, size_t index) {
@@ -201,16 +228,16 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
 
     // Compare tensor data
     //
+    size_t elementSize = lhsTensor->element_size();
     uint8_t *lhsData = static_cast<uint8_t *>(
         ::tt::tt_metal::get_raw_host_data_ptr(*lhsTensor));
     uint8_t *rhsData = static_cast<uint8_t *>(
         ::tt::tt_metal::get_raw_host_data_ptr(*rhsTensor));
-    for (size_t i = 0; i < lhsTensor->volume() * lhsTensor->element_size();
-         i += lhsTensor->element_size()) {
+    for (size_t i = 0; i < lhsTensor->volume(); ++i) {
       SupportedTypes lhsVal =
-          getValueForDType(lhsTensor->get_dtype(), lhsData + i);
+          getValueForDType(lhsTensor->get_dtype(), lhsData + i * elementSize);
       SupportedTypes rhsVal =
-          getValueForDType(rhsTensor->get_dtype(), rhsData + i);
+          getValueForDType(rhsTensor->get_dtype(), rhsData + i * elementSize);
       if (lhsVal != rhsVal) {
         LOG_FATAL("Mismatch at index ",
                   toString(getIndex(lhsTensor->get_logical_shape(), i)), ": ",
