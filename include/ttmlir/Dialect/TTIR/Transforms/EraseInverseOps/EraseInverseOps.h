@@ -5,26 +5,17 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASE_INVERSE_OPS_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASE_INVERSE_OPS_H
 
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-
-#include "llvm/Support/ErrorHandling.h"
-#include <llvm/Support/LogicalResult.h>
-#include <type_traits>
 
 namespace mlir::tt::ttir {
 
-template <typename TMOpType, typename CommutableOpType>
+template <typename OpType>
+concept IsTMOpType =
+    std::is_same_v<OpType, TransposeOp> || std::is_same_v<OpType, PermuteOp> ||
+    std::is_same_v<OpType, ReshapeOp>;
+
+template <IsTMOpType TMOpType, typename CommutableOpType>
 class TTIRCommuteRewritePattern : public RewritePattern {
-
-  // TODO(LPanosTT): Find a better way of stopping users from using a non-tm as
-  // TMOpType
-  static_assert(std::is_same<TMOpType, TransposeOp>::value ||
-                    std::is_same<TMOpType, PermuteOp>::value ||
-                    std::is_same<TMOpType, ReshapeOp>::value,
-                "TMOpType must be a subclass of ttir::TransposeOp, "
-                "ttir::PermuteOp, or ttir::ReshapeOp.");
-
 public:
   TTIRCommuteRewritePattern(MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}

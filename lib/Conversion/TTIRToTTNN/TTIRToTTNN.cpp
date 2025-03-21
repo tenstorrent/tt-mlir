@@ -1224,11 +1224,8 @@ public:
            "TTNN max_pool2d does not support padding top/bottom/left/right "
            "separately");
 
-    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> inputShape = inputType.getShape();
-
-    auto batchSize = static_cast<int32_t>(inputShape[inputShape.size() - 4]);
-    auto channels = static_cast<int32_t>(inputShape[inputShape.size() - 1]);
+    auto batchSize = adaptor.getFlattenedCompatInfo()->getBatchSize();
+    auto channels = adaptor.getFlattenedCompatInfo()->getInChannels();
 
     DenseI32ArrayAttr kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
         {adaptor.getKernelHeight(), adaptor.getKernelWidth()});
@@ -1246,7 +1243,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), device, batchSize,
+        adaptor.getInput(), batchSize,
         adaptor.getFlattenedCompatInfo()->getInputHeight(),
         adaptor.getFlattenedCompatInfo()->getInputWidth(), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,

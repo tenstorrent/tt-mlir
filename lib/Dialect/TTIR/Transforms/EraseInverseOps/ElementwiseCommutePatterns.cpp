@@ -9,6 +9,10 @@
 namespace mlir::tt::ttir {
 
 LogicalResult checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
+  if (users.size() == 0) {
+    return failure();
+  }
+
   Operation *firstUser = users[0];
   for (auto *user : users) {
     if (user->getAttrDictionary() != firstUser->getAttrDictionary()) {
