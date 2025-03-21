@@ -25,7 +25,6 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
-#include <mlir/IR/OpDefinition.h>
 #include <numeric>
 #include <string>
 
