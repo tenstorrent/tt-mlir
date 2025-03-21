@@ -23,23 +23,36 @@ class TTNN_Attr<string name, string attrMnemonic, list<Trait> traits = [],
   let attrName = "ttnn." # attrMnemonic;
 }
 
-def TTNN_CoreRangeAttr : TTNN_Attr<"CoreRange", "core_range"> {
-  let summary = "TTNN grid attribute";
+def TTNN_CoreCoordAttr : TTNN_Attr<"CoreCoord", "core_coord"> {
+  let summary = "TTNN CoreCoord attribute";
   let description = [{
-    TTNN grid attribute
+    TTNN CoreCoord attribute
   }];
 
-  let parameters = (ins ArrayRefParameter<"int64_t">:$offset,
-                        ArrayRefParameter<"int64_t">:$size);
-  let assemblyFormat = "`<` custom<DimensionList>($offset) `,` custom<DimensionList>($size) `>`";
+  let parameters = (ins "IntegerAttr":$x, "IntegerAttr":$y);
+  let assemblyFormat = "`<` params `>`";
 
-  let extraClassDeclaration = [{
-      static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::GridAttr grid, SmallVector<int64_t> offset = {0, 0})
-      {
-        assert(grid.getShape().size() == 2 && "Grid shape must be 2D for now");
-        return CoreRangeAttr::get(context, {0, 0}, grid.getShape());
-      }
+  let genVerifyDecl = 1;
+}
+
+def TTNN_CoreRangeAttr: TTNN_Attr<"CoreRange", "core_range"> {
+  let summary = "TTNN CoreRange attribute";
+  let description = [{
+    TTNN CoreRange attribute
   }];
+
+  let parameters = (ins "CoreCoordAttr":$start_coord, "CoreCoordAttr":$end_coord);
+  let assemblyFormat = "`<` params `>`";
+}
+
+def TTNN_CoreRangeSet: TTNN_Attr<"CoreRangeSet", "core_range_set"> {
+  let summary = "TTNN CoreRangeSet attribute";
+  let description = [{
+    TTNN CoreRangeSet attribute
+  }];
+
+  let parameters = (ins ArrayRefParameter<"CoreRangeAttr">:$core_ranges);
+  let assemblyFormat = "`<` struct(params) `>`";
 }
 
 def TTNN_LayoutAttr : EnumAttr<TTNN_Dialect, TTNN_Layout, "layout"> {
@@ -92,6 +105,101 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
     MemoryConfigAttr withBufferType(::mlir::MLIRContext *context, BufferType bufferType);
     MemoryConfigAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
   }];
+
+  let genVerifyDecl = 1;
+}
+
+def UnaryWithParamAttr : TTNN_Attr<"UnaryWithParam", "unary_with_param"> {
+  let summary = "TTNN UnaryWithParam";
+  let description = [{
+    TTNN UnaryWithParam
+  }];
+
+  let parameters = (ins "UnaryOpType":$op_type,
+                        ArrayRefParameter<"FloatAttr">:$params);
+
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
+def TTNN_MatmulMultiCoreReuseProgramConfigAttr : TTNN_Attr<"MatmulMultiCoreReuseProgramConfig", "matmul_multi_core_reuse_program_config"> {
+  let summary = "TTNN MatmulMultiCoreReuseProgramConfig";
+  let description = [{
+    TTNN MatmulMultiCoreReuseProgramConfig
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$compute_with_storage_grid_size,
+                        "IntegerAttr":$in0_block_w,
+                        "IntegerAttr":$out_subblock_h,
+                        "IntegerAttr":$out_subblock_w,
+                        "IntegerAttr":$per_core_m,
+                        "IntegerAttr":$per_core_n);
+
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr : TTNN_Attr<"MatmulMultiCoreReuseMultiCastProgramConfig", "matmul_multi_core_reuse_multi_cast_program_config"> {
+  let summary = "TTNN MatmulMultiCoreReuseMultiCastProgramConfig";
+  let description = [{
+    TTNN MatmulMultiCoreReuseMultiCastProgramConfig
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$compute_with_storage_grid_size,
+                        "IntegerAttr":$in0_block_w,
+                        "IntegerAttr":$out_subblock_h,
+                        "IntegerAttr":$out_subblock_w,
+                        "IntegerAttr":$out_block_h,
+                        "IntegerAttr":$out_block_w,
+                        "IntegerAttr":$per_core_m,
+                        "IntegerAttr":$per_core_n,
+                        "BoolAttr":$transpose_mcast,
+                        OptionalParameter<"UnaryWithParamAttr">:$fused_activation,
+                        "BoolAttr":$fuse_batch);
+
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr : TTNN_Attr<"MatmulMultiCoreReuseMultiCast1DProgramConfig", "matmul_multi_core_reuse_multi_cast_1d_program_config"> {
+  let summary = "TTNN MatmulMultiCoreReuseMultiCast1DProgramConfig";
+  let description = [{
+    TTNN MatmulMultiCoreReuseMultiCast1DProgramConfig
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$compute_with_storage_grid_size,
+                        "IntegerAttr":$in0_block_w,
+                        "IntegerAttr":$out_subblock_h,
+                        "IntegerAttr":$out_subblock_w,
+                        "IntegerAttr":$out_block_h,
+                        "IntegerAttr":$out_block_w,
+                        "IntegerAttr":$per_core_m,
+                        "IntegerAttr":$per_core_n,
+                        "BoolAttr":$fuse_batch,
+                        OptionalParameter<"UnaryWithParamAttr">:$fused_activation,
+                        "BoolAttr":$mcast_in0,
+                        "BoolAttr":$gather_in0,
+                        "CoreRangeSetAttr":$hop_cores,
+                        "IntegerAttr":$num_global_cb_receivers);
+
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr : TTNN_Attr<"MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig", "matmul_multi_core_reuse_multi_cast_dram_sharded_program_config"> {
+  let summary = "TTNN MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig";
+  let description = [{
+    TTNN MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig
+  }];
+
+  let parameters = (ins "IntegerAttr":$in0_block_w,
+                        "IntegerAttr":$per_core_m,
+                        "IntegerAttr":$per_core_n,
+                        OptionalParameter<"UnaryWithParamAttr">:$fused_activation);
+
+  let assemblyFormat = "`<` struct(params) `>`";
 
   let genVerifyDecl = 1;
 }
