@@ -4,6 +4,8 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Constant.cpp
         GeneralizeNamedOps.cpp
         EraseInverseOps/EraseInverseOps.cpp
+        EraseInverseOps/BroadcastCommutePatterns.cpp
+        EraseInverseOps/ElementwiseCommutePatterns.cpp
         FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
