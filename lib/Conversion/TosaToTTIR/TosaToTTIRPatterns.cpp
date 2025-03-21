@@ -92,7 +92,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
         rewriter, srcOp, outputType, adaptor.getInput(), adaptor.getMinFp(),
         adaptor.getMaxFp());
 

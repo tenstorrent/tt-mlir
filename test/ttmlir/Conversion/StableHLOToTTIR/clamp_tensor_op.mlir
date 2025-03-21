@@ -3,7 +3,7 @@
 module @test_clamp_tensor attributes {} {
   func.func public @test_clamp_tensor(%arg0: tensor<4xf32>, %arg1: tensor<4xf32>, %arg2: tensor<4xf32>) -> tensor<4xf32> {
     // CHECK-LABEL: func.func public @test_clamp_tensor
-    // CHECK: %[[EMPTY0:.*]] = tensor.empty() : [[TENSOR:tensor<4xf32>]]
+    // CHECK: %[[EMPTY0:.*]] = ttir.empty() : [[TENSOR:tensor<4xf32>]]
     // CHECK: %[[CLAMP:.*]] = "ttir.clamp_tensor"(%arg0, %arg1, %arg2, %[[EMPTY0]])
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]], [[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
     %0 = stablehlo.clamp %arg1, %arg0, %arg2 : tensor<4xf32>

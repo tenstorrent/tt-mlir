@@ -84,7 +84,7 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 // ClampOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::ClampOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::ClampScalarOp::verify() {
   const RankedTensorType inputTensorType =
       mlir::cast<RankedTensorType>(getInput().getType());
 

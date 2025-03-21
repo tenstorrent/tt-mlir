@@ -937,10 +937,10 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
 template <typename EltwiseOp, typename EltwiseOpParams>
 ::flatbuffers::Offset<EltwiseOpParams>
 createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
-  if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
+  if constexpr (std::is_same_v<EltwiseOp, ClampScalarOp>) {
     auto min = op.getMin().convertToFloat();
     auto max = op.getMax().convertToFloat();
-    return ::tt::target::ttnn::CreateClampOpParams(*cache.fbb, min, max);
+    return ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max);
   } else if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
     auto min = cache.at<::tt::target::ttnn::TensorRef>(
         getOperandThroughDPSOps(op.getMin()));
@@ -1006,10 +1006,11 @@ createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   ::tt::target::ttnn::EltwiseOpParams paramsType =
       ::tt::target::ttnn::EltwiseOpParams::NONE;
   ::flatbuffers::Offset<void> params = 0;
-  if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Clamp;
-    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampOpParams;
-    params = createEltwiseOpParams<ClampOp, ::tt::target::ttnn::ClampOpParams>(
+  if constexpr (std::is_same_v<EltwiseOp, ClampScalarOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::ClampScalar;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampScalarOpParams;
+    params = createEltwiseOpParams<ClampScalarOp,
+                                   ::tt::target::ttnn::ClampScalarOpParams>(
                  cache, op)
                  .Union();
   } else if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
@@ -1716,8 +1717,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createTransposeOp(cache, transposeOp),
                            debugString, locInfo);
   }
-  if (auto clampOp = dyn_cast<ClampOp>(op); clampOp) {
-    return createOperation(cache, createNonDPSEltwiseOp(cache, clampOp),
+  if (auto clampScalarOp = dyn_cast<ClampScalarOp>(op); clampScalarOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, clampScalarOp),
                            debugString, locInfo);
   }
   if (auto clampTensorOp = dyn_cast<ClampTensorOp>(op); clampTensorOp) {

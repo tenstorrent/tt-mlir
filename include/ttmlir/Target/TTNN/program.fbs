@@ -159,7 +159,7 @@ enum EltwiseOpType: uint32 {
   Floor,
   Where,
   Gelu,
-  Clamp,
+  ClampScalar,
   ClampTensor,
   LeakyRelu,
   Scatter,
@@ -169,7 +169,7 @@ enum EltwiseOpType: uint32 {
   Atan
 }
 
-table ClampOpParams {
+table ClampScalarOpParams {
   min: float;
   max: float;
 }
@@ -184,7 +184,7 @@ table EltwiseOpWithFloatParams {
 }
 
 union EltwiseOpParams {
-  ClampOpParams,
+  ClampScalarOpParams,
   ClampTensorOpParams,
   EltwiseOpWithFloatParams,
 }

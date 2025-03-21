@@ -2,21 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <algorithm>
-#include <cmath>
-#include <limits>
-#include <vector>
-
-#include "mlir/Dialect/Traits.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinAttributeInterfaces.h"
-#include "mlir/IR/Region.h"
-#include "mlir/IR/Value.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/Mesh.h"
@@ -25,17 +13,28 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
-#include <llvm/ADT/APFloat.h>
-#include <llvm/ADT/STLExtras.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Func/Transforms/FuncConversions.h>
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/IR/ValueRange.h>
-#include <mlir/Support/LogicalResult.h>
-#include <stablehlo/dialect/StablehloOps.h>
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Traits.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributeInterfaces.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Region.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <vector>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -1898,20 +1897,33 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    std::optional<float> minValue = getConstantValue(srcOp.getMin());
-    std::optional<float> maxValue = getConstantValue(srcOp.getMax());
+    std::optional<float> minValue = getConstantValue(adaptor.getMin());
+    std::optional<float> maxValue = getConstantValue(adaptor.getMax());
     if (minValue && maxValue) {
-      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
+      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(),
           mlir::APFloat(*minValue), mlir::APFloat(*maxValue));
 
       return success();
     }
 
-    mlir::Value minTensor =
-        broadcastAttr(adaptor.getMin(), outputType, srcOp, rewriter);
-    mlir::Value maxTensor =
-        broadcastAttr(adaptor.getMax(), outputType, srcOp, rewriter);
+    mlir::Value minTensor;
+    LogicalResult legalityResult = ttmlir::utils::broadcastValue(
+        rewriter, adaptor.getMin(), outputType, minTensor, srcOp->getLoc(),
+        /*frontUnsqueeze=*/false);
+    if (!legalityResult.succeeded()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Min attribute cannot be broadcasted to provided dimensions.");
+    }
+
+    mlir::Value maxTensor;
+    legalityResult = ttmlir::utils::broadcastValue(
+        rewriter, adaptor.getMax(), outputType, maxTensor, srcOp->getLoc(),
+        /*frontUnsqueeze=*/false);
+    if (!legalityResult.succeeded()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Max attribute cannot be broadcasted to provided dimensions.");
+    }
 
     ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), minTensor,
@@ -1923,16 +1935,16 @@ public:
 private:
   std::optional<float> getConstantValue(Value value) const {
     Operation *op = value.getDefiningOp();
-    while (op &&
-           (isa<stablehlo::BroadcastInDimOp>(op) ||
-            isa<stablehlo::ReshapeOp>(op) || isa<stablehlo::ConvertOp>(op))) {
+    while (
+        isa_and_present<ttir::BroadcastOp, ttir::ReshapeOp, ttir::TypecastOp>(
+            op)) {
       op = op->getOperand(0).getDefiningOp();
     }
     if (!op) {
       return std::nullopt;
     }
 
-    auto constantOp = mlir::dyn_cast<stablehlo::ConstantOp>(op);
+    auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
 
     if (!constantOp) {
       return std::nullopt;
@@ -1957,36 +1969,6 @@ private:
     }
 
     return std::nullopt;
-  }
-
-  mlir::Value broadcastAttr(mlir::Value input, RankedTensorType desiredType,
-                            mlir::stablehlo::ClampOp srcOp,
-                            ConversionPatternRewriter &rewriter) const {
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    if (inputType.getShape() == desiredType.getShape()) {
-      return input;
-    }
-
-    SmallVector<int64_t> unsqueezeShape(desiredType.getRank(), 1);
-    for (int64_t i = 0; i < inputType.getRank(); i++) {
-      unsqueezeShape[i] = inputType.getDimSize(i);
-    }
-    SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
-                                    unsqueezeShape.end());
-
-    auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
-    ttir::ReshapeOp reshapeOp = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, srcOp.getLoc(), unsqueezeShape, desiredType.getElementType(),
-        desiredType.getEncoding(), input, reshapeDimAttr);
-
-    ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
-    ::llvm::ArrayRef<int64_t> outputShape = desiredType.getShape();
-
-    SmallVector<int64_t> broadcastShape =
-        ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape, outputShape);
-
-    return ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
-        rewriter, srcOp->getLoc(), desiredType, reshapeOp, broadcastShape);
   }
 };
 } // namespace

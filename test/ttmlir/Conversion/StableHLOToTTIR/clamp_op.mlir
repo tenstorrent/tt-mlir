@@ -6,7 +6,7 @@ module @jit_clamp attributes {} {
     %cst = stablehlo.constant dense<2.000000e+00> : tensor<4xf32>
     %cst_0 = stablehlo.constant dense<3.000000e+00> : tensor<4xf32>
     // CHECK: %[[EMPTY:.*]] = ttir.empty() : [[TENSOR:tensor<4xf32>]]
-    // CHECK: "ttir.clamp"(%arg0, %[[EMPTY]])
+    // CHECK: "ttir.clamp_scalar"(%arg0, %[[EMPTY]])
     // CHECK-SAME: max = 3.000000e+00 : f32, min = 2.000000e+00 : f32
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
     %0 = stablehlo.clamp %cst, %arg0, %cst_0 : tensor<4xf32>
@@ -22,7 +22,7 @@ module @jit_clamp attributes {} {
     %2 = stablehlo.convert %cst_0 : (tensor<1xi64>) -> tensor<1xbf16>
     %3 = stablehlo.reshape %2 : (tensor<1xbf16>) -> tensor<bf16>
     // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : [[TENSOR:tensor<1x16xbf16>]]
-    // CHECK: "ttir.clamp"(%arg0, %[[EMPTY]])
+    // CHECK: "ttir.clamp_scalar"(%arg0, %[[EMPTY]])
     // CHECK-SAME: max = 6.000000e+00 : f32, min = 3.000000e+00 : f32
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
     %4 = stablehlo.clamp %1, %arg0, %3 : (tensor<bf16>, tensor<1x16xbf16>, tensor<bf16>) -> tensor<1x16xbf16>
@@ -35,10 +35,9 @@ module @jit_clamp attributes {} {
     %cst_0 = stablehlo.constant dense<5.000000e+00> : tensor<bf16>
     %0 = stablehlo.broadcast_in_dim %cst, dims = [] : (tensor<bf16>) -> tensor<1x32xbf16>
     %1 = stablehlo.broadcast_in_dim %cst_0, dims = [] : (tensor<bf16>) -> tensor<1x32xbf16>
-    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : [[TENSOR:tensor<1x32xbf16>]]
-    // CHECK: "ttir.clamp"(%arg0, %[[EMPTY]])
+    // CHECK: "ttir.clamp_scalar"(%arg0, %{{[0-9]+}}
     // CHECK-SAME: max = 5.000000e+00 : f32, min = 2.000000e+00 : f32
-    // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
+    // CHECK-SAME: (tensor<1x32xbf16>, tensor<1x32xbf16>) -> tensor<1x32xbf16>
     %2 = stablehlo.clamp %0, %arg0, %1 : tensor<1x32xbf16>
     return %2 : tensor<1x32xbf16>
   }
