@@ -594,22 +594,6 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_MaxPool2dOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::AllGatherOp: {
-    tensorRef = opContext.type_as_AllGatherOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
-    tensorRef = opContext.type_as_ReduceScatterOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-    tensorRef = opContext.type_as_CollectivePermuteOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRef = opContext.type_as_MeshShardOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     tensorRef = opContext.type_as_ArangeOp()->out();
     break;
