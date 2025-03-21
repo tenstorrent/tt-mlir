@@ -15,3 +15,5 @@ add_mlir_translation_library(TTNNTargetFlatbuffer
 )
 
 target_include_directories(TTNNTargetFlatbuffer PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
+
+target_link_libraries(TTNNTargetFlatbuffer PUBLIC coverage_config)

@@ -55,37 +55,47 @@ public:
         rewriter.getContext(),
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
     DataType dtype = layoutAttr.getDataType();
+    DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
+
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+
     if (layoutAttr.isTiled()) {
       ttnnLayoutEnum = ttnn::Layout::Tile;
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
     }
-    DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
 
-    // Device
-    //
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    // Due to API constraints, we need to use a host_empty op if tensor is in
+    // system_memory.
+    if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
+      // Replace op
+      //
+      rewriter.replaceOpWithNewOp<ttnn::ConstructTensorOp>(
+          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+          dTypeAttr, tensorLayoutAttr);
+      // Otherwise, we use regular empty op, with device-specific fields.
+    } else {
+      // Device
+      //
+      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-    // Create MemoryConfigAttr
-    //
-    ttnn::BufferTypeAttr bufferTypeAttr =
-        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
-    ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
-        op.getContext(),
-        ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
-                                    shardSpecAttr, layoutAttr.getMemLayout());
+      // Create MemoryConfigAttr
+      //
+      ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
+          op.getContext(), layoutAttr.getBufferType());
+      ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
+          op.getContext(),
+          ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
+      ttnn::MemoryConfigAttr memoryConfigAttr =
+          ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
+                                      shardSpecAttr, layoutAttr.getMemLayout());
 
-    // Replace op
-    //
-    rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
-
+      // Replace op
+      //
+      rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+          dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+    }
     return success();
   }
 };
@@ -1219,7 +1229,6 @@ public:
            "TTNN max_pool2d does not support padding top/bottom/left/right "
            "separately");
 
-    auto device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     llvm::ArrayRef<std::int64_t> inputShape = inputType.getShape();
 
@@ -1256,7 +1265,7 @@ public:
 
     auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
         op.getLoc(), this->getTypeConverter()->convertType(outputType),
-        flattenedInput, device, batchSize,
+        flattenedInput, batchSize,
         static_cast<int32_t>(inputShape[inputShape.size() - 3]),
         static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,

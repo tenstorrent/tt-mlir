@@ -66,7 +66,9 @@ void createTTNNPipelineLoweringPasses(
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
   // Add pass to remove unused values.
-  pm.addPass(mlir::createRemoveDeadValuesPass());
+  if (options.removeDeadValuesEnabled) {
+    pm.addPass(mlir::createRemoveDeadValuesPass());
+  }
 }
 
 // Create a pass to workaround issues in the TTNN dialect.
