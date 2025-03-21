@@ -1078,7 +1078,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def pad(self, in0: Operand, padding: List[int], value: int) -> OpView:
+    def pad(self, in0: Operand, in1: Operand, padding: List[int], value: int) -> OpView:
         golden_padding = []
         # Reformatting padding dimensions for golden tensor:
         if len(padding) == 4:
@@ -1089,22 +1089,25 @@ class TTIRBuilder:
                 i = i + 4
                 golden_padding.append(padding[(2 * i) + 1])
                 golden_padding.append(padding[2 * i])
+
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
             [in0, in1],
             golden_kwargs={
-                "pad": tuple(golden_padding),
-                "mode": "constant",
+                "pad": tuple(golden_padding),  # The restructured golden padding
+                "mode": "constant",  # Padding mode (constant in this case)
                 "value": value,
             },
             ttir_kwargs={"padding": padding, "value": value},
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0])
+            ],  # Get golden tensor from the input
             organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
                 i[1],
-            ),
+            ),  # Organize TTIR arguments
         )
 
     def select(
