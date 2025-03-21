@@ -427,7 +427,7 @@ def compile_to_flatbuffer(
                     argument_types_string=argument_types_string,
                 )
                 ttnn_to_flatbuffer(
-                    module, builder, test_base + ".ttnn", module_logger.module_log
+                    module, builder, test_base + ".ttnn", module_log=module_logger.module_log
                 )
 
         return wrapper
