@@ -25,8 +25,6 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
-#include <llvm/ADT/STLExtras.h>
-#include <mlir/Support/LLVM.h>
 #include <numeric>
 #include <string>
 
@@ -606,6 +604,15 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
     inputShape[1] = getFlattenedCompatInfo()->getInputHeight();
     inputShape[2] = getFlattenedCompatInfo()->getInputWidth();
     inputShape[3] = getFlattenedCompatInfo()->getInChannels();
+
+    if (getFlattenedCompatInfo()->getInChannels() !=
+        getFlattenedCompatInfo()->getOutChannels()) {
+      return emitOpError() << "In channels ("
+                           << getFlattenedCompatInfo()->getInChannels()
+                           << ") must match out channels ("
+                           << getFlattenedCompatInfo()->getOutChannels()
+                           << ") as defined in flattened_compat_info.";
+    }
   }
 
   if (getKernelHeight() > inputShape[1]) {

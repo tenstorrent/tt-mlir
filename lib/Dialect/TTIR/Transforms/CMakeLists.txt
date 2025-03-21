@@ -1,3 +1,4 @@
+add_subdirectory(EraseInverseOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
@@ -6,6 +7,9 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         EraseInverseOps/EraseInverseOps.cpp
         EraseInverseOps/BroadcastCommutePatterns.cpp
         EraseInverseOps/ElementwiseCommutePatterns.cpp
+        # EraseInverseOps/EraseInverseOps.cpp
+        # EraseInverseOps/BroadcastCommutePatterns.cpp
+        # EraseInverseOps/ElementwiseCommutePatterns.cpp
         FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
@@ -24,4 +28,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
         MLIRTTOpsIncGen
+
+        LINK_LIBS PUBLIC
+        MLIRTTIREraseInverseOps
         )
