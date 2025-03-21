@@ -58,13 +58,31 @@ def compile_to_flatbuffer(
 
     # TODO: execute flatbuffer
 
+@pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
+def test_arbitrary_model(
+        shapes: List[Shape],
+        dtypes: List[torch.dtype],
+        artifact_path: str,
+        request,
+        target: str = "ttnn"):
+
+    def model(
+        in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
+    ):
+        add = builder.add(in0, in1)
+        exp = builder.exp(in2)
+        return builder.multiply(add, exp)
+
+    compile_to_flatbuffer(model, shapes, dtypes, test_base=request.node.name, target=target, output_root=artifact_path)
+
 
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5], ids=["f32"])
 @pytest.mark.parametrize("shapes", [[(1, 784), (784, 256), (1, 256), (256, 10), (1, 10)],
                                     [(1, 1024), (1024, 256), (1, 256), (256, 10), (1, 10)],
                                     [(1, 1024), (1024, 256), (1, 256), (256, 26), (1, 26),]],
                          ids=["28x28_digits", "32x32_digits", "32x32_letters"])
-@pytest.mark.parametrize("target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)])
+@pytest.mark.parametrize("target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)], ids=lambda _ : "")
 def test_mnist(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
