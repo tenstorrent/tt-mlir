@@ -144,4 +144,8 @@ def TTIR_ElementwiseBinary : OpInterface<"ElementwiseBinary", [TTIR_Elementwise]
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_TM : OpInterface<"TM"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 #endif

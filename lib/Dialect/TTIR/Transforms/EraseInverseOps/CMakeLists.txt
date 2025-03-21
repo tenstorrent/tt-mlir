@@ -1,4 +1,3 @@
-set(CMAKE_CXX_STANDARD 20)
 add_mlir_dialect_library(MLIRTTIREraseInverseOps
         EraseInverseOps.cpp
         BroadcastCommutePatterns.cpp
