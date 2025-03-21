@@ -909,6 +909,7 @@ class TTIRBuilder:
                 "padding": padding,
                 "dilation": dilation,
                 "groups": groups,
+                "bias": bias,
             },
             ttir_kwargs={
                 "stride": stride,
@@ -923,8 +924,9 @@ class TTIRBuilder:
 
     def conv2d_golden_function(
         self,
-        in0: Operand,
+        input_tensor: Operand,
         weight: Operand,
+        bias: Optional[Operand],
         stride: Union[IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
         dilation: Union[IntegerAttr, DenseI32ArrayAttr],
@@ -938,12 +940,10 @@ class TTIRBuilder:
         dilation = (
             tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
         )
-        bias = torch.rand((weight.size()[0]), dtype=in0.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
-        n, h_out, w_out, c_out = list(in0.size())
-        input_tensor = torch.rand((n, c_out, h_out, w_out), dtype=in0.dtype)
-        output_unorganized = torch.nn.functional.conv2d(
+        input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+        result = torch.nn.functional.conv2d(
             input_tensor,
             weight,
             bias=bias,
@@ -952,8 +952,8 @@ class TTIRBuilder:
             dilation=dilation,
             groups=groups,
         )
-        n, c_out, h_out, w_out = list(output_unorganized.size())
-        return torch.rand((n, h_out, w_out, c_out), dtype=in0.dtype)
+        result = result.transpose(-3, -2).transpose(-2, -1)
+        return result
 
     def conv_transpose2d(
         self,
@@ -1092,11 +1092,14 @@ class TTIRBuilder:
         maxpool_object = torch.nn.MaxPool2d(
             kernel_size, stride, padding, dilation, ceil_mode
         )
-        return (
-            maxpool_object(input_tensor.transpose(-2, -1).transpose(-3, -2))
-            .transpose(-3, -2)
-            .transpose(-2, -1)
-        )
+
+        input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+
+        result = maxpool_object(input_tensor)
+
+        result = result.transpose(-3, -2).transpose(-2, -1)
+
+        return result
 
     def reshape(self, in0: Operand, shape: Shape) -> OpView:
         kwargs = {"shape": shape}

@@ -47,7 +47,7 @@ def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], 
   }];
 }
 
-def TTIR_FlattenedCompatInfoAttr : AttrDef<TTIR_Dialect, "FlattenedCompat", [], "::mlir::Attribute"> {
+def TTIR_FlattenedCompatInfoAttr : AttrDef<TTIR_Dialect, "FlattenedCompatInfo", [], "::mlir::Attribute"> {
   let mnemonic = "flattened_compat";
   let summary = "Information for sliding window operations with tensors flattened to (1, 1, N*H*W, C)";
   let description = [{
