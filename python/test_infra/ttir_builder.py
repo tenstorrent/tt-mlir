@@ -365,7 +365,7 @@ class TTIRBuilder:
 
     def op_proxy(
         self,
-        op_golden_function: Callable,
+        op_golden_function: Optional[Callable],
         op_ttir_function: Callable,
         inputs: List[Operand],
         unit_attrs: List[str] = None,
@@ -376,12 +376,13 @@ class TTIRBuilder:
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
         use_zeros: bool = False,
+        provided_golden: Optional[List[torch.Tensor]] = None,
     ) -> Any:
         """
         Provides a general interface for proxy-ing OPs and creating them.
 
         Parameters:
-        - op_golden_function (Callable): A function that creates the OP using a golden approach.
+        - op_golden_function (Optional[Callable]): A function that creates the OP using a golden approach.
         - op_ttir_function (Callable): A function that creates the OP using a TTIR approach.
         - inputs (List[Operand]): A list of operands serving as inputs to the OP.
         - organize_ttir_args (Callable): A function that organizes the inputs and other positional arguments for the TTIR approach.
@@ -400,6 +401,7 @@ class TTIRBuilder:
         - output_shape (Optional[Shape]): An optional argument specifying the shape of the output of the OP.
         - golden_kwargs (dict): Additional keyword arguments for the `op_golden_function`.
         - ttir_kwargs (dict): Additional keyword arguments for the `op_ttir_function`.
+        - provided_golden (Optional[List[tensor]]): Golden tensors explicitly provided by the caller. If specified, op_golden_function is ignored.
 
         Returns:
         - OpView: The created op
@@ -426,28 +428,43 @@ class TTIRBuilder:
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            # Compute the golden
-            # Account for cases in which golden_arg organization is not needed:
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
+            # retrieve or calculate golden
+            if provided_golden is not None:
+                golden_output = provided_golden
+            elif op_golden_function is not None:
+                # Account for cases in which golden_arg organization is not needed:
+                if (
+                    not isinstance(organize_golden_args(inputs), torch.Tensor)
+                    and organize_golden_args(inputs) == 0
+                ):
+                    golden_output = op_golden_function(**golden_kwargs)
+                else:
+                    golden_output = op_golden_function(
+                        *(organize_golden_args(inputs)),
+                        **golden_kwargs,
+                    )
             else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
-                )
+                golden_output = None
 
-            golden = (
-                Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
-                else Golden(golden_output)
-            )
+            if golden_output is not None:
+                golden = (
+                    Golden(golden_output[0])
+                    if not isinstance(golden_output, torch.Tensor)
+                    else Golden(golden_output)
+                )
+            else:
+                golden = None
 
             # Use the golden output to determine proper output shape and type unless otherwise specified
-            output_shape = golden.tensor.shape if not output_shape else output_shape
+            if output_shape is None:
+                if golden is not None:
+                    output_shape = golden.tensor.shape
+                else:
+                    raise ValueError(
+                        "Cannot determine shape: both output_shape and golden are None."
+                    )
             output_type = self._default_dtype if not output_type else output_type
+
             if use_zeros:
                 output = self.zeros(output_shape, output_type)
             else:
@@ -475,10 +492,10 @@ class TTIRBuilder:
 
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-            self.id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
-            self._override_golden(output, golden)
+            if golden is not None:
+                self.id_golden_map[str(loc)] = golden
+                self._store_golden(op, golden)
+                self._override_golden(output, golden)
 
             return op
 
@@ -1262,3 +1279,112 @@ class TTIRBuilder:
 
     def maximum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
+
+    # CCL ops
+    def all_gather(
+        self,
+        input: Operand,
+        all_gather_dim: int = None,
+        cluster_axis: int = None,
+        output_shape=None,
+        provided_golden=None,
+    ) -> OpView:
+        kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
+        return self.op_proxy(
+            None,
+            ttir.AllGatherOp,
+            [input],
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, shape: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            output_shape=output_shape,
+            provided_golden=provided_golden,
+        )
+
+    def all_reduce(
+        self,
+        input: Operand,
+        reduce_type: str,
+        cluster_axis: int = None,
+        output_shape=None,
+        provided_golden=None,
+    ) -> OpView:
+        _reduce_type = Attribute.parse(reduce_type)
+        kwargs = {"reduce_type": _reduce_type, "cluster_axis": cluster_axis}
+        return self.op_proxy(
+            None,
+            ttir.AllReduceOp,
+            [input],
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, shape: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            output_shape=output_shape,
+            provided_golden=provided_golden,
+        )
+
+    def reduce_scatter(
+        self,
+        input: Operand,
+        reduce_type: str,
+        scatter_dim=3,
+        cluster_axis: int = None,
+        output_shape=None,
+        provided_golden=None,
+    ) -> OpView:
+        _reduce_type = Attribute.parse(reduce_type)
+        kwargs = {
+            "reduce_type": _reduce_type,
+            "scatter_dim": scatter_dim,
+            "cluster_axis": cluster_axis,
+        }
+        return self.op_proxy(
+            None,
+            ttir.ReduceScatterOp,
+            [input],
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, shape: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            output_shape=output_shape,
+            provided_golden=provided_golden,
+        )
+
+    def mesh_shard(
+        self,
+        in0: Operand,
+        shard_type: str,
+        shard_direction: str,
+        shard_shape: Tuple[int, ...],
+        shard_dims: Tuple[int, ...],
+        output_shape=None,
+        provided_golden=None,
+    ) -> OpView:
+        _shard_type = Attribute.parse(shard_type)
+        _shard_direction = Attribute.parse(shard_direction)
+        kwargs = {
+            "shard_type": _shard_type,
+            "shard_direction": _shard_direction,
+            "shard_shape": shard_shape,
+            "shard_dims": shard_dims,
+        }
+        return self.op_proxy(
+            None,
+            ttir.MeshShardOp,
+            [in0],
+            organize_ttir_args=lambda i, o, shape: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            ttir_kwargs=kwargs,
+            output_shape=output_shape,
+            provided_golden=provided_golden,
+        )
