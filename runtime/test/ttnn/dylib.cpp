@@ -169,10 +169,10 @@ bool operator!=(const SupportedTypes &lhs, const SupportedTypes &rhs) {
 
 using IndexTy = std::vector<size_t>;
 
-IndexTy getIndex(const ::ttnn::Shape &shape, size_t index) {
+IndexTy getIndex(const ::ttnn::Shape &shape, size_t idx) {
   IndexTy result(shape.size());
 
-  size_t remaining = index;
+  size_t remaining = idx;
   size_t stride = 1;
 
   assert(shape.size() > 0 && "Shape must have at least one dimension");
