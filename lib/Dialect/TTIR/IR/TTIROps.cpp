@@ -331,6 +331,45 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+// Common verifier for all Quantize ops.
+::mlir::LogicalResult
+verifyQuantizeOpCommon(::mlir::Operation *op,
+                       ::mlir::RankedTensorType inputType,
+                       ::mlir::RankedTensorType outputType) {
+  // Sanity check to make sure that input rank matches the rank of the output
+  // tensor.
+  if (inputType.getRank() != outputType.getRank()) {
+    return op->emitOpError() << "Input tensor rank of " << inputType.getRank()
+                             << " does not match the output tensor rank of "
+                             << outputType.getRank();
+  }
+
+  // Shapes of input and output of a quantize operation must be the same.
+  if (inputType.getShape() != outputType.getShape()) {
+    return op->emitOpError("Input and output shapes must be the same.");
+  }
+
+  return ::mlir::success();
+}
+
+// QuantizeOp verification.
+::mlir::LogicalResult mlir::tt::ttir::QuantizeOp::verify() {
+  return verifyQuantizeOpCommon(*this, getInput().getType(),
+                                getOutput().getType());
+}
+
+// DequantizeOp verification.
+::mlir::LogicalResult mlir::tt::ttir::DequantizeOp::verify() {
+  return verifyQuantizeOpCommon(*this, getInput().getType(),
+                                getOutput().getType());
+}
+
+// RequantizeOp verification.
+::mlir::LogicalResult mlir::tt::ttir::RequantizeOp::verify() {
+  return verifyQuantizeOpCommon(*this, getInput().getType(),
+                                getOutput().getType());
+}
+
 //===----------------------------------------------------------------------===//
 // ConvTranspose2dOp
 //===----------------------------------------------------------------------===//

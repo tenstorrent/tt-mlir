@@ -13,6 +13,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -40,6 +41,7 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<ttnn::TTNNDialect>();
     target.addLegalOp<tt::DeviceOp>();
     target.addIllegalDialect<ttir::TTIRDialect>();
+    target.addLegalDialect<quant::QuantDialect>();
 
     TypeConverter typeConverter;
     // All types map 1:1.
