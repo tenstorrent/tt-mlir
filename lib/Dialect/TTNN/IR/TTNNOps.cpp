@@ -1763,13 +1763,11 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     filteredPairs.push_back(target);
   }
 
-  // No permute exist
-  if (filteredPairs.size() == 0) {
-    return getInput();
-  } else {
-    // Update source_target_pairs if there were self-mapping pairs.
+  if (filteredPairs.size() != 0) {
+    // There are effective permutations left.
     if (srcTargetPairs.getNumElements() !=
         static_cast<int64_t>(filteredPairs.size())) {
+      // Update source_target_pairs if changed.
       std::array<int64_t, 2> shape = {
           static_cast<int64_t>(filteredPairs.size() / 2), 2};
       auto newShape = llvm::ArrayRef<int64_t>(shape);
@@ -1778,6 +1776,9 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
       setSourceTargetPairsAttr(
           DenseIntElementsAttr::get(newType, filteredPairs));
     }
+  } else {
+    // No permutations left. Exclude this op.
+    return getInput();
   }
   return {};
 }
