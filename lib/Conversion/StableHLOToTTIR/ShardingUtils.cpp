@@ -431,6 +431,42 @@ MeshSharding::getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter) {
                                                tensorMeshShardingAxisAttr);
 }
 
+LogicalResult MeshSharding::fillStrategyMapFromSharding(
+    const mlir::tt::sharding_utils::MeshSharding &meshSharding,
+    size_t num_devices,
+    std::unordered_map<std::string, std::string> &strategy) {
+  mlir::tt::MeshShardType meshType = meshSharding.getShardType();
+  if (meshType == mlir::tt::MeshShardType::Replicate) {
+    // If there is only one device, the output will be replicated, but there is
+    // no need to replicate.
+    if (num_devices == 1) {
+      strategy["strategy"] = "identity";
+    } else {
+      strategy["strategy"] = "replicate";
+      strategy["replication_factor"] = std::to_string(num_devices);
+    }
+  } else if (meshType == mlir::tt::MeshShardType::Devices) {
+    llvm::ArrayRef<int64_t> shardShape = meshSharding.getShardShape();
+    if (shardShape.size() == 2) {
+      strategy["strategy"] = "shard_2d";
+      strategy["mesh_shape_y"] = std::to_string(shardShape[0]);
+      strategy["mesh_shape_x"] = std::to_string(shardShape[1]);
+    } else if (shardShape.size() == 1) {
+      strategy["strategy"] = "shard";
+      // If the shard shape is size of one, the output is 1d sharded, on the
+      // first dimension.
+      strategy["shard_dim"] = "0";
+    } else {
+      return mlir::failure();
+    }
+  } else if (meshType == mlir::tt::MeshShardType::Identity) {
+    strategy["strategy"] = "identity";
+  } else {
+    return mlir::failure();
+  }
+  return mlir::success();
+}
+
 } // namespace sharding_utils
 } // namespace tt
 } // namespace mlir

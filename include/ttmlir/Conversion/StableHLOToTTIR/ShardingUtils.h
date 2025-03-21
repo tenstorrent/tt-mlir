@@ -75,6 +75,12 @@ public:
   mlir::tt::MeshShardDirection getShardDirection() const {
     return shardDirection;
   }
+
+  static LogicalResult fillStrategyMapFromSharding(
+      const mlir::tt::sharding_utils::MeshSharding &meshSharding,
+      size_t num_devices,
+      std::unordered_map<std::string, std::string> &strategy);
+
   mlir::tt::MeshShardType getShardType() const { return shardType; }
   llvm::ArrayRef<int64_t> getShardShape() const { return shardShape; }
   llvm::ArrayRef<int64_t> getShardDims() const { return shardDims; }
