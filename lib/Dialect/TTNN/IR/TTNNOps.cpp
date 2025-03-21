@@ -1747,6 +1747,40 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+::mlir::OpFoldResult
+mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
+  ::mlir::DenseIntElementsAttr srcTargetPairs = getSourceTargetPairs();
+
+  // Filter out self-mapping src-target pairs
+  SmallVector<APInt> filteredPairs;
+  for (auto it = srcTargetPairs.begin(), e = srcTargetPairs.end(); it != e;) {
+    auto src = *it++;
+    auto target = *it++;
+    if (src == target) {
+      continue;
+    }
+    filteredPairs.push_back(src);
+    filteredPairs.push_back(target);
+  }
+
+  // No permute exist
+  if (filteredPairs.size() == 0) {
+    return getInput();
+  } else {
+    // Update source_target_pairs if there were self-mapping pairs.
+    if (srcTargetPairs.getNumElements() !=
+        static_cast<int64_t>(filteredPairs.size())) {
+      std::array<int64_t, 2> shape = {
+          static_cast<int64_t>(filteredPairs.size() / 2), 2};
+      auto newShape = llvm::ArrayRef<int64_t>(shape);
+      auto newType = RankedTensorType::get(
+          newShape, srcTargetPairs.getType().getElementType());
+      setSourceTargetPairsAttr(
+          DenseIntElementsAttr::get(newType, filteredPairs));
+    }
+  }
+  return {};
+}
 //===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
