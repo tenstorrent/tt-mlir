@@ -225,23 +225,22 @@ public:
         dyn_cast<RankedTensorType>(input.getType()).getShape().size();
     SmallVector<int64_t> permutation;
     permutation.resize(permSize);
-    if (permSize == 2)
-      permutation = {1, 0};
-    else {
-      for (size_t i = 0; i < permSize; i++)
-        permutation[i] = i;
-
-      auto dim0 = op.getDim0();
-      auto dim1 = op.getDim1();
-
-      if (dim0 < 0)
-        dim0 = permSize + dim0;
-      if (dim1 < 0)
-        dim1 = permSize + dim1;
-
-      permutation[dim1] = dim0;
-      permutation[dim0] = dim1;
+    for (size_t i = 0; i < permSize; i++) {
+      permutation[i] = i;
     }
+
+    auto dim0 = op.getDim0();
+    auto dim1 = op.getDim1();
+
+    if (dim0 < 0) {
+      dim0 = permSize + dim0;
+    }
+    if (dim1 < 0) {
+      dim1 = permSize + dim1;
+    }
+
+    permutation[dim1] = dim0;
+    permutation[dim0] = dim1;
     rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
         op, input, adaptor.getOutput(), permutation);
     return success();
