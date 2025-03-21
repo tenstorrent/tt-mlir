@@ -1553,6 +1553,8 @@ def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
