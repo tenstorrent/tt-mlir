@@ -9,12 +9,8 @@
 
 namespace mlir::tt::ttir {
 
-template <typename OpType>
-concept IsTMOpType =
-    std::is_same_v<OpType, TransposeOp> || std::is_same_v<OpType, PermuteOp> ||
-    std::is_same_v<OpType, ReshapeOp>;
-
-template <IsTMOpType TMOpType, typename CommutableOpType>
+template <typename TMOpType, typename CommutableOpType,
+          typename = std::enable_if_t<TMOpType::template hasTrait<TM::Trait>()>>
 class TTIRCommuteRewritePattern : public RewritePattern {
 public:
   TTIRCommuteRewritePattern(MLIRContext *ctx)

@@ -1019,7 +1019,7 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let hasVerifier = 1;
 }
 
-def TTIR_TransposeOp : TTIR_NamedOp<"transpose"> {
+def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TM]> {
     let summary = "Transpose op.";
     let description = [{
       Transpose tensor along two given dimensions.
@@ -1394,7 +1394,7 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReshapeOp: TTIR_NamedOp<"reshape"> {
+def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TM]> {
     let summary = "Reshape op.";
     let description = [{
       Reshape tensor.
@@ -1757,7 +1757,7 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
-def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
+def TTIR_PermuteOp : TTIR_NamedOp<"permute", [TTIR_TM]> {
     let summary = "Permute operation.";
     let description = [{
       Permute input tensor dimensions.
