@@ -3007,7 +3007,7 @@ static mlir::LogicalResult verifyAffineShapes(
       }
     }
 
-    auto firstIndexingMap = getIndexingMaps().begin();
+    auto const *firstIndexingMap = getIndexingMaps().begin();
     for (auto &indexingMap : getIndexingMaps()) {
       if (mlir::cast<AffineMapAttr>(indexingMap).getValue().getNumDims() !=
           mlir::cast<AffineMapAttr>(*firstIndexingMap)
