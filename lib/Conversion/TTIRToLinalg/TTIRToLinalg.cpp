@@ -197,9 +197,9 @@ public:
     Value input = adaptor.getInput();
     const size_t inputSize =
         dyn_cast<RankedTensorType>(input.getType()).getShape().size();
-    int32_t dimension = op.getDimension();
-    if (dimension < 0)
-      dimension += inputSize;
+    const int32_t dimension = (op.getDimension() < 0)
+                                  ? op.getDimension() + inputSize
+                                  : op.getDimension();
 
     rewriter.replaceOpWithNewOp<linalg::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()), input,
