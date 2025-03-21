@@ -19,3 +19,5 @@ add_mlir_dialect_library(MLIRTTIRDialect
         MLIRTTDialect
         MLIRBufferizationTransforms
         )
+
+target_link_libraries(MLIRTTIRDialect PUBLIC coverage_config)

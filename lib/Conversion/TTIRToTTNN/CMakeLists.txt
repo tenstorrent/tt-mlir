@@ -14,3 +14,5 @@ add_mlir_conversion_library(TTMLIRTTIRToTTNN
   MLIRPass
   TTMLIRTTNNUtils
 )
+
+target_link_libraries(TTMLIRTTIRToTTNN PUBLIC coverage_config)
