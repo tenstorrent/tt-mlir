@@ -126,7 +126,19 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.source_code = kwargs.get("source_code", "")
 
     def get_source_comment(self, node):
-        # General utility function to get the full source code as a comment for any node
+        """
+        Retrieve the source snippet corresponding to the given node and format it as comments.
+
+        This function extracts the relevant lines of source code using the node's location
+        attributes (lineno, end_lineno, col_offset, end_col_offset), prefixes each line with
+        '//', and returns the concatenated snippet as a single string.
+
+        Args:
+            node: An AST node that contains information about the source code segment location.
+
+        Returns:
+            str: The snippet of source code formatted with '//' at the beginning of each line.
+        """
         result = ""
         if self.verbose and self.source_code:
             for i in range(node.lineno - 1, node.end_lineno):
@@ -138,7 +150,20 @@ class TTKernelCompiler(ast.NodeVisitor):
         return result.strip()
 
     def get_source_comment_block(self, node, delim: str = "):"):
-        # Tailored utility function to filter for delimiter in source code and produce it as a comment
+        """
+        Generates a comment block extracted from the source code related to the given AST node.
+
+        This function examines lines of source code starting at node.lineno and continuing up to
+        node.end_lineno, looking for the specified delimiter. Each line is prefixed with "// " to form
+        a comment block. If the delimiter is found, it stops appending further lines.
+
+        Args:
+            node: An AST node that provides line number boundaries (lineno, end_lineno) for source extraction.
+            delim (str): The string delimiter to indicate where to stop collecting lines. Defaults to "):".
+
+        Returns:
+            str: A multi-line comment string containing the relevant source code lines, each prefixed with "// ".
+        """
         result = ""
         if self.verbose and self.source_code:
             idx = node.lineno - 1
