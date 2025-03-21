@@ -135,14 +135,14 @@ public:
                                            outputTy.getElementType(),
                                            outputTy.getEncoding());
 
-    auto flattenedCompatAttr = ttir::FlattenedCompatAttr::get(
+    auto FlattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
         getContext(), inputTy.getDimSize(3), outputTy.getDimSize(3),
         inputTy.getDimSize(0), inputTy.getDimSize(1), inputTy.getDimSize(2));
 
     auto newConvDPS = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputTy.getShape(), outputTy.getElementType());
     auto newConv = cast<ttir::Conv2dOp>(rewriter.clone(*op));
-    newConv.setFlattenedCompatInfoAttr(flattenedCompatAttr);
+    newConv.setFlattenedCompatInfoAttr(FlattenedCompatInfoAttr);
     newConv->setOperand(0, flattenedInput);
     newConv.setDpsInitOperand(0, newConvDPS);
     newConv.getResult().setType(outputTy);
@@ -225,13 +225,13 @@ public:
     auto newPoolDPS = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), newOutputType.getShape(), newOutputType.getElementType());
 
-    auto flattenedCompatAttr = ttir::FlattenedCompatAttr::get(
+    auto FlattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
         getContext(), inputType.getDimSize(3), outputType.getDimSize(3),
         inputType.getDimSize(0), inputType.getDimSize(1),
         inputType.getDimSize(2));
 
     auto newPool = cast<ttir::MaxPool2dOp>(rewriter.clone(*op));
-    newPool.setFlattenedCompatInfoAttr(flattenedCompatAttr);
+    newPool.setFlattenedCompatInfoAttr(FlattenedCompatInfoAttr);
     newPool->setOperand(0, flattenedInput);
     newPool.setDpsInitOperand(0, newPoolDPS);
     newPool.getResult().setType(newOutputType);
