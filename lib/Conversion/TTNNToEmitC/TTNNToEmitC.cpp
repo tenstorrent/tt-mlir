@@ -7,7 +7,6 @@
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -66,6 +65,8 @@ public:
   //
   std::string convertOpName(SourceOp op) const {
     auto name = op.getOperationName();
+    llvm::errs() << "name: " << name << '\t' << getPrefixSearchPattern()
+                 << '\n';
     assert(
         name.starts_with(getPrefixSearchPattern()) &&
         "DefaultOpConversionPattern only supports ops from the TTNN dialect");
@@ -263,6 +264,17 @@ namespace {
 template <typename SourceOp>
 class ClampOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    if constexpr (std::is_same<SourceOp, tt::ttnn::ClampOp>::value) {
+      return "ttnn.clamp_scalar";
+    }
+
+    return "ttnn.clamp_tensor";
+  }
+
+  std::string getPrefixSwapPattern() const override { return "ttnn::clamp"; }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       SourceOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -272,8 +284,7 @@ public:
   matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ClampOp> emitter(srcOp, adaptor,
-                                                               rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputs()[0]),
         emitter.emit(srcOp.getMin()),
@@ -1681,8 +1692,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<EltwiseUnaryOpConversionPattern<tt::ttnn::AbsOp>,
                EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::CbrtOp>,
-               ClampOpConversionPattern<tt::ttir::ClampOp>,
-               ClampOpConversionPattern<tt::ttir::ClampTensorOp>,
+               ClampOpConversionPattern<tt::ttnn::ClampOp>,
+               ClampOpConversionPattern<tt::ttnn::ClampTensorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::FloorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::IsFiniteOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::LogicalNotOp>,

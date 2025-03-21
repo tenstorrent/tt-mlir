@@ -9,7 +9,7 @@
 module @test_clamp attributes {} {
   func.func public @test_clamp_constant(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
     // CHECK-LABEL: func.func public @test_clamp_constant(
-    // CHECK: ttnn.clamp
+    // CHECK: ttnn.clamp_scalar
     // CHECK-SAME: {max = 3.000000e+00 : f32, min = 2.000000e+00 : f32}
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
@@ -27,7 +27,7 @@ module @test_clamp attributes {} {
     %1 = stablehlo.reshape %0 : (tensor<1xbf16>) -> tensor<bf16>
     %2 = stablehlo.convert %cst_0 : (tensor<1xi64>) -> tensor<1xbf16>
     %3 = stablehlo.reshape %2 : (tensor<1xbf16>) -> tensor<bf16>
-    // CHECK: ttnn.clamp
+    // CHECK: ttnn.clamp_scalar
     // CHECK-SAME: {max = 6.000000e+00 : f32, min = 3.000000e+00 : f32}
     // CHECK-SAME: tensor<1x16xbf16,
     // CHECK-SAME: -> tensor<1x16xbf16,
@@ -41,7 +41,7 @@ module @test_clamp attributes {} {
     %cst_0 = stablehlo.constant dense<5.000000e+00> : tensor<bf16>
     %0 = stablehlo.broadcast_in_dim %cst, dims = [] : (tensor<bf16>) -> tensor<1x32xbf16>
     %1 = stablehlo.broadcast_in_dim %cst_0, dims = [] : (tensor<bf16>) -> tensor<1x32xbf16>
-    // CHECK: ttnn.clamp
+    // CHECK: ttnn.clamp_scalar
     // CHECK-SAME: {max = 5.000000e+00 : f32, min = 2.000000e+00 : f32}
     // CHECK-SAME: tensor<1x32xbf16,
     // CHECK-SAME: -> tensor<1x32xbf16,

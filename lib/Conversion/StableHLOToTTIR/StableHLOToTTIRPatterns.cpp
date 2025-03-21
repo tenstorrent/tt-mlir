@@ -1898,8 +1898,8 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    std::optional<float> minValue = getConstantValue(srcOp.getMin());
-    std::optional<float> maxValue = getConstantValue(srcOp.getMax());
+    std::optional<float> minValue = getConstantValue(adaptor.getMin());
+    std::optional<float> maxValue = getConstantValue(adaptor.getMax());
     if (minValue && maxValue) {
       ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(),
@@ -1908,10 +1908,10 @@ public:
       return success();
     }
 
-    mlir::Value minTensor =
-        broadcastAttr(adaptor.getMin(), outputType, srcOp, rewriter);
-    mlir::Value maxTensor =
-        broadcastAttr(adaptor.getMax(), outputType, srcOp, rewriter);
+    mlir::Value minTensor = ttmlir::utils::broadcastValue(
+        rewriter, adaptor.getMin(), outputType, srcOp->getLoc());
+    mlir::Value maxTensor = ttmlir::utils::broadcastValue(
+        rewriter, adaptor.getMax(), outputType, srcOp->getLoc());
 
     ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), minTensor,
@@ -1923,16 +1923,15 @@ public:
 private:
   std::optional<float> getConstantValue(Value value) const {
     Operation *op = value.getDefiningOp();
-    while (op &&
-           (isa<stablehlo::BroadcastInDimOp>(op) ||
-            isa<stablehlo::ReshapeOp>(op) || isa<stablehlo::ConvertOp>(op))) {
+    while (op && (isa<ttir::BroadcastOp>(op) || isa<ttir::ReshapeOp>(op) ||
+                  isa<ttir::TypecastOp>(op))) {
       op = op->getOperand(0).getDefiningOp();
     }
     if (!op) {
       return std::nullopt;
     }
 
-    auto constantOp = mlir::dyn_cast<stablehlo::ConstantOp>(op);
+    auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
 
     if (!constantOp) {
       return std::nullopt;
@@ -1957,36 +1956,6 @@ private:
     }
 
     return std::nullopt;
-  }
-
-  mlir::Value broadcastAttr(mlir::Value input, RankedTensorType desiredType,
-                            mlir::stablehlo::ClampOp srcOp,
-                            ConversionPatternRewriter &rewriter) const {
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    if (inputType.getShape() == desiredType.getShape()) {
-      return input;
-    }
-
-    SmallVector<int64_t> unsqueezeShape(desiredType.getRank(), 1);
-    for (int64_t i = 0; i < inputType.getRank(); i++) {
-      unsqueezeShape[i] = inputType.getDimSize(i);
-    }
-    SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
-                                    unsqueezeShape.end());
-
-    auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
-    ttir::ReshapeOp reshapeOp = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, srcOp.getLoc(), unsqueezeShape, desiredType.getElementType(),
-        desiredType.getEncoding(), input, reshapeDimAttr);
-
-    ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
-    ::llvm::ArrayRef<int64_t> outputShape = desiredType.getShape();
-
-    SmallVector<int64_t> broadcastShape =
-        ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape, outputShape);
-
-    return ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
-        rewriter, srcOp->getLoc(), desiredType, reshapeOp, broadcastShape);
   }
 };
 } // namespace
