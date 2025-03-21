@@ -2,27 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Utils.h"
-#include "llvm/Support/LogicalResult.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/DialectConversion.h"
+
 #include <cstdint>
-#include <llvm/ADT/StringExtras.h>
-#include <llvm/Support/Casting.h>
-#include <llvm/Support/ErrorHandling.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/OperationSupport.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/Transforms/DialectConversion.h>
-#include <numeric>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFLATTENSLIDINGWINDOW

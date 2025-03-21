@@ -3,14 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
+
+#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include <llvm/Support/LogicalResult.h>
+#include "llvm/Support/LogicalResult.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRERASEINVERSEOPS
