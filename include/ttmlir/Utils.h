@@ -5,6 +5,8 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -485,6 +487,37 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
   return newOp;
 }
 
+// Helper function to broadcast a value to desired shape.
+inline mlir::Value broadcastValue(mlir::PatternRewriter &rewriter,
+                                  mlir::Value input,
+                                  mlir::RankedTensorType desiredType,
+                                  mlir::Location loc) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  if (inputType.getShape() == desiredType.getShape()) {
+    return input;
+  }
+
+  llvm::SmallVector<int64_t> unsqueezeShape(desiredType.getRank(), 1);
+  for (int64_t i = 0; i < inputType.getRank(); i++) {
+    unsqueezeShape[i] = inputType.getDimSize(i);
+  }
+  llvm::SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
+                                        unsqueezeShape.end());
+
+  auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
+  auto reshapeOp = ttmlir::utils::createDPSOp<::mlir::tt::ttir::ReshapeOp>(
+      rewriter, loc, unsqueezeShape, desiredType.getElementType(),
+      desiredType.getEncoding(), input, reshapeDimAttr);
+
+  llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
+  llvm::ArrayRef<int64_t> outputShape = desiredType.getShape();
+
+  llvm::SmallVector<int64_t> broadcastDims =
+      getBroadcastDimensions<int64_t>(inputShape, outputShape);
+
+  return createDPSOp<mlir::tt::ttir::BroadcastOp>(rewriter, loc, desiredType,
+                                                  reshapeOp, broadcastDims);
+}
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

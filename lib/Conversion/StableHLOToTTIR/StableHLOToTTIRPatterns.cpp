@@ -1898,9 +1898,9 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    if (std::optional<float> minValue = getConstantValue(adaptor.getMin()),
-        maxValue = getConstantValue(adaptor.getMax());
-        minValue && maxValue) {
+    std::optional<float> minValue = getConstantValue(adaptor.getMin());
+    std::optional<float> maxValue = getConstantValue(adaptor.getMax());
+    if (minValue && maxValue) {
       ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(),
           mlir::APFloat(*minValue), mlir::APFloat(*maxValue));
@@ -1908,27 +1908,54 @@ public:
       return success();
     }
 
-    ttir::MaximumOp maximumOp = ttmlir::utils::createDPSOp<ttir::MaximumOp>(
-        rewriter, srcOp->getLoc(), outputType, adaptor.getMin(),
-        adaptor.getOperand());
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::MinimumOp>(
-        rewriter, srcOp, outputType, maximumOp.getResult(0), adaptor.getMax());
+    mlir::Value minTensor = ttmlir::utils::broadcastValue(
+        rewriter, adaptor.getMin(), outputType, srcOp->getLoc());
+    mlir::Value maxTensor = ttmlir::utils::broadcastValue(
+        rewriter, adaptor.getMax(), outputType, srcOp->getLoc());
+
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), minTensor,
+        maxTensor);
 
     return success();
   }
 
 private:
   std::optional<float> getConstantValue(Value value) const {
-    if (auto constantOp = value.getDefiningOp<ttir::ConstantOp>()) {
-      auto attr = constantOp.getValueAttr();
-      if (!attr.isSplat()) {
-        return {};
-      }
-      return attr.getElementType().isInteger()
-                 ? static_cast<float>(attr.getSplatValue<int>())
-                 : attr.getSplatValue<float>();
+    Operation *op = value.getDefiningOp();
+    while (op && (isa<ttir::BroadcastOp>(op) || isa<ttir::ReshapeOp>(op) ||
+                  isa<ttir::TypecastOp>(op))) {
+      op = op->getOperand(0).getDefiningOp();
     }
-    return {};
+    if (!op) {
+      return std::nullopt;
+    }
+
+    auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
+
+    if (!constantOp) {
+      return std::nullopt;
+    }
+
+    mlir::ElementsAttr attr = constantOp.getValueAttr();
+    if (!attr.isSplat()) {
+      return std::nullopt;
+    }
+
+    mlir::Type elementType = attr.getElementType();
+    mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
+    if (isa<IntegerType>(elementType)) {
+      fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
+                                 attr.getElementType().isSignedInteger(),
+                                 llvm::RoundingMode::TowardZero);
+      return fillValue.convertToFloat();
+    }
+    if (isa<FloatType>(elementType)) {
+      return static_cast<float>(
+          attr.getSplatValue<mlir::APFloat>().convertToDouble());
+    }
+
+    return std::nullopt;
   }
 };
 } // namespace
