@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
@@ -19,6 +21,11 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include <llvm/ADT/APInt.h>
+#include <llvm/Support/Casting.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/MLIRContext.h>
 
 namespace mlir::tt::ttnn {
 
@@ -339,6 +346,112 @@ public:
                 tensorMemoryLayoutAttr));
           }
         }
+        // Set Conv2d Config
+        //
+        StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+        if(isa<ttnn::Conv2dOp>(op)) {
+          if(overrideConv2dConfig.contains(opLocName)) {
+            Conv2dConfigOverrideParams conv2dConfigOverrideParams = overrideConv2dConfig[opLocName];
+            ttnn::Conv2dOp conv2dOp = mlir::cast<ttnn::Conv2dOp>(op);
+            MLIRContext* context = op->getContext();
+            if(conv2dConfigOverrideParams.dtype.has_value()) {
+              DataType newDtype = conv2dConfigOverrideParams.dtype.value();
+            } else {
+              DataType newDtype = DataType::BFloat16; 
+            }
+            if(conv2dConfigOverrideParams.weightsDtype.has_value()) {
+              DataType newWeightsDtype = conv2dConfigOverrideParams.weightsDtype.value();
+            } else {
+              DataType newWeightsDtype = DataType::BFloat16; 
+            } if(conv2dConfigOverrideParams.activation.has_value()) {
+              StringAttr newActivation = StringAttr::get(context, conv2dConfigOverrideParams.activation.value());
+            } else {
+              StringAttr newActivation = StringAttr::get(context, "");
+            } 
+            if(conv2dConfigOverrideParams.inputChannelsAlignment.has_value()) {
+              uint32_t value = conv2dConfigOverrideParams.inputChannelsAlignment.value();
+              IntegerAttr newInputChannelsAlignment = IntegerAttr::get(IntegerType::get(context, value),value);
+            } else {
+              IntegerType::get(context, 32);
+              IntegerAttr newInputChannelsAlignment = IntegerAttr::get(IntegerType::get(context, 32), 32);
+            }
+            if(conv2dConfigOverrideParams.deallocateActivation.has_value()) {
+              BoolAttr newDeallocateActivation = BoolAttr::get(context, conv2dConfigOverrideParams.deallocateActivation.value());
+            } else {
+              BoolAttr newDeallocateActivation = BoolAttr::get(context, false);
+            }
+            if(conv2dConfigOverrideParams.reallocateHaloOutput.has_value()) {
+              BoolAttr newReallocateHaloOutput = BoolAttr::get(context, conv2dConfigOverrideParams.reallocateHaloOutput.value());
+            } else {
+              BoolAttr newReallocateHaloOutput = BoolAttr::get(context, true);
+            }
+            if(conv2dConfigOverrideParams.actBlockHOverride.has_value()) {
+              uint32_t value = conv2dConfigOverrideParams.actBlockHOverride.value();
+              IntegerAttr newActBlockHOverride = IntegerAttr::get(IntegerType::get(context, value), value);
+            } else {
+              IntegerAttr newActBlockHOverride = IntegerAttr::get(IntegerType::get(context, 0), 0);
+            }
+            if(conv2dConfigOverrideParams.actBlockWDiv.has_value()) {
+              uint32_t value = conv2dConfigOverrideParams.actBlockWDiv.value();
+              IntegerAttr newActBlockWDiv = IntegerAttr::get(IntegerType::get(context, value), value);
+            } else {
+              IntegerAttr newActBlockWDiv = IntegerAttr::get(IntegerType::get(context, 1), 1);
+            }
+            if(conv2dConfigOverrideParams.reshardIfNotOptimal.has_value()) {
+              BoolAttr newReshardIfNotOptimal = BoolAttr::get(context, conv2dConfigOverrideParams.reshardIfNotOptimal.value());
+            } else {
+              BoolAttr newReshardIfNotOptimal = BoolAttr::get(context, false);
+            }
+            if(conv2dConfigOverrideParams.overrideShardingConfig.has_value()) {
+              BoolAttr newOverrideShardingConfig = BoolAttr::get(context, conv2dConfigOverrideParams.overrideShardingConfig.value());
+            } else {
+              BoolAttr newOverrideShardingConfig = BoolAttr::get(context, false);
+            }
+            // TODO
+            // if(conv2dConfigOverrideParams.shardLayout.has_value()) {
+            //  ttnn::TensorMemoryLayoutAttr newShardLayout = TensorMemoryLayoutAttr::get(context, conv2dConfigOverrideParams.shardLayout.value());
+            // } 
+            // if(conv2dConfigOverrideParams.coreGrid.has_value()) {
+            //  Attribute newCoreGrid = conv2dConfigOverrideParams.coreGrid.value();
+            //} 
+            if(conv2dConfigOverrideParams.transposeShards.has_value()) {
+              BoolAttr newTransposeShards = BoolAttr::get(context, conv2dConfigOverrideParams.transposeShards.value());
+            } else {
+              BoolAttr newTransposeShards = BoolAttr::get(context, false);
+            }
+            if(conv2dConfigOverrideParams.outputLayout.has_value()) {
+              LayoutAttr newOutputLayout = LayoutAttr::get(context, conv2dConfigOverrideParams.outputLayout.value());
+            } else {
+              LayoutAttr newOutputLayout = LayoutAttr::get(context, Layout::Tile);
+            }
+            if(conv2dConfigOverrideParams.enableActDoubleBuffer.has_value()) {
+              BoolAttr newEnableActDoubleBuffer = BoolAttr::get(context, conv2dConfigOverrideParams.enableActDoubleBuffer.value());
+            } else {
+              BoolAttr newEnableActDoubleBuffer = BoolAttr::get(context, false);
+            }
+            if(conv2dConfigOverrideParams.enableWeightsDoubleBuffer.has_value()) {
+              BoolAttr newEnableWeightsDoubleBuffer = BoolAttr::get(context, conv2dConfigOverrideParams.enableWeightsDoubleBuffer.value());
+            } else {
+              BoolAttr newEnableWeightsDoubleBuffer = BoolAttr::get(context, false);
+            }
+            if(conv2dConfigOverrideParams.enableSplitReader.has_value()) {
+              BoolAttr newEnableSplitReader = BoolAttr::get(context, conv2dConfigOverrideParams.enableSplitReader.value());
+            } else {
+              BoolAttr newEnableSplitReader = BoolAttr::get(context, false);
+            }
+            if(conv2dConfigOverrideParams.enableSubblockPadding.has_value()) {
+              BoolAttr newEnableSubblockPadding = BoolAttr::get(context, conv2dConfigOverrideParams.enableSubblockPadding.value());
+            } else {
+              BoolAttr newEnableSubblockPadding = BoolAttr::get(context, false);
+            }
+            conv2dOp.setConv2dConfigAttr(Conv2dConfigAttr::get(context, newDtype, 
+              newWeightsDtype, newActivation, newInputChannelsAlignment, 
+              newDeallocateActivation, newReallocateHaloOutput, newActBlockHOverride, 
+              newActBlockWDiv, newReshardIfNotOptimal, newOverrideShardingConfig, 
+              newTransposeShards, newOutputLayout, newEnableActDoubleBuffer, 
+              newEnableWeightsDoubleBuffer, newEnableSplitReader, newEnableSubblockPadding));
+          }
+        }
       });
 
       if (memReconfigEnabled) {
@@ -366,6 +479,9 @@ private:
       overridenOpExists[override.first()] = false;
     }
     for (auto &override : overrideInputLayout) {
+      overridenOpExists[override.first()] = false;
+    }
+    for (auto &override : overrideConv2dConfig) {
       overridenOpExists[override.first()] = false;
     }
 
