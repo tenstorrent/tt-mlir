@@ -1463,6 +1463,39 @@ determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
   return success();
 }
 
+template <typename SrcOpT>
+static LogicalResult
+checkReplicaGroupsLegality(ConversionPatternRewriter &rewriter, SrcOpT &srcOp,
+                           ::mlir::DenseIntElementsAttr replicaGroups) {
+  auto module = srcOp->template getParentOfType<ModuleOp>();
+  if (!module) {
+    llvm_unreachable("Require module as one of parent ops.");
+  }
+
+  auto meshesAttr = dyn_cast_if_present<tt::MeshesAttr>(
+      module->getAttr(tt::MeshesAttr::name));
+  if (!meshesAttr) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "Op must have a mesh associated with it.");
+  }
+  // todo: (tapspatel) - Get the first mesh for now. We assume the CCL will run
+  // on the first mesh.
+  auto chipIds = meshesAttr.getMeshes()[0].getChipIds();
+
+  // Check if the devices found in replica groups exist in the mesh.
+  auto devices = SmallVector<int64_t>(replicaGroups.getValues<int64_t>());
+  for (auto device : devices) {
+    if (!llvm::is_contained(chipIds, device)) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "There is a device found in replica groups that is not contained in "
+          "the mesh that the operation is being executed on.");
+    }
+  }
+
+  return success();
+}
+
 // StalbeHLO spec.md defines following channel type for ccl ops
 enum StableHLOChannelType {
   // CHANNEL_TYPE_INVALID = 0 : Invalid primitive type to serve as
@@ -1553,6 +1586,12 @@ private:
           srcOp, "AllReduceOp must have at least one input/output.");
     }
 
+    if (failed(checkReplicaGroupsLegality<mlir::stablehlo::AllReduceOp>(
+            rewriter, srcOp, adaptor.getReplicaGroups()))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllReduceOp has incorrectly formatted replica groups.");
+    }
+
     return success();
   }
 };
@@ -1569,6 +1608,12 @@ public:
   matchAndRewrite(mlir::stablehlo::ReduceScatterOp srcOp,
                   mlir::stablehlo::ReduceScatterOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the operation
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (failed(err)) {
+      return err;
+    }
+
     // Create the output tensor type based on inputs
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -1603,6 +1648,20 @@ public:
     ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReduceScatterOp>(
         rewriter, srcOp, outputType, adaptor.getOperands()[0], *reduceType,
         adaptor.getScatterDimension(), clusterAxis);
+
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkBasicLegality(mlir::stablehlo::ReduceScatterOp &srcOp,
+                     mlir::stablehlo::ReduceScatterOp::Adaptor adaptor,
+                     ConversionPatternRewriter &rewriter) const {
+    if (failed(checkReplicaGroupsLegality<mlir::stablehlo::ReduceScatterOp>(
+            rewriter, srcOp, adaptor.getReplicaGroups()))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ReduceScatterOp has incorrectly formatted replica groups.");
+    }
 
     return success();
   }
@@ -1651,6 +1710,12 @@ private:
     if (srcOp.getOperands().empty() || srcOp.getOperands().size() > 1) {
       return rewriter.notifyMatchFailure(
           srcOp, "AllGatherOp must have one input/output for now.");
+    }
+
+    if (failed(checkReplicaGroupsLegality<mlir::stablehlo::AllGatherOp>(
+            rewriter, srcOp, adaptor.getReplicaGroups()))) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "AllGatherOp has incorrectly formatted replica groups.");
     }
 
     return success();
