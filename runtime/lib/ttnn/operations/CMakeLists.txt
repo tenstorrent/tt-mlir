@@ -17,9 +17,8 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/constant.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/creation/zeros.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/full_with.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/construct_tensor.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/creation/ones.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cpu/cpu.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
