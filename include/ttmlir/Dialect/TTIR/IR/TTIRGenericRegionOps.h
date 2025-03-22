@@ -7,6 +7,8 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "mlir/Interfaces/InferIntRangeInterface.h"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h.inc"
 
