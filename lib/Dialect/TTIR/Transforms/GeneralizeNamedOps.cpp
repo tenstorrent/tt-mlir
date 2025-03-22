@@ -252,10 +252,12 @@ private:
     std::size_t const numInputs = inputs.size() + usingScaler;
     std::size_t const numOperands = (numInputs + numInits);
 
-    SmallVector<mlir::Value> inputsWithScaler(inputs.begin(), inputs.end());
-    inputsWithScaler.emplace_back(createScaler(
-        rewriter, loc,
-        mlir::cast<mlir::RankedTensorType>(inputs.front().getType())));
+    SmallVector<mlir::Value> newInputs(inputs.begin(), inputs.end());
+    if (usingScaler) {
+      newInputs.emplace_back(createScaler(
+          rewriter, loc,
+          mlir::cast<mlir::RankedTensorType>(inputs.front().getType())));
+    }
 
     mlir::ArrayAttr indexingMaps =
         getAffineMapsAttr(rewriter, op, numOperands, rank, usingScaler);
@@ -264,8 +266,8 @@ private:
 
     // Create 'ttir.generic' accepting extended operands.
     auto generic = rewriter.create<GenericOp>(
-        loc, mlir::TypeRange(inits), inputsWithScaler, inits, grid,
-        indexingMaps, ttirIteratorTypes, /* regionsCount */ 1);
+        loc, mlir::TypeRange(inits), newInputs, inits, grid, indexingMaps,
+        ttirIteratorTypes, /* regionsCount */ 1);
 
     // Create one bb in 'generic''s region and set its arguments.
     {
@@ -274,7 +276,7 @@ private:
 
       // Populate 'block.
       {
-        llvm::for_each(mlir::TypeRange(inputsWithScaler), [&](Type t) {
+        llvm::for_each(mlir::TypeRange(newInputs), [&](Type t) {
           mlir::RankedTensorType tensorType =
               mlir::cast<mlir::RankedTensorType>(t);
           tt::MetalLayoutAttr layout =
