@@ -72,18 +72,6 @@ class TTIRGenericRegionOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, TTIRGenericRegionOpTrait> {
 };
 
-template <typename ConcreteType>
-struct TTIRNamedElementwise
-    : mlir::TypeTrait::TraitBase<ConcreteType, TTIRNamedElementwise> {};
-
-template <typename ConcreteType>
-struct TTIRNamedReduction
-    : mlir::TypeTrait::TraitBase<ConcreteType, TTIRNamedReduction> {};
-
-template <typename ConcreteType>
-struct TTIRNamedContraction
-    : mlir::TypeTrait::TraitBase<ConcreteType, TTIRNamedContraction> {};
-
 } // namespace OpTrait
 } // namespace ttir
 } // namespace tt

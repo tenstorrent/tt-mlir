@@ -14,11 +14,13 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include <algorithm>
 #include <array>
 
 // ----------------------------------------------------------------------------
 namespace mlir::tt::ttir {
+
+#define GEN_PASS_DEF_TTIRGENERALIZENAMEDOPS
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
 
@@ -28,14 +30,13 @@ class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
 
-  // common need to navigate DPS (<inputs>;<inits>) operand split:
-  // note that this requires only 'getDpsInits()' to be available
+  // Common need to navigate DPS (<inputs>;<inits>) operand split:
+  // note that this requires only 'getDpsInits()' to be available.
   template <typename ConcreteOp>
   static std::array<mlir::ValueRange, 2> signatureSplit(ConcreteOp op) {
-    // 'DPS inits' (for tensor semantics, tied 1:1 with 'DPS results'):
+    // 'DPS inits' (for tensor semantics, tied 1:1 with 'DPS results').
     mlir::ValueRange inits = op.getDpsInits();
 
-    // can now infer 'DPS inputs':
     assert(inits.size() <= op->getNumOperands());
     mlir::ValueRange inputs =
         op->getOperands().take_front(op->getNumOperands() - inits.size());
@@ -43,14 +44,13 @@ protected:
     return {inputs, inits};
   }
 
-  // input assumptions shared across ops in this pass:
-
+  // Input assumptions shared across ops in this pass.
   template <typename ConcreteOp>
   static void checkPreconditions(ConcreteOp op) {
     for (mlir::Type t : op->getOperandTypes()) {
-      RankedTensorType tt = mlir::cast<RankedTensorType>(t);
+      mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
       MetalLayoutAttr layout =
-          mlir::dyn_cast<MetalLayoutAttr>(tt.getEncoding());
+          mlir::dyn_cast<MetalLayoutAttr>(tensorType.getEncoding());
       assert(layout && "expected tt.metal_layout encoding");
       assert(layout.isTiled() && "expected tiled buffer element type");
       assert((layout.getGrid().getShape() == expectedInputGridShape()) &&
@@ -58,24 +58,21 @@ protected:
     }
   }
 
-  // convenience getters for identity mappings:
-
   static SmallVector<mlir::AffineMap>
   getIdentityAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
                              std::size_t rank) {
-    return {arity, builder.getMultiDimIdentityMap(rank)};
+    return SmallVector<mlir::AffineMap>(arity,
+                                        builder.getMultiDimIdentityMap(rank));
   }
 
-  static ArrayAttr getIdentityAffineMapsAttr(mlir::OpBuilder &builder,
-                                             std::size_t arity,
-                                             std::size_t rank) {
+  static mlir::ArrayAttr getIdentityAffineMapsAttr(mlir::OpBuilder &builder,
+                                                   std::size_t arity,
+                                                   std::size_t rank) {
     return builder.getAffineMapArrayAttr(
         getIdentityAffineMapsArray(builder, arity, rank));
   }
 
-  // for now, assume input is laid out for a 1x1 grid:
-
-  static constexpr ArrayRef<int64_t> expectedInputGridShape() {
+  static constexpr mlir::ArrayRef<int64_t> expectedInputGridShape() {
     return s_expectedInputGridShape;
   }
 
@@ -83,22 +80,23 @@ protected:
 
 }; // end of class
 // ............................................................................
-
+// Rewrite elementwise ops by emitting a matching tile version of the op
+// into a ttir.generic/linang.generic nest.
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedElementwiseRewriter final
     : public mlir::OpRewritePattern<ConcreteOp>,
       TTIRNamedRewriterCommon {
 
 public:
-  using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern; // inherit
-                                                              // constructors
+  using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern;
+
 private:
   LogicalResult matchAndRewrite(ConcreteOp op,
                                 mlir::PatternRewriter &rewriter) const final {
     checkPreconditions(op);
 
-    MLIRContext *ctx = rewriter.getContext();
-    auto loc = op->getLoc();
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op->getLoc();
 
     auto [inputs, inits] = signatureSplit(op);
 
@@ -108,35 +106,36 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    // core grid: for now, propagate the input default
-    GridAttr grid = GridAttr::get(ctx, expectedInputGridShape());
+    tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
 
-    auto const rank = grid.getShape().size();
+    std::size_t const rank = grid.getShape().size();
 
-    ArrayAttr indexingMaps = getAffineMapsAttr(rewriter, numOperands, rank);
-    ArrayAttr ttirIteratorTypes = getTTIRIteratorTypesAttr(rewriter, rank);
+    mlir::ArrayAttr indexingMaps =
+        getAffineMapsAttr(rewriter, numOperands, rank);
+    mlir::ArrayAttr ttirIteratorTypes =
+        getTTIRIteratorTypesAttr(rewriter, rank);
 
-    // create 'ttir.generic' accepting 'op's operands:
+    // Create 'ttir.generic' accepting 'op's operands.
     auto generic = rewriter.create<GenericOp>(
         loc, mlir::TypeRange(inits), inputs, inits, grid, indexingMaps,
         ttirIteratorTypes, /* regionsCount */ 1);
 
-    // create one bb in 'generic''s region and set its arguments:
+    // Create one bb in 'generic''s region and set its arguments.
     {
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
 
-      // populate 'block':
+      // Populate 'block'.
       {
         llvm::for_each(op->getOperandTypes(), [&](Type t) {
-          RankedTensorType tt = mlir::cast<RankedTensorType>(t);
-          MetalLayoutAttr layout =
-              mlir::cast<MetalLayoutAttr>(tt.getEncoding());
+          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+          tt::MetalLayoutAttr layout =
+              mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
           block->addArgument(layout.getMemref(), loc);
         });
         auto blockArgs = block->getArguments();
 
-        // create 'linalg.generic' accepting 'blockArgs':
+        // Create 'linalg.generic' accepting 'blockArgs'.
 
         SmallVector<mlir::AffineMap> linalgIndexingMaps =
             getAffineMapsArray(rewriter, numOperands, rank);
@@ -149,7 +148,7 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              Value yield = bbBuilder.create<TileOp>(
+              mlir::Value yield = bbBuilder.create<TileOp>(
                   loc, /* resultTypes */ bbArgs.take_back(numInits),
                   /* operands */ bbArgs.take_front(numInputs));
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
@@ -164,13 +163,14 @@ private:
   static void checkPreconditions(ConcreteOp op) {
     base::checkPreconditions(op);
 
-    ArrayRef<int64_t> shape;
+    mlir::ArrayRef<int64_t> shape;
     for (mlir::Type t : op->getOperandTypes()) {
-      RankedTensorType tt = mlir::cast<RankedTensorType>(t);
-      MetalLayoutAttr layout = mlir::cast<MetalLayoutAttr>(tt.getEncoding());
+      mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
+      tt::MetalLayoutAttr layout =
+          mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
 
-      // for elementwise ops, require identical operand shapes for now (no
-      // broadcasting, etc):
+      // For elementwise ops, require identical operand shapes for now (no
+      // broadcasting, etc).
       if (shape.empty()) {
         shape = layout.getMemref().getShape();
       } else {
@@ -180,7 +180,7 @@ private:
     }
   }
 
-  // indexing space navigation:
+  // Indexing space navigation.
   //
   //  (1) for ttir.generic:
   //    - getAffineMapsAttr()
@@ -188,9 +188,6 @@ private:
   //  (2) for linalg.generic:
   //    - getAffineMapsArray()
   //    - getLinalgIteratorTypesArray()
-  //
-  // [note that *.generics have 'iterator_type's with similar spellings
-  // but nevertheless different tablegen/c++ types]
 
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
@@ -212,76 +209,100 @@ private:
 
   static SmallVector<mlir::utils::IteratorType>
   getLinalgIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
-    return {rank, mlir::utils::IteratorType::parallel};
+    return SmallVector<mlir::utils::IteratorType>(
+        rank, mlir::utils::IteratorType::parallel);
   }
 
 }; // end of class
 // ............................................................................
-
+// Rewriting reduction ops is similar to the elementwise group except for
+// ops whose tiled counterparts require a scaler operand ('weights', etc).
+// This rewriter will emit a single tile scaler operand that will be
+// broadcast across the lhs indexing space.
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedReductionRewriter final
     : public mlir::OpRewritePattern<ConcreteOp>,
       TTIRNamedRewriterCommon {
 
 public:
-  using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern; // inherit
-                                                              // constructors
+  using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern;
+
 private:
   LogicalResult matchAndRewrite(ConcreteOp op,
                                 mlir::PatternRewriter &rewriter) const final {
     checkPreconditions(op);
 
-    MLIRContext *ctx = rewriter.getContext();
-    auto loc = op->getLoc();
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op->getLoc();
 
     auto [inputs, inits] = signatureSplit(op);
 
-    std::size_t const numInputs = inputs.size();
     std::size_t const numInits = inits.size();
+    assert(inputs.size() + numInits == op->getNumOperands());
+
+    tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
+
+    std::size_t const rank = grid.getShape().size();
+
+    // Extend the operand block with a single-tile 'weight'/'mask' operand.
+    // Our generic signature becomes (<inputs>; scaler; <inits>).
+
+    static constexpr bool usingScaler = true;
+
+    std::size_t const numInputs = inputs.size() + usingScaler;
     std::size_t const numOperands = (numInputs + numInits);
 
-    assert(numOperands == op->getNumOperands());
+    SmallVector<mlir::Value> inputsWithScaler(inputs.begin(), inputs.end());
+    inputsWithScaler.emplace_back(createScaler(
+        rewriter, loc,
+        mlir::cast<mlir::RankedTensorType>(inputs.front().getType())));
 
-    // core grid: for now, propagate the input default
-    GridAttr grid = GridAttr::get(ctx, expectedInputGridShape());
+    mlir::ArrayAttr indexingMaps =
+        getAffineMapsAttr(rewriter, op, numOperands, rank, usingScaler);
+    mlir::ArrayAttr ttirIteratorTypes =
+        getTTIRIteratorTypesAttr(rewriter, op, rank);
 
-    auto const rank = grid.getShape().size();
-
-    ArrayAttr indexingMaps = getAffineMapsAttr(rewriter, op, numOperands, rank);
-    ArrayAttr ttirIteratorTypes = getTTIRIteratorTypesAttr(rewriter, op, rank);
-
-    // create 'ttir.generic' accepting 'op's operands:
+    // Create 'ttir.generic' accepting extended operands.
     auto generic = rewriter.create<GenericOp>(
-        loc, mlir::TypeRange(inits), inputs, inits, grid, indexingMaps,
-        ttirIteratorTypes, /* regionsCount */ 1);
+        loc, mlir::TypeRange(inits), inputsWithScaler, inits, grid,
+        indexingMaps, ttirIteratorTypes, /* regionsCount */ 1);
 
-    // create one bb in 'generic''s region and set its arguments:
+    // Create one bb in 'generic''s region and set its arguments.
     {
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
 
-      // populate 'block':
+      // Populate 'block.
       {
-        llvm::for_each(op->getOperandTypes(), [&](Type t) {
-          RankedTensorType tt = mlir::cast<RankedTensorType>(t);
-          MetalLayoutAttr layout =
-              mlir::cast<MetalLayoutAttr>(tt.getEncoding());
+        llvm::for_each(mlir::TypeRange(inputsWithScaler), [&](Type t) {
+          mlir::RankedTensorType tensorType =
+              mlir::cast<mlir::RankedTensorType>(t);
+          tt::MetalLayoutAttr layout =
+              mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
+          block->addArgument(layout.getMemref(), loc);
+        });
+        llvm::for_each(inits.getTypes(), [&](Type t) {
+          mlir::RankedTensorType tensorType =
+              mlir::cast<mlir::RankedTensorType>(t);
+          tt::MetalLayoutAttr layout =
+              mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
           block->addArgument(layout.getMemref(), loc);
         });
         auto blockArgs = block->getArguments();
+        assert(blockArgs.size() == numOperands);
 
-        // create 'linalg.generic' accepting 'blockArgs':
+        // Create 'linalg.generic' accepting 'blockArgs'.
 
         SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, op, numOperands, rank);
+            getAffineMapsArray(rewriter, op, numOperands, rank, usingScaler);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             getLinalgIteratorTypesArray(rewriter, op, rank);
 
-        // propagate attributes:
+        // Propagate attributes.
 
         SmallVector<mlir::NamedAttribute> attributes;
         {
-          // propagate 'dim_arg' as 'ReduceDim':
+          // Propagate 'dim_arg' as 'ReduceDim'.
           attributes.emplace_back(
               tt::ttir::ReduceDimAttr::getMnemonic(),
               tt::ttir::ReduceDimAttr::get(ctx, dimArgAsReduceDim(op, rank)));
@@ -293,7 +314,7 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              Value yield = bbBuilder.create<TileOp>(
+              mlir::Value yield = bbBuilder.create<TileOp>(
                   loc, /* resultTypes */ bbArgs.take_back(numInits),
                   /* operands */ bbArgs.take_front(numInputs), attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
@@ -308,12 +329,12 @@ private:
   static void checkPreconditions(ConcreteOp op) {
     base::checkPreconditions(op);
 
-    // for reductions, require 'dim_arg' and 'keep_dim'=true:
+    // For reductions, require 'dim_arg' and 'keep_dim'=true for now.
     assert(op.getDimArg() && "expected dim_arg attribute to be set");
     assert(op.getKeepDimAttr().getValue() && "expected default keep_dim=true");
   }
 
-  // indexing space navigation:
+  // Indexing space navigation.
   //
   //  (1) for ttir.generic:
   //    - getAffineMapsAttr()
@@ -321,48 +342,47 @@ private:
   //  (2) for linalg.generic:
   //    - getAffineMapsArray()
   //    - getLinalgIteratorTypesArray()
-  //
-  // [note that *.generics have 'iterator_type's with similar spellings
-  // but nevertheless different tablegen/c++ types]
 
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, ConcreteOp op, std::size_t arity,
-                     std::size_t rank) {
+                     std::size_t rank, bool usingScaler) {
     assert(rank > 0);
     mlir::ArrayAttr dimArg = getDimArg(op);
+
+    mlir::AffineExpr zero =
+        mlir::getAffineConstantExpr(0, builder.getContext());
 
     mlir::MutableAffineMap accumulator(builder.getMultiDimIdentityMap(rank));
     forAllDims(rank, dimArg, [&](std::size_t index, bool dropped) {
       if (dropped) {
-        accumulator.setResult(
-            index, mlir::getAffineConstantExpr(0, builder.getContext()));
+        accumulator.setResult(index, zero);
       }
     });
-    SmallVector<mlir::AffineMap> maps(rank - 1,
+    SmallVector<mlir::AffineMap> maps(arity - 1 - usingScaler,
                                       builder.getMultiDimIdentityMap(rank));
+    if (usingScaler) {
+      std::array<mlir::AffineExpr, 2> zeros{zero, zero};
+      maps.emplace_back(mlir::AffineMap::get(/* dimCopunt */ rank,
+                                             /* symbolCount */ 0, zeros,
+                                             builder.getContext()));
+    }
     maps.emplace_back(accumulator.getAffineMap());
+
     return maps;
   }
 
-  static ArrayAttr getAffineMapsAttr(mlir::OpBuilder &builder, ConcreteOp op,
-                                     std::size_t arity, std::size_t rank) {
+  static mlir::ArrayAttr getAffineMapsAttr(mlir::OpBuilder &builder,
+                                           ConcreteOp op, std::size_t arity,
+                                           std::size_t rank, bool usingScaler) {
     return builder.getAffineMapArrayAttr(
-        getAffineMapsArray(builder, op, arity, rank));
+        getAffineMapsArray(builder, op, arity, rank, usingScaler));
   }
 
-  static ArrayAttr getTTIRIteratorTypesAttr(mlir::OpBuilder &builder,
-                                            ConcreteOp op, std::size_t rank) {
-    mlir::ArrayAttr dimArg = getDimArg(op);
-
-    auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
-                                              tt::IteratorType::Parallel);
-    SmallVector<mlir::Attribute> iterators(rank, parallel);
-    forAllDims(rank, dimArg, [&](std::size_t index, bool dropped) {
-      if (dropped) {
-        iterators[index] = tt::IteratorTypeAttr::get(
-            builder.getContext(), tt::IteratorType::Reduction);
-      }
-    });
+  static mlir::ArrayAttr getTTIRIteratorTypesAttr(mlir::OpBuilder &builder,
+                                                  ConcreteOp op,
+                                                  std::size_t rank) {
+    SmallVector<mlir::Attribute> iterators(iteratorTypeLinalgToTTIR(
+        builder, getLinalgIteratorTypesArray(builder, op, rank)));
     return builder.getArrayAttr(iterators);
   }
 
@@ -381,9 +401,63 @@ private:
     return iterators;
   }
 
-  static ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
-    assert(rank <= 64 && "rank value too large for a 64-bit set");
+  // Convert from linalg enum to equivalent ttir enum.
+  static SmallVector<mlir::Attribute> iteratorTypeLinalgToTTIR(
+      mlir::OpBuilder &builder,
+      SmallVector<mlir::utils::IteratorType> const &iterators) {
+    auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
+                                              tt::IteratorType::Parallel);
+    auto reduction = tt::IteratorTypeAttr::get(builder.getContext(),
+                                               tt::IteratorType::Reduction);
+    SmallVector<mlir::Attribute> r;
+    for (auto iterator : iterators) {
+      switch (iterator) {
+      case mlir::utils::IteratorType::parallel: {
+        r.emplace_back(parallel);
+      } break;
+      case mlir::utils::IteratorType::reduction: {
+        r.push_back(reduction);
+      } break;
+      }
+    }
+    return r;
+  }
 
+  // Create a reduction scaler value for a given type of tensor operand
+  // (at the current 'builder' insertion point).
+  static mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
+                                  mlir::RankedTensorType tensorOperandType) {
+    mlir::MLIRContext *ctx = builder.getContext();
+
+    mlir::Type elementType = tensorOperandType.getElementType();
+    tt::MetalLayoutAttr layout =
+        mlir::cast<tt::MetalLayoutAttr>(tensorOperandType.getEncoding());
+
+    tt::TileType tileType = tt::TileType::get(ctx, elementType);
+    SmallVector<int64_t> singleTile{1, 1};
+    mlir::RankedTensorType scalerType = RankedTensorType::get(
+        tileType.getScalarShape(singleTile), elementType,
+        layout.withElementType(ctx, tileType).withShardShape(ctx, singleTile));
+
+    mlir::Attribute one;
+    if (mlir::isa<mlir::FloatType>(elementType)) {
+      one = mlir::FloatAttr::get(elementType, 1.0);
+    } else if (mlir::isa<mlir::IntegerType>(elementType)) {
+      one = mlir::IntegerAttr::get(elementType, 1);
+    } else {
+      llvm_unreachable("unexpected input element type");
+    }
+
+    mlir::DenseElementsAttr scalerValue =
+        mlir::SplatElementsAttr::get(scalerType, one);
+
+    return builder.create<ConstantOp>(loc, scalerType, scalerValue);
+  }
+
+  static ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
+    // TODO(#2613) This implements a very simple case; more work is required
+    // to decompose more than 2 right-most dims being reduced over.
+    assert(rank <= 64 && "rank value too large for a 64-bit set");
     std::uint64_t bits = 0;
     forAllDims(rank, getDimArg(op), [&](std::size_t index, bool dropped) {
       if (dropped) {
@@ -399,7 +473,7 @@ private:
     case 3:
       return ReduceDim::RC;
     }
-    assert(false && "unexpected dimArg bit pattern");
+    llvm_unreachable("unexpected dimArg bit pattern");
   }
 
   static mlir::ArrayAttr getDimArg(ConcreteOp op) {
@@ -424,19 +498,24 @@ private:
 
 }; // end of class
 // ............................................................................
-
+// At this time, matmul ops are rewritten into a ttir.generic without a nested
+// linagl.generic because we use metal counterpart op that is already "blocked".
 class TTIRMatmulRewriter final : public mlir::OpRewritePattern<MatmulOp>,
                                  TTIRNamedRewriterCommon {
+
+  using ConcreteOp = MatmulOp;
+  using TileOp = TileMatmulBlockOp;
+
 public:
-  using mlir::OpRewritePattern<MatmulOp>::OpRewritePattern; // inherit
-                                                            // constructors
+  using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern;
+
 private:
-  LogicalResult matchAndRewrite(MatmulOp op,
+  LogicalResult matchAndRewrite(ConcreteOp op,
                                 mlir::PatternRewriter &rewriter) const final {
     checkPreconditions(op);
 
-    MLIRContext *ctx = rewriter.getContext();
-    auto loc = op->getLoc();
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op->getLoc();
 
     auto [inputs, inits] = signatureSplit(op);
 
@@ -446,41 +525,42 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    // core grid: for now, propagate the input default
-    GridAttr grid = GridAttr::get(ctx, expectedInputGridShape());
+    tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
 
-    auto const rank = grid.getShape().size();
+    std::size_t const rank = grid.getShape().size();
 
-    // TODO(vlad) handle 'transpose_{a,b}' ?
+    // TODO(#2591) handle 'transpose_{a,b}' attributes
 
-    ArrayAttr indexingMaps = getAffineMapsAttr(rewriter, numOperands, rank);
-    ArrayAttr ttirIteratorTypes = getTTIRIteratorTypesAttr(rewriter, rank);
+    mlir::ArrayAttr indexingMaps =
+        getAffineMapsAttr(rewriter, numOperands, rank);
+    mlir::ArrayAttr ttirIteratorTypes =
+        getTTIRIteratorTypesAttr(rewriter, rank);
 
-    // create 'ttir.generic' accepting 'op's operands:
+    // Create 'ttir.generic' accepting 'op's operands.
     auto generic = rewriter.create<GenericOp>(
         loc, mlir::TypeRange(inits), inputs, inits, grid, indexingMaps,
         ttirIteratorTypes, /* regionsCount */ 1);
 
-    // create one bb in 'generic''s region and set its arguments:
+    // Create one bb in 'generic''s region and set its arguments.
     {
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
 
-      // populate 'block':
+      // Populate 'block'.
       {
         llvm::for_each(op->getOperandTypes(), [&](Type t) {
-          RankedTensorType tt = mlir::cast<RankedTensorType>(t);
-          MetalLayoutAttr layout =
-              mlir::cast<MetalLayoutAttr>(tt.getEncoding());
+          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+          tt::MetalLayoutAttr layout =
+              mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
           block->addArgument(layout.getMemref(), loc);
         });
         auto blockArgs = block->getArguments();
 
-        // delegate next level of nesting to a "block", not tile, op:
+        // Delegate next level of nesting to a "block", not tile, op.
 
-        rewriter.create<TileMatmulBlockOp>(loc,
-                                           /* resultTypes */ mlir::TypeRange(),
-                                           /* operands */ blockArgs);
+        rewriter.create<TileOp>(loc,
+                                /* resultTypes */ mlir::TypeRange(),
+                                /* operands */ blockArgs);
       }
     }
 
@@ -488,24 +568,27 @@ private:
     return llvm::success();
   }
 
-  static void checkPreconditions(MatmulOp op) {
+  static void checkPreconditions(ConcreteOp op) {
     base::checkPreconditions(op);
 
-    // [add checks specific to matmul here, e.g. 'transpose_*' attrs]
+    assert((!op.getTransposeA() && !op.getTransposeB()) &&
+           "TODO(#2591) expected no transpose attributes");
   }
 
-  static ArrayAttr getAffineMapsAttr(mlir::OpBuilder &builder,
-                                     std::size_t arity, std::size_t rank) {
+  static mlir::ArrayAttr getAffineMapsAttr(mlir::OpBuilder &builder,
+                                           std::size_t arity,
+                                           std::size_t rank) {
     assert(arity == 3 && "expected 3 operands");
+    // TODO(#2592) handle higher ranks, if needed in this pass
     assert(rank == 2 && "expected a rank 2 operation");
-    MLIRContext *ctx = builder.getContext();
+    mlir::MLIRContext *ctx = builder.getContext();
     return builder.getAffineMapArrayAttr(SmallVector<mlir::AffineMap>{
         makeAffineMap(ctx, {0, 2}), makeAffineMap(ctx, {2, 1}),
         makeAffineMap(ctx, {0, 1})});
   }
 
-  static ArrayAttr getTTIRIteratorTypesAttr(mlir::OpBuilder &builder,
-                                            std::size_t rank) {
+  static mlir::ArrayAttr getTTIRIteratorTypesAttr(mlir::OpBuilder &builder,
+                                                  std::size_t rank) {
     assert(rank == 2 && "expected a rank 2 operation");
     auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
                                               tt::IteratorType::Parallel);
@@ -515,7 +598,7 @@ private:
         SmallVector<mlir::Attribute>{parallel, parallel, reduction});
   }
 
-  static mlir::AffineMap makeAffineMap(MLIRContext *ctx,
+  static mlir::AffineMap makeAffineMap(mlir::MLIRContext *ctx,
                                        std::array<unsigned, 2> targets) {
     return mlir::AffineMap::getMultiDimMapWithTargets(3, targets, ctx);
   }
@@ -524,9 +607,6 @@ private:
 
 } // namespace
 // ............................................................................
-
-#define GEN_PASS_DEF_TTIRGENERALIZENAMEDOPS
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 struct TTIRGeneralizeNamedOps final
     : impl::TTIRGeneralizeNamedOpsBase<TTIRGeneralizeNamedOps> {
@@ -538,15 +618,14 @@ struct TTIRGeneralizeNamedOps final
     // clang-format off
     {
       patterns.add<
-        // elementwise:
         TTIRNamedElementwiseRewriter<AddOp,       TileAddOp>,
         TTIRNamedElementwiseRewriter<MultiplyOp,  TileMulOp>,
         TTIRNamedElementwiseRewriter<ExpOp,       TileExpOp>,
         TTIRNamedElementwiseRewriter<LogOp,       TileLogOp>,
-        // reduction:
-        TTIRNamedReductionRewriter<SumOp,         TileReduceSum1Op>,
+
+        TTIRNamedReductionRewriter<SumOp,         TileReduceSumOp>,
         TTIRNamedReductionRewriter<MaxOp,         TileReduceMaxOp>,
-        // contraction:
+
         TTIRMatmulRewriter
       >(&ctx);
     }

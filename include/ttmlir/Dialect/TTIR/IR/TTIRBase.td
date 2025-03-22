@@ -70,14 +70,6 @@ def TTIR_Idempotence : TTIR_Trait<"TTIRIdempotence", [DestinationStyleOpInterfac
 // BinaryIdempotence is property of a binary operation where applying the operation on the same value results in the same value.
 // Example: and(x, x) == x
 def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationStyleOpInterface, ThreeOperands, NoMemoryEffect]>;
-
-// Trait marking named elementwise ops.
-def TTIR_NamedElementwise : TTIR_Trait<"TTIRNamedElementwise", []>;
-// Trait marking named reduction ops.
-def TTIR_NamedReduction : TTIR_Trait<"TTIRNamedReduction", []>;
-// Trait marking named contraction (matmul-like) ops.
-def TTIR_NamedContraction : TTIR_Trait<"TTIRNamedContraction", []>;
-
 // GenericRegionOpTrait is a trait that acts as a label for all generic region operations.
 def TTIR_GenericRegionOpTrait : TTIR_Trait<"TTIRGenericRegionOpTrait", []>;
 
