@@ -41,6 +41,7 @@ ext_modules = [
         ["ttrt/binary/module.cpp"],
         include_dirs=[
             f"{toolchain}/include",
+            f"{src_dir}/include",
             f"{src_dir}/runtime/include",
             f"{ttmlir_build_dir}/include",
             f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
@@ -226,6 +227,7 @@ if enable_runtime:
             ["ttrt/runtime/module.cpp"],
             include_dirs=[
                 f"{toolchain}/include",
+                f"{src_dir}/include",
                 f"{src_dir}/runtime/include",
                 f"{src_dir}/runtime/test/include",
                 f"{ttmlir_build_dir}/include",

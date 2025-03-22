@@ -8,6 +8,7 @@ try:
         Event,
         Tensor,
         TensorDesc,
+        OpenDeviceOptions,
         MemoryBufferType,
         DataType,
         DeviceRuntime,

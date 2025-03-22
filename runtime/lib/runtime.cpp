@@ -4,6 +4,7 @@
 
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -256,21 +257,17 @@ size_t getNumAvailableDevices() {
   LOG_FATAL("runtime is not enabled");
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize,
-                  std::optional<DispatchCoreType> dispatchCoreType,
-                  std::optional<bool> enableAsyncTTNN) {
+Device openDevice(DeviceIds const &deviceIds,
+                  OpenDeviceOptions const &options) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::openDevice(deviceIds, numHWCQs, l1SmallSize,
-                                           dispatchCoreType, enableAsyncTTNN);
+    return ::tt::runtime::ttnn::openDevice(deviceIds, options);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::openDevice(
-        deviceIds, numHWCQs, l1SmallSize, dispatchCoreType, enableAsyncTTNN);
+    return ::tt::runtime::ttmetal::openDevice(deviceIds, options);
   }
 #endif
   LOG_FATAL("runtime is not enabled");

@@ -100,11 +100,8 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
 
 size_t getNumAvailableDevices();
 
-Device
-openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
-           std::optional<size_t> l1SmallSize = std::nullopt,
-           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
-           std::optional<bool> enableAsyncTTNN = std::nullopt);
+Device openDevice(DeviceIds const &deviceIds,
+                  OpenDeviceOptions const &options = {});
 
 void closeDevice(Device device);
 
