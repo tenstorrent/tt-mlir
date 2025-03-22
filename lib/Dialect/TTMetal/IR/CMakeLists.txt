@@ -10,3 +10,5 @@ add_mlir_dialect_library(MLIRTTMetalDialect
         MLIRTTMetalOpsIncGen
         MLIRTTOpsIncGen
         )
+
+target_link_libraries(MLIRTTMetalDialect PUBLIC coverage_config)

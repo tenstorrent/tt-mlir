@@ -9,3 +9,5 @@ add_mlir_dialect_library(MLIRLLVMTransforms
         MLIRTTIRPassesIncGen
         MLIRTTOpsIncGen
         )
+
+target_link_libraries(MLIRLLVMTransforms PUBLIC coverage_config)

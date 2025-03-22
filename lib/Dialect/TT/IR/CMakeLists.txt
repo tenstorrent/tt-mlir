@@ -10,3 +10,5 @@ add_mlir_dialect_library(MLIRTTDialect
         DEPENDS
         MLIRTTOpsIncGen
         )
+
+target_link_libraries(MLIRTTDialect PUBLIC coverage_config)
