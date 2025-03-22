@@ -201,10 +201,11 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
   constexpr unsigned int BATCH_DIM = 0, HEIGHT_DIM = 1, WIDTH_DIM = 2,
                          CHANNEL_DIM = 3;
-  uint32_t batchSize = inputType.getDimSize(BATCH_DIM);
-  if (batchSize != outputType.getDimSize(BATCH_DIM)) {
+  if (!getFlattenedCompatInfo().has_value() &&
+      inputType.getDimSize(BATCH_DIM) != outputType.getDimSize(BATCH_DIM)) {
     return emitOpError()
-           << "Batch size from the input tensor (" << batchSize
+           << "Batch size from the input tensor ("
+           << inputType.getDimSize(BATCH_DIM)
            << ") must match the first dimension of the output tensor ("
            << outputType.getDimSize(BATCH_DIM) << ")";
   }
@@ -213,6 +214,12 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   uint32_t inputWidth = inputType.getDimSize(WIDTH_DIM);
   uint32_t inChannels = inputType.getDimSize(CHANNEL_DIM);
   uint32_t outChannels = outputType.getDimSize(CHANNEL_DIM);
+  if (getFlattenedCompatInfo().has_value()) {
+    inputHeight = getFlattenedCompatInfo()->getInputHeight();
+    inputWidth = getFlattenedCompatInfo()->getInputWidth();
+    inChannels = getFlattenedCompatInfo()->getInChannels();
+    outChannels = getFlattenedCompatInfo()->getOutChannels();
+  }
 
   auto stride = ttmlir::utils::getPairOfInteger<int32_t>(getStride());
   if (auto error = stride.takeError()) {
@@ -247,7 +254,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 0, WEIGHT_IN_CHANNEL_DIM = 1;
   constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 2,
                          WEIGHT_KERNEL_WIDTH_DIM = 3;
-  llvm::SmallVector<int32_t, 2> kernelSize{
+  llvm::SmallVector<int64_t> kernelSize{
       static_cast<int32_t>(weightType.getDimSize(WEIGHT_KERNEL_HEIGHT_DIM)),
       static_cast<int32_t>(weightType.getDimSize(WEIGHT_KERNEL_WIDTH_DIM))};
 
@@ -317,17 +324,18 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
                             dilation->second * (kernelSize[1] - 1) - 1) /
                                stride->second +
                            1;
-  if (calculatedHOut != outputType.getDimSize(HEIGHT_DIM) ||
-      calculatedWOut != outputType.getDimSize(WIDTH_DIM)) {
-    return emitOpError()
-           << "Mismatch between calculated and got output height and width. "
-           << "Calculated: (" << calculatedHOut << " x " << calculatedWOut
-           << "). "
-           << "Got output tensor height and width: ("
-           << outputType.getDimSize(HEIGHT_DIM) << " x "
-           << outputType.getDimSize(WIDTH_DIM) << ")";
+  if (!getFlattenedCompatInfo().has_value()) {
+    if (calculatedHOut != outputType.getDimSize(HEIGHT_DIM) ||
+        calculatedWOut != outputType.getDimSize(WIDTH_DIM)) {
+      return emitOpError()
+             << "Mismatch between calculated and got output height and width. "
+             << "Calculated: (" << calculatedHOut << " x " << calculatedWOut
+             << "). "
+             << "Got output tensor height and width: ("
+             << outputType.getDimSize(HEIGHT_DIM) << " x "
+             << outputType.getDimSize(WIDTH_DIM) << ")";
+    }
   }
-
   return success();
 }
 
@@ -581,7 +589,9 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  std::vector<int64_t> inputShape = getInput().getType().getShape().vec();
+  std::vector<int64_t> inputShape = inputType.getShape().vec();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  std::vector<int64_t> outputShape = outputType.getShape().vec();
 
   if (inputType.getRank() != 4) {
     return emitOpError()
@@ -589,15 +599,43 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
            << inputType.getRank() << ". Shape: (" << inputShape << ").";
   }
 
+  if (getFlattenedCompatInfo().has_value()) {
+    inputShape[0] = getFlattenedCompatInfo()->getBatchSize();
+    inputShape[1] = getFlattenedCompatInfo()->getInputHeight();
+    inputShape[2] = getFlattenedCompatInfo()->getInputWidth();
+    inputShape[3] = getFlattenedCompatInfo()->getInChannels();
+
+    if (getFlattenedCompatInfo()->getInChannels() !=
+        getFlattenedCompatInfo()->getOutChannels()) {
+      return emitOpError() << "In channels ("
+                           << getFlattenedCompatInfo()->getInChannels()
+                           << ") must match out channels ("
+                           << getFlattenedCompatInfo()->getOutChannels()
+                           << ") as defined in flattened_compat_info.";
+    }
+  }
+
+  if (outputShape.back() != inputShape.back()) {
+    return emitOpError() << "Output tensor channels (" << outputShape.back()
+                         << ") must match input tensor channels ("
+                         << inputShape.back() << ").";
+  }
+
   if (getKernelHeight() > inputShape[1]) {
     return emitOpError() << "Kernel height " << getKernelHeight()
                          << " is greater than input height " << inputShape[1]
+                         << (getFlattenedCompatInfo().has_value()
+                                 ? "(as defined in flattened_compat_info)"
+                                 : "")
                          << ". This MaxPool2d configuration is invalid.";
   }
 
   if (getKernelWidth() > inputShape[2]) {
     return emitOpError() << "Kernel width " << getKernelWidth()
                          << " is greater than input width " << inputShape[2]
+                         << (getFlattenedCompatInfo().has_value()
+                                 ? "(as defined in flattened_compat_info)"
+                                 : "")
                          << ". This MaxPool2d configuration is invalid.";
   }
 
@@ -750,11 +788,34 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
+mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttir::ReshapeOp op) {
+  // Fold the operation if the type of the input and output types are the same.
+  if (op.getType() == op.getInput().getType()) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult foldOperandReshape(mlir::tt::ttir::ReshapeOp op) {
+  // Back to back reshapes can be replaced with the final reshape.
+  if (auto reshapeOperand =
+          op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>()) {
+    op.setOperand(0, reshapeOperand.getInput());
+    return op.getResult();
+  }
+  return nullptr;
+}
+
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
-  if (getType() == getOperand(0).getType()) {
-    return getOperand(0);
+  if (auto foldResult = foldIdentityReshape(*this)) {
+    return foldResult;
   }
+
+  if (auto foldResult = foldOperandReshape(*this)) {
+    return foldResult;
+  }
+
   return nullptr;
 }
 
@@ -1234,73 +1295,73 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
-// TransposeOp canonicalization
-void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+mlir::OpFoldResult foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
   // TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
-  patterns.add(
-      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
-        if (op.getDim0() != op.getDim1()) {
-          return mlir::failure();
-        }
+  if (op.getDim0() == op.getDim1()) {
+    return op.getInput();
+  }
+  return nullptr;
+}
 
-        rewriter.replaceAllOpUsesWith(op, op.getInput());
-        return success();
-      });
-
+mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
   // Rewrite a transpose of to a canonical form where the 'dim0' is less than
   // 'dim1'.
-  patterns.add(
-      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
-        if (op.getDim0() <= op.getDim1()) {
-          return mlir::failure();
-        }
+  if (op.getDim0() > op.getDim1()) {
+    auto tmp = op.getDim0();
+    op.setDim0(op.getDim1());
+    op.setDim1(tmp);
+    return op.getResult();
+  }
+  return nullptr;
+}
 
-        rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
-            op, op.getType(), op.getInput(), op.getOutput(), op.getDim1(),
-            op.getDim0());
-        return mlir::success();
-      });
-
-  // Rewrite a tranpose dims to a canonical form where the 'dim0' and 'dim1' are
+mlir::OpFoldResult forcePositiveTransposeDims(mlir::tt::ttir::TransposeOp op) {
+  // Rewrite tranpose dims to a canonical form where the 'dim0' and 'dim1' are
   // in range [0, N), where N is a rank of input tensor.
-  patterns.add(+[](mlir::tt::ttir::TransposeOp op,
-                   mlir::PatternRewriter &rewriter) {
-    int64_t rank = op.getInput().getType().getRank();
-    int32_t dim0 = op.getDim0();
-    int32_t dim1 = op.getDim1();
-
-    if (dim0 >= 0 && dim1 >= 0) {
-      return mlir::failure();
+  if (op.getDim0() < 0 || op.getDim1() < 0) {
+    if (op.getDim0() < 0) {
+      op.setDim0(op.getDim0() + op.getInput().getType().getRank());
     }
-
-    if (dim0 < 0) {
-      rewriter.modifyOpInPlace(op, [&]() -> void { op.setDim0(dim0 + rank); });
+    if (op.getDim1() < 0) {
+      op.setDim1(op.getDim1() + op.getInput().getType().getRank());
     }
-    if (dim1 < 0) {
-      rewriter.modifyOpInPlace(op, [&]() -> void { op.setDim1(dim1 + rank); });
-    }
-    return mlir::success();
-  });
+    return op.getResult();
+  }
+  return nullptr;
+}
 
+mlir::OpFoldResult foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
   // Transposing twice in the row over the same dimensions results in identity,
   // hence y = T(T(x)) can be replaced with y = x.
-  patterns.add(
-      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
-        auto producerOp =
-            op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>();
-        if (!producerOp || op->getName() != producerOp->getName()) {
-          return mlir::failure();
-        }
+  if (auto producerOp =
+          op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>()) {
+    if (op.getDim0() == producerOp.getDim0() &&
+        op.getDim1() == producerOp.getDim1()) {
+      return producerOp.getInput();
+    }
+  }
+  return nullptr;
+}
 
-        if (op.getDim0() != producerOp.getDim0() ||
-            op.getDim1() != producerOp.getDim1()) {
-          return mlir::failure();
-        }
+// TransposeOp folder
+mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldIdentityTranspose(*this)) {
+    return foldResult;
+  }
 
-        rewriter.replaceAllOpUsesWith(op, producerOp.getInput());
-        return mlir::success();
-      });
+  if (auto foldResult = sortTansposeDims(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = forcePositiveTransposeDims(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldInverseTransposeOperand(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2801,44 +2862,42 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
   return success();
 }
 
-// PermuteOp canonicalization
-void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // Permute dimensions of two consecutive PermuteOps can be folded into a
-  // single PermuteOp where the permutation is the composition of the two
-  // permutations.
-  patterns.add(
-      +[](mlir::tt::ttir::PermuteOp op, mlir::PatternRewriter &rewriter) {
-        auto producerOp = op.getInput().getDefiningOp<ttir::PermuteOp>();
-        if (!producerOp) {
-          return mlir::failure();
-        }
-
-        // I: identity permutation
-        // P1: permutation of producerOp
-        // P2: permutation of op
-        // P: permutation of the composed PermuteOp
-        // P = applyPermutation(applyPermutation(I, P1), P2) =
-        // applyPermutation(P1, P2)
-        llvm::SmallVector<int64_t> composedPermutation =
-            ttmlir::utils::applyPermutation(producerOp.getPermutation(),
-                                            op.getPermutation());
-
-        rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
-            op, op.getType(), producerOp.getInput(), op.getOutput(),
-            composedPermutation);
-        return mlir::success();
-      });
-
+mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttir::PermuteOp op) {
   // PermuteOp with identity permutation is a no-op.
-  patterns.add(
-      +[](mlir::tt::ttir::PermuteOp op, mlir::PatternRewriter &rewriter) {
-        if (llvm::is_sorted(op.getPermutation())) {
-          rewriter.replaceAllOpUsesWith(op, op.getInput());
-          return mlir::success();
-        }
-        return mlir::failure();
-      });
+  // The input can be used directly as the output.
+  if (llvm::is_sorted(op.getPermutation())) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+mlir::OpFoldResult foldOperandPermute(mlir::tt::ttir::PermuteOp op) {
+  // If the producer is a PermuteOp we can compose the permutation attributes
+  // into `op`, and set the input to the producers input.
+  if (auto producerOp =
+          op.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>()) {
+    llvm::SmallVector<int64_t> composedPermutation =
+        ttmlir::utils::applyPermutation(producerOp.getPermutation(),
+                                        op.getPermutation());
+    op.setPermutation(composedPermutation);
+    op->setOperand(0, producerOp.getInput());
+    return op.getResult();
+  }
+  return nullptr;
+}
+
+// PermuteOp folder
+mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
+
+  if (auto foldResult = foldIdentityPermute(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldOperandPermute(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
