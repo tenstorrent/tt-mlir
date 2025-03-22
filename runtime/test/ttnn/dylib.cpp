@@ -101,6 +101,7 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
 }
 
 using SupportedTypes =
+    // NOLINTNEXTLINE
     std::variant<uint8_t, uint16_t, int32_t, uint32_t, float, bfloat16>;
 
 static SupportedTypes getValueForDType(::ttnn::DataType dtype, void *data) {
@@ -116,6 +117,7 @@ static SupportedTypes getValueForDType(::ttnn::DataType dtype, void *data) {
   case ::ttnn::DataType::FLOAT32:
     return *static_cast<float *>(data);
   case ::ttnn::DataType::BFLOAT16:
+    // NOLINTNEXTLINE
     return *static_cast<bfloat16 *>(data);
   // Defaults to uint8_t, i.e. raw data.
   default:
@@ -131,9 +133,12 @@ static std::string toString(SupportedTypes &v) {
                       std::is_same_v<T, uint16_t>) {
           // Print uint8_t and uint16_t as an integer.
           return std::to_string(static_cast<int>(val));
+          // NOLINTNEXTLINE
         } else if constexpr (std::is_same_v<T, bfloat16>) {
+          // NOLINTNEXTLINE
           return std::to_string(val.to_float());
         } else {
+          // NOLINTNEXTLINE
           return std::to_string(val);
         }
       },
@@ -216,7 +221,6 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
 
     // Compare various tensor properties
     //
-    // NOLINTBEGIN
     LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
                "DType: ", lhsTensor->get_dtype(), ", ", rhsTensor->get_dtype());
     LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
@@ -245,7 +249,6 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
         return false;
       }
     }
-    // NOLINTEND
   }
 
   return true;
