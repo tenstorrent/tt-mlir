@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Constant.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
+        GenericHWThreadSelection.cpp
         AttachMetalLayout.cpp
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp

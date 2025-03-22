@@ -2037,10 +2037,6 @@ public:
         llvm::SmallVector<int32_t>(scatterDimsToOperandDims), indexVectorDim,
         indicesAreSorted, uniqueIndices);
 
-    newScatterOp->getRegion(0).takeBody(adaptor.getUpdateComputation());
-    changeRegionTypes(newScatterOp->getRegion(0), *getTypeConverter(),
-                      rewriter);
-
     rewriter.replaceOp(srcOp, newScatterOp);
 
     return success();

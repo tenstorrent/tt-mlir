@@ -306,7 +306,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       toFlatbuffer(cache, chipDesc.getChipPhysicalCores()),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
-      chipDesc.getNumCBs());
+      chipDesc.getNumCBs(), chipDesc.getNumComputeThreads(),
+      chipDesc.getNumDatamovementThreads());
 }
 
 inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
