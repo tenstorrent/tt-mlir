@@ -143,7 +143,7 @@ static std::string toString(SupportedTypes &v) {
 // Compare two values of the same type for equality. We compare byte by byte, so
 // that even special values are compared correctly.
 //
-bool areEqual(const SupportedTypes &lhs, const SupportedTypes &rhs) {
+static bool areEqual(const SupportedTypes &lhs, const SupportedTypes &rhs) {
   size_t size = std::visit(
       [&](const auto &val) {
         using T = std::decay_t<decltype(val)>;
@@ -159,11 +159,11 @@ bool areEqual(const SupportedTypes &lhs, const SupportedTypes &rhs) {
   return true;
 }
 
-bool operator==(const SupportedTypes &lhs, const SupportedTypes &rhs) {
+static bool operator==(const SupportedTypes &lhs, const SupportedTypes &rhs) {
   return areEqual(lhs, rhs);
 }
 
-bool operator!=(const SupportedTypes &lhs, const SupportedTypes &rhs) {
+static bool operator!=(const SupportedTypes &lhs, const SupportedTypes &rhs) {
   return !(lhs == rhs);
 }
 
@@ -184,7 +184,7 @@ IndexTy getIndex(const ::ttnn::Shape &shape, size_t idx) {
   return result;
 }
 
-std::string toString(const IndexTy &v) {
+static std::string toString(const IndexTy &v) {
   std::string result = "[";
   for (size_t i = 0; i < v.size(); i++) {
     result += std::to_string(v[i]);
@@ -216,10 +216,8 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
 
     // Compare various tensor properties
     //
-    // NOLINTBEGIN
     LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
                "DType: ", lhsTensor->get_dtype(), ", ", rhsTensor->get_dtype());
-    // NOLINTEND
     LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
                "Layout: ", static_cast<int>(lhsTensor->get_layout()), ", ",
                static_cast<int>(rhsTensor->get_layout()));
