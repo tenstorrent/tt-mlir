@@ -79,3 +79,39 @@ func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1
   }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
 }
+
+// -----
+
+#l1_ = #tt.memory_space<l1>
+#map = affine_map<(d0, d1) -> (d0, d1)>
+#parallel = #tt.iterator_type<parallel>
+
+// CHECK: error: 'ttir.generic' op all regions must have the same number of arguments
+
+func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
+  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 1>}> ({
+  ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+  }, {
+  ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg5: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+  }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
+  return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
+}
+
+// -----
+
+#l1_ = #tt.memory_space<l1>
+#map = affine_map<(d0, d1) -> (d0, d1)>
+#parallel = #tt.iterator_type<parallel>
+
+// CHECK: error: 'ttir.generic' op all regions must have the same argument types
+
+func.func @matmul(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
+  "ttir.generic"(%arg0, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 1, 1>}> ({
+  ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg5: !ttir.semaphore):
+  }, {
+  ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg4: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg5: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+  }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> ()
+  return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
+}
