@@ -9,6 +9,7 @@ include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
+
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -303,7 +304,7 @@ class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
+    TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_NamedElementwise, TTIR_Broadcastable], traits)> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -791,7 +792,7 @@ def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
+    TTIR_NamedOp<mnemonic, !listconcat([TTIR_NamedReduction], traits)> {
 
     let summary = "Reduction op.";
     let description = [{
@@ -807,34 +808,6 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
-
-      // Returns the indexing maps and iterator types for the reduction op.
-      // Indexing maps are identity maps with dropped dimensions corresponding to the
-      // reduction dimensions. Iterator types are parallel for non-reduction dimensions
-      // and reduction for reduction dimensions.
-      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        auto rank = mlir::cast<RankedTensorType>(getInput().getType()).getRank();
-        SmallVector<AffineMap> indexingMaps(getNumOperands(),
-                                            builder.getMultiDimIdentityMap(rank));
-        SmallVector<Attribute> iteratorTypes(
-            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
-
-        auto reduceDims = getDimArgAttr();
-        auto resultIndexingMap = indexingMaps.back();
-        for (auto reduceDim : reduceDims) {
-          int64_t reduceDimInt = mlir::cast<IntegerAttr>(reduceDim).getInt();
-          if (reduceDimInt < 0) {
-            reduceDimInt += rank;
-          }
-          assert(reduceDimInt >= 0 && reduceDimInt < rank);
-          resultIndexingMap.dropResult(reduceDimInt);
-          iteratorTypes[reduceDimInt] =
-              builder.getAttr<IteratorTypeAttr>(IteratorType::Reduction);
-        }
-
-        return {builder.getAffineMapArrayAttr(indexingMaps),
-                builder.getArrayAttr(iteratorTypes)};}
     }];
 
     let hasVerifier = 1;
@@ -1742,7 +1715,7 @@ def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
+def TTIR_LinearOp : TTIR_NamedOp<"linear", [TTIR_NamedContraction]> {
     let summary = "Linear transformation of inputs.";
     let description = [{
       Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
@@ -1770,7 +1743,7 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_NamedOp<"matmul", [TTIR_NamedContraction]> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.
@@ -1846,25 +1819,10 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseUnaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
+    TTIR_ElementwiseUnaryOp<mnemonic, traits> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
-
-      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(sameRank(getOperation()->getOperands()) &&
-               "Input and output operand must have the same rank");
-
-        auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
-
-        SmallVector<AffineMap> indexingMaps(2, builder.getMultiDimIdentityMap(rank));
-        SmallVector<Attribute> iteratorTypes(
-            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
-
-        return {builder.getAffineMapArrayAttr(indexingMaps),
-                builder.getArrayAttr(iteratorTypes)};
-      }
     }];
 }
 
@@ -1876,23 +1834,10 @@ def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
 }
 
 class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
+    TTIR_ElementwiseBinaryOp<mnemonic, traits> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
-
-      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(sameRank(getOperation()->getOperands()) &&
-               "For now all operands must have the same rank");
-        auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
-        SmallVector<AffineMap> indexingMaps(getOperation()->getNumOperands(),
-                                            builder.getMultiDimIdentityMap(rank));
-        SmallVector<Attribute> iteratorTypes(
-            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
-        return {builder.getAffineMapArrayAttr(indexingMaps),
-                builder.getArrayAttr(iteratorTypes)};
-      }
     }];
 }
 
