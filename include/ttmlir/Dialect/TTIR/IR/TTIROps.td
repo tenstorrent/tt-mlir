@@ -115,10 +115,6 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-    }];
 }
 
 def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
@@ -804,10 +800,6 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
                          OptionalAttr<I32ArrayAttr>:$dim_arg);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-    }];
 
     let hasVerifier = 1;
 }
@@ -1821,10 +1813,6 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
 
 class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseUnaryOp<mnemonic, traits> {
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-    }];
 }
 
 def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
@@ -1836,10 +1824,6 @@ def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
 
 class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseBinaryOp<mnemonic, traits> {
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-    }];
 }
 
 def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
@@ -1971,9 +1955,6 @@ def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
                          UI32Attr:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$result);
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
     let hasVerifier = 1;
 }
 
@@ -1995,9 +1976,6 @@ def TTIR_CollectivePermuteOp : TTIR_DPSOp<"collective_permute"> {
                          I64ElementsAttr:$source_target_pairs);
 
     let results = (outs AnyRankedTensor:$result);
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
     let hasVerifier = 1;
 }
 

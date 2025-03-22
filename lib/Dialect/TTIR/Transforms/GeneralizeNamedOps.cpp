@@ -121,6 +121,7 @@ private:
         ttirIteratorTypes, /* regionsCount */ 1);
 
     // Create one bb in 'generic''s region and set its arguments.
+    rewriter.startOpModification(generic);
     {
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
@@ -155,6 +156,7 @@ private:
             });
       }
     }
+    rewriter.finalizeOpModification(generic);
 
     rewriter.replaceOp(op, generic);
     return llvm::success();
@@ -270,6 +272,7 @@ private:
         ttirIteratorTypes, /* regionsCount */ 1);
 
     // Create one bb in 'generic''s region and set its arguments.
+    rewriter.startOpModification(generic);
     {
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
@@ -323,6 +326,7 @@ private:
             });
       }
     }
+    rewriter.finalizeOpModification(generic);
 
     rewriter.replaceOp(op, generic);
     return llvm::success();
@@ -418,7 +422,7 @@ private:
         r.emplace_back(parallel);
       } break;
       case mlir::utils::IteratorType::reduction: {
-        r.push_back(reduction);
+        r.emplace_back(reduction);
       } break;
       }
     }
@@ -544,6 +548,7 @@ private:
         ttirIteratorTypes, /* regionsCount */ 1);
 
     // Create one bb in 'generic''s region and set its arguments.
+    rewriter.startOpModification(generic);
     {
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
@@ -565,6 +570,7 @@ private:
                                 /* operands */ blockArgs);
       }
     }
+    rewriter.finalizeOpModification(generic);
 
     rewriter.replaceOp(op, generic);
     return llvm::success();
