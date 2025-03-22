@@ -23,10 +23,14 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+#include <cassert>
 #include <llvm/Support/raw_os_ostream.h>
 #include <llvm/Support/raw_ostream.h>
+#include <map>
 #include <mlir/IR/MLIRContext.h>
+#include <mlir/IR/Operation.h>
 #include <mlir/Support/LLVM.h>
+#include <unordered_map>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
@@ -141,88 +145,241 @@ public:
   }
 
 private:
-  std::string locationToStr(const mlir::Location &loc) {
-    std::string locStr;
-    llvm::raw_string_ostream(locStr) << loc;
-    return locStr;
-  }
+  class OpClusterTree {
+  public:
+    static constexpr int MIN_THRESHOLD = 5;
 
-  std::tuple<std::string, std::vector<std::string>, std::string>
-  splitLocationIntoChunks(mlir::Location loc) {
-    const std::string &locationStr = locationToStr(loc);
-    std::string opName;
-    std::vector<std::string> components;
-    std::string fullPath;
-
-    // Find the opening quote of the op name
-    size_t opNameStart = locationStr.find('"');
-    if (opNameStart == std::string::npos) {
-      return std::make_tuple("", std::vector<std::string>{},
-                             ""); // Explicit vector type
-    }
-
-    // Find the closing quote of the op name
-    size_t opNameEnd = locationStr.find('"', opNameStart + 1);
-    if (opNameEnd == std::string::npos) {
-      return std::make_tuple("", std::vector<std::string>{},
-                             ""); // Explicit vector type
-    }
-
-    // Extract the op name
-    opName = locationStr.substr(opNameStart + 1, opNameEnd - opNameStart - 1);
-
-    // Find the start of the location path
-    size_t pathStart = locationStr.find("(\"", opNameEnd);
-    if (pathStart == std::string::npos) {
-      return std::make_tuple(opName, std::vector<std::string>{},
-                             ""); // Explicit vector type
-    }
-
-    // Find the end of the location path.
-    size_t pathEnd = locationStr.find("\":", pathStart);
-    if (pathEnd == std::string::npos) {
-      return std::make_tuple(opName, std::vector<std::string>{},
-                             ""); // Explicit vector type
-    }
-
-    std::string pathString =
-        locationStr.substr(pathStart + 2, pathEnd - pathStart - 2);
-
-    // Split the path string into components
-    std::stringstream ss(pathString);
-    std::string component;
-    while (std::getline(ss, component, '/')) {
-      components.push_back(component);
-      if (!fullPath.empty()) {
-        fullPath += "/";
+    class OpClusterNode {
+    public:
+      OpClusterNode(std::string str) {
+        myStr = str;
+        myHash = OpClusterTree::hashString(str);
       }
-      fullPath += component;
-    }
 
-    return std::make_tuple(opName, components, fullPath);
-  }
+      void addOp(mlir::Operation *op) { ops.push_back(op); }
+      void addChild(OpClusterNode *op) { children.push_back(op); }
+      std::string getStr() const { return myStr; };
+      const std::vector<OpClusterNode *> &getChildrenNodes() const {
+        return children;
+      }
+      const std::vector<mlir::Operation *> &getOps() const { return ops; }
 
-  // Should this take in region/body instead of whole func?
-  mlir::LogicalResult annotateOps(func::FuncOp funcOp) {
-    assert(funcOp.getBlocks().size() == 1);
+    private:
+      std::string myStr;
+      size_t myHash;
+      std::vector<OpClusterNode *> children;
+      std::vector<mlir::Operation *> ops;
+    };
 
-    funcOp->walk([&](mlir::Operation *op) {
+    OpClusterTree() { rootNode = new OpClusterNode("@ROOT@"); }
+
+    ~OpClusterTree() { delete rootNode; }
+
+  private:
+    std::unordered_map<size_t, OpClusterNode *> hashToOCNodeMap;
+    OpClusterNode *rootNode;
+
+  public:
+    void addNode(mlir::Operation *op) {
+      mlir::Location loc = op->getLoc();
+
+      assert(isLocationValid(loc));
+
       auto [opName, components, fullPath] =
           splitLocationIntoChunks(op->getLoc());
 
-      llvm::outs() << "PRINTING OP LOC CHUNKS:" << "\n";
+      // Must have at least 1 component.
+      //
+      if (!components.size()) {
+        return; // TEMOPORARY HACK!
+      }
+      assert(components.size());
 
-      for (std::string &chunk : components) {
-        llvm::outs() << "    " << chunk << "\n";
+      OpClusterNode *prev = rootNode;
+
+      for (const std::string &component : components) {
+        bool exists = doesExistNodeByStr(component);
+
+        if (!exists) {
+          // Add node to path.
+          //
+          // TODO: delete these nodes
+          //
+          auto [iter, success] = hashToOCNodeMap.insert(std::make_pair(
+              hashString(component), new OpClusterNode(component)));
+
+          assert(success);
+
+          // Add edge from parent to this ocNode.
+          //
+          prev->addChild(iter->second);
+
+          // If last component, add Op pointer to it.
+          //
+          if (component == components.back()) {
+            iter->second->addOp(op);
+          }
+
+          prev = iter->second;
+        }
       }
 
+      // Debug prints.
+      //
+      // llvm::outs() << "PRINTING OP LOC CHUNKS:" << "\n";
+      // for (std::string &chunk : components) {
+      //   llvm::outs() << "    " << chunk << "\n";
+      // }
+
+      // Add attr.
+      //
       if (mlir::isa<ttnn::Conv2dOp>(op)) {
         op->setAttr("added_attr_string",
                     mlir::StringAttr::get(op->getContext(),
                                           locationToStr(op->getLoc())));
       }
-      (void)op;
-    });
+    }
+
+    void markNodeAsFn(const OpClusterNode *node) {
+      std::string fullPath = node->getStr();
+      llvm::outs() << "===========> name: " << fullPath << "\n";
+      // 1. pick a name for fn
+      // 2. iterate all children and their ops, marking them all with name
+    }
+
+    int analyzeNode(const OpClusterNode *node) {
+      const std::vector<OpClusterNode *> &children = node->getChildrenNodes();
+      const std::vector<mlir::Operation *> &ops = node->getOps();
+
+      int score = 0;
+
+      // Check if leaf node.
+      //
+      if (children.size() == 0) {
+
+        // assert(ops.size() > 0); // must have ops if leaf node.
+        if (ops.size() == 0) {
+          return 0;
+        }
+
+        score = ops.size();
+
+        if (score > MIN_THRESHOLD) {
+          markNodeAsFn(node);
+          return 0; // return score of 0 to parent
+        }
+      } else {
+        // children.size() > 0
+
+        score = ops.size();
+        assert(score == 0 && "I didn't expect this, why does this happen?");
+
+        for (const OpClusterNode *child : children) {
+          score += analyzeNode(child);
+        }
+
+        if (score > MIN_THRESHOLD) {
+          markNodeAsFn(node);
+          // TODO: MARK NODE AS FUNCTION
+          return 0; // return score of 0 to parent
+        }
+      }
+
+      return score;
+    }
+
+    void runAnalysis() {
+      // Start from root.
+      //
+      analyzeNode(rootNode);
+    }
+
+  private:
+    bool isLocationValid(const mlir::Location &loc) {
+      // TODO: Actually verify location
+      return true;
+    }
+
+    bool doesExistNodeByStr(std::string str) {
+      return hashToOCNodeMap.count(hashString(str));
+    }
+
+  private:
+    static size_t hashString(std::string str) {
+      return std::hash<std::string>{}(str);
+    }
+
+    std::string locationToStr(const mlir::Location &loc) {
+      std::string locStr;
+      llvm::raw_string_ostream(locStr) << loc;
+      return locStr;
+    }
+
+    std::tuple<std::string, std::vector<std::string>, std::string>
+    splitLocationIntoChunks(mlir::Location loc) {
+      const std::string &locationStr = locationToStr(loc);
+      std::string opName;
+      std::vector<std::string> components;
+      std::string fullPath;
+
+      // Find the opening quote of the op name
+      size_t opNameStart = locationStr.find('"');
+      if (opNameStart == std::string::npos) {
+        return std::make_tuple("", std::vector<std::string>{},
+                               ""); // Explicit vector type
+      }
+
+      // Find the closing quote of the op name
+      size_t opNameEnd = locationStr.find('"', opNameStart + 1);
+      if (opNameEnd == std::string::npos) {
+        return std::make_tuple("", std::vector<std::string>{},
+                               ""); // Explicit vector type
+      }
+
+      // Extract the op name
+      opName = locationStr.substr(opNameStart + 1, opNameEnd - opNameStart - 1);
+
+      // Find the start of the location path
+      size_t pathStart = locationStr.find("(\"", opNameEnd);
+      if (pathStart == std::string::npos) {
+        return std::make_tuple(opName, std::vector<std::string>{},
+                               ""); // Explicit vector type
+      }
+
+      // Find the end of the location path.
+      size_t pathEnd = locationStr.find("\":", pathStart);
+      if (pathEnd == std::string::npos) {
+        return std::make_tuple(opName, std::vector<std::string>{},
+                               ""); // Explicit vector type
+      }
+
+      std::string pathString =
+          locationStr.substr(pathStart + 2, pathEnd - pathStart - 2);
+
+      // Split the path string into components
+      std::stringstream ss(pathString);
+      std::string component;
+      while (std::getline(ss, component, '/')) {
+        components.push_back(component);
+        if (!fullPath.empty()) {
+          fullPath += "/";
+        }
+        fullPath += component;
+      }
+
+      return std::make_tuple(opName, components, fullPath);
+    }
+  };
+
+  // Should this take in region/body instead of whole func?
+  mlir::LogicalResult annotateOps(func::FuncOp funcOp) {
+    assert(funcOp.getBlocks().size() == 1);
+
+    OpClusterTree ocTree = OpClusterTree();
+
+    funcOp->walk([&ocTree](mlir::Operation *op) { ocTree.addNode(op); });
+
+    ocTree.runAnalysis();
 
     return mlir::success();
   }
