@@ -233,7 +233,7 @@ _tx
                          OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
-    let assemblyFormat = [{ $src ($srcAffineMap^)? (`[` $srcIndices^ `]`)? `,` $dst ($dstAffineMap^)? (`[` $dstIndices^ `]`)? (`,` $optNumElems^)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`[` $srcAffineMap^ `]`)? (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstAffineMap^ `]`)? (`[` $dstIndices^ `]`)? (`,` $optNumElems^)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -359,7 +359,7 @@ def TTIR_SemaphoreWaitOp : TTIR_GenericRegionOp<"semaphore_wait", [MemoryEffects
 // TTIR Generic Region Control Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [MemoryEffects<[MemRead, MemWrite]>, ReturnLike, Terminator]> {
+def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "Yield op.";
     let description = [{
       Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
@@ -391,11 +391,13 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
 
 class TTIR_IndexOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic,
   [ Pure
+  , ConstantLike
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   ]> {
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+    let hasFolder = true;
 }
 
 def TTIR_IterIndexOp : TTIR_IndexOp<"iter_index"> {
