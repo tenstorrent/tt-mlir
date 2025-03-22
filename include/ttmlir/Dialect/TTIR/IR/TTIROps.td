@@ -1444,7 +1444,7 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape"> {
     let hasFolder = 1;
 }
 
-def TTIR_PadOp: TTIR_Op<"pad"> {
+def TTIR_PadOp: TTIR_NamedOp<"pad"> {
     let summary = "Pad op.";
     let description = [{
       Pad input tensor with tuple of padding values.
@@ -1471,6 +1471,7 @@ def TTIR_PadOp: TTIR_Op<"pad"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
                          DenseI32ArrayAttr:$padding,
                          F32Attr:$value);
 
