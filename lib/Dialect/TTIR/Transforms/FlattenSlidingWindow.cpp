@@ -68,17 +68,6 @@ public:
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto outputTy = op.getResult().getType();
 
-    // auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    // auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    // auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
-    // auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
-    // auto outChannelsAttr =
-    // rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
-
-    // auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
-    //     {static_cast<int32_t>(kernelTy.getDimSize(2)),
-    //      static_cast<int32_t>(kernelTy.getDimSize(3))});
-
     auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
     if (auto error = strideAttr.takeError()) {
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
@@ -100,18 +89,11 @@ public:
           "for the op to execute as expected.");
     }
 
-    // Padding only supports 2 values in ttnn
-    // auto reducedPaddingAttr =
-    //     rewriter.getDenseI32ArrayAttr({paddingArrayRef[0],
-    //     paddingArrayRef[1]});
-
     auto dilationAttr =
         attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
     if (auto error = dilationAttr.takeError()) {
       return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
     }
-
-    // auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
     Value flattenedInput = generateTTIRNHWFlatten(
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),

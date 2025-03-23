@@ -32,9 +32,7 @@ public:
   void performCommuteRewrite(Operation *op, ArrayRef<Value> operands,
                              ArrayRef<Operation *> users,
                              PatternRewriter &rewriter) const override {
-    // SmallVector<Operation *> users(op->getUsers());
     Operation *user = users[0];
-    // SmallVector<Value> operands(op->getOperands());
     auto oldEltwiseType = cast<RankedTensorType>(op->getResult(0).getType());
     auto newEltwiseType = cast<RankedTensorType>(user->getResult(0).getType())
                               .clone(oldEltwiseType.getElementType());

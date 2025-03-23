@@ -28,25 +28,10 @@ public:
     populateBroadcastCommutePatterns(&getContext(), commutePatterns);
     FrozenRewritePatternSet commutePatternSet(std::move(commutePatterns));
 
-    // We want to commute all TMs upwards as much as possible so they are are
-    // placed back to back Then we can erase back to back inverses. The
-    // implemented folding patterns for TransposeOp, PermuteOp. and ReshapeOp
-    // will automatically erase back to back inverses during the pass.
-    // see TTIROps.cpp for the folding patterns.
-    //
-    // Because there are multiple TMs we wish to commute and erase, we must
-    // continuously run the commute and erase patterns until the graph stops
-    // changing. This is because erasing a pair of TMs may free up a path
-    // for another pair of TMs to be erased.
-    GreedyRewriteConfig rewriteConfig = GreedyRewriteConfig();
-    bool changed = false;
-    do {
-      if (failed(applyPatternsGreedily(getOperation(), commutePatternSet,
-                                       rewriteConfig, &changed))) {
-        signalPassFailure();
-        return;
-      }
-    } while (changed);
+    if (failed(applyPatternsGreedily(getOperation(), commutePatternSet))) {
+      signalPassFailure();
+      return;
+    }
   }
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
