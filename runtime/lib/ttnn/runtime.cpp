@@ -474,6 +474,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_ToLayoutOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ToDTypeOp: {
+    tensorRef = opContext.type_as_ToDTypeOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     tensorRef = opContext.type_as_TypecastOp()->out();
     break;
@@ -488,6 +492,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     tensorRef = opContext.type_as_EmptyOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConstructTensorOp: {
+    tensorRef = opContext.type_as_ConstructTensorOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ZerosOp: {
@@ -506,8 +514,24 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_EltwiseOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::LinearOp: {
+    tensorRef = opContext.type_as_LinearOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::MatmulOp: {
     tensorRef = opContext.type_as_MatmulOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
+    tensorRef = opContext.type_as_MorehCumSumOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
+    tensorRef = opContext.type_as_ReductionArgMaxOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    tensorRef = opContext.type_as_ReductionProdOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
@@ -518,6 +542,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_EmbeddingOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
+    tensorRef = opContext.type_as_EmbeddingBackwardOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
     tensorRef = opContext.type_as_SoftmaxOp()->out();
     break;
@@ -526,8 +554,16 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_TransposeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PadOp: {
+    tensorRef = opContext.type_as_PadOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     tensorRef = opContext.type_as_ConcatOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PermuteOp: {
+    tensorRef = opContext.type_as_PermuteOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
@@ -538,8 +574,20 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_SliceOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    tensorRef = opContext.type_as_RepeatOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    tensorRef = opContext.type_as_RepeatInterleaveOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     tensorRef = opContext.type_as_Conv2dOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    tensorRef = opContext.type_as_ConvTranspose2dOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
@@ -550,8 +598,32 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    tensorRef = opContext.type_as_ReduceScatterOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
+    tensorRef = opContext.type_as_CollectivePermuteOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    tensorRef = opContext.type_as_MeshShardOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    tensorRef = opContext.type_as_ArangeOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    tensorRef = opContext.type_as_UpsampleOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::CpuOp: {
     tensorRef = opContext.type_as_CpuOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConstantOp: {
+    tensorRef = opContext.type_as_ConstantOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::GetDeviceOp:

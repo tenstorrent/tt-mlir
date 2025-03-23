@@ -1275,14 +1275,15 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let hasVerifier = 1;
 }
 
-def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
+def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
       Applies a 2D max pooling over an input signal composed of several input planes.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_Device:$device,
                          SI32Attr:$batch_size,
                          SI32Attr:$input_height,
                          SI32Attr:$input_width,
@@ -1338,6 +1339,21 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
                          TTNN_LayoutAttr:$layout,
                          TTNN_Device:$device,
                          TTNN_MemoryConfigAttr:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_ConstructTensorOp : TTNN_Op<"construct_tensor"> {
+    let summary = "Construct empty tensor on host op.";
+    let description = [{
+      Invoke tensor ctor to create an empty tensor on host.
+    }];
+
+    let arguments = (ins TTNN_ShapeAttr:$shape,
+                         TT_DataTypeAttr:$dtype,
+                         TTNN_LayoutAttr:$layout);
 
     let results = (outs AnyRankedTensor:$result);
 

@@ -5,7 +5,7 @@
 import os
 import inspect
 import torch
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from ttmlir.dialects import func
 from ttmlir.ir import *
@@ -59,6 +59,7 @@ def compile_as_mlir_module(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[torch.dtype]] = None,
+    mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = False,
 ):
     """
@@ -131,6 +132,11 @@ def compile_as_mlir_module(
     # `test_fn` so the user can use it to build ops.
     builder = TTIRBuilder(ctx, loc)
 
+    # deliver mesh_shape to TTIRBuilder
+    # TTIR itself does not require mesh_shape information; however, it is needed to generate the golden tensor.
+    if mesh_shape is not None:
+        builder.set_mesh_shape(mesh_shape)
+
     # Default to all f32s
     if inputs_types is None:
         inputs_types = [torch.float32] * len(inputs_shapes)
@@ -169,6 +175,7 @@ def ttir_to_ttnn(
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
+    mesh_shape: Optional[Tuple[int, int]] = None,
 ):
     """
     Converts TTIR module to TTNN module and optionally dumps to file.
@@ -192,9 +199,16 @@ def ttir_to_ttnn(
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
+    # Generate option string
+    options = []
+    if system_desc_path:
+        options.append(f"system-desc-path={system_desc_path}")
+    if mesh_shape and len(mesh_shape) == 2:
+        options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+
     # Now, pass it through the TTIR to TTNN pipeline. Module gets
     # modified in place.
-    ttir_to_ttnn_backend_pipeline(module, f"system-desc-path={system_desc_path}")
+    ttir_to_ttnn_backend_pipeline(module, " ".join(options))
 
     print("`ttir_to_ttnn_backend_pipeline` passed successfully.")
 
@@ -300,6 +314,7 @@ def compile_to_flatbuffer(
     inputs_types: Optional[List[torch.dtype]] = None,
     test_name: Optional[str] = None,
     targets: List[str] = ["ttmetal", "ttnn"],
+    mesh_shape: Tuple[int, int] = None,
     module_dump: bool = False,
 ):
     """
@@ -331,6 +346,11 @@ def compile_to_flatbuffer(
         A list that can only contain the following strings: 'ttnn' or
         'ttmetal'. Inclusion in this list will signal this decorator to execute
         their respective backend paths. Either, neither, or both are valid inputs.
+
+    mesh_shape: Tuple[int, int]
+        A list that contains shape of the mesh to be applied on ttir to ttnn
+        conversion path.
+
 
     module_dump: bool
         Set to True to print out generated TTIR MLIR module.
@@ -375,7 +395,7 @@ def compile_to_flatbuffer(
 
             if "ttnn" in targets:
                 module, builder = compile_as_mlir_module(
-                    test_fn, inputs_shapes, inputs_types
+                    test_fn, inputs_shapes, inputs_types, mesh_shape
                 )
 
                 if module_dump:
@@ -384,7 +404,9 @@ def compile_to_flatbuffer(
 
                 module_logger = MLIRModuleLogger()
                 module_logger.attach_context(module.context)
-                module = ttir_to_ttnn(module, module_dump, test_base + "_ttnn.mlir")
+                module = ttir_to_ttnn(
+                    module, module_dump, test_base + "_ttnn.mlir", mesh_shape=mesh_shape
+                )
                 ttnn_to_flatbuffer(
                     module, builder, test_base + ".ttnn", module_logger.module_log
                 )

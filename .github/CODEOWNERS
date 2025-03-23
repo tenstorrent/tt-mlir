@@ -19,6 +19,7 @@
 /include/ttmlir-c/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /lib/CAPI/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
 /python/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
+/python/pykernel/ @vtangTT @xanderchin
 
 # StableHLO Conversion
 /include/ttmlir/Conversion/ArithToStableHLO/ @mrakitaTT @mmanzoorTT @wooseokTT @azecevicTT
@@ -119,10 +120,10 @@
 /runtime/tools/ @tapspatel @ctodTT
 
 # TTIRBuilder
-/python/test_infra @ctodTT
+/python/test_infra @ctodTT @tapspatel
 
 # tt-explorer
-/tools/explorer/ @odjuricicTT @tt-mpantic @sdjordjevicTT @vprajapati-tt @vcanicTT
+/tools/explorer/ @odjuricicTT @tt-mpantic @sdjordjevicTT @vprajapati-tt @vcanicTT @tapspatel
 
 # ttnn-standalone
 /tools/ttnn-standalone @svuckovicTT @mtopalovicTT @sdjordjevicTT @azecevicTT @jserbedzijaTT

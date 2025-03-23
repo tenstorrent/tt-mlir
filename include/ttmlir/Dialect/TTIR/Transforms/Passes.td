@@ -216,6 +216,18 @@ def TTIRConstantAsFill: Pass<"ttir-constant-as-fill", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRPrepareTensorsForBufferization : Pass<"ttir-prepare-tensors-for-bufferization", "::mlir::ModuleOp"> {
+  let summary = "Prepare tensor shapes for bufferization.";
+  let description = [{
+    Bufferization has a constraint that the tensor -> buffer conversion must maintain the
+    same shape and rank. Since we use the tensor encoding to express shape collapse this
+    becomes problematic because the tensor's shape will rarely match that of the collapsed
+    shape. This function of this pass is to normalize all tensor shapes, such that
+    all tensors inherit the shape of their layout encoding so that they can 1-1 match the
+    bufferized memref. This pass is required to run before bufferization.
+  }];
+}
+
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   let summary = "Insert allocate/deallocate ops for tensors.";
   let description = [{
@@ -227,6 +239,36 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     Currently the allocator is built into the pass itself, but in the future
     this should be replaced with an analysis pass that can make global allocation
     decisions, followed by this pass that mechanically applies those decisions.
+  }];
+}
+
+def TTIRPlaceholderAllocate : Pass<"ttir-placeholder-allocate", "::mlir::ModuleOp"> {
+  let summary = "Placeholder for the eventual full allocate pass.";
+  let description = [{
+    Currently this pass only does some simple heuristics for forming stream_layout ops
+    for the situations that require it for correctness.  In the future, this pass will
+    be replaced with a full allocate pass that has to do more sophisticated analysis
+    for inserting streams on top of actually allocating.
+
+    Converts generic arguments that require a stream (i.e. local storage
+    buffer for circular buffer):
+
+    ```mlir
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>
+    %0 = "ttir.view_layout"(%arg0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
+    %1 = "ttir.view_layout"(%arg1) : (memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>) -> memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>
+    "ttir.generic"(%0, %1, %alloc)
+    ```
+
+    Into:
+    ```mlir
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x8x!tt.tile<32x32, f32>, #l1_>
+    %storage_0 = memref.alloc() : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
+    %stream = "ttir.stream_layout"(%arg0, %storage_0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
+    %storage_1 = memref.alloc() : memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>
+    %stream_2 = "ttir.stream_layout"(%arg1, %storage_1) : (memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>, memref<4x4x6x8x!tt.tile<32x32, f32>, #l1_>) -> memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #l1_>
+    "ttir.generic"(%stream, %stream_2, %alloc)
+    ```
   }];
 }
 

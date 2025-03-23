@@ -1448,10 +1448,6 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return op->emitOpError("Input and output types must be the same");
     }
 
-    if (inputTy.getShape() != outputTy.getShape()) {
-      return op->emitOpError("Input and output shapes must be the same");
-    }
-
     if (!inputTy.getEncoding() ||
         !mlir::isa<mlir::tt::MetalLayoutAttr>(inputTy.getEncoding())) {
       // If the input tensor does not have a layout, we can early exit.
@@ -1574,16 +1570,12 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   return components;
 }
 
-::mlir::LogicalResult
-mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
-                                         mlir::PatternRewriter &rewriter) {
-  // Check if input is an empty tensor.
-  if (auto emptyOp = op.getInput().getDefiningOp<tensor::EmptyOp>()) {
-    // Since the input is empty, we can just return the output tensor.
-    rewriter.replaceOp(op, {op.getOutput()});
+mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
+    FoldAdaptor, llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  if (auto emptyOp = getInput().getDefiningOp<tensor::EmptyOp>()) {
+    results.push_back(getOutput());
     return mlir::success();
   }
-
   return mlir::failure();
 }
 
@@ -1622,6 +1614,32 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
 //===----------------------------------------------------------------------===//
 // StreamLayoutOp
 //===----------------------------------------------------------------------===//
+
+void mlir::tt::ttir::StreamLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  patterns.add(+[](StreamLayoutOp op, mlir::PatternRewriter &rewriter) {
+    ViewLayoutOp viewOp = op.getInput().getDefiningOp<ViewLayoutOp>();
+    if (!viewOp) {
+      return failure();
+    }
+
+    auto viewMemref = mlir::dyn_cast<MemRefType>(viewOp.getResult().getType());
+    if (!viewMemref) {
+      return failure();
+    }
+
+    auto currentResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
+    auto streamAttr = rewriter.getAttr<StreamLayoutAttr>(
+        viewMemref.getLayout().getAffineMap().compose(
+            currentResultMemref.getLayout().getAffineMap()));
+    auto newMemref = MemRefType::get(
+        currentResultMemref.getShape(), currentResultMemref.getElementType(),
+        streamAttr, currentResultMemref.getMemorySpace());
+    rewriter.replaceOpWithNewOp<StreamLayoutOp>(
+        op, newMemref, viewOp.getInput(), op.getStorage());
+    return success();
+  });
+}
 
 void mlir::tt::ttir::StreamLayoutOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {

@@ -373,13 +373,13 @@ mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap)
 Note: ttrt is not needed to implement this callback feature. It aims to provide an example of how this callback feature can be implemented for golden application.
 
 ## FAQ
-Flatbuffer version does not match ttrt version!
+### Flatbuffer version does not match ttrt version!
   - ttrt and flatbuffer have strict versioning that is checked during ttrt execution. You will have to generate a flatbuffer using the same version of ttrt (or vice versa). This mean you might have to build on the same branch on which the flatbuffer was generated or regenerate the flatbuffer using your current build.
 
-System desc does not match flatbuffer!
+### System desc does not match flatbuffer!
   - flatbuffers are compiled using a specific system desc (or default values if no system desc is provided). During runtime, the flatbuffer system desc is checked against the current system to ensure the system being run on supports the flatbuffer that was compiled. If you get this error, you will have to regenerate the flatbuffer using the system you want to run on. See generate a flatbuffer file from compiler section on how to do this.
 
-I just want to test and push my commit! What do I do!
+### I just want to test and push my commit! What do I do!
   - follow these steps (on both n150 and n300)
 ```bash
 1. Build ttmlir (sample instructions - subject to change)
@@ -404,4 +404,46 @@ ttrt run build/test/ttmlir/Silicon
 
 7. (Optional) Run perf test cases
 ttrt perf build/test/ttmlir/Silicon
+```
+
+### TTRT yields an ambiguous segmentation fault when I try to read/run a .ttnn file!
+
+The `ttrt` toolchain has specific behaviors and requirements that can lead to build and runtime issues, particularly when dealing with version mismatches or out-of-sync dependencies.
+
+#### Version Mismatch Due to Local Commits
+The `ttrt` toolchain verifies whether the current system configuration matches the model’s compilation environment. This verification involves tracking the number of commits since the last synchronization. When local commits are made in your branch, it may trigger a version mismatch between the compiled model and the current environment. This mismatch may not be handled properly by the runtime (`rt`), leading to potential issues.
+
+To resolve issues stemming from these synchronization problems, follow this workflow:
+
+1. **Incremental build**
+'''<make some changes>
+commit
+cmake --build build
+cmake --build build -- ttrt
+(note you need to generate system_desc and flatbuffer again once you do this)
+'''
+
+This incremental build should be sufficient. If it does not resolve the error, please file an issue and proceed with the following steps for now.
+
+2. **Clear the existing build and dependencies:**
+```bash
+   rm -rf build third_party/tt-metal
+```
+
+This ensures that all previous build artifacts and dependencies are removed, preventing conflicts or stale files from affecting the new build.
+
+3. **Rebuild from scratch:**
+Once the build directories are cleared, rebuild the project from the ground up. This ensures that the build process incorporates all the necessary components without any remnants of previous builds. [Build Instructions](./build.md#build)
+
+4. **Switch build configurations:**
+If switching from a Debug to a Release build (or vice versa), ensure that you clean the build environment before transitioning. This avoids inconsistencies between build configurations and potential issues with optimization levels or debugging symbols.
+
+5. **Re-acquire the IRD:**
+By relinquishing and re-acquiring the IRD, you ensure that the correct toolchain is used for the new build. This step ensures synchronization between the model and the toolchain.
+
+6. **Enable Debug Logging for tt-metal:**
+To gain more insight into potential issues, enable debugging by setting the TT_METAL_LOGGER_LEVEL to DEBUG. This will provide detailed logs, which can help in troubleshooting build or runtime issues.
+
+```bash
+   export TT_METAL_LOGGER_LEVEL=DEBUG
 ```

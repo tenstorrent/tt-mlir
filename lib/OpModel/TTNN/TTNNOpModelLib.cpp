@@ -3,13 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.h"
-#include <type_traits>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+
 #include "Conversion.hpp"
 #include "MetalHeaders.h"
 #include "SingletonDeviceContext.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -19,9 +18,13 @@
 #include "mlir/IR/Types.h"
 #include "llvm/Support/Casting.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
+#include <type_traits>
+
 #endif // TTMLIR_ENABLE_OPMODEL
 
 namespace mlir::tt::op_model::ttnn {
@@ -977,7 +980,7 @@ Conv2dOpInterface::getOpConstraints(
          llvm::ArrayRef<int64_t> outputShape,
          mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
         // open device device, will close it at the end of function
-        ::tt::tt_metal::v0::IDevice *device =
+        ::tt::tt_metal::IDevice *device =
             SingletonDeviceContext::getInstance().getDevice();
 
         // prepare io specs
@@ -999,11 +1002,11 @@ Conv2dOpInterface::getOpConstraints(
         return ::ttnn::graph::query_op_constraints(
             ::ttnn::conv2d, device, inputSpec, weightSpec, device, in_channels,
             out_channels, batch_size, input_height, input_width,
-            conversion::convertArrayRefToArray(kernel_size),
-            conversion::convertArrayRefToArray(stride),
-            conversion::convertArrayRefToArray(padding),
-            conversion::convertArrayRefToArray(dilation), groups, biasTensor,
-            conv2dConfigConverted, std::nullopt,
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+            groups, biasTensor, conv2dConfigConverted, std::nullopt,
             outputSpec.tensor_layout().get_memory_config());
       };
 
@@ -1012,6 +1015,65 @@ Conv2dOpInterface::getOpConstraints(
       weightLayout, biasShape, biasLayout, in_channels, out_channels,
       batch_size, input_height, input_width, kernel_size, stride, padding,
       dilation, groups, conv2dConfig, outputShape, outputLayout);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// MaxPool2D
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+MaxPool2DInterface::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
+    int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
+    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    bool ceilMode, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto maxPool2DQuery =
+      [](llvm::ArrayRef<int64_t> inputShape,
+         mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
+         int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
+         llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+         llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+         bool ceilMode, llvm::ArrayRef<int64_t> outputShape,
+         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+        // open device device, will close it at the end of function
+        ::tt::tt_metal::IDevice *device =
+            SingletonDeviceContext::getInstance().getDevice();
+
+        // convert all signed integers to unsigned integers
+        uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
+        uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
+
+        uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
+
+        uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
+
+        // prepare io specs
+        const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
+            device, std::make_tuple(inputShape, inputLayout),
+            std::make_tuple(outputShape, outputLayout));
+
+        return ::ttnn::graph::query_op_constraints(
+            ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
+            inputWidthU, inputChannelsU,
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+            outputSpec.tensor_layout().get_memory_config(),
+            std::nullopt /* applied_shard_scheme */, ceilMode);
+      };
+
+  return operation::getOpConstraints(
+      "MaxPool2DInterface", maxPool2DQuery, inputShape, inputLayout, batchSize,
+      inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
+      dilation, ceilMode, outputShape, outputLayout);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -1049,7 +1111,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
          llvm::ArrayRef<int64_t> outputShape,
          mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
         // open device device, will close it at the end of function
-        ::tt::tt_metal::v0::IDevice *device =
+        ::tt::tt_metal::IDevice *device =
             SingletonDeviceContext::getInstance().getDevice();
 
         // prepare io specs
@@ -1071,11 +1133,11 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
         return ::ttnn::graph::query_op_runtime(
             ::ttnn::conv2d, device, inputSpec, weightSpec, device, in_channels,
             out_channels, batch_size, input_height, input_width,
-            conversion::convertArrayRefToArray(kernel_size),
-            conversion::convertArrayRefToArray(stride),
-            conversion::convertArrayRefToArray(padding),
-            conversion::convertArrayRefToArray(dilation), groups, biasTensor,
-            conv2dConfigConverted, std::nullopt,
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+            groups, biasTensor, conv2dConfigConverted, std::nullopt,
             outputSpec.tensor_layout().get_memory_config());
       };
 
@@ -1084,6 +1146,60 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
       weightLayout, biasShape, biasLayout, in_channels, out_channels,
       batch_size, input_height, input_width, kernel_size, stride, padding,
       dilation, groups, conv2dConfig, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> MaxPool2DInterface::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
+    int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
+    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    bool ceilMode, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto maxPool2DQuery =
+      [](llvm::ArrayRef<int64_t> inputShape,
+         mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
+         int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
+         llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+         llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+         bool ceilMode, llvm::ArrayRef<int64_t> outputShape,
+         mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+        // open device device, will close it at the end of function
+        ::tt::tt_metal::IDevice *device =
+            SingletonDeviceContext::getInstance().getDevice();
+
+        // convert all signed integers to unsigned integers
+        uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
+        uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
+
+        uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
+
+        uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
+
+        // prepare io specs
+        const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
+            device, std::make_tuple(inputShape, inputLayout),
+            std::make_tuple(outputShape, outputLayout));
+
+        return ::ttnn::graph::query_op_runtime(
+            ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
+            inputWidthU, inputChannelsU,
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+            conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+            outputSpec.tensor_layout().get_memory_config(),
+            std::nullopt /* applied_shard_scheme */, ceilMode);
+      };
+
+  return operation::getOpRuntime(
+      "MaxPool2DInterface", maxPool2DQuery, inputShape, inputLayout, batchSize,
+      inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
+      dilation, ceilMode, outputShape, outputLayout);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

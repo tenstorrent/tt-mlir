@@ -551,6 +551,21 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ConstructTensorOp>
+createOp(FlatbufferObjectCache &cache, ConstructTensorOp op) {
+  ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+  ::tt::target::TensorLayout layout =
+      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
+
+  auto output = op.getResult();
+
+  return ::tt::target::ttnn::CreateConstructTensorOp(
+      *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
+      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -1371,12 +1386,10 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
 
-  auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateMaxPool2dOp(
-      *cache.fbb, in, out, cache.at<::tt::target::DeviceRef>(device),
-      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), kernelSize, stride, padding, dilation,
-      op.getCeilMode());
+      *cache.fbb, in, out, op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
+      dilation, op.getCeilMode());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
@@ -1453,6 +1466,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
     return createOperation(cache, createOp(cache, emptyOp), debugString,
                            locInfo);
+  }
+  if (auto constructTensorOp = dyn_cast<ConstructTensorOp>(op);
+      constructTensorOp) {
+    return createOperation(cache, createOp(cache, constructTensorOp),
+                           debugString, locInfo);
   }
   if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
     return createOperation(cache, createOp(cache, fullOp), debugString,
