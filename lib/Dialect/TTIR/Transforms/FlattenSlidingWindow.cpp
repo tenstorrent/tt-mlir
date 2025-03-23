@@ -68,33 +68,6 @@ public:
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto outputTy = op.getResult().getType();
 
-    auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
-    if (auto error = strideAttr.takeError()) {
-      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
-    }
-
-    auto paddingAttr =
-        attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter, 4);
-    if (auto error = paddingAttr.takeError()) {
-      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
-    }
-
-    auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[2] ||
-        paddingArrayRef[1] != paddingArrayRef[3]) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports padding height/width attributes. Thus, "
-          "padding_top/padding_left must equal padding_bottom/padding_right "
-          "for the op to execute as expected.");
-    }
-
-    auto dilationAttr =
-        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
-    if (auto error = dilationAttr.takeError()) {
-      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
-    }
-
     Value flattenedInput = generateTTIRNHWFlatten(
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
         rewriter);
@@ -128,40 +101,6 @@ public:
     rewriter.replaceOp(op, output);
     return success();
   }
-
-private:
-  llvm::Expected<DenseI32ArrayAttr>
-  attrToDenseI32ArrayAttr(mlir::Attribute attr,
-                          ConversionPatternRewriter &rewriter,
-                          uint32_t elementCount = 2) const {
-    switch (elementCount) {
-    case 2: {
-      // Handles attributes requiring 2 spatial dimensions (e.g., stride,
-      // dilation). Converts the attribute into a pair of integers.
-      auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
-      if (auto error = pair.takeError()) {
-        return std::move(error);
-      }
-      return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
-    }
-    case 4: {
-      // Handles attributes requiring 4 spatial dimensions (e.g., padding in
-      // this case). Converts the attribute into a quadruple of integers.
-      auto quadruple = ttmlir::utils::getQuadrupleOfInteger<int32_t>(attr);
-      if (auto error = quadruple.takeError()) {
-        return std::move(error);
-      }
-      return rewriter.getDenseI32ArrayAttr(
-          {std::get<0>(*quadruple), std::get<1>(*quadruple),
-           std::get<2>(*quadruple), std::get<3>(*quadruple)});
-    }
-    default: {
-      return llvm::createStringError(std::errc::invalid_argument,
-                                     "Unsupported element count: %d",
-                                     elementCount);
-    }
-    }
-  }
 };
 } // namespace
 
@@ -174,13 +113,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    assert(adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
-           "TTNN max_pool2d does not support padding top/bottom/left/right "
-           "separately");
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
-           "TTNN max_pool2d does not support padding top/bottom/left/right "
-           "separately");
 
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
 
