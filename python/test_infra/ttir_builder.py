@@ -1400,7 +1400,7 @@ class TTIRBuilder:
         )
 
     def arange(
-        self, result=Operand, start=int, end=int, step=int, arange_dimension=int
+        self, result:Operand, start:int, end:int, step:int, arange_dimension:int
     ) -> OpView:
         single_dim_tensor = torch.arange(
             start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
