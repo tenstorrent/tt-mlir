@@ -6,11 +6,8 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-
-#include <numeric>
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICHWTHREADSELECTION
@@ -73,8 +70,6 @@ public:
       newGeneric.getRegion(regionIndex++).takeBody(region);
     }
 
-    outputBlock->dump();
-    newGeneric.getRegions().back().front().dump();
     Block *newBlock = &newGeneric.getRegions().back().front();
     rewriter.mergeBlocks(outputBlock, newBlock, newBlock->getArguments());
     rewriter.replaceOp(op, newGeneric.getResults());
@@ -96,13 +91,11 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRGenericMoveTrivialOutputThreadToComputeRewritePattern>(
         &getContext());
-    if (failed(walkAndApplyPatterns(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-    }
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
 
-    ModuleOp module = getOperation();
+    ModuleOp moduleOp = getOperation();
     auto systemDesc =
-        module->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
+        moduleOp->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
     auto chipDesc = systemDesc.getChipDescs().front();
     getOperation().walk([&](GenericOp op) {
       // assert that the op has a valid HW thread selection
