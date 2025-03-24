@@ -162,6 +162,7 @@ PYBIND11_MODULE(_C, m) {
         py::arg("l1_small_size") = py::none(),
         py::arg("dispatch_core_type") = py::none(),
         py::arg("enable_async_ttnn") = py::none(),
+        py::arg("enable_program_cache") = py::none(),
         "Open a mesh of devices for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
@@ -287,6 +288,9 @@ PYBIND11_MODULE(_C, m) {
   testing.def("get_host_row_major_layout",
               &tt::runtime::ttnn::test::getHostRowMajorLayout, py::arg("dtype"),
               "Get host row major layout");
+  testing.def("is_program_cache_enabled",
+              &tt::runtime::ttnn::test::isProgramCacheEnabled,
+              py::arg("device"), "Check if program cache is enabled");
   testing.def("open_so", &tt::runtime::ttnn::test::openSo, py::arg("path"),
               "Open a shared object file");
   testing.def("run_so_program", &tt::runtime::ttnn::test::runSoProgram,
