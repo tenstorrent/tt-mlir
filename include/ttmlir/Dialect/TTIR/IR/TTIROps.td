@@ -1881,8 +1881,6 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
                        BoolAttr:$indices_are_sorted,
                        BoolAttr:$unique_indices);
 
-  let regions = (region SizedRegion<1>:$update_computation);
-
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;

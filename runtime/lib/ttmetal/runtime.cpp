@@ -84,7 +84,8 @@ size_t getNumAvailableDevices() {
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
                   std::optional<size_t> l1SmallSize,
                   std::optional<DispatchCoreType> dispatchCoreType,
-                  [[maybe_unused]] std::optional<bool> enableAsyncTTNN) {
+                  [[maybe_unused]] std::optional<bool> enableAsyncTTNN,
+                  [[maybe_unused]] std::optional<bool> enableProgramCache) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
 
   ::tt::tt_metal::DispatchCoreType type =
