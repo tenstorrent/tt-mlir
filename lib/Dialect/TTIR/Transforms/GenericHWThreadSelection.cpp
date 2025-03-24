@@ -67,7 +67,8 @@ public:
       if (region.getRegionNumber() == outputOperandsIndex) {
         continue;
       }
-      newGeneric.getRegion(regionIndex++).takeBody(region);
+      rewriter.modifyOpInPlace(
+          op, [&] { newGeneric.getRegion(regionIndex++).takeBody(region); });
     }
 
     Block *newBlock = &newGeneric.getRegions().back().front();
