@@ -2516,36 +2516,6 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 // ScatterOp
 //===----------------------------------------------------------------------===//
 
-bool matchSimpleBlock(mlir::Region &region) {
-  if (!region.hasOneBlock()) {
-    return false;
-  }
-  mlir::Block &block = region.front();
-  if (block.getNumArguments() != 2) {
-    return false;
-  }
-  auto argType1 =
-      mlir::cast<mlir::RankedTensorType>(block.getArgument(0).getType());
-  auto argType2 =
-      mlir::cast<mlir::RankedTensorType>(block.getArgument(1).getType());
-  if (!argType1 || !argType2) {
-    return false;
-  }
-  if (block.getOperations().size() != 1) {
-    return false;
-  }
-  mlir::tt::ttir::YieldOp returnOp =
-      mlir::cast<mlir::tt::ttir::YieldOp>(&block.front());
-  if (!returnOp) {
-    return false;
-  }
-  if (returnOp.getNumOperands() != 1 ||
-      returnOp.getOperand(0) != block.getArgument(1)) {
-    return false;
-  }
-  return true;
-}
-
 ::mlir::LogicalResult mlir::tt::ttir::ScatterOp::verify() {
 
   ArrayRef<int64_t> inputShape =

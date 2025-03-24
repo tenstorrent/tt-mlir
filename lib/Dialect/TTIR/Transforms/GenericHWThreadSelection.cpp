@@ -96,8 +96,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRGenericMoveTrivialOutputThreadToComputeRewritePattern>(
         &getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
+    if (failed(walkAndApplyPatterns(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
 
