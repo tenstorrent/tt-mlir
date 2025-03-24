@@ -24,35 +24,25 @@ namespace mlir::tt::ttir {
 
 namespace {
 
-ttir::ReshapeOp
-generateTTIRReshape(mlir::TypedValue<mlir::RankedTensorType> input,
-                    ArrayRef<int64_t> newShape, PatternRewriter &rewriter) {
-  // With reshape op, the output layout changes due to new output shape, hence
-  // we need to create a new output layout attribute with the new shape.
-  RankedTensorType inputType = input.getType();
+RankedTensorType getNHWFlattenedType(RankedTensorType unflattenedOutputType) {
+  llvm::ArrayRef<int64_t> outputShape = unflattenedOutputType.getShape();
+  llvm::SmallVector<int64_t, 4> flattenedOutputShape = {
+      1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
 
-  // Create a new output type for reshape operation with new shape and new
-  // output layout.
-  RankedTensorType outputType =
-      RankedTensorType::get(newShape, inputType.getElementType());
-
-  llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-
-  return ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
-      rewriter, input.getLoc(), outputType, input,
-      rewriter.getI32ArrayAttr(newShapeI32));
+  return RankedTensorType::get(flattenedOutputShape,
+                               unflattenedOutputType.getElementType());
 }
 
-ttir::ReshapeOp
-generateTTIRNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
-                       PatternRewriter &rewriter) {
-  llvm::ArrayRef<int64_t> shape = input.getType().getShape();
-
-  assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
-
-  llvm::SmallVector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
-                                         shape[3]};
-  return generateTTIRReshape(input, newShape, rewriter);
+ttir::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
+                                RankedTensorType outputType,
+                                PatternRewriter &rewriter) {
+  // We cannot pass the shape directly as the attribute as ttir::ReshapeOp
+  // requires that the shape attribute is a 32-bit integer array attribute.
+  // Construction the SmallVector allows us to cast it.
+  return ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+      rewriter, input.getLoc(), outputType, input,
+      rewriter.getI32ArrayAttr(SmallVector<int32_t>(
+          outputType.getShape().begin(), outputType.getShape().end())));
 }
 
 class ConvertToFlattenedConv2dPattern
@@ -64,35 +54,24 @@ public:
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    auto outputTy = op.getResult().getType();
+    auto inputType = op.getInput().getType();
+    auto outputType = op.getResult().getType();
 
-    Value flattenedInput = generateTTIRNHWFlatten(
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter);
-
-    // Convolution in ttnn returns a tensor in a flattened shape
-    // (1 x 1 x N * H * W x C)
-    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
-    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
-
-    outputTy = mlir::RankedTensorType::get(flattenedOutputShape,
-                                           outputTy.getElementType(),
-                                           outputTy.getEncoding());
+    Value flattenedInput = generateReshape(
+        op.getInput(), getNHWFlattenedType(inputType), rewriter);
 
     auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
-        getContext(), inputTy.getDimSize(3), outputTy.getDimSize(3),
-        inputTy.getDimSize(0), inputTy.getDimSize(1), inputTy.getDimSize(2));
+        getContext(), inputType.getDimSize(3), outputType.getDimSize(3),
+        inputType.getDimSize(0), inputType.getDimSize(1),
+        inputType.getDimSize(2));
 
     auto newConv = ttmlir::utils::createDPSOp<ttir::Conv2dOp>(
-        rewriter, op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), adaptor.getStride(), adaptor.getPadding(),
-        adaptor.getDilation(), adaptor.getGroups(), flattenedCompatInfoAttr);
+        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
+        adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
+        adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
+        flattenedCompatInfoAttr);
 
-    Value output = generateTTIRReshape(newConv, outputShape, rewriter);
+    Value output = generateReshape(newConv, outputType, rewriter);
 
     rewriter.replaceOp(op, output);
     return success();
@@ -109,22 +88,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-
-    Value flattenedInput = generateTTIRNHWFlatten(
-        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter);
-
+    auto inputType = op.getInput().getType();
     auto outputType = op.getResult().getType();
-    llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
 
-    llvm::SmallVector<int64_t> flattenedOutputShape{
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-
-    auto newOutputType = mlir::RankedTensorType::get(
-        flattenedOutputShape, outputType.getElementType(),
-        outputType.getEncoding());
+    Value flattenedInput = generateReshape(
+        op.getInput(), getNHWFlattenedType(inputType), rewriter);
 
     auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
         getContext(), inputType.getDimSize(3), outputType.getDimSize(3),
@@ -132,7 +100,7 @@ public:
         inputType.getDimSize(2));
 
     auto newPool = ttmlir::utils::createDPSOp<ttir::MaxPool2dOp>(
-        rewriter, op.getLoc(), newOutputType, flattenedInput,
+        rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
         adaptor.getKernelHeight(), adaptor.getKernelWidth(),
         adaptor.getStrideHeight(), adaptor.getStrideWidth(),
         adaptor.getDilationHeight(), adaptor.getDilationWidth(),
@@ -140,10 +108,9 @@ public:
         adaptor.getPaddingRight(), adaptor.getPaddingTop(),
         adaptor.getPaddingBottom(), flattenedCompatInfoAttr);
 
-    Value output = generateTTIRReshape(newPool, outputShape, rewriter);
+    Value output = generateReshape(newPool, outputType, rewriter);
 
     rewriter.replaceOp(op, output);
-
     return success();
   }
 };

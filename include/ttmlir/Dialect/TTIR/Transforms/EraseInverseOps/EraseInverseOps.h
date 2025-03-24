@@ -6,52 +6,72 @@
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include <llvm/Support/LogicalResult.h>
+#include <mlir/IR/OpDefinition.h>
+#include <mlir/IR/PatternMatch.h>
 
 namespace mlir::tt::ttir {
 
-template <typename TMOpType, typename CommutableOpType,
-          typename = std::enable_if_t<TMOpType::template hasTrait<TM::Trait>()>>
+template <typename TMOpType, typename CommutableOpType = Operation *,
+          class CommutableOpInterface = TTIROp,
+          typename = std::enable_if_t<
+              TMOpType::template hasTrait<TensorManipulation::Trait>()>>
 class TTIRCommuteRewritePattern : public RewritePattern {
 public:
   TTIRCommuteRewritePattern(MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
 
-  LogicalResult match(Operation *op) const final {
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const final {
     CommutableOpType commutableOp = dyn_cast_or_null<CommutableOpType>(op);
     if (!commutableOp) {
       return failure();
     }
-    // This operation cannot have a TM above it if it has no users
+
+    if (!op->hasTrait<CommutableOpInterface::template Trait>()) {
+      return failure();
+    }
+
+    // This operation cannot have a TM below it if it has no users
     if (op->getUsers().empty()) {
       return failure();
     }
 
     auto operands = SmallVector<Value>(commutableOp->getOperands());
     auto users = SmallVector<Operation *>(commutableOp->getUsers());
-    if (failed(matchCommutePattern(commutableOp, operands, users))) {
+
+    // We need one of the users to be a TM that we can and should commute in
+    // order to match.
+    TMOpType tmUser = nullptr;
+    for (Operation *user : users) {
+      if (isa<TMOpType>(user)) {
+        if (failed(matchCommutePattern(commutableOp, cast<TMOpType>(user)))) {
+          continue;
+        }
+
+        if (failed(shouldCommute(commutableOp, cast<TMOpType>(user)))) {
+          continue;
+        }
+
+        tmUser = cast<TMOpType>(user);
+        break;
+      }
+    }
+
+    if (!tmUser) {
       return failure();
     }
 
-    if (failed(shouldCommute(commutableOp, operands, users))) {
-      return failure();
-    }
-
+    // We have found a user that we can and should commute above `op`
+    performCommuteRewrite(commutableOp, tmUser, rewriter);
     return success();
   }
 
-  void rewrite(Operation *op, PatternRewriter &rewriter) const final {
-    auto operands = SmallVector<Value>(op->getOperands());
-    auto users = SmallVector<Operation *>(op->getUsers());
-    return performCommuteRewrite(cast<CommutableOpType>(op), operands, users,
-                                 rewriter);
-  }
-
 private:
-  // This should return `success()` if at least one user of `op` is a `TMOpType`
-  // and that `TM` is able to commute above `op`.
-  LogicalResult virtual matchCommutePattern(
-      CommutableOpType op, ArrayRef<Value> operands,
-      ArrayRef<Operation *> users) const = 0;
+  // This should return `success()` if `tmUser` can be commuted above `op`.
+  LogicalResult virtual matchCommutePattern(CommutableOpType op,
+                                            TMOpType tmUser) const = 0;
 
   // This should return `success()` if there is a user of `op` that we should
   // commute above `op`. Note that the difference between this method and
@@ -59,12 +79,9 @@ private:
   // commuting is beneficial, while `matchCommutePattern` should be used to
   // determine if commuting is possible.
   LogicalResult virtual shouldCommute(CommutableOpType op,
-                                      ArrayRef<Value> operands,
-                                      ArrayRef<Operation *> users) const = 0;
+                                      TMOpType tmUser) const = 0;
 
-  void virtual performCommuteRewrite(CommutableOpType op,
-                                     ArrayRef<Value> operands,
-                                     ArrayRef<Operation *> users,
+  void virtual performCommuteRewrite(CommutableOpType op, TMOpType tmUser,
                                      PatternRewriter &rewriter) const = 0;
 };
 

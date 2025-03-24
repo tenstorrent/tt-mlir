@@ -2,10 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "ttmlir/Utils.h"
+#include <llvm/ADT/SmallVector.h>
 #include <mlir/IR/BuiltinTypes.h>
 
 namespace mlir::tt::ttir {
@@ -92,14 +94,12 @@ public:
   using TTIRCommuteRewritePattern<ttir::TransposeOp,
                                   ttir::BroadcastOp>::TTIRCommuteRewritePattern;
 
-  void performCommuteRewrite(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                             ArrayRef<Operation *> users,
+  void performCommuteRewrite(ttir::BroadcastOp op,
+                             ttir::TransposeOp transposeUser,
                              PatternRewriter &rewriter) const override {
 
-    auto transpose = cast<ttir::TransposeOp>(users[0]);
-    Value operand = operands[0];
-    auto tmResultType =
-        cast<RankedTensorType>(transpose->getResult(0).getType());
+    Value operand = op.getInput();
+    auto tmResultType = transposeUser.getResult().getType();
 
     auto resultShape = tmResultType.getShape();
 
@@ -108,13 +108,13 @@ public:
     // Commuting a transpose above a broadcast requires us to swap the broadcast
     // dimensions according to the transpose dimensions.
     SmallVector<int64_t> newBroadcastDimensions(op.getBroadcastDimensions());
-    std::swap(newBroadcastDimensions[transpose.getDim0()],
-              newBroadcastDimensions[transpose.getDim1()]);
+    std::swap(newBroadcastDimensions[transposeUser.getDim0()],
+              newBroadcastDimensions[transposeUser.getDim1()]);
 
     auto newTranspose = ttmlir::utils::createDPSOp<ttir::TransposeOp>(
         rewriter, op->getLoc(), newShape, tmResultType.getElementType(),
-        tmResultType.getEncoding(), operand, transpose.getDim0(),
-        transpose.getDim1());
+        tmResultType.getEncoding(), operand, transposeUser.getDim0(),
+        transposeUser.getDim1());
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
@@ -123,30 +123,23 @@ public:
         rewriter, op->getLoc(), tmResultType, newTranspose,
         newBroadcastDimensions);
 
-    rewriter.replaceOp(transpose, newBroadcast);
+    rewriter.replaceOp(transposeUser, newBroadcast);
   }
 
 private:
-  LogicalResult
-  matchCommutePattern(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                      ArrayRef<Operation *> users) const override {
-    // We will match a broacast -> transpose sequence if at least one user is a
-    // transpose.
-    for (Operation *user : users) {
-      if (isa<ttir::TransposeOp>(user)) {
-        return success();
-      }
-    }
-    return failure();
+  LogicalResult matchCommutePattern(ttir::BroadcastOp op,
+                                    ttir::TransposeOp) const override {
+    // We can always commute a transpose above a broadcast.
+    return success();
   }
 
-  LogicalResult shouldCommute(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                              ArrayRef<Operation *> users) const override {
+  LogicalResult shouldCommute(ttir::BroadcastOp op,
+                              ttir::TransposeOp) const override {
     // We should always commute a transpose above a broadcast if it is the only
     // user of the broadcast. For now this is the only case we will handle.
     // matchCommutePattern will have already confirmed that this user is a
     // transpose and it can be commuted above the broadcast.
-    return success(users.size() == 1);
+    return success(SmallVector<Operation *>(op->getUsers()).size() == 1);
   }
 };
 
@@ -155,22 +148,17 @@ class TTIRCommuteReshapeAboveBroadcast
 public:
   using TTIRCommuteRewritePattern<ttir::ReshapeOp,
                                   ttir::BroadcastOp>::TTIRCommuteRewritePattern;
-  void performCommuteRewrite(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                             ArrayRef<Operation *> users,
+  void performCommuteRewrite(ttir::BroadcastOp op, ttir::ReshapeOp reshapeUser,
                              PatternRewriter &rewriter) const override {
 
-    Value operand = operands[0];
-    auto reshape = cast<ttir::ReshapeOp>(users[0]);
-    auto originalShape = cast<RankedTensorType>(operand.getType()).getShape();
+    auto originalShape = op.getInput().getType().getShape();
     auto broadcastShape = op.getResult().getType().getShape();
-
-    auto tmResultType = reshape.getResult().getType();
-
-    auto resultShape = tmResultType.getShape();
+    auto tmResultType = reshapeUser.getResult().getType();
+    auto finalShape = tmResultType.getShape();
 
     std::optional<SmallVector<int64_t>> finalStrides =
         getStrideAfterBroadcastReshape(originalShape, broadcastShape,
-                                       resultShape);
+                                       finalShape);
 
     assert(finalStrides.has_value() &&
            "matchCommutePattern should have ensured that this is possible.");
@@ -181,9 +169,9 @@ public:
     //
     // The broadcasted dimensions should all be `1` except for the dimensions
     // which we actually want to broadcast.
-    SmallVector<int64_t> newReshapeShape(resultShape);
-    SmallVector<int64_t> newBroadcastDimensions(resultShape);
-    for (uint64_t i = 0; i < resultShape.size(); i++) {
+    SmallVector<int64_t> newReshapeShape(finalShape);
+    SmallVector<int64_t> newBroadcastDimensions(finalShape);
+    for (uint64_t i = 0; i < finalShape.size(); i++) {
       if (finalStrides.value()[i] == 0) {
         newReshapeShape[i] = 1;
       } else {
@@ -198,7 +186,7 @@ public:
                               tmResultType.getEncoding());
 
     auto newReshape = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, op->getLoc(), newTMResultType, operand,
+        rewriter, op->getLoc(), newTMResultType, op.getInput(),
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(newReshapeShape.begin(),
                                                       newReshapeShape.end())));
 
@@ -208,15 +196,14 @@ public:
         rewriter, op->getLoc(), tmResultType, newReshape,
         newBroadcastDimensions);
 
-    rewriter.replaceOp(reshape, newBroadcast);
+    rewriter.replaceOp(reshapeUser, newBroadcast);
   }
 
 private:
   LogicalResult
-  matchCommutePattern(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                      ArrayRef<Operation *> users) const override {
-    // We will match a broacast -> reshape sequence if at least one user is a
-    // reshape. There are some cases where the specific reshape cannot be
+  matchCommutePattern(ttir::BroadcastOp op,
+                      ttir::ReshapeOp reshapeUser) const override {
+    // There are some cases where the specific reshape cannot be
     // commuted above a specific broadcast, so we must check if it is possible
     // here.
 
@@ -242,45 +229,26 @@ private:
     // whether or not the reshape can be done by editing strides alone (point
     // #3).
 
-    for (Operation *user : users) {
-      if (auto reshape = dyn_cast<ttir::ReshapeOp>(user)) {
+    auto finalShape = reshapeUser.getResult().getType().getShape();
+    auto originalShape = op.getInput().getType().getShape();
+    auto broadcastShape = op.getResult().getType().getShape();
 
-        Value operand = operands[0];
-        auto tmResultType = reshape.getResult().getType();
-
-        auto resultShape = tmResultType.getShape();
-
-        auto originalShape =
-            cast<RankedTensorType>(operand.getType()).getShape();
-        auto broadcastShape = op.getResult().getType().getShape();
-
-        std::optional<SmallVector<int64_t>> finalStrides =
-            getStrideAfterBroadcastReshape(originalShape, broadcastShape,
-                                           resultShape);
-        // finalStrides will be nullopt if the broadcast -> reshape sequence
-        // cannot be performed by editing strides alone. This means we cannot
-        // commute the reshape above the broadcast either.
-        if (!finalStrides) {
-          // We want to continue in case another user reshape which
-          // can commute above the broadcast is found.
-          continue;
-        }
-
-        // A reshape which can commute above the broadcast has been found.
-        return success();
-      }
-    }
-
-    return failure();
+    std::optional<SmallVector<int64_t>> finalStrides =
+        getStrideAfterBroadcastReshape(originalShape, broadcastShape,
+                                       finalShape);
+    // finalStrides will be nullopt if the broadcast -> reshape sequence
+    // cannot be performed by editing strides alone. This means we cannot
+    // commute the reshape above the broadcast either.
+    return success(finalStrides.has_value());
   }
 
-  LogicalResult shouldCommute(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                              ArrayRef<Operation *> users) const override {
+  LogicalResult shouldCommute(ttir::BroadcastOp op,
+                              ttir::ReshapeOp) const override {
     // We should always commute a reshape above a broadcast if it is the only
     // user of the broadcast. For now we only handle this case.
     // matchCommutePattern will have already confirmed that this user is a
     // reshape and it can be commuted above the broadcast.
-    return success(users.size() == 1);
+    return success(SmallVector<Operation *>(op->getUsers()).size() == 1);
   }
 };
 
@@ -290,17 +258,15 @@ public:
   using TTIRCommuteRewritePattern<ttir::PermuteOp,
                                   ttir::BroadcastOp>::TTIRCommuteRewritePattern;
 
-  void performCommuteRewrite(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                             ArrayRef<Operation *> users,
+  void performCommuteRewrite(ttir::BroadcastOp op, ttir::PermuteOp permuteUser,
                              PatternRewriter &rewriter) const override {
-    auto permute = cast<ttir::PermuteOp>(users[0]);
-    Value operand = operands[0];
+    Value operand = op.getInput();
     auto operandShape = cast<RankedTensorType>(operand.getType()).getShape();
-    auto tmResultType = permute.getResult().getType();
+    auto tmResultType = permuteUser.getResult().getType();
 
     // Commuting a broadcast above a permute requires us to permute which dims
     // are broadcasted.
-    auto permutation = permute.getPermutation();
+    auto permutation = permuteUser.getPermutation();
     SmallVector<int64_t> newShape =
         ttmlir::utils::applyPermutation(operandShape, permutation);
     SmallVector<int64_t> newBroadcastDimensions =
@@ -318,30 +284,23 @@ public:
         rewriter, op->getLoc(), tmResultType, newPermute,
         newBroadcastDimensions);
 
-    rewriter.replaceOp(permute, newBroadcast);
+    rewriter.replaceOp(permuteUser, newBroadcast);
   }
 
 private:
-  LogicalResult
-  matchCommutePattern(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                      ArrayRef<Operation *> users) const override {
-    // We will match a broacast -> permute sequence if at least one user is a
-    // permute
-    for (Operation *user : users) {
-      if (isa<ttir::PermuteOp>(user)) {
-        return success();
-      }
-    }
-    return failure();
+  LogicalResult matchCommutePattern(ttir::BroadcastOp op,
+                                    ttir::PermuteOp) const override {
+    // We can always commute a permute above a broadcast.
+    return success();
   }
 
-  LogicalResult shouldCommute(ttir::BroadcastOp op, ArrayRef<Value> operands,
-                              ArrayRef<Operation *> users) const override {
+  LogicalResult shouldCommute(ttir::BroadcastOp op,
+                              ttir::PermuteOp) const override {
     // We should always commute a permute above a broadcast if it is the only
     // user of the broadcast. For now this is the only case we will handle.
     // matchCommutePattern will have already confirmed that this user is a
     // permute and it can be commuted above the broadcast.
-    return success(users.size() == 1);
+    return success(SmallVector<Operation *>(op->getUsers()).size() == 1);
   }
 };
 

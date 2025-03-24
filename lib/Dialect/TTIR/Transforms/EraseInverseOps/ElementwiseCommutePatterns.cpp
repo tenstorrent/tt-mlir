@@ -6,6 +6,9 @@
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "ttmlir/Utils.h"
+#include <llvm/ADT/SmallVector.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Operation.h>
 
 namespace mlir::tt::ttir {
 
@@ -20,26 +23,33 @@ static LogicalResult checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
       return failure();
     }
   }
-  return success(firstUser->hasTrait<ttir::TM::Trait>());
+  return success(firstUser->hasTrait<ttir::TensorManipulation::Trait>());
 }
 namespace {
-template <typename TMOpType>
+template <typename TMOpType, typename ElementwiseInterfaceType>
 class TTIRCommuteTmsAboveElementwiseRewriter
-    : public TTIRCommuteRewritePattern<TMOpType, Operation *> {
+    : public TTIRCommuteRewritePattern<TMOpType, Operation *,
+                                       ElementwiseInterfaceType> {
 public:
-  using TTIRCommuteRewritePattern<TMOpType,
-                                  Operation *>::TTIRCommuteRewritePattern;
+  using TTIRCommuteRewritePattern<
+      TMOpType, Operation *,
+      ElementwiseInterfaceType>::TTIRCommuteRewritePattern;
 
-  void performCommuteRewrite(Operation *op, ArrayRef<Value> operands,
-                             ArrayRef<Operation *> users,
+  void performCommuteRewrite(Operation *op, TMOpType tmUser,
                              PatternRewriter &rewriter) const override {
-    Operation *user = users[0];
-    auto oldEltwiseType = cast<RankedTensorType>(op->getResult(0).getType());
-    auto newEltwiseType = cast<RankedTensorType>(user->getResult(0).getType())
-                              .clone(oldEltwiseType.getElementType());
+
+    auto eltwise = cast<ElementwiseInterfaceType>(op);
+    llvm::SmallVector<Operation *> users(eltwise->getUsers());
+    auto oldEltwiseType =
+        cast<RankedTensorType>(eltwise->getResult(0).getType());
+    auto oldTMResultType = tmUser.getResult().getType();
+
+    auto newEltwiseType = RankedTensorType::get(oldTMResultType.getShape(),
+                                                oldEltwiseType.getElementType(),
+                                                oldTMResultType.getEncoding());
 
     SmallVector<mlir::tensor::EmptyOp> newTMDPSOperands;
-    SmallVector<TMOpType> newTMs;
+    SmallVector<Value> newEltwiseOperands;
     SmallVector<RankedTensorType> newTMResultTypes;
     for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
          operandIdx++) {
@@ -48,45 +58,37 @@ public:
       // was a typecast, it will have the element type of the original operand
       // of the eltwise. So we need to generate a new type for the TM keeping
       // this in mind.
-      auto operandType = cast<RankedTensorType>(operands[operandIdx].getType());
-      auto oldTMResultType =
-          cast<RankedTensorType>(user->getResult(0).getType());
+      auto operandType =
+          cast<RankedTensorType>(eltwise->getOperand(operandIdx).getType());
+
       newTMResultTypes.push_back(
           oldTMResultType.clone(operandType.getElementType()));
-      newTMDPSOperands.push_back(rewriter.create<tensor::EmptyOp>(
+
+      auto dpsOperand = rewriter.create<tensor::EmptyOp>(
           op->getLoc(), newEltwiseType.getShape(),
-          operandType.getElementType()));
+          operandType.getElementType());
+      newTMDPSOperands.push_back(dpsOperand);
 
-      TMOpType newTM = cast<TMOpType>(rewriter.clone(*user));
-      newTM->setOperand(newTM->getNumOperands() - 1,
-                        newTMDPSOperands[operandIdx]);
-      newTMs.push_back(newTM);
+      auto newTM = rewriter.create<TMOpType>(
+          op->getLoc(), newTMResultTypes[operandIdx],
+          ValueRange({eltwise->getOperand(operandIdx), dpsOperand}),
+          tmUser->getAttrs());
+
+      newEltwiseOperands.push_back(newTM);
     }
 
-    mlir::tensor::EmptyOp newEltwiseDPS = rewriter.create<tensor::EmptyOp>(
+    newEltwiseOperands.push_back(rewriter.create<tensor::EmptyOp>(
         op->getLoc(), newEltwiseType.getShape(),
-        newEltwiseType.getElementType());
-    Operation *newEltwise = rewriter.clone(*op);
+        newEltwiseType.getElementType()));
 
-    // Do not want to put a clone on the DPS operand
-    for (uint32_t operandIdx = 0; operandIdx < newEltwise->getNumOperands() - 1;
-         operandIdx++) {
-      newTMs[operandIdx]->setOperand(0, operands[operandIdx]);
-      newTMs[operandIdx]->setOperand(1, newTMDPSOperands[operandIdx]);
-      newTMs[operandIdx]->getResult(0).setType(newTMResultTypes[operandIdx]);
-      newEltwise->setOperand(operandIdx, newTMs[operandIdx]->getResult(0));
-    }
-    newEltwise->setOperand(newEltwise->getNumOperands() - 1,
-                           newEltwiseDPS->getResult(0));
-    newEltwise->getResult(0).setType(newEltwiseType);
+    Operation *newEltwise = rewriter.create(
+        op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),
+        newEltwiseOperands, newEltwiseType, op->getAttrs());
 
     // This only works when all the users are an identical TM
     // In the future this function may be called when this is not
     // the case, and we'll need to insert user clones on the
     // user edges that do not have an inverse on them.
-    assert(users.size() > 0 && succeeded(checkAllUsersAreIdenticalTms(users)) &&
-           "TODO: Implement for commuting through eltewise when not all users "
-           "are the same TM");
     for (auto *user : users) {
       rewriter.replaceOp(user, newEltwise);
     }
@@ -97,31 +99,25 @@ public:
 namespace {
 template <typename TMOpType>
 class TTIRCommuteTmsAboveElementwiseUnaryRewriter
-    : public TTIRCommuteTmsAboveElementwiseRewriter<TMOpType> {
+    : public TTIRCommuteTmsAboveElementwiseRewriter<TMOpType,
+                                                    ElementwiseUnary> {
 public:
   using TTIRCommuteTmsAboveElementwiseRewriter<
-      TMOpType>::TTIRCommuteTmsAboveElementwiseRewriter;
+      TMOpType, ElementwiseUnary>::TTIRCommuteTmsAboveElementwiseRewriter;
 
 private:
-  LogicalResult shouldCommute(Operation *op, ArrayRef<Value> operands,
-                              ArrayRef<Operation *> users) const override {
+  LogicalResult shouldCommute(Operation *op, TMOpType) const override {
     // For now we always want to commute through unary elementwise ops if all
     // the users are identical
+    SmallVector<Operation *> users(op->getUsers());
     return success(users.size() > 0 &&
                    succeeded(checkAllUsersAreIdenticalTms(users)));
   }
 
-  LogicalResult
-  matchCommutePattern(Operation *op, ArrayRef<Value> operands,
-                      ArrayRef<Operation *> users) const override {
-    // This pattern matches if at least one user is TMOpType and the op
-    // is elementwise unary
-    for (Operation *user : users) {
-      if (isa<TMOpType>(user)) {
-        return success(op->hasTrait<ElementwiseUnary::Trait>());
-      }
-    }
-    return failure();
+  LogicalResult matchCommutePattern(Operation *op,
+                                    TMOpType tmUser) const override {
+    // We can always commute a TM above an elementwise op
+    return success();
   }
 };
 } // namespace
@@ -129,31 +125,25 @@ private:
 namespace {
 template <typename TMOpType>
 class TTIRCommuteTmsAboveElementwiseBinaryRewriter
-    : public TTIRCommuteTmsAboveElementwiseRewriter<TMOpType> {
+    : public TTIRCommuteTmsAboveElementwiseRewriter<TMOpType,
+                                                    ElementwiseBinary> {
 public:
   using TTIRCommuteTmsAboveElementwiseRewriter<
-      TMOpType>::TTIRCommuteTmsAboveElementwiseRewriter;
+      TMOpType, ElementwiseBinary>::TTIRCommuteTmsAboveElementwiseRewriter;
 
 private:
-  LogicalResult shouldCommute(Operation *op, ArrayRef<Value> operands,
-                              ArrayRef<Operation *> users) const override {
+  LogicalResult shouldCommute(Operation *op, TMOpType) const override {
     // For now we always want to commute through unary elementwise ops if all
     // the users are identical
+    SmallVector<Operation *> users(op->getUsers());
     return success(users.size() > 0 &&
                    succeeded(checkAllUsersAreIdenticalTms(users)));
   }
 
-  LogicalResult
-  matchCommutePattern(Operation *op, ArrayRef<Value> operands,
-                      ArrayRef<Operation *> users) const override {
-    // This pattern matches if at least one user is TMOpType and the op
-    // is elementwise unary
-    for (Operation *user : users) {
-      if (isa<TMOpType>(user)) {
-        return success(op->hasTrait<ElementwiseBinary::Trait>());
-      }
-    }
-    return failure();
+  LogicalResult matchCommutePattern(Operation *op,
+                                    TMOpType tmUser) const override {
+    // We can always commute a TM above an elementwise op
+    return success();
   }
 };
 } // namespace
