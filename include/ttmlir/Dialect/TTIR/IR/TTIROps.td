@@ -97,6 +97,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         grid = #tt.grid<1x1>,                        // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
+        threads = [#ttir.thread<compute>],           // Thread types for the regions.
         operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
       ({
       ^bb0(%arg2: memref<64x128xf32, #l1_>,
@@ -111,10 +112,48 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types);
+                         TT_IteratorTypeArrayAttr:$iterator_types,
+                         TTIR_ThreadArrayAttr:$threads);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
+
+    let assemblyFormat = [{ attr-dict `\n`
+    ` ` ` ` ` ` ` ` `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` ` `  $regions (`:`  type($results)^ )?
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "ArrayAttr": $indexingMaps,
+                     "ArrayAttr": $iteratorTypes),
+      [{
+        assert(!indexingMaps.empty() && "expected non-empty indexing maps");
+        auto firstIndexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]).getValue();
+        auto grid = $_builder.getAttr<tt::GridAttr>(SmallVector<int64_t>(firstIndexingMap.getNumResults(), 1));
+        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(ThreadType::Compute));
+        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, indexingMaps, iteratorTypes, threads, 1);
+      }]>,
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "ArrayAttr": $indexingMaps,
+                     "ArrayAttr": $iteratorTypes,
+                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $computeRegionBuilder),
+      [{
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes);
+        llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
+          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+          return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
+        });
+        Region& region = *$_state.regions.front().get();
+        llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
+        OpBuilder::InsertionGuard guard($_builder);
+        Block* block = $_builder.createBlock(&region, region.end(), blockTypes, locs);
+        computeRegionBuilder($_builder, $_state.location, block->getArguments());
+      }]>,
+    ];
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
@@ -124,6 +163,12 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<IteratorType> getIteratorTypesValue();
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
+      ThreadType getRegionThreadType(unsigned regionIndex) {
+        return mlir::cast<ThreadAttr>(getThreads()[regionIndex]).getThreadType();
+      }
+      bool isAffineMapForm() { return !getIndexingMaps().empty(); }
+      bool isLoweredLoopForm() { return !isAffineMapForm(); }
+      bool isExternalSymbolForm() { return getRegions().empty(); }
     }];
 }
 

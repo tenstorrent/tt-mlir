@@ -6,7 +6,7 @@
 
 func.func @add(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
-  "ttir.generic"(%arg0, %arg1, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "ttir.generic"(%arg0, %arg1, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^bb0(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
     // CHECK: [[cshape0:%[a-z0-9_]+]] = memref.collapse_shape %cb0
     // CHECK-NEXT: [[cshape1:%[a-z0-9_]+]] = memref.collapse_shape %cb1
@@ -29,7 +29,7 @@ func.func @add(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<
 
 func.func @addT(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, %arg1T: memref<1x1x4x2x!tt.tile<32x32, f32>, #l1_>) -> memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
-  "ttir.generic"(%arg0, %arg1T, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "ttir.generic"(%arg0, %arg1T, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#ttir.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   ^bb0(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
     // CHECK: [[cshape0:%[a-z0-9_]+]] = memref.collapse_shape %cb0
     // CHECK-NEXT: [[cshape1:%[a-z0-9_]+]] = memref.collapse_shape %cb1
