@@ -12,6 +12,7 @@ namespace tt::runtime::ttnn::test {
 Layout getDramInterleavedTileLayout(::tt::target::DataType dataType);
 Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType);
 Layout getHostRowMajorLayout(::tt::target::DataType dataType);
+bool isProgramCacheEnabled(::tt::runtime::Device device);
 } // namespace tt::runtime::ttnn::test
 
 #endif // TT_RUNTIME_TEST_UTILS_H
