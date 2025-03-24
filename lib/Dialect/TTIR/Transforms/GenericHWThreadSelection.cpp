@@ -104,7 +104,6 @@ public:
         op.emitError("Invalid number of regions, expected at most ")
             << (chipDesc.getNumComputeThreads() +
                 chipDesc.getNumDatamovementThreads());
-        return;
       }
     });
   }
