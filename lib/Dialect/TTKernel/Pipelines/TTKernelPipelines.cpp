@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTKernel/Pipelines/TTKernelPipelines.h"
 
 #include "mlir/Dialect/EmitC/Transforms/Passes.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -18,8 +19,8 @@ namespace mlir::tt::ttkernel {
 void createPyKernelCompilePipeline(
     OpPassManager &pm, const PyKernelCompilePipelineOptions &options) {
   // Use Options to Enable/Disable certain Optimizations
-  if (options.enableSROA) {
-    pm.addPass(mlir::createSROA());
+  if (options.enableCanonicalizer) {
+    pm.addPass(mlir::createCanonicalizerPass());
   }
 
   if (options.enableFormExpressions) {

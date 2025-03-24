@@ -11,10 +11,9 @@ namespace mlir::tt::ttkernel {
 // Define the PyKernelCompilePipelineOptions
 struct PyKernelCompilePipelineOptions
     : public PassPipelineOptions<PyKernelCompilePipelineOptions> {
-  Option<bool> enableSROA{
-      *this, "sroa",
-      llvm::cl::desc("Enables Scalar Replacement of Aggregates Optimization "
-                     "(Default: true)"),
+  Option<bool> enableCanonicalizer{
+      *this, "canonicalizer",
+      llvm::cl::desc("Enables Canonicalizer Pass (Default: true)"),
       llvm::cl::init(true)};
 
   Option<bool> enableFormExpressions{

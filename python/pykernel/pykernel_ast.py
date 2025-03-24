@@ -617,7 +617,7 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False):
             print(b.module)
             b.module.operation.verify()
 
-            # Run the PyKernel Compile Pipeline to fit model for Trnaslation
+            # Run the PyKernel Compile Pipeline to fit model for Translation
             pykernel_compile_pipeline(b.module)
             print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
