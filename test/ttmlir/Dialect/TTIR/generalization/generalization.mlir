@@ -68,7 +68,7 @@ module {
 
   // CHECK-LABEL: func @named_contractions
   func.func @named_contractions(%lhs: !lhs, %rhs: !rhs, %out: !matmul_result) -> (!matmul_result) {
-    // CHECK: "ttir.generic"{{.+}}iterator_types = [#parallel, #parallel, #reduction]
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel, #reduction]
     // CHECK-NOT: linalg.generic
     // CHECK: ttir.tile_matmul_block
     %r = "ttir.matmul"(%lhs, %rhs, %out) : (!lhs, !rhs, !matmul_result) -> (!matmul_result)
