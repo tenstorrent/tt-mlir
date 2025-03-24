@@ -15,7 +15,9 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 
 namespace mlir::tt::ttnn {
 class DeviceType;
