@@ -182,9 +182,9 @@ public:
     return success();
   }
 };
-
 } // namespace
 
+namespace {
 // General elementwise conversion pattern, without implicit broadcasting etc.
 // Appropriate for unary ops, or other ops without broadcasting.
 template <typename TTIROpTy, typename LinAlgOpTy,
