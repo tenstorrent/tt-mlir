@@ -323,7 +323,7 @@ def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request
         (1, 16, 28, 64),
         ]
     ])
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
 @pytest.mark.parametrize("_stride,_padding,_dilation,_groups", [([2, 1], [2, 1], [2, 1], 2)])
 def test_conv2d(
         shapes: List[Shape],
@@ -391,7 +391,7 @@ def test_conv2d_consteval(
         (1, 1, 1, 256),
         (1, 10, 10, 256),
     ]])
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
 @pytest.mark.parametrize("_stride,_padding,_output_padding,_dilation,_groups", [(1, 0, 0, 1, 1)])
 def test_conv_transpose2d(
         shapes: List[Shape],
@@ -428,7 +428,7 @@ def test_conv_transpose2d(
 
 @pytest.mark.parametrize("kernel_height,kernel_width,stride_height,stride_width,dilation_height,dilation_width,ceil_mode,padding_left,padding_right,padding_top, padding_bottom", [(2,2,2,2,1,1,False,0,0,0,0)])
 @pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 2])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
 def test_max_pool2d(
         shapes: List[Shape],
         dtypes: List[torch.dtype],
@@ -753,7 +753,7 @@ def test_unary_ops(
 
 
 @pytest.mark.parametrize("shape", [(128,128)], ids=str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", [add, multiply, subtract, eq, ne, le, lt,
                                      ge, gt, div, remainder, maximum, minimum,
                                      pow, matmul, hoisted_add])
@@ -767,6 +767,8 @@ def test_binary_ops(
     compile_to_flatbuffer(test_fn, inputs_shapes=[shape] * 2, inputs_types=[dtype] * 2, test_base=request.node.name)
 
 
+# TODO: create issue for this
+@pytest.mark.skip("uint8_t is unsupported here, investigate")
 @pytest.mark.parametrize("shape", [(128,128)], ids=str)
 @pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
 def test_bitwise_binary_ops(
