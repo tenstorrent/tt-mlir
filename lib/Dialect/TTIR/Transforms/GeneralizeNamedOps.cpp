@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h" // OpTrait::named_op_group
+#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -22,9 +22,9 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERALIZENAMEDOPS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-namespace {
-
 using namespace llvm;
+
+namespace {
 
 class TTIRNamedRewriterCommon {
 protected:
@@ -94,7 +94,9 @@ protected:
   static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
 
 }; // end of class
+} // namespace
 // ............................................................................
+namespace {
 // Rewrite elementwise ops by emitting a matching tile version of the op
 // into a ttir.generic/linang.generic nest.
 template <typename ConcreteOp, typename TileOp>
@@ -113,11 +115,11 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [inputs, results] = splitDpsSignature(op);
+    auto [inputs, outputs] = splitDpsSignature(op);
 
     std::size_t const numInputs = inputs.size();
-    std::size_t const numResults = results.size();
-    std::size_t const numOperands = (numInputs + numResults);
+    std::size_t const numOutputs = outputs.size();
+    std::size_t const numOperands = (numInputs + numOutputs);
 
     assert(numOperands == op->getNumOperands());
 
@@ -132,7 +134,7 @@ private:
 
     // Create 'ttir.generic' accepting 'op's operands.
     auto generic = rewriter.create<GenericOp>(
-        loc, mlir::TypeRange(results), inputs, results, grid,
+        loc, mlir::TypeRange(outputs), inputs, outputs, grid,
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
 
@@ -161,12 +163,12 @@ private:
 
         rewriter.create<mlir::linalg::GenericOp>(
             loc, /* inputs */ blockArgs.take_front(numInputs),
-            /* outputs */ blockArgs.take_back(numResults), linalgIndexingMaps,
+            /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               mlir::Value yield = bbBuilder.create<TileOp>(
-                  loc, /* resultTypes */ bbArgs.take_back(numResults),
+                  loc, /* resultTypes */ bbArgs.take_back(numOutputs),
                   /* operands */ bbArgs.take_front(numInputs));
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
@@ -212,7 +214,9 @@ private:
   }
 
 }; // end of class
+} // namespace
 // ............................................................................
+namespace {
 // Rewriting reduction ops is similar to the elementwise group except for
 // ops whose tiled counterparts require a scaler operand ('weights', etc).
 // This rewriter will emit a single tile scaler operand that will be
@@ -233,10 +237,10 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [inputs, results] = splitDpsSignature(op);
+    auto [inputs, outputs] = splitDpsSignature(op);
 
-    std::size_t const numResults = results.size();
-    assert(inputs.size() + numResults == op->getNumOperands());
+    std::size_t const numOutputs = outputs.size();
+    assert(inputs.size() + numOutputs == op->getNumOperands());
 
     tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
 
@@ -248,7 +252,7 @@ private:
     static constexpr bool usingScaler = true;
 
     std::size_t const numInputs = inputs.size() + usingScaler;
-    std::size_t const numOperands = (numInputs + numResults);
+    std::size_t const numOperands = (numInputs + numOutputs);
 
     SmallVector<mlir::Value> newInputs(inputs.begin(), inputs.end());
     if (usingScaler) {
@@ -264,7 +268,7 @@ private:
 
     // Create 'ttir.generic' accepting extended operands.
     auto generic = rewriter.create<GenericOp>(
-        loc, mlir::TypeRange(results), newInputs, results, grid,
+        loc, mlir::TypeRange(outputs), newInputs, outputs, grid,
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
 
@@ -274,7 +278,7 @@ private:
       mlir::Region &region = generic->getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
 
-      // Populate 'block.
+      // Populate 'block'.
       {
         llvm::for_each(mlir::TypeRange(newInputs), [&](Type t) {
           mlir::RankedTensorType tensorType =
@@ -283,7 +287,7 @@ private:
               mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
           block->addArgument(layout.getMemref(), loc);
         });
-        llvm::for_each(results.getTypes(), [&](Type t) {
+        llvm::for_each(outputs.getTypes(), [&](Type t) {
           mlir::RankedTensorType tensorType =
               mlir::cast<mlir::RankedTensorType>(t);
           tt::MetalLayoutAttr layout =
@@ -312,12 +316,12 @@ private:
 
         rewriter.create<mlir::linalg::GenericOp>(
             loc, /* inputs */ blockArgs.take_front(numInputs),
-            /* outputs */ blockArgs.take_back(numResults), linalgIndexingMaps,
+            /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               mlir::Value yield = bbBuilder.create<TileOp>(
-                  loc, /* resultTypes */ bbArgs.take_back(numResults),
+                  loc, /* resultTypes */ bbArgs.take_back(numOutputs),
                   /* operands */ bbArgs.take_front(numInputs), attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
@@ -356,7 +360,7 @@ private:
                                       builder.getMultiDimIdentityMap(rank));
     if (usingScaler) {
       std::array<mlir::AffineExpr, 2> zeros{zero, zero};
-      maps.emplace_back(mlir::AffineMap::get(/* dimCopunt */ rank,
+      maps.emplace_back(mlir::AffineMap::get(/* dimCount */ rank,
                                              /* symbolCount */ 0, zeros,
                                              builder.getContext()));
     }
@@ -458,7 +462,9 @@ private:
   }
 
 }; // end of class
+} // namespace
 // ............................................................................
+namespace {
 // At this time, matmul ops are rewritten into a ttir.generic without a nested
 // linagl.generic because we use metal counterpart op that is already "blocked".
 class TTIRMatmulRewriter final : public mlir::OpRewritePattern<MatmulOp>,
@@ -478,11 +484,11 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [inputs, results] = splitDpsSignature(op);
+    auto [inputs, outputs] = splitDpsSignature(op);
 
     std::size_t const numInputs = inputs.size();
-    std::size_t const numResults = results.size();
-    std::size_t const numOperands = (numInputs + numResults);
+    std::size_t const numOutputs = outputs.size();
+    std::size_t const numOperands = (numInputs + numOutputs);
 
     assert(numOperands == op->getNumOperands());
 
@@ -499,7 +505,7 @@ private:
 
     // Create 'ttir.generic' accepting 'op's operands.
     auto generic = rewriter.create<GenericOp>(
-        loc, mlir::TypeRange(results), inputs, results, grid,
+        loc, mlir::TypeRange(outputs), inputs, outputs, grid,
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
 
@@ -568,7 +574,6 @@ private:
   }
 
 }; // end of class
-
 } // namespace
 // ............................................................................
 
