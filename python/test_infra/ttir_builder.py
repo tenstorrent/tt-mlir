@@ -511,11 +511,6 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(torch.int32),
         )
 
-    def get_dimension_size_golden_function(
-        self, in0: Operand, dimension: int = 0
-    ) -> torch.Tensor:
-        return torch.tensor([in0.size(dimension)])
-
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp
 
