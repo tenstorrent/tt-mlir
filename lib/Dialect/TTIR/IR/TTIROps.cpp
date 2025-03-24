@@ -4,11 +4,6 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
-#include "ttmlir/Utils.h"
-
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -17,8 +12,13 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectResourceBlobManager.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "ttmlir/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -871,7 +871,17 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
     return foldResult;
   }
 
-  return nullptr;
+  ElementsAttr foldedAttr;
+  if (auto value = dyn_cast_or_null<DenseElementsAttr>(adaptor.getInput())) {
+    foldedAttr = value.reshape(getType());
+  } else if (auto value = dyn_cast_or_null<DenseResourceElementsAttr>(
+                 adaptor.getInput())) {
+    foldedAttr =
+        DenseResourceElementsAttr::get(getType(), value.getRawHandle());
+  } else {
+    return nullptr;
+  }
+  return foldedAttr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2889,6 +2899,63 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
   return success();
 }
 
+mlir::DenseElementsAttr
+permuteDenseElementsAttr(mlir::DenseElementsAttr elementsAttr,
+                         llvm::ArrayRef<int64_t> permutation) {
+  uint32_t rank = elementsAttr.getType().getRank();
+  auto shape = elementsAttr.getType().getShape();
+  llvm::SmallVector<uint32_t> initialStrides(rank, 1);
+  for (int32_t i = rank - 2; i >= 0; i--) {
+    initialStrides[i] = initialStrides[i + 1] * shape[i + 1];
+  }
+
+  llvm::SmallVector<int64_t> newShape;
+  for (uint32_t i : permutation) {
+    newShape.push_back(shape[i]);
+  }
+
+  if (elementsAttr.isSplat()) {
+    return mlir::DenseElementsAttr::getFromRawBuffer(
+        elementsAttr.getType().cloneWith(newShape,
+                                         elementsAttr.getElementType()),
+        elementsAttr.getRawData());
+  }
+
+  llvm::SmallVector<uint32_t> newStrides(rank, 1);
+  for (int32_t i = rank - 2; i >= 0; i--) {
+    newStrides[i] = newStrides[i + 1] * newShape[i + 1];
+  }
+
+  uint32_t elementBitWidth =
+      elementsAttr.getElementType().getIntOrFloatBitWidth();
+  assert(elementBitWidth % 8 == 0 &&
+         "Element bit width must be a multiple of 8.");
+  uint32_t elementByteWidth = elementBitWidth / 8;
+
+  auto data = elementsAttr.getRawData();
+  llvm::SmallVector<char> newVals(
+      elementByteWidth * elementsAttr.getNumElements(), 0);
+
+  for (int64_t rawIndex = 0; rawIndex < elementsAttr.getNumElements();
+       rawIndex++) {
+    int64_t newRawIndex = 0;
+    for (uint32_t i = 0; i < rank; i++) {
+      newRawIndex += ((rawIndex / initialStrides[permutation[i]]) %
+                      shape[permutation[i]]) *
+                     newStrides[i];
+    }
+
+    for (uint32_t byte = 0; byte < elementByteWidth; byte++) {
+      newVals[newRawIndex * elementByteWidth + byte] =
+          data[rawIndex * elementByteWidth + byte];
+    }
+  }
+
+  return mlir::DenseElementsAttr::getFromRawBuffer(
+      elementsAttr.getType().cloneWith(newShape, elementsAttr.getElementType()),
+      newVals);
+}
+
 // PermuteOp with identity permutation is a no-op.
 // The input can be used directly as the output.
 static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttir::PermuteOp op) {
@@ -2924,7 +2991,22 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
     return foldResult;
   }
 
-  return nullptr;
+  DenseElementsAttr elementsAttr;
+  if (auto attr = dyn_cast_or_null<DenseElementsAttr>(adaptor.getInput())) {
+    elementsAttr = attr;
+  } else if (auto attr =
+                 dyn_cast_or_null<DenseResourceElementsAttr>(elementsAttr)) {
+    elementsAttr =
+        DenseElementsAttr::getFromRawBuffer(attr.getType(), attr.getData());
+  } else {
+    return nullptr;
+  };
+  uint32_t elementBitWidth =
+      elementsAttr.getElementType().getIntOrFloatBitWidth();
+  if (elementBitWidth % 8 != 0) {
+    return nullptr;
+  }
+  return permuteDenseElementsAttr(elementsAttr, getPermutation());
 }
 
 //===----------------------------------------------------------------------===//
