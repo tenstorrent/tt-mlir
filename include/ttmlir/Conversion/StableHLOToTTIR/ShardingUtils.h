@@ -76,10 +76,13 @@ public:
     return shardDirection;
   }
 
-  static LogicalResult fillStrategyMapFromSharding(
+  // Needed by the frontend (tt-xla) to create a 'strategy' map for creating
+  // multiDevice tensors based on the MeshSharding object attached to it. This
+  // is needed fren the frontend generates a multiDevice tensor as input.
+  static FailureOr<std::unordered_map<std::string, std::string>>
+  fillStrategyMapFromSharding(
       const mlir::tt::sharding_utils::MeshSharding &meshSharding,
-      size_t num_devices,
-      std::unordered_map<std::string, std::string> &strategy);
+      size_t num_devices);
 
   mlir::tt::MeshShardType getShardType() const { return shardType; }
   llvm::ArrayRef<int64_t> getShardShape() const { return shardShape; }

@@ -431,10 +431,11 @@ MeshSharding::getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter) {
                                                tensorMeshShardingAxisAttr);
 }
 
-LogicalResult MeshSharding::fillStrategyMapFromSharding(
+FailureOr<std::unordered_map<std::string, std::string>>
+MeshSharding::fillStrategyMapFromSharding(
     const mlir::tt::sharding_utils::MeshSharding &meshSharding,
-    size_t num_devices,
-    std::unordered_map<std::string, std::string> &strategy) {
+    size_t num_devices) {
+  std::unordered_map<std::string, std::string> strategy;
   mlir::tt::MeshShardType meshType = meshSharding.getShardType();
   if (meshType == mlir::tt::MeshShardType::Replicate) {
     // If there is only one device, the output will be replicated, but there is
@@ -464,7 +465,7 @@ LogicalResult MeshSharding::fillStrategyMapFromSharding(
   } else {
     return mlir::failure();
   }
-  return mlir::success();
+  return strategy;
 }
 
 } // namespace sharding_utils
