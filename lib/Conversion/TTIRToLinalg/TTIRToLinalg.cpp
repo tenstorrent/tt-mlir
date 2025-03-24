@@ -290,8 +290,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseOpConversionPattern<ttir::FloorOp, linalg::FloorOp>,
       ElementwiseOpConversionPattern<ttir::TanhOp, linalg::TanhOp>,
       ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>,
-      TransposeOpConversionPattern,
-      SoftmaxOpConversionPattern>(typeConverter, ctx);
+      TransposeOpConversionPattern, SoftmaxOpConversionPattern>(typeConverter,
+                                                                ctx);
 }
 
 } // namespace mlir::tt
