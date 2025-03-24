@@ -44,40 +44,23 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::tt::createTTRegisterDevicePass(registerDeviceOptions));
   pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
   ttir::TTIRAttachMetalLayoutOptions attachMetalLayoutOptions;
-  {
-    // TODO(vroubtsovTT): 'options.version' is WIP until StreamLayout is ok
-    // to use end-to-end
-    attachMetalLayoutOptions.useStreamLayout = options.version > 0;
-  }
   pm.addPass(
       mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
-  // TODO(#1951): replace with TTIRToGeneric implemented as a converter:
-  // pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
-  if (options.version > 0) {
-    ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
-    {
-      optimizeTensorLayoutOptions.overrideDeviceShape =
-          llvm::to_vector(options.overrideDeviceShape);
-    }
-    pm.addPass(mlir::tt::ttir::createTTIROptimizeTensorLayout(
-        optimizeTensorLayoutOptions));
-    createTTIRBufferizationPipeline(pm);
-    pm.addPass(ttir::createTTIRPlaceholderAllocate());
-    pm.addPass(mlir::createCanonicalizerPass());
-    pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-    pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
-    pm.addPass(mlir::createLowerAffinePass());
-    pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
-  } else {
-    mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
-    {
-      layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-      layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-    }
-    pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
-    pm.addPass(mlir::tt::ttir::createTTIRAllocate());
-    pm.addPass(createConvertTTIRToTTMetalPass());
+  pm.addPass(mlir::tt::ttir::createTTIRGeneralizeNamedOps());
+  ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
+  {
+    optimizeTensorLayoutOptions.overrideDeviceShape =
+        llvm::to_vector(options.overrideDeviceShape);
   }
+  pm.addPass(mlir::tt::ttir::createTTIROptimizeTensorLayout(
+      optimizeTensorLayoutOptions));
+  createTTIRBufferizationPipeline(pm);
+  pm.addPass(ttir::createTTIRPlaceholderAllocate());
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+  pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
+  pm.addPass(mlir::createLowerAffinePass());
+  pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
 }
 
 //===----------------------------------------------------------------------===//
