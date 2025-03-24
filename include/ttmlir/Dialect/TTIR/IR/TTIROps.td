@@ -2155,6 +2155,10 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
   let description = [{
       The Quantize operation converts a tensor into a quantized tensor using the `quant.uniform` type from the MLIR Quant dialect.
       This type encapsulates the scale and zero-point metadata directly within the tensor type.
+      The output tensor will be of type 'quant.uniform', where each element is computed as:
+      ```
+      output[i] = (input[i] / scale) * zero_point
+      ```
 
       Example:
       ```mlir
