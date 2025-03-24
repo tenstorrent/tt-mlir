@@ -24,11 +24,13 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const final {
-    CommutableOpType commutableOp = dyn_cast_or_null<CommutableOpType>(op);
+    CommutableOpType commutableOp = dyn_cast<CommutableOpType>(op);
     if (!commutableOp) {
       return failure();
     }
 
+    // We may want to match the commutable op to any operation with a certain
+    // interface, like ElemenetwiseUnary/ElementwiseBinary.
     if (!op->hasTrait<CommutableOpInterface::template Trait>()) {
       return failure();
     }
@@ -38,25 +40,24 @@ public:
       return failure();
     }
 
-    auto operands = SmallVector<Value>(commutableOp->getOperands());
-    auto users = SmallVector<Operation *>(commutableOp->getUsers());
-
     // We need one of the users to be a TM that we can and should commute in
     // order to match.
     TMOpType tmUser = nullptr;
-    for (Operation *user : users) {
-      if (isa<TMOpType>(user)) {
-        if (failed(matchCommutePattern(commutableOp, cast<TMOpType>(user)))) {
-          continue;
-        }
-
-        if (failed(shouldCommute(commutableOp, cast<TMOpType>(user)))) {
-          continue;
-        }
-
-        tmUser = cast<TMOpType>(user);
-        break;
+    for (Operation *user : commutableOp->getUsers()) {
+      if (!isa<TMOpType>(user)) {
+        continue;
       }
+
+      if (failed(matchCommutePattern(commutableOp, cast<TMOpType>(user)))) {
+        continue;
+      }
+
+      if (failed(shouldCommute(commutableOp, cast<TMOpType>(user)))) {
+        continue;
+      }
+
+      tmUser = cast<TMOpType>(user);
+      break;
     }
 
     if (!tmUser) {
