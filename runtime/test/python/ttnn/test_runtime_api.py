@@ -237,3 +237,15 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
     )
     assert_pcc(golden, torch_result_tensor, threshold=0.99)
     helper.teardown()
+
+
+def test_set_program_cache(helper):
+    with DeviceContext(helper.query.device_ids, enable_program_cache=False) as device:
+        assert (
+            ttrt.runtime.testing.is_program_cache_enabled(device) == False
+        ), "Expected program cache to be disabled"
+
+    with DeviceContext(helper.query.device_ids, enable_program_cache=True) as device:
+        assert (
+            ttrt.runtime.testing.is_program_cache_enabled(device) == True
+        ), "Expected program cache to be enabled"

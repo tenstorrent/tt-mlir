@@ -207,12 +207,14 @@ size_t getNumAvailableDevices() {
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
                   std::optional<size_t> l1SmallSize,
                   std::optional<DispatchCoreType> dispatchCoreType,
-                  std::optional<bool> enableAsyncTTNN) {
+                  std::optional<bool> enableAsyncTTNN,
+                  std::optional<bool> enableProgramCache) {
 
   ::tt::tt_metal::DispatchCoreType type =
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
 
   LOG_ASSERT(deviceIds.size(), "No devices specified");
+
   ::tt::tt_metal::distributed::MeshShape grid{
       1, static_cast<uint32_t>(deviceIds.size())};
   size_t l1SmallSizeValue = l1SmallSize.value_or(tt::constants::L1_SMALL_SIZE);
@@ -225,8 +227,12 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
            "}");
 
   bool enableAsyncValue = enableAsyncTTNN.value_or(false);
+  bool enableProgramCacheValue = enableProgramCache.value_or(false);
   for (::ttnn::IDevice *device : meshDevice->get_devices()) {
     device->enable_async(enableAsyncValue);
+    if (enableProgramCacheValue) {
+      device->enable_program_cache();
+    }
   }
 
   return Device(std::static_pointer_cast<void>(meshDevice),
