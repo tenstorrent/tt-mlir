@@ -179,7 +179,7 @@ def ttir_to_ttnn(
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
-    argument_types_string: str = None,
+    argument_types_string: Optional[str] = None,
 ):
     """
     Converts TTIR module to TTNN module and optionally dumps to file.
@@ -235,6 +235,8 @@ def ttir_to_ttmetal(
     output_path: str = "",
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
+    mesh_shape: Optional[Tuple[int, int]] = None,
+    argument_types_string: Optional[str] = None,
 ):
     """
     Converts TTIR module `module` to TTMetal module and optionally dumps to file.
@@ -324,17 +326,18 @@ def ttmetal_to_flatbuffer(
 
 
 def compile_to_flatbuffer(
+    fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    test_name: Optional[str] = None,
-    targets: List[str] = ["ttmetal", "ttnn"],
-    mesh_shape: Tuple[int, int] = None,
-    module_dump: bool = False,
-    argument_types_string: str = None,
+    test_base: str = "test",
+    output_root: str = "",
+    target: str = "ttnn",
+    mesh_shape: Optional[Tuple[int, int]] = None,
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
 ):
     """
-    Decorator to run an e2e Python -> Flatbuffer test using the decorated
-    function, using the TTNN and/or TTMetal backends.
+    Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer 
 
     This decorator is mainly a wrapper around the following functions, with
     each next function called on the output of the last:
@@ -343,93 +346,79 @@ def compile_to_flatbuffer(
     2. `ttir_to_tt{nn,metal}`
     3. `tt{nn,metal}_to_flatbuffer`
 
-    The choice of TTNN, TTMetal, or both is controlled by membership of those
-    strings in the `targets` parameter.
+    The choice of TTNN vs. TTMetal is controlled by the `target` parameter
 
     Arguments
     ---------
 
+    fn: Callable
+        The TTIRBuilder function to compile. Must take `builder : TTIRBuilder` as a kwarg
+
     inputs_shapes: List[Shape]
         Shapes of the respective ranked tensor inputs of the test function.
 
-    test_name: Optional[str]
+    inputs_types: Optional[List[torch.dtype]]
+        The dtypes to use for the inputs to `fn`. Note that if supplied,
+        `len(inputs_shapes) == len(inputs_types)` must be true. Defaults to
+        `None`
+
+    test_base: str
         The string to be used as the base name for dumped files throughout the
-        process. If `None` is provided, then the `__name__` of the decorated
-        function will be used.
+        process. If `None` is provided, then the `__name__` of `fn` will be used.
 
-    targets: List[str]
-        A list that can only contain the following strings: 'ttnn' or
-        'ttmetal'. Inclusion in this list will signal this decorator to execute
-        their respective backend paths. Either, neither, or both are valid inputs.
+    output_root: str
+        The path to dump all generated arguments under. If this path doesn't
+        exist, it will be created
 
-    mesh_shape: Tuple[int, int]
+    target: str
+        Either `"ttnn"` or `"ttmetal"`. This controls which backend to use
+
+    mesh_shape: Optional[Tuple[int, int]]
         A list that contains shape of the mesh to be applied on ttir to ttnn
-        conversion path.
-
+        conversion path. Defaults to `None`
 
     module_dump: bool
         Set to True to print out generated TTIR MLIR module.
 
-    Example
-    -------
-
-    ```python
-        @compile_and_convert(((32, 32), (32, 32)), test_name="test_add")
-        def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-            return builder.add(in0, in1)
-
-        test_add() # NOTE: called without arguments
-    ```
     """
 
-    def decorator(test_fn: Callable):
+    if inputs_types is not None:
+        assert(len(inputs_shapes) == len(inputs_types))
 
-        # Snoop the name of `test_fn` if no override to the test name is provided
-        if test_name is None:
-            test_base = test_fn.__name__
-        else:
-            test_base = test_name
+    from_ttir: Callable
+    to_flatbuffer: Callable
+    mlir_suffix: str
 
-        def wrapper():
+    if target == "ttnn":
+        from_ttir = ttir_to_ttnn
+        to_flatbuffer = ttnn_to_flatbuffer 
+        mlir_suffix =  "_ttnn.mlir"
+    else:
+        from_ttir = ttir_to_ttmetal
+        to_flatbuffer = ttmetal_to_flatbuffer 
+        mlir_suffix =  "_ttm.mlir"
 
-            # NOTE: since `ttir_to_tt{nn,metal} modifies the module in place,
-            # `compile_as_mlir_module` needs to be run twice in the case that
-            # both targets are chosen. This unfortunately includes the printing
+    # Compile model to TTIR MLIR
+    module, builder = compile_as_mlir_module(
+        fn, inputs_shapes, inputs_types, mesh_shape=mesh_shape
+    )
 
-            if "ttmetal" in targets:
-                module, builder = compile_as_mlir_module(
-                    test_fn, inputs_shapes, inputs_types
-                )
+    if module_dump:
+        with open(test_base + "_ttir.mlir", "w") as f:
+            f.write(str(module))
 
-                if module_dump:
-                    with open(test_base + "_ttir.mlir", "w") as f:
-                        f.write(str(module))
+    # Compile TTIR MLIR -> TT{Metal,NN} MLIR
+    module = from_ttir(module, 
+                       module_dump, 
+                       output_root, 
+                       test_base + mlir_suffix, 
+                       mesh_shape=mesh_shape, 
+                       argument_types_string=argument_types_string)
 
-                module = ttir_to_ttmetal(module, module_dump, test_base + "_ttm.mlir")
-                ttmetal_to_flatbuffer(module, builder, test_base + ".ttm")
+    module_logger = MLIRModuleLogger()
+    module_logger.attach_context(module.context)
 
-            if "ttnn" in targets:
-                module, builder = compile_as_mlir_module(
-                    test_fn, inputs_shapes, inputs_types, mesh_shape
-                )
+    # Compile TT{Metal,NN} MLIR -> flatbuffer
+    to_flatbuffer(module, builder, output_root, test_base + "." + target, module_log=module_logger.module_log)
 
-                if module_dump:
-                    with open(test_base + "_ttir.mlir", "w") as f:
-                        f.write(str(module))
-
-                module_logger = MLIRModuleLogger()
-                module_logger.attach_context(module.context)
-                module = ttir_to_ttnn(
-                    module,
-                    module_dump,
-                    test_base + "_ttnn.mlir",
-                    mesh_shape=mesh_shape,
-                    argument_types_string=argument_types_string,
-                )
-                ttnn_to_flatbuffer(
-                    module, builder, test_base + ".ttnn", module_log=module_logger.module_log
-                )
-
-        return wrapper
-
-    return decorator
+    # TODO: execute flatbuffer

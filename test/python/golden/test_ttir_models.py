@@ -6,103 +6,11 @@
 
 import torch
 import pytest
-from typing import Callable, List, Optional, Tuple
+from typing import List
 
-from ttmlir.test_utils import  compile_as_mlir_module, ttir_to_ttnn, ttnn_to_flatbuffer, ttir_to_ttmetal, ttmetal_to_flatbuffer
+from ttmlir.test_utils import compile_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Shape
-from ttmlir.passes import MLIRModuleLogger
 
-def compile_to_flatbuffer(
-    fn: Callable,
-    inputs_shapes: List[Shape],
-    inputs_types: Optional[List[torch.dtype]] = None,
-    test_base: str = "test",
-    output_root: str = "",
-    target: str = "ttnn",
-    mesh_shape: Optional[Tuple[int, int]] = None,
-    module_dump: bool = True,
-):
-    """
-    Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer 
-
-    This decorator is mainly a wrapper around the following functions, with
-    each next function called on the output of the last:
-
-    1. `compile_as_mlir_module`
-    2. `ttir_to_tt{nn,metal}`
-    3. `tt{nn,metal}_to_flatbuffer`
-
-    The choice of TTNN vs. TTMetal is controlled by the `target` parameter
-
-    Arguments
-    ---------
-
-    fn: Callable
-        The TTIRBuilder function to compile. Must take `builder : TTIRBuilder` as a kwarg
-
-    inputs_shapes: List[Shape]
-        Shapes of the respective ranked tensor inputs of the test function.
-
-    inputs_types: Optional[List[torch.dtype]]
-        The dtypes to use for the inputs to `fn`. Note that if supplied,
-        `len(inputs_shapes) == len(inputs_types)` must be true. Defaults to
-        `None`
-
-    test_base: str
-        The string to be used as the base name for dumped files throughout the
-        process. If `None` is provided, then the `__name__` of `fn` will be used.
-
-    output_root: str
-        The path to dump all generated arguments under. If this path doesn't
-        exist, it will be created
-
-    target: str
-        Either `"ttnn"` or `"ttmetal"`. This controls which backend to use
-
-    mesh_shape: Optional[Tuple[int, int]]
-        A list that contains shape of the mesh to be applied on ttir to ttnn
-        conversion path. Defaults to `None`
-
-    module_dump: bool
-        Set to True to print out generated TTIR MLIR module.
-
-    """
-
-    if inputs_types is not None:
-        assert(len(inputs_shapes) == len(inputs_types))
-
-    from_ttir: Callable
-    to_flatbuffer: Callable
-    mlir_suffix: str
-
-    if target == "ttnn":
-        from_ttir = ttir_to_ttnn
-        to_flatbuffer = ttnn_to_flatbuffer 
-        mlir_suffix =  "_ttnn.mlir"
-    else:
-        from_ttir = ttir_to_ttmetal
-        to_flatbuffer = ttmetal_to_flatbuffer 
-        mlir_suffix =  "_ttm.mlir"
-
-    # Compile model to TTIR MLIR
-    module, builder = compile_as_mlir_module(
-        fn, inputs_shapes, inputs_types, mesh_shape=mesh_shape
-    )
-
-    if module_dump:
-        with open(test_base + "_ttir.mlir", "w") as f:
-            f.write(str(module))
-
-    # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-    module = from_ttir(module, module_dump, output_root, test_base + mlir_suffix)
-
-    module_logger = MLIRModuleLogger()
-    module_logger.attach_context(module.context)
-
-    # Compile TT{Metal,NN} MLIR -> flatbuffer
-    to_flatbuffer(module, builder, output_root, test_base + "." + target, module_log=module_logger.module_log)
-
-    # TODO: execute flatbuffer
 
 @pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
@@ -110,8 +18,7 @@ def test_arbitrary_model(
         shapes: List[Shape],
         dtypes: List[torch.dtype],
         artifact_path: str,
-        request,
-        target: str = "ttnn"):
+        request):
 
     def model(
         in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
@@ -120,7 +27,7 @@ def test_arbitrary_model(
         exp = builder.exp(in2)
         return builder.multiply(add, exp)
 
-    compile_to_flatbuffer(model, shapes, dtypes, test_base=request.node.name, target=target, output_root=artifact_path)
+    compile_to_flatbuffer(model, shapes, dtypes, test_base=request.node.name, output_root=artifact_path)
 
 
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5], ids=["f32"])
@@ -180,7 +87,8 @@ def test_llama_attention(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     target: str,
-    artifact_path: str):
+    artifact_path: str,
+    request):
 
     def model(
         arg0: Operand,
@@ -260,4 +168,4 @@ def test_llama_attention(
         output115 = builder.unsqueeze(output113, 0)
 
         return output115
-    compile_to_flatbuffer(model, shapes, dtypes, target=target, output_root=artifact_path)
+    compile_to_flatbuffer(model, shapes, dtypes, target=target, test_base=request.node.name, output_root=artifact_path)
