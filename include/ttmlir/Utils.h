@@ -489,6 +489,20 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
   return newOp;
 }
 
+template <typename... Args>
+static mlir::Region *getRegionWithParentOfType(mlir::Operation *op) {
+  mlir::Region *region = op->getParentRegion();
+  mlir::Operation *parentOp = region->getParentOp();
+  while (!mlir::isa<Args...>(parentOp)) {
+    region = parentOp->getParentRegion();
+    if (!region) {
+      break;
+    }
+    parentOp = region->getParentOp();
+  }
+  return region;
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

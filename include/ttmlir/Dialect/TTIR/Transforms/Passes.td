@@ -287,6 +287,40 @@ def TTIRGenericLowerAffineDMAs : Pass<"ttir-generic-lower-affine-dmas", "::mlir:
   }];
 }
 
+def TTIRGenericRegionsToFuncs : Pass<"ttir-generic-regions-to-funcs", "::mlir::ModuleOp"> {
+  let summary = "Move generic regions to top level functions.";
+  let description = [{
+    This pass moves the generic regions to top level functions. This is a useful prerequisite
+    step before lowering because it enables us to better separate kernel program lowering from
+    host program lowering.
+
+    ```mlir
+    func.func @main(/*...*/) {
+      ttir.generic {grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#ttir.thread<compute>]}
+          ins(%arg0, %arg1 : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>)
+          outs(%alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>)  {
+      ^compute0(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!tt.tile<32x32, f32>, #l1_>):
+        // ...compute body...
+      }
+    }
+    ```
+
+    Into (note the new compute function / symbol @compute_kernel0):
+    ```mlir
+    func.func @main(/*...*/) {
+      ttir.generic {grid = #tt.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#ttir.thread<compute, @compute_kernel0>]}
+          ins(%arg0, %arg1 : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>)
+          outs(%alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>)
+    }
+
+    func.func private @compute_kernel0(%arg0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread_type = 0 : i32} {
+      // ...compute body...
+      return
+    }
+    ```
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{

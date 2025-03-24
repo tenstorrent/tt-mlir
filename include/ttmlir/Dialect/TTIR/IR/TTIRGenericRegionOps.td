@@ -15,15 +15,20 @@ include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 
-class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRegionOpTrait, TTIR_GenericParent]> :
-    TTIR_Op<mnemonic, traits> {
-}
+class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
+
+class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait] # traits> {}
+
+class TTIR_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionDatamovementOpTrait] # traits> {}
 
 //===----------------------------------------------------------------------===//
 // TTIR Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_TileAddOp : TTIR_GenericRegionOp<"tile_add">{
+def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add"> {
     let summary = "TTIR Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise.
@@ -34,7 +39,7 @@ def TTIR_TileAddOp : TTIR_GenericRegionOp<"tile_add">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileSubOp : TTIR_GenericRegionOp<"tile_sub">{
+def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub"> {
     let summary = "TTIR Tile Sub Op";
     let description = [{
         The `tile_sub` operation subtracts two tiles element-wise.
@@ -45,7 +50,7 @@ def TTIR_TileSubOp : TTIR_GenericRegionOp<"tile_sub">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMulOp : TTIR_GenericRegionOp<"tile_mul">{
+def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
     let summary = "TTIR Tile Mul Op";
     let description = [{
         The `tile_mul` operation multiplies two tiles element-wise.
@@ -56,7 +61,7 @@ def TTIR_TileMulOp : TTIR_GenericRegionOp<"tile_mul">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileRecipOp : TTIR_GenericRegionOp<"tile_recip">{
+def TTIR_TileRecipOp : TTIR_GenericRegionComputeOp<"tile_recip"> {
     let summary = "TTIR Tile Recip Op";
     let description = [{
         The `tile_recip` operation computes the reciprocal of each element in the input tile.
@@ -66,7 +71,7 @@ def TTIR_TileRecipOp : TTIR_GenericRegionOp<"tile_recip">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileExpOp : TTIR_GenericRegionOp<"tile_exp">{
+def TTIR_TileExpOp : TTIR_GenericRegionComputeOp<"tile_exp"> {
     let summary = "TTIR Tile Exp Op";
     let description = [{
         The `tile_exp` operation computes the exponential of each element in the input tile.
@@ -76,7 +81,7 @@ def TTIR_TileExpOp : TTIR_GenericRegionOp<"tile_exp">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileLogOp : TTIR_GenericRegionOp<"tile_log">{
+def TTIR_TileLogOp : TTIR_GenericRegionComputeOp<"tile_log"> {
     let summary = "TTIR Tile Log Op";
     let description = [{
         The `tile_log` operation computes the natural logarithm of each element in the input tile.
@@ -86,7 +91,7 @@ def TTIR_TileLogOp : TTIR_GenericRegionOp<"tile_log">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileReduceSumOp : TTIR_GenericRegionOp<"tile_reduce_sum">{
+def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum"> {
     let summary = "TTIR Tile Reduce Sum Op";
     let description = [{
         The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
@@ -98,7 +103,7 @@ def TTIR_TileReduceSumOp : TTIR_GenericRegionOp<"tile_reduce_sum">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
+def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
     let summary = "TTIR Tile Reduce Max Op";
     let description = [{
         The `tile_reduce_max` operation computes the max of all elements in the input tile over the specified reduction dim(s).
@@ -110,7 +115,7 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionOp<"tile_reduce_max">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
+def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
   [DestinationStyleOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
@@ -128,7 +133,7 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
     let hasVerifier = 1;
 }
 
-def TTIR_TileTilizeBlockOp : TTIR_GenericRegionOp<"tile_tilize_block",
+def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
   [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "TTIR Tile Tilize Block Op";
     let description = [{
@@ -145,7 +150,7 @@ def TTIR_TileTilizeBlockOp : TTIR_GenericRegionOp<"tile_tilize_block",
     let hasVerifier = 1;
 }
 
-def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionOp<"tile_untilize_block",
+def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block",
   [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "TTIR Tile Untilize Block Op";
     let description = [{
@@ -167,7 +172,7 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionOp<"tile_untilize_block",
 // TTIR Generic Region Datamovement Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
+def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
@@ -278,7 +283,7 @@ def TTIR_NullTxOp : TTIR_GenericRegionOp<"null_tx", [Pure]> {
     let assemblyFormat = [{ attr-dict }];
 }
 
-def TTIR_DMAWaitOp : TTIR_GenericRegionOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
+def TTIR_DMAWaitOp : TTIR_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "TTIR DMA wait Op";
     let description = [{
       Waits for the producer DMA memory transaction to complete.
@@ -426,6 +431,52 @@ def TTIR_CoreIndexOp : TTIR_IndexOp<"core_index", [ConstantLike]> {
       Return the index of this core's coordinate inside the generic op's grid dimension.
     }];
     let hasFolder = true;
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR Remote Access ops (Used in TTMetal Lowering)
+//===----------------------------------------------------------------------===//
+
+def TTIR_GetGlobalOperandOp : TTIR_GenericRegionOp<"get_global_operand", [Pure]> {
+    let summary = "Get global operand op.";
+    let description = [{
+      Access the global, aka parent generic op, operand at the specified index.
+
+      The following forms are all equivalent, but the latter forms are required
+      when moving generic regions to top level func ops in the module.
+      ```mlir
+      ttir.generic (%arg0, %arg1, %arg2) {
+        ^datamovement(%cb0, %cb1, %cb2)
+          ttir.dma %arg1, %cb1 // Capture %arg1 from parent scope
+      }
+      ```
+
+      And:
+      ```mlir
+      ttir.generic (%arg0, %arg1, %arg2) {
+        ^datamovement(%cb0, %cb1, %cb2)
+          %operand_arg1 = ttir.get_global_operand 1
+          ttir.dma %operand_arg1, %cb0
+      }
+      ```
+
+      And:
+      ```mlir
+      func.func @main(...) {
+        ttir.generic (%arg0, %arg1, %arg2) { kernel_symbols = [@dm0] }
+      }
+
+      func.func private @dm0(%cb0, %cb1, %cb2) {
+        %operand_arg1 = ttir.get_global_operand 1
+        ttir.dma %operand_arg1, %cb0
+      }
+      ```
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$operand_index);
+    let results = (outs AnyNon0RankedMemRef:$result);
+
+    let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRGENERICREGIONOPS_TD
