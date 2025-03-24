@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <numeric>
-
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+// #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
+
+#include <numeric>
 
 using namespace mlir::tt::ttnn;
 
@@ -269,7 +269,7 @@ TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
           {y, y.floorDiv(tileH)}, {x, x.floorDiv(tileW)}});
 
   // Get tiled shape by evaluating the affine map with tensor shape.
-  return ttmlir::utils::evalShape(tiled, tensorShape);
+  return ttmlir::utils::evalShape(tiled, utils::getTiledShape(tensorShape));
 }
 
 // Get the size of shard in bytes
@@ -472,20 +472,30 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     TensorMemoryLayoutAttr memLayoutAttr,
     TensorMeshShardingAttr tensorMeshSharding,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+
+  llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
+                                              tensorShape.end());
+
+  // If the tensor is tiled the last two dims need to be rounded up to tile size
+  // before creating the affine map. E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
+  if (llvm::isa<TileType>(elementType)) {
+    physicalShape = utils::getTiledShape(tensorShape);
+  }
+
   // Construct a new affine map which will be used to map from logical
   // space to physical space.
   AffineMap linear = collapsedLinearAffineMap(
-      context, tensorShape, grid.getShape(), collapseIntervals);
+      context, physicalShape, grid.getShape(), collapseIntervals);
 
   // Calculate shard shape
   mlir::SmallVector<int64_t> shardShape;
   if (bufferType == BufferType::L1 &&
       memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
     shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
-        tensorShape, elementType, linear, grid);
+        physicalShape, elementType, linear, grid);
   } else {
     shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
-        tensorShape, linear, grid);
+        physicalShape, linear, grid);
   }
 
   // Build memref type with the given parameters

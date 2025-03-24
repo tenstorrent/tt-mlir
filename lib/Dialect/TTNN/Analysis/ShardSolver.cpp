@@ -14,11 +14,14 @@
 #include "mlir/IR/Location.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Support/LLVM.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace mlir::tt::ttnn {
 
@@ -83,6 +86,9 @@ bool ShardSolver::resolveStep() {
   }
 
   for (const auto shardSpec : *shardSpecs) {
+    llvm::outs() << "Resolving constraints for:\n";
+    shardSpec.op->print(llvm::outs());
+
     Operation *consumerOp = shardSpec.op;
     Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
     std::vector<OpConfig> const &consumerConfigs = getLegalConfigs(consumerOp);
@@ -320,6 +326,10 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   std::vector<OpConfig> const &producerConfigs =
       getLegalConfigs(edge.producerOp);
 
+  std::unordered_map<std::string,
+                     std::vector<std::pair<TTNNLayoutAttr, TTNNLayoutAttr>>>
+      errorCount;
+
   // For all legal outputs, check if there is at least one valid input.
   //
   bool validConfigExists = false;
@@ -327,6 +337,12 @@ bool ShardSolver::insertReshard(const Edge &edge) {
     OpConfig outputConfig = consumerConfigs[i];
 
     for (OpConfig producerConfig : producerConfigs) {
+
+      // if (producerConfig.outputLayout.getMemLayout() !=
+      // outputConfig.outputLayout.getMemLayout()) {
+      //   continue;
+      // }
+
       llvm::Expected<bool> shardCompatible = checkShardCompatible(
           consumerOp->getOperand(edge.operandIndex),
           producerConfig.outputLayout, consumerOp, outputConfig);
@@ -336,6 +352,14 @@ bool ShardSolver::insertReshard(const Edge &edge) {
         validConfigExists = true;
         break;
       }
+
+      if (DEBUG) {
+        std::string errorMsg = utils::firstNLines(
+            llvm::toStringWithoutConsuming(shardCompatible.takeError()), 4);
+        errorCount[errorMsg].push_back(
+            {producerConfig.outputLayout, outputConfig.outputLayout});
+      }
+
       llvm::consumeError(shardCompatible.takeError());
     }
   }
@@ -361,6 +385,17 @@ bool ShardSolver::insertReshard(const Edge &edge) {
       for (auto config : consumerConfigs) {
         llvm::errs() << "\t" << config.outputLayout << "\n";
       }
+
+      llvm::errs() << "Error count: " << errorCount.size() << "\n";
+      for (const auto &[error, layouts] : errorCount) {
+        llvm::errs() << "Count: " << layouts.size() << " Error: " << error
+                     << "\n";
+        for (const auto &[producerLayout, consumerLayout] : layouts) {
+          llvm::errs() << "\nProducer layout: " << producerLayout;
+          llvm::errs() << "\nConsumer layout: " << consumerLayout;
+          llvm::errs() << "\n";
+        }
+      }
     }
 
     earlyExit = true;
@@ -384,6 +419,13 @@ bool ShardSolver::resolve() {
 
     // Try to resolve shard chain. Retry if not resolved(resharding).
     //
+
+    if (DEBUG) {
+      llvm::errs() << "Resolving shard chain, attempt: " << retry_step << "\n";
+      llvm::errs() << "Chain:\n";
+      llvm::errs() << this;
+    }
+
     resolved = resolveStep();
     if (earlyExit) {
       assert(!resolved);
@@ -699,18 +741,21 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
         backend.getOpConstraints(inputLayouts, consumerConfig.outputLayout);
 
     if (!l1UsageExp) {
+      llvm::Error error = l1UsageExp.takeError();
+
       // early exit
       if (DEBUG) {
+        std::string errorMsg =
+            utils::firstNLines(llvm::toStringWithoutConsuming(error), 4);
+
         llvm::errs() << "OpModel constraints failed: ";
         llvm::errs() << producerOperand.getLoc() << "->"
-                     << consumerOp->getName() << " :: "
-                     << llvm::toStringWithoutConsuming(l1UsageExp.takeError())
-                     << "\n";
+                     << consumerOp->getName() << " :: " << errorMsg << "\n";
         producerLayout.dump();
         consumerConfig.dump();
       }
 
-      return l1UsageExp.takeError();
+      return error;
     }
     auto [cBUsagePeak, tensorUsage, outputTensorUsage] = l1UsageExp.get();
 

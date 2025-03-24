@@ -104,11 +104,11 @@ void DFShardingPolicy::run() {
             validForSharding = false;
           }
           // TODO(#2084): Remove once constraints are added.
-          if (llvm::isa<ttnn::MultiplyOp>(currentOp)) {
+          if (llvm::isa<ttnn::TransposeOp>(currentOp)) {
             validForSharding = false;
           }
           // TODO(#2084): Remove once constraints are added.
-          if (llvm::isa<ttnn::TransposeOp>(currentOp)) {
+          if (llvm::isa<ttnn::Conv2dOp>(currentOp)) {
             validForSharding = false;
           }
 
