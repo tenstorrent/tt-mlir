@@ -132,10 +132,18 @@ public:
 
 private:
   LogicalResult shouldCommute(Operation *op, TMOpType) const override {
+    // In some cases there may be an implicit broadcast on one of the operands.
+    // That is there is no broadcast op on one of the operands but a broadcast
+    // is required to execute the op nonetheless. We do not handle this yet. So
+    // we will make sure the operand types are identical.
+    auto firstOperandType = cast<RankedTensorType>(op->getOperand(0).getType());
+    auto secondOperandType =
+        cast<RankedTensorType>(op->getOperand(1).getType());
+
     // For now we always want to commute through unary elementwise ops if all
     // the users are identical
     SmallVector<Operation *> users(op->getUsers());
-    return success(users.size() > 0 &&
+    return success(firstOperandType == secondOperandType && users.size() > 0 &&
                    succeeded(checkAllUsersAreIdenticalTms(users)));
   }
 

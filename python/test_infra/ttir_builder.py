@@ -903,20 +903,18 @@ class TTIRBuilder:
         return self.op_proxy(
             self.conv2d_golden_function,
             ttir.Conv2dOp,
-            [in0, weight],
+            [in0, weight, bias],
             golden_kwargs={
                 "stride": stride,
                 "padding": padding,
                 "dilation": dilation,
                 "groups": groups,
-                "bias": bias,
             },
             ttir_kwargs={
                 "stride": stride,
                 "padding": padding,
                 "dilation": dilation,
                 "groups": groups,
-                "bias": bias,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             output_type=output_type,
@@ -940,6 +938,9 @@ class TTIRBuilder:
         dilation = (
             tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
         )
+
+        # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias is rank 1: [C_out]
+        bias = bias.squeeze()  # Removes all dims of size 1
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
         input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
