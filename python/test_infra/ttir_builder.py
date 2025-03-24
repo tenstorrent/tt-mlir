@@ -955,7 +955,7 @@ class TTIRBuilder:
         result = torch.nn.functional.conv2d(
             input_tensor,
             weight,
-            bias=bias,
+            bias=golden_bias,
             stride=stride,
             padding=padding,
             dilation=dilation,
@@ -1030,7 +1030,7 @@ class TTIRBuilder:
         result = torch.nn.functional.conv_transpose2d(
             input_tensor,
             weight,
-            bias=bias,
+            bias=golden_bias,
             stride=stride,
             padding=padding,
             output_padding=output_padding,
