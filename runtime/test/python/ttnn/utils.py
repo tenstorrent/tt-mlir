@@ -46,8 +46,10 @@ class Helper:
 
 
 class DeviceContext:
-    def __init__(self, device_ids):
-        self.device = ttrt.runtime.open_device(device_ids)
+    def __init__(self, device_ids, enable_program_cache=False):
+        self.device = ttrt.runtime.open_device(
+            device_ids, enable_program_cache=enable_program_cache
+        )
 
     def __enter__(self):
         return self.device

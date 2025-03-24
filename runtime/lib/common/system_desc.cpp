@@ -211,6 +211,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
+    constexpr std::uint32_t kNumComputeThreads = 1;
+    constexpr std::uint32_t kNumDatamovementThreads = 2;
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
@@ -218,7 +220,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         DRAM_ALIGNMENT, l1UnreservedBase,
         ::eth_l1_mem::address_map::ERISC_L1_UNRESERVED_BASE, dramUnreservedBase,
         dramUnreservedEnd, chipPhysicalCores, supportedDataTypes,
-        supportedTileSizes, NUM_CIRCULAR_BUFFERS));
+        supportedTileSizes, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
+        kNumDatamovementThreads));
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =

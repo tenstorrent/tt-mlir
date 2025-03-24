@@ -158,7 +158,8 @@ void populateTTModule(nb::module_ &m) {
              unsigned l1UnreservedBase, unsigned eriscL1UnreservedBase,
              unsigned dramUnreservedBase, unsigned dramUnreservedEnd,
              MlirAttribute chipPhysicalCores, MlirAttribute supportedDataTypes,
-             MlirAttribute supportedTileSizes, unsigned numCBs) {
+             MlirAttribute supportedTileSizes, unsigned numCBs,
+             unsigned numComputeThreads, unsigned numDatamovementThreads) {
             return wrap(tt::ChipDescAttr::get(
                 unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid,
                 l1Size, numDramChannels, dramChannelSize,
@@ -169,7 +170,7 @@ void populateTTModule(nb::module_ &m) {
                     unwrap(chipPhysicalCores)),
                 mlir::cast<tt::DataTypeAttr>(unwrap(supportedDataTypes)),
                 mlir::cast<tt::TileSizeAttr>(unwrap(supportedTileSizes)),
-                numCBs));
+                numCBs, numComputeThreads, numDatamovementThreads));
           })
       .def_prop_ro("usable_l1_size", &tt::ChipDescAttr::getUsableL1Size)
       .def_prop_ro("usable_dram_channel_size",
