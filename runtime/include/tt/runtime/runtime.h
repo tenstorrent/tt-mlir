@@ -98,14 +98,17 @@ TensorDesc getTensorDesc(Tensor tensor);
 
 size_t getNumAvailableDevices();
 
-Device
-openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
-           std::optional<size_t> l1SmallSize = std::nullopt,
-           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
-           std::optional<bool> enableAsyncTTNN = std::nullopt,
-           std::optional<bool> enableProgramCache = std::nullopt);
+Device openMeshDevice(const std::vector<uint32_t> &meshShape,
+                      const MeshDeviceOptions &options = MeshDeviceOptions());
 
-void closeDevice(Device device);
+void closeMeshDevice(Device parentMesh);
+
+Device createSubMeshDevice(
+    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
+    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset =
+        std::nullopt);
+
+void releaseSubMeshDevice(Device subMesh);
 
 void wait(Event event);
 
@@ -140,6 +143,17 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex, std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs);
+
+inline namespace legacy {
+Device
+openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
+           std::optional<size_t> l1SmallSize = std::nullopt,
+           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
+           std::optional<bool> enableAsyncTTNN = std::nullopt,
+           std::optional<bool> enableProgramCache = std::nullopt);
+
+void closeDevice(Device device);
+} // namespace legacy
 
 } // namespace tt::runtime
 
