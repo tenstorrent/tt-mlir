@@ -19,6 +19,7 @@ from ttmlir.passes import (
 )
 
 from .ttir_builder import Golden, Operand, Shape, TTIRBuilder, DataType, TypeInfo
+from ttrt.common.api import API as ttrt
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
@@ -314,7 +315,13 @@ def ttmetal_to_flatbuffer(
     print("`ttmetal_to_flatbuffer_file` passed successfully.")
 
 
-# ----- Decorators for doing passes and compiling to flatbuffer -----
+def ttrt_run_fb( binary_path: str):
+    """ Runs a flatbuffer at `binary_path` through `ttrt`. Should be equivalent to `ttrt run {binary_path}`
+    """
+    ttrt.initialize_apis()
+    args = {"binary": binary_path}
+    result_code, results = ttrt.Run(args=args)()
+    assert result_code == 0
 
 
 def compile_to_flatbuffer(
@@ -322,7 +329,7 @@ def compile_to_flatbuffer(
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     test_base: str = "test",
-    output_root: str = "",
+    output_root: str = ".",
     target: str = "ttnn",
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = True,
@@ -369,7 +376,7 @@ def compile_to_flatbuffer(
         conversion path. Defaults to `None`
 
     module_dump: bool
-        Set to True to print out generated TTIR MLIR module.
+        Set to `True` to print out generated TTIR MLIR module.
 
     """
 
@@ -407,4 +414,5 @@ def compile_to_flatbuffer(
     # Compile TT{Metal,NN} MLIR -> flatbuffer
     to_flatbuffer(module, builder, output_root, test_base + "." + target, module_log=module_logger.module_log)
 
+    ttrt_run_fb(f"{output_root}/ttnn/{test_base}.{target}")
     # TODO: execute flatbuffer
