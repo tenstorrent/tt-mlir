@@ -12,6 +12,7 @@ option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
 option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
 option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
+option(CODE_COVERAGE "Enable coverage reporting" OFF)
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
@@ -59,6 +60,22 @@ if (CMAKE_BUILD_TYPE STREQUAL "Asan")
     message(FATAL_ERROR "TTMLIR_ENABLE_BINDINGS_PYTHON must be set to OFF when building TTMLIR with address sanitization")
   endif()
 endif()
+
+add_library(coverage_config INTERFACE)
+if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  # Add required flags (GCC & LLVM/Clang)
+  target_compile_options(coverage_config INTERFACE
+    -O0        # no optimization
+    -g         # generate debug info
+    --coverage # sets all required flags
+    -fPIC
+  )
+  target_link_options(coverage_config INTERFACE --coverage)
+endif()
+
+install(TARGETS coverage_config EXPORT TTNNOpModelLibTargets)
+install(TARGETS coverage_config EXPORT MLIRTTNNDialect)
+install(TARGETS coverage_config EXPORT TTMLIRTTNNUtils)
 
 set(TTMLIR_TOOLCHAIN_DIR $ENV{TTMLIR_TOOLCHAIN_DIR})
 set(TTMLIR_SOURCE_DIR ${PROJECT_SOURCE_DIR})

@@ -361,7 +361,6 @@ table ConvTranspose2dOp {
 table MaxPool2dOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
   batch_size: uint32;
   input_height: uint32;
   input_width: uint32;

@@ -358,6 +358,42 @@ public:
 };
 } // namespace
 
+// Eltwise Ternary op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseTernaryOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputs()[0]),
+        emitter.emit(srcOp.getInputs()[1]),
+        emitter.emit(srcOp.getInputs()[2]),
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(srcOp->getResult(0)),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Linear op conversion pattern
 //
 namespace {
@@ -1279,7 +1315,8 @@ public:
         emitter.emit(srcOp.getShape()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
-        emitter.emit(srcOp.getDevice()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalAnyDevice>(
+            srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -1698,6 +1735,11 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseBinaryOpConversionPattern<tt::ttnn::PowerOp>>(typeConverter,
                                                                 ctx);
 
+  // Eltwise ternary ops
+  //
+  patterns.add<EltwiseTernaryOpConversionPattern<tt::ttnn::WhereOp>>(
+      typeConverter, ctx);
+
   // Tensor manipulation ops
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
@@ -1736,7 +1778,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
                DefaultOpConversionPattern<tt::ttnn::EmbeddingBackwardOp>,
-               DefaultOpConversionPattern<tt::ttnn::WhereOp>,
                MorehCumSumOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
