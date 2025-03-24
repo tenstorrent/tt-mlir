@@ -621,13 +621,13 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   // are flattened to by FlattenSlidingWindow
   constexpr unsigned int BATCH_DIM = 0, HEIGHT_DIM = 1, WIDTH_DIM = 2,
                          CHANNEL_DIM = 3, FLATTEN_DIM = 2;
-  int64_t batchSize = inputType.getDimSize(BATCH_DIM);
+
   int64_t inputHeight = inputType.getDimSize(HEIGHT_DIM);
   int64_t inputWidth = inputType.getDimSize(WIDTH_DIM);
   int64_t inChannels = inputType.getDimSize(CHANNEL_DIM);
   int64_t outChannels = outputType.getDimSize(CHANNEL_DIM);
   if (getFlattenedCompatInfo()) {
-    batchSize = getFlattenedCompatInfo()->getBatchSize();
+    auto batchSize = getFlattenedCompatInfo()->getBatchSize();
     inputHeight = getFlattenedCompatInfo()->getInputHeight();
     inputWidth = getFlattenedCompatInfo()->getInputWidth();
     inChannels = getFlattenedCompatInfo()->getInChannels();
@@ -647,6 +647,15 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
                            << batchSize * inputHeight * inputWidth
                            << " but got " << inputType.getDimSize(FLATTEN_DIM);
     }
+  }
+
+  if (!getFlattenedCompatInfo() &&
+      inputType.getDimSize(BATCH_DIM) != outputType.getDimSize(BATCH_DIM)) {
+    return emitOpError()
+           << "Batch size from the input tensor ("
+           << inputType.getDimSize(BATCH_DIM)
+           << ") must match the first dimension of the output tensor ("
+           << outputType.getDimSize(BATCH_DIM) << ")";
   }
 
   if (outChannels != outputType.getDimSize(CHANNEL_DIM)) {

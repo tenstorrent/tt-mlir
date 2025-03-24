@@ -5,12 +5,13 @@
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
 
-LogicalResult checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
+static LogicalResult checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
   if (users.size() == 0) {
-    return failure();
+    return success();
   }
 
   Operation *firstUser = users[0];
@@ -19,9 +20,9 @@ LogicalResult checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
       return failure();
     }
   }
-  return success(isa<TransposeOp, PermuteOp, ReshapeOp>(firstUser));
+  return success(firstUser->hasTrait<ttir::TM::Trait>());
 }
-
+namespace {
 template <typename TMOpType>
 class TTIRCommuteTmsAboveElementwiseRewriter
     : public TTIRCommuteRewritePattern<TMOpType, Operation *> {
@@ -39,7 +40,7 @@ public:
 
     SmallVector<mlir::tensor::EmptyOp> newTMDPSOperands;
     SmallVector<TMOpType> newTMs;
-    SmallVector<Type> newTMResultTypes;
+    SmallVector<RankedTensorType> newTMResultTypes;
     for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
          operandIdx++) {
 
@@ -83,7 +84,7 @@ public:
     // In the future this function may be called when this is not
     // the case, and we'll need to insert user clones on the
     // user edges that do not have an inverse on them.
-    assert(succeeded(checkAllUsersAreIdenticalTms(users)) &&
+    assert(users.size() > 0 && succeeded(checkAllUsersAreIdenticalTms(users)) &&
            "TODO: Implement for commuting through eltewise when not all users "
            "are the same TM");
     for (auto *user : users) {
@@ -91,7 +92,9 @@ public:
     }
   }
 };
+} // namespace
 
+namespace {
 template <typename TMOpType>
 class TTIRCommuteTmsAboveElementwiseUnaryRewriter
     : public TTIRCommuteTmsAboveElementwiseRewriter<TMOpType> {
@@ -104,7 +107,8 @@ private:
                               ArrayRef<Operation *> users) const override {
     // For now we always want to commute through unary elementwise ops if all
     // the users are identical
-    return success(succeeded(checkAllUsersAreIdenticalTms(users)));
+    return success(users.size() > 0 &&
+                   succeeded(checkAllUsersAreIdenticalTms(users)));
   }
 
   LogicalResult
@@ -120,7 +124,9 @@ private:
     return failure();
   }
 };
+} // namespace
 
+namespace {
 template <typename TMOpType>
 class TTIRCommuteTmsAboveElementwiseBinaryRewriter
     : public TTIRCommuteTmsAboveElementwiseRewriter<TMOpType> {
@@ -133,7 +139,8 @@ private:
                               ArrayRef<Operation *> users) const override {
     // For now we always want to commute through unary elementwise ops if all
     // the users are identical
-    return success(succeeded(checkAllUsersAreIdenticalTms(users)));
+    return success(users.size() > 0 &&
+                   succeeded(checkAllUsersAreIdenticalTms(users)));
   }
 
   LogicalResult
@@ -149,6 +156,7 @@ private:
     return failure();
   }
 };
+} // namespace
 
 void populateElementwiseCommutePatterns(MLIRContext *ctx,
                                         RewritePatternSet &patterns) {

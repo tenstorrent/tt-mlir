@@ -6,6 +6,7 @@
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "ttmlir/Utils.h"
+#include <mlir/IR/BuiltinTypes.h>
 
 namespace mlir::tt::ttir {
 
@@ -177,18 +178,15 @@ public:
     // All dimensions with stride 0 will be broadcasted. So the new reshape
     // should have the same shape as the desired output - except with all
     // broadcasted dimensions as `1`.
+    //
+    // The broadcasted dimensions should all be `1` except for the dimensions
+    // which we actually want to broadcast.
     SmallVector<int64_t> newReshapeShape(resultShape);
+    SmallVector<int64_t> newBroadcastDimensions(resultShape);
     for (uint64_t i = 0; i < resultShape.size(); i++) {
       if (finalStrides.value()[i] == 0) {
         newReshapeShape[i] = 1;
-      }
-    }
-
-    // The broadcasted dimensions should all be `1` except for the dimensions
-    // which we actually want to broadcast.
-    SmallVector<int64_t> newBroadcastDimensions(resultShape);
-    for (uint64_t i = 0; i < resultShape.size(); i++) {
-      if (finalStrides.value()[i] != 0) {
+      } else {
         newBroadcastDimensions[i] = 1;
       }
     }
@@ -196,22 +194,18 @@ public:
     // Now that we know which shape the reshape should have and which broadcast
     // dimensions the broadcast should have, we can generate the new ops.
     auto newTMResultType =
-        tmResultType.cloneWith(newReshapeShape, tmResultType.getElementType());
+        RankedTensorType::get(newReshapeShape, tmResultType.getElementType(),
+                              tmResultType.getEncoding());
 
-    auto reshapeDps = rewriter.create<tensor::EmptyOp>(
-        op->getLoc(), newTMResultType.getShape(),
-        newTMResultType.getElementType());
-
-    auto newReshape = rewriter.create<ttir::ReshapeOp>(
-        op->getLoc(), newTMResultType, operand, reshapeDps,
+    auto newReshape = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, op->getLoc(), newTMResultType, operand,
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(newReshapeShape.begin(),
                                                       newReshapeShape.end())));
 
-    auto broadcastDPS = rewriter.create<tensor::EmptyOp>(
-        op->getLoc(), resultShape, tmResultType.getElementType());
-    assert(newBroadcastDimensions.size() <= (uint32_t)tmResultType.getRank());
-    auto newBroadcast = rewriter.create<ttir::BroadcastOp>(
-        op->getLoc(), tmResultType, newReshape, broadcastDPS,
+    assert(newBroadcastDimensions.size() ==
+           static_cast<size_t>(tmResultType.getRank()));
+    auto newBroadcast = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+        rewriter, op->getLoc(), tmResultType, newReshape,
         newBroadcastDimensions);
 
     rewriter.replaceOp(reshape, newBroadcast);
@@ -222,7 +216,7 @@ private:
   matchCommutePattern(ttir::BroadcastOp op, ArrayRef<Value> operands,
                       ArrayRef<Operation *> users) const override {
     // We will match a broacast -> reshape sequence if at least one user is a
-    // reshape There are some cases where the specific reshape cannot be
+    // reshape. There are some cases where the specific reshape cannot be
     // commuted above a specific broadcast, so we must check if it is possible
     // here.
 
@@ -238,34 +232,31 @@ private:
     // We can always assume that the input tensor to this broadcast -> reshape
     // sequence is contiguous, since TTIR ops do not edit strides. If the
     // reshape which follows the broadcast shuffles broadcasted data into the
-    // same subspace(s) as real data, then we cannot move the reshape before
+    // same axes as original data, then we cannot move the reshape before
     // the broadcast and get the same result. This is because the broadcast
-    // op does not have the ability to shuffle real data into broadcasted data.
-    // If our desired result requires us to do that, then the broadcast cannot
-    // come after the reshape.
+    // op does not have the ability to shuffle original data into broadcasted
+    // data. If our desired result requires us to do that, then the broadcast
+    // cannot come after the reshape.
     //
     // We can check if the reshape can commute above the broadcast by checking
     // whether or not the reshape can be done by editing strides alone (point
     // #3).
 
     for (Operation *user : users) {
-      if (auto reshape = dyn_cast_or_null<ttir::ReshapeOp>(user)) {
+      if (auto reshape = dyn_cast<ttir::ReshapeOp>(user)) {
 
         Value operand = operands[0];
-        auto tmResultType =
-            cast<RankedTensorType>(reshape->getResult(0).getType());
+        auto tmResultType = reshape.getResult().getType();
 
         auto resultShape = tmResultType.getShape();
 
         auto originalShape =
             cast<RankedTensorType>(operand.getType()).getShape();
-        auto broadcastShape =
-            cast<RankedTensorType>(op.getResult().getType()).getShape();
-        auto finalShape = resultShape;
+        auto broadcastShape = op.getResult().getType().getShape();
 
         std::optional<SmallVector<int64_t>> finalStrides =
             getStrideAfterBroadcastReshape(originalShape, broadcastShape,
-                                           finalShape);
+                                           resultShape);
         // finalStrides will be nullopt if the broadcast -> reshape sequence
         // cannot be performed by editing strides alone. This means we cannot
         // commute the reshape above the broadcast either.
@@ -305,39 +296,26 @@ public:
     auto permute = cast<ttir::PermuteOp>(users[0]);
     Value operand = operands[0];
     auto operandShape = cast<RankedTensorType>(operand.getType()).getShape();
-    auto tmResultType = cast<RankedTensorType>(permute->getResult(0).getType());
-
-    auto resultShape = tmResultType.getShape();
-
-    SmallVector<int64_t> newShape(operandShape);
-    SmallVector<int64_t> newBroadcastDimensions;
+    auto tmResultType = permute.getResult().getType();
 
     // Commuting a broadcast above a permute requires us to permute which dims
     // are broadcasted.
     auto permutation = permute.getPermutation();
-    for (int64_t i = 0; i < static_cast<int64_t>(permutation.size()); i++) {
-      newShape[i] = operandShape[permutation[i]];
-    }
+    SmallVector<int64_t> newShape =
+        ttmlir::utils::applyPermutation(operandShape, permutation);
+    SmallVector<int64_t> newBroadcastDimensions =
+        ttmlir::utils::applyPermutation(op.getBroadcastDimensions(),
+                                        permutation);
 
-    for (uint32_t i = 0; i < op.getBroadcastDimensions().size(); i++) {
-      newBroadcastDimensions.push_back(
-          op.getBroadcastDimensions()[permutation[i]]);
-    }
+    auto newTMResultType = RankedTensorType::get(
+        newShape, tmResultType.getElementType(), tmResultType.getEncoding());
+    auto newPermute = ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+        rewriter, op->getLoc(), newTMResultType, operand, permutation);
 
-    auto newTMResultType =
-        tmResultType.cloneWith(newShape, tmResultType.getElementType());
-
-    auto permuteDPS = rewriter.create<tensor::EmptyOp>(
-        op->getLoc(), newTMResultType.getShape(),
-        newTMResultType.getElementType());
-    auto newPermute = rewriter.create<ttir::PermuteOp>(
-        op->getLoc(), newTMResultType, operand, permuteDPS, permutation);
-
-    auto broadcastDPS = rewriter.create<tensor::EmptyOp>(
-        op->getLoc(), resultShape, tmResultType.getElementType());
-    assert(newBroadcastDimensions.size() <= (uint32_t)tmResultType.getRank());
-    auto newBroadcast = rewriter.create<ttir::BroadcastOp>(
-        op->getLoc(), tmResultType, newPermute, broadcastDPS,
+    assert(newBroadcastDimensions.size() ==
+           static_cast<size_t>(tmResultType.getRank()));
+    auto newBroadcast = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+        rewriter, op->getLoc(), tmResultType, newPermute,
         newBroadcastDimensions);
 
     rewriter.replaceOp(permute, newBroadcast);

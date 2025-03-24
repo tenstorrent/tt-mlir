@@ -37,11 +37,9 @@ generateTTIRReshape(mlir::TypedValue<mlir::RankedTensorType> input,
       RankedTensorType::get(newShape, inputType.getElementType());
 
   llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-  auto reshapeDPS = rewriter.create<tensor::EmptyOp>(
-      input.getLoc(), outputType.getShape(), outputType.getElementType());
 
-  return rewriter.create<ttir::ReshapeOp>(
-      input.getLoc(), outputType, input, reshapeDPS,
+  return ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+      rewriter, input.getLoc(), outputType, input,
       rewriter.getI32ArrayAttr(newShapeI32));
 }
 
@@ -56,6 +54,7 @@ generateTTIRNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
                                          shape[3]};
   return generateTTIRReshape(input, newShape, rewriter);
 }
+
 class ConvertToFlattenedConv2dPattern
     : public OpConversionPattern<ttir::Conv2dOp> {
 public:
@@ -84,17 +83,14 @@ public:
                                            outputTy.getElementType(),
                                            outputTy.getEncoding());
 
-    auto FlattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
+    auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
         getContext(), inputTy.getDimSize(3), outputTy.getDimSize(3),
         inputTy.getDimSize(0), inputTy.getDimSize(1), inputTy.getDimSize(2));
 
-    auto newConvDPS = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), outputTy.getShape(), outputTy.getElementType());
-    auto newConv = cast<ttir::Conv2dOp>(rewriter.clone(*op));
-    newConv.setFlattenedCompatInfoAttr(FlattenedCompatInfoAttr);
-    newConv->setOperand(0, flattenedInput);
-    newConv.setDpsInitOperand(0, newConvDPS);
-    newConv.getResult().setType(outputTy);
+    auto newConv = ttmlir::utils::createDPSOp<ttir::Conv2dOp>(
+        rewriter, op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
+        adaptor.getBias(), adaptor.getStride(), adaptor.getPadding(),
+        adaptor.getDilation(), adaptor.getGroups(), flattenedCompatInfoAttr);
 
     Value output = generateTTIRReshape(newConv, outputShape, rewriter);
 
@@ -130,19 +126,19 @@ public:
         flattenedOutputShape, outputType.getElementType(),
         outputType.getEncoding());
 
-    auto newPoolDPS = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), newOutputType.getShape(), newOutputType.getElementType());
-
-    auto FlattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
+    auto flattenedCompatInfoAttr = ttir::FlattenedCompatInfoAttr::get(
         getContext(), inputType.getDimSize(3), outputType.getDimSize(3),
         inputType.getDimSize(0), inputType.getDimSize(1),
         inputType.getDimSize(2));
 
-    auto newPool = cast<ttir::MaxPool2dOp>(rewriter.clone(*op));
-    newPool.setFlattenedCompatInfoAttr(FlattenedCompatInfoAttr);
-    newPool->setOperand(0, flattenedInput);
-    newPool.setDpsInitOperand(0, newPoolDPS);
-    newPool.getResult().setType(newOutputType);
+    auto newPool = ttmlir::utils::createDPSOp<ttir::MaxPool2dOp>(
+        rewriter, op.getLoc(), newOutputType, flattenedInput,
+        adaptor.getKernelHeight(), adaptor.getKernelWidth(),
+        adaptor.getStrideHeight(), adaptor.getStrideWidth(),
+        adaptor.getDilationHeight(), adaptor.getDilationWidth(),
+        adaptor.getCeilMode(), adaptor.getPaddingLeft(),
+        adaptor.getPaddingRight(), adaptor.getPaddingTop(),
+        adaptor.getPaddingBottom(), flattenedCompatInfoAttr);
 
     Value output = generateTTIRReshape(newPool, outputShape, rewriter);
 
