@@ -13,25 +13,20 @@
 
 namespace mlir::tt::ttir {
 
-template <typename TMOpType, typename CommutableOpType = Operation *,
-          class CommutableOpInterface = TTIROp,
-          typename = std::enable_if_t<
-              TMOpType::template hasTrait<TensorManipulation::Trait>()>>
+template <typename TMOpType, typename CommutableOpType>
 class TTIRCommuteRewritePattern : public RewritePattern {
 public:
   TTIRCommuteRewritePattern(MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
 
+  TTIRCommuteRewritePattern(MatchInterfaceOpTypeTag tag, TypeID interfaceID,
+                            PatternBenefit benefit, MLIRContext *context)
+      : RewritePattern(tag, interfaceID, benefit, context) {}
+
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const final {
     CommutableOpType commutableOp = dyn_cast<CommutableOpType>(op);
     if (!commutableOp) {
-      return failure();
-    }
-
-    // We may want to match the commutable op to any operation with a certain
-    // interface, like ElemenetwiseUnary/ElementwiseBinary.
-    if (!op->hasTrait<CommutableOpInterface::template Trait>()) {
       return failure();
     }
 
@@ -84,6 +79,21 @@ private:
 
   void virtual performCommuteRewrite(CommutableOpType op, TMOpType tmUser,
                                      PatternRewriter &rewriter) const = 0;
+};
+
+// Using this class will allow you to match against any operation that
+// implements a given interface This is useful for implementing the elementwise
+// patterns. This way we do not have to create a separate pattern for each
+// elementwise operation.
+template <typename TMOpType, class CommutableOpInterface>
+class TTIRCommuteOpInterfaceRewritePattern
+    : public TTIRCommuteRewritePattern<TMOpType, Operation *> {
+public:
+  TTIRCommuteOpInterfaceRewritePattern(MLIRContext *context,
+                                       PatternBenefit benefit = 1)
+      : TTIRCommuteRewritePattern<TMOpType, Operation *>(
+            Pattern::MatchInterfaceOpTypeTag(),
+            CommutableOpInterface::getInterfaceID(), benefit, context) {}
 };
 
 void populateElementwiseCommutePatterns(MLIRContext *ctx,

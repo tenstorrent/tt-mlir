@@ -28,12 +28,11 @@ static LogicalResult checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
 namespace {
 template <typename TMOpType, typename ElementwiseInterfaceType>
 class TTIRCommuteTmsAboveElementwiseRewriter
-    : public TTIRCommuteRewritePattern<TMOpType, Operation *,
-                                       ElementwiseInterfaceType> {
+    : public TTIRCommuteOpInterfaceRewritePattern<TMOpType,
+                                                  ElementwiseInterfaceType> {
 public:
-  using TTIRCommuteRewritePattern<
-      TMOpType, Operation *,
-      ElementwiseInterfaceType>::TTIRCommuteRewritePattern;
+  using TTIRCommuteOpInterfaceRewritePattern<
+      TMOpType, ElementwiseInterfaceType>::TTIRCommuteOpInterfaceRewritePattern;
 
   void performCommuteRewrite(Operation *op, TMOpType tmUser,
                              PatternRewriter &rewriter) const override {
