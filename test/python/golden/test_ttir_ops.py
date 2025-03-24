@@ -503,20 +503,26 @@ def test_index(shape: Shape, dim: int, begin: int, end: int, step: int):
 # return builder.select(in0, dim = 1, begin = 2, length = 2)
 
 
-@compile_to_flatbuffer([], targets=["ttnn"])
-def test_zeros(builder: TTIRBuilder):
-    return builder.zeros([128, 128])
+# TODO: these three nullary tensor creation ops can probably be combined in some way
+@pytest.mark.parametrize("shape", [(128,128)], ids=["128x128"])
+def test_zeros(shape: Shape, request):
+    def zeros(builder: TTIRBuilder):
+        return builder.zeros([shape])
+    _compile_to_flatbuffer(zeros, inputs_shapes=[], test_name=request.node.name)
 
 
-@compile_to_flatbuffer([], targets=["ttnn"])
-def test_ones(builder: TTIRBuilder):
-    return builder.ones([128, 128])
+@pytest.mark.parametrize("shape", [(128,128)], ids=["128x128"])
+def test_ones(shape: Shape, request):
+    def ones(builder: TTIRBuilder):
+        return builder.ones([shape])
+    _compile_to_flatbuffer(ones, inputs_shapes=[], test_name=request.node.name)
 
 
-@compile_to_flatbuffer([], targets=["ttnn"])
-def test_empty(builder: TTIRBuilder):
-    return builder.empty([128, 128])
-
+@pytest.mark.parametrize("shape", [(128,128)], ids=["128x128"])
+def test_empty(shape: Shape, request):
+    def empty(builder: TTIRBuilder):
+        return builder.empty(shape)
+    _compile_to_flatbuffer(empty, inputs_shapes=[], test_name=request.node.name)
 
 @pytest.mark.parametrize("shapes", [[(128,128)]])
 @pytest.mark.parametrize("dim", [0,1])
