@@ -103,11 +103,10 @@ void DFShardingPolicy::run() {
           if (llvm::isa<ttnn::MeanOp>(currentOp)) {
             validForSharding = false;
           }
-          // TODO(#2084): Remove once constraints are added.
           if (llvm::isa<ttnn::TransposeOp>(currentOp)) {
             validForSharding = false;
           }
-          // TODO(#2084): Remove once constraints are added.
+          // TODO(#2588): Blocked by graph capture issue.
           if (llvm::isa<ttnn::Conv2dOp>(currentOp)) {
             validForSharding = false;
           }

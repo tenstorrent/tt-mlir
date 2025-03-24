@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-// #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -237,11 +236,14 @@ llvm::SmallVector<int64_t> TTNNLayoutAttr::getScalarShardShape() const {
 // Get size of tensor in tiles
 //
 // This function returns the size of the tensor in tiles.
-// Size is calculate by pluging the tensor shape into the linear map.
-// This result is then divided by the tile shape.
-// Example: tensor shape (6x15x10), linear map (d0, d1, d2) -> (d0 * 15 + d1,
-// d2) and tile shape (32, 32) The result is (90, 10) which is then divided by
-// tile shape (32, 32) -> (3, 1)
+// Size is calculate by rounding up the last two dims of the tensor to tile size
+// and then pluging the tensor shape into the linear map. This result is then
+// divided by the tile shape. Example: tensor shape (6, 15, 10), linear map (d0,
+// d1, d2) -> (d0 * 32 + d1, d2) and tile shape (32, 32).
+//
+// The result is calculated: (6, 15, 10) -> (6, 32, 32) -> (6 * 32, 32) -> (192,
+// 32) which is then divided by tile shape (32, 32)
+// -> (6, 1)
 //
 // param tensorShape The shape of the tensor
 // return The size of the tensor in tiles.

@@ -115,10 +115,8 @@ public:
 
   void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-      std::cout << "Executing operation: " << op->debug_info()->c_str()
-                << std::endl;
-      LOG_INFO(LogType::LogRuntimeTTNN,
-               "Executing operation: ", op->debug_info()->c_str());
+      LOG_DEBUG(LogType::LogRuntimeTTNN,
+                "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
       runOperation(op);
       runCallback(executableHandle, op, context.get());

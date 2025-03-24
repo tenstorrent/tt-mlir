@@ -337,12 +337,6 @@ bool ShardSolver::insertReshard(const Edge &edge) {
     OpConfig outputConfig = consumerConfigs[i];
 
     for (OpConfig producerConfig : producerConfigs) {
-
-      // if (producerConfig.outputLayout.getMemLayout() !=
-      // outputConfig.outputLayout.getMemLayout()) {
-      //   continue;
-      // }
-
       llvm::Expected<bool> shardCompatible = checkShardCompatible(
           consumerOp->getOperand(edge.operandIndex),
           producerConfig.outputLayout, consumerOp, outputConfig);
@@ -354,13 +348,13 @@ bool ShardSolver::insertReshard(const Edge &edge) {
       }
 
       if (DEBUG) {
-        std::string errorMsg = utils::firstNLines(
-            llvm::toStringWithoutConsuming(shardCompatible.takeError()), 4);
+        std::string errorMsg =
+            utils::firstNLines(llvm::toString(shardCompatible.takeError()), 4);
         errorCount[errorMsg].push_back(
             {producerConfig.outputLayout, outputConfig.outputLayout});
+      } else {
+        llvm::consumeError(shardCompatible.takeError());
       }
-
-      llvm::consumeError(shardCompatible.takeError());
     }
   }
 
