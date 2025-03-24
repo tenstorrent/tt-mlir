@@ -5,16 +5,19 @@
 # RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
 
 import pytest
-import inspect
 import torch
-import numpy as np
 from typing import Callable, List, Optional
 
 from ttmlir.test_utils import compile_to_flatbuffer, set_output_path, compile_as_mlir_module, ttir_to_ttmetal, ttir_to_ttnn, ttmetal_to_flatbuffer, ttnn_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr, Shape, TypeInfo
 from ttmlir.dialects import ttir
-from ttmlir.ir import *
 from ttmlir.passes import GoldenTensor, DataType
+from ttmlir.ir import (
+    DenseI64ArrayAttr,
+    DenseI32ArrayAttr,
+    IntegerAttr,
+    IntegerType,
+)
 from ttmlir.passes import  MLIRModuleLogger
 
 
@@ -57,13 +60,8 @@ def logical_not(in0: Operand, builder: TTIRBuilder):
     return builder.logical_not(in0)
 
 
-# NOTE: The generated flatbuffer will currently fail to run due to only floats
-# being supported by the runtime. See issue #1775 for tracking
-"""
-@compile_to_flatbuffer([(128, 128)], inputs_types=[torch.int8], targets=["ttnn"])
-def test_bitwise_not(in0: Operand, builder: TTIRBuilder):
+def bitwise_not(in0: Operand, builder: TTIRBuilder):
     return builder.bitwise_not(in0)
-"""
 
 
 def neg(in0: Operand, builder: TTIRBuilder):
@@ -86,8 +84,7 @@ def tan(in0: Operand, builder: TTIRBuilder):
     return builder.tan(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_atan(in0: Operand, builder: TTIRBuilder):
+def atan(in0: Operand, builder: TTIRBuilder):
     return builder.atan(in0)
 
 
@@ -111,19 +108,19 @@ def gelu(in0: Operand, builder: TTIRBuilder):
     return builder.gelu(in0)
 
 
-@compile_to_flatbuffer([(64, 128)], inputs_types=[torch.bfloat16], targets=["ttnn"])
-def test_clamp_scalar(in0: Operand, builder: TTIRBuilder):
-    return builder.clamp_scalar(in0, max_arg=3.0, min_arg=2.0)
+@pytest.mark.parametrize("shape", [[(64, 128)]])
+@pytest.mark.parametrize("max_arg,min_arg", [[3.0, 2.0]])
+def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
+    def clamp_scalar(in0: Operand, builder: TTIRBuilder):
+        return builder.clamp_scalar(in0, max_arg=max_arg, min_arg=min_arg)
+    _compile_to_flatbuffer(clamp_scalar, [shape], test_name=request.node.name)
 
 
-@compile_to_flatbuffer([(32, 64), (32, 64), (32, 64), (32, 64)], targets=["ttnn"])
-def test_clamp_tensor(
-    in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
-):
-    return builder.clamp_tensor(in0, in1, in2, in3)
-
-def clamp(in0: Operand, builder: TTIRBuilder):
-    return builder.clamp(in0, max_arg=1.0, min_arg=0.0)
+@pytest.mark.parametrize("shapes", [[(32, 64), (32, 64), (32, 64), (32, 64)]])
+def test_clamp_tensor(shapes: List[Shape], request):
+    def clamp_tensor(in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder):
+        return builder.clamp_tensor(in0, in1, in2, in3)
+    _compile_to_flatbuffer(clamp_tensor, shapes, test_name=request.node.name)
 
 
 def leaky_relu(in0: Operand, builder: TTIRBuilder):
@@ -154,32 +151,27 @@ def is_finite(in0: Operand, builder: TTIRBuilder):
     return builder.is_finite(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_get_dimension_size(in0: Operand, builder: TTIRBuilder):
+def get_dimension_size(in0: Operand, builder: TTIRBuilder):
     return builder.get_dimension_size(in0)
 
+@pytest.mark.parametrize("shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
+                         [ (
+    [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3)],
+    [0], [3], [0], [2])])
+def test_dot_general(shapes: List[Shape], batch_dims_lhs: List[int],
+                     contract_dims_lhs: List[int], batch_dims_rhs: List[int],
+                     contract_dims_rhs: List[int], request):
+    def dot_general(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.dot_general(in0, in1, batch_dims_lhs, contract_dims_lhs, batch_dims_rhs, contract_dims_rhs) 
+    _compile_to_flatbuffer(dot_general, shapes, test_name=request.node.name)
 
-@compile_to_flatbuffer(
-    [
-        (4, 10, 3, 5, 7),
-        (4, 10, 5, 7, 3),
-    ],
-    targets=["ttnn"],
-)
-def test_dot_general(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.dot_general(in0, in1, [0], [3], [0], [2])
 
-
-@compile_to_flatbuffer(
-    [
-        (64, 128),
-        (32, 128),
-        (16, 128),
-    ],
-    targets=["ttnn"],
-)
-def test_concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-    return builder.concat([in0, in1, in2])
+@pytest.mark.parametrize("shapes", [[ (64, 128), (32, 128), (16, 128), ]])
+@pytest.mark.parametrize("dim", [0])
+def test_concat( shapes: List[Shape], dim: int):
+    def concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        return builder.concat([in0, in1, in2], dim=dim)
+    _compile_to_flatbuffer(concat, shapes, test_name="test_concat")
 
 
 def add(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -190,85 +182,28 @@ def multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.multiply(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_logical_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def logical_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.logical_and(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_logical_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def logical_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.logical_or(in0, in1)
 
 
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.logical_xor(in0, in1)
 
 
-# NOTE: The generated flatbuffer will currently fail to run due to only floats
-# being supported by the runtime. See issue #1775 for tracking
-"""
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    inputs_types=[torch.int8, torch.int8],
-    targets=["ttnn"],
-)
-def test_bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def bitwise_and(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_and(in0, in1)
-"""
 
 
-# NOTE: The generated flatbuffer will currently fail to run due to only floats
-# being supported by the runtime. See issue #1775 for tracking
-"""
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    inputs_types=[torch.int8, torch.int8],
-    targets=["ttnn"],
-)
-def test_bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def bitwise_or(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_or(in0, in1)
-"""
 
 
-# NOTE: The generated flatbuffer will currently fail to run due to only floats
-# being supported by the runtime. See issue #1775 for tracking
-"""
-@compile_to_flatbuffer(
-    [
-        (64, 64),
-        (64, 64),
-    ],
-    inputs_types=[torch.int8, torch.int8],
-    targets=["ttnn"],
-)
-def test_bitwise_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
+def bitwise_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.bitwise_xor(in0, in1)
-"""
 
 
 def subtract(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -373,67 +308,71 @@ def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     return builder.where(in0, in1, in2)
 
 
-@compile_to_flatbuffer(
-    [
-        (1, 32, 32),
-    ],
-    targets=["ttnn"],
-)
-def test_repeat(in0: Operand, builder: TTIRBuilder):
-    return builder.repeat(in0, [32, 1, 1])
+@pytest.mark.parametrize("shape", [(1, 32, 32)])
+@pytest.mark.parametrize("dims", [[32, 1, 1]])
+def test_repeat(shape: Shape, dims: List[int]):
+    def repeat(in0: Operand, builder: TTIRBuilder):
+        return builder.repeat(in0, dims=dims)
+    _compile_to_flatbuffer(repeat, [shape], test_name="test_repeat")
 
 
-@compile_to_flatbuffer(
-    [
-        (1, 8, 1, 12, 64),
-        (1, 8, 1, 12, 64),
-    ],
-    targets=["ttnn"],
-)
-def test_repeat_interleave(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.repeat_interleave(in0, in1, repeats=1, dim=0)
+@pytest.mark.parametrize("shapes", [[(1, 8, 1, 12, 64), (1, 8, 1, 12, 64),],])
+@pytest.mark.parametrize("dim", [0])
+@pytest.mark.parametrize("repeats", [1])
+def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int):
+    def repeat_interleave(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.repeat_interleave(in0, in1, repeats=repeats, dim=dim)
+    _compile_to_flatbuffer(repeat_interleave, shapes, test_name="test_repeat_interleave")
 
 
-@compile_to_flatbuffer(
-    [
-        (1, 1, 32),
-        (1, 16, 32),
-    ],
-    targets=["ttnn"],
-)
-def test_broadcast(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.broadcast(in0, in1, [1, 16, 1])
+@pytest.mark.parametrize("shapes", [[(1, 1, 32), (1, 16, 32)]])
+@pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
+def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int]):
+    def broadcast(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.broadcast(in0, in1, broadcast_dimensions=broadcast_dimensions)
+    _compile_to_flatbuffer(broadcast, shapes, test_name="test_broadcast")
 
 
-@compile_to_flatbuffer(
+@pytest.mark.parametrize("shapes", [
     [
         (1, 32, 32, 64),
         (64, 32, 3, 3),
         (1, 1, 1, 64),
         (1, 16, 28, 64),
-    ],
-    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.bfloat16],
-    targets=["ttnn"],
-)
+        ]
+    ])
+@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
+@pytest.mark.parametrize("_stride,_padding,_dilation,_groups", [([2, 1], [2, 1], [2, 1], 2)])
 def test_conv2d(
-    in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
-):
-    stride = DenseI32ArrayAttr.get([2, 1])
-    padding = DenseI32ArrayAttr.get([2, 1])
-    dilation = DenseI32ArrayAttr.get([2, 1])
-    return builder.conv2d(
-        in0,
-        weight,
-        bias,
-        in1,
-        stride=stride,
-        padding=padding,
-        dilation=dilation,
-        groups=2,
-    )
+        shapes: List[Shape],
+        dtypes: List[torch.dtype],
+        _stride: List[int],
+        _padding: List[int],
+        _dilation: List[int],
+        _groups: int):
+    def conv2d(
+        in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
+    ):
+        #wrap attrs in attr types
+        stride = DenseI32ArrayAttr.get(_stride)
+        padding = DenseI32ArrayAttr.get(_padding)
+        dilation = DenseI32ArrayAttr.get(_dilation)
+        groups = IntegerAttr.get(IntegerType.get_signless(32), _groups)
+
+        return builder.conv2d(
+            in0,
+            weight,
+            bias,
+            in1,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+    _compile_to_flatbuffer(conv2d, shapes, dtypes, test_name="test_conv2d")
 
 
-@compile_to_flatbuffer(
+@pytest.mark.parametrize("shapes",[
     [
         (1, 32, 32, 64),
         (64, 32, 3, 3),
@@ -468,71 +407,94 @@ def test_conv2d_consteval(
         (256, 256, 3, 3),
         (1, 1, 1, 256),
         (1, 10, 10, 256),
-    ],
-    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.bfloat16],
-    targets=["ttnn"],
-)
+    ]])
+@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
+@pytest.mark.parametrize("_stride,_padding,_output_padding,_dilation,_groups", [(1, 0, 0, 1, 1)])
 def test_conv_transpose2d(
-    in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
-):
-    stride = IntegerAttr.get(IntegerType.get_signless(32), 1)
-    padding = IntegerAttr.get(IntegerType.get_signless(32), 0)
-    output_padding = IntegerAttr.get(IntegerType.get_signless(32), 0)
-    dilation = IntegerAttr.get(IntegerType.get_signless(32), 1)
-    return builder.conv_transpose2d(
-        in0,
-        weight,
-        bias,
-        in1,
-        stride=stride,
-        padding=padding,
-        output_padding=output_padding,
-        dilation=dilation,
-        groups=1,
-    )
+        shapes: List[Shape],
+        dtypes: List[torch.dtype],
+        _stride: int,
+        _padding: int,
+        _output_padding: int,
+        _dilation: int,
+        _groups: int):
+
+    def conv_transpose2d(
+        in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
+    ):
+        #wrap attrs in attr types
+        stride = IntegerAttr.get(IntegerType.get_signless(32), _stride)
+        padding = IntegerAttr.get(IntegerType.get_signless(32), _padding)
+        output_padding = IntegerAttr.get(IntegerType.get_signless(32), _output_padding)
+        dilation = IntegerAttr.get(IntegerType.get_signless(32), _dilation)
+        groups = IntegerAttr.get(IntegerType.get_signless(32), _groups)
+        return builder.conv_transpose2d(
+            in0,
+            weight,
+            bias,
+            in1,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            dilation=dilation,
+            groups=groups,
+        )
+    _compile_to_flatbuffer(conv_transpose2d, shapes, dtypes, test_name="test_conv_transpose2d")
 
 
-@compile_to_flatbuffer(
-    [
-        (1, 128, 128, 32),
-        (1, 64, 64, 32),
-    ],
-    inputs_types=[torch.bfloat16, torch.bfloat16],
-    targets=["ttnn"],
-)
-def test_max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.max_pool2d(
-        in0,
-        in1,
-        kernel_height=2,
-        kernel_width=2,
-        stride_height=2,
-        stride_width=2,
-        dilation_height=1,
-        dilation_width=1,
-        ceil_mode=False,
-        padding_left=0,
-        padding_right=0,
-        padding_top=0,
-        padding_bottom=0,
-    )
+@pytest.mark.parametrize("kernel_height,kernel_width,stride_height,stride_width,dilation_height,dilation_width,ceil_mode,padding_left,padding_right,padding_top, padding_bottom", [(2,2,2,2,1,1,False,0,0,0,0)])
+@pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
+@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 2])
+def test_max_pool2d(
+        shapes: List[Shape],
+        dtypes: List[torch.dtype],
+        kernel_height: int,
+        kernel_width: int,
+        stride_height: int,
+        stride_width: int,
+        dilation_height: int,
+        dilation_width: int,
+        ceil_mode: bool,
+        padding_left: int,
+        padding_right: int,
+        padding_top: int,
+        padding_bottom: int,
+        ):
+
+    def max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.max_pool2d(
+            in0,
+            in1,
+            kernel_height=kernel_height,
+            kernel_width=kernel_width,
+            stride_height=stride_height,
+            stride_width=stride_width,
+            dilation_height=dilation_height,
+            dilation_width=dilation_width,
+            ceil_mode=ceil_mode,
+            padding_left=padding_left,
+            padding_right=padding_right,
+            padding_top=padding_top,
+            padding_bottom=padding_bottom,
+        )
+    _compile_to_flatbuffer(max_pool2d, shapes, dtypes, test_name="test_max_pool2d")
 
 
-@compile_to_flatbuffer(
-    [
-        (1, 1, 5, 5),
-        (2, 6, 14, 18),
-    ],
-    inputs_types=[torch.bfloat16, torch.bfloat16],
-    targets=["ttnn"],
-)
-def test_pad(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.pad(in0, in1, padding=[0, 1, 2, 3, 4, 5, 6, 7], value=0)
+@pytest.mark.parametrize("shapes", [[(1, 1, 5, 5), (2, 6, 14, 18)]])
+@pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
+@pytest.mark.parametrize("value", [0])
+def test_pad(shapes: List[Shape], padding: List[int], value):
+    def pad(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.pad(in0, in1, padding=padding, value=value)
+    _compile_to_flatbuffer(pad, inputs_shapes=shapes, test_name="test_pad")
 
 
-@compile_to_flatbuffer([(32, 64)], targets=["ttnn"])
-def test_index(in0: Operand, builder: TTIRBuilder):
-    return builder.index(in0)
+@pytest.mark.parametrize("shape", [(32, 64)])
+@pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
+def test_index(shape: Shape, dim: int, begin: int, end: int, step: int):
+    def index(in0: Operand, builder: TTIRBuilder):
+        return builder.index(in0, dim=dim, begin=begin, end=end, step=step)
+    _compile_to_flatbuffer(index, [shape], test_name="test_index")
 
 
 # NOTE: select thowing floating point exception. Issue #2496
@@ -541,131 +503,138 @@ def test_index(in0: Operand, builder: TTIRBuilder):
 # return builder.select(in0, dim = 1, begin = 2, length = 2)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_zeros(in0: Operand, builder: TTIRBuilder):
+@compile_to_flatbuffer([], targets=["ttnn"])
+def test_zeros(builder: TTIRBuilder):
     return builder.zeros([128, 128])
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_ones(in0: Operand, builder: TTIRBuilder):
+@compile_to_flatbuffer([], targets=["ttnn"])
+def test_ones(builder: TTIRBuilder):
     return builder.ones([128, 128])
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_empty(in0: Operand, builder: TTIRBuilder):
+@compile_to_flatbuffer([], targets=["ttnn"])
+def test_empty(builder: TTIRBuilder):
     return builder.empty([128, 128])
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_argmax(in0: Operand, builder: TTIRBuilder):
-    return builder.argmax(in0, [1])
+@pytest.mark.parametrize("shapes", [[(128,128)]])
+@pytest.mark.parametrize("dim", [0,1])
+def test_argmax(shapes, dim, request):
+    def argmax(in0: Operand, builder: TTIRBuilder):
+        return builder.argmax(in0, [dim])
+    _compile_to_flatbuffer(argmax, inputs_shapes=shapes, test_name=request.node.name)
 
 
-# TODO: #Resolve "RuntimeError: Failed to run pass manager. failed to legalize operation 'ttir.reverse'."
-# may not be supported by ttir_to_ttnn_backend_pipeline. Issue #2495
-# @compile_to_flatbuffer([(64, 64)], targets=["ttnn"])
-# def test_reverse(in0: Operand, builder: TTIRBuilder):
-#    return builder.reverse(in0, [0,1])
+@pytest.mark.skip("`reverse` doesn't have a legalization. See issue #2495")
+@pytest.mark.parametrize("shape", [(64, 64)])
+@pytest.mark.parametrize("dims", [[0, 1]])
+def test_reverse(
+        shape: Shape,
+        dims: List[int]
+        ):
+    def reverse(in0: Operand, builder: TTIRBuilder):
+        return builder.reverse(in0, dims=dims)
+    _compile_to_flatbuffer(reverse, [shape], test_name="test_reverse")
 
 
-# NOTE: The generated flatbuffer will currently fail to run due to only floats
-# being supported by the runtime. See issue #1775 for tracking
-# @compile_to_flatbuffer([(4, 4)], inputs_types=[torch.bool], targets=["ttnn"])
-# def test_reduce_and(in0: Operand, builder: TTIRBuilder):
-# return builder.reduce_and(in0, dim_args=[0,1])
+@pytest.mark.skip("Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775")
+@pytest.mark.parametrize("shape", [(4, 4)])
+@pytest.mark.parametrize("dim_args", [[0, 1]])
+def test_reduce_and(
+        shape: Shape,
+        dim_args: List[int]
+        ):
+    def reduce_and(in0: Operand, builder: TTIRBuilder):
+        return builder.reduce_and(in0, dim_args=dim_args)
+    _compile_to_flatbuffer(reduce_and, [shape], [torch.bool], test_name="test_reduce_and")
 
 
-# NOTE: The generated flatbuffer will currently fail to run due to only floats
-# being supported by the runtime. See issue #1775 for tracking
-# @compile_to_flatbuffer([(128, 128)], inputs_types=[torch.bool], targets=["ttnn"])
-# def test_reduce_or(in0: Operand, builder: TTIRBuilder):
-# return builder.reduce_or(in0, dim_args=[0,1])
+@pytest.mark.skip("Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775")
+@pytest.mark.parametrize("shape", [(4, 4)])
+@pytest.mark.parametrize("dim_args", [[0, 1]])
+def test_reduce_or(
+        shape: Shape,
+        dim_args: List[int]
+        ):
+    def reduce_or(in0: Operand, builder: TTIRBuilder):
+        return builder.reduce_or(in0, dim_args=dim_args)
+    _compile_to_flatbuffer(reduce_or, [shape], [torch.bool], test_name="test_reduce_and")
 
 
-@compile_to_flatbuffer([(2, 3, 4), (3, 4, 2)], targets=["ttnn"])
-def test_permute(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.permute(in0, in1, permutation=DenseI64ArrayAttr.get([1, 2, 0]))
+@pytest.mark.parametrize("shapes", [[(2, 3, 4), (3, 4, 2)]])
+@pytest.mark.parametrize("permutation", [[1, 2, 0]])
+def test_permute(
+        shapes: List[Shape],
+        permutation: List[int],
+        request
+        ):
+    def permute(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.permute(in0, in1, permutation=DenseI64ArrayAttr.get(permutation))
+    _compile_to_flatbuffer(permute, shapes, test_name=request.node.name)
 
 
-@compile_to_flatbuffer(
-    [(10, 64, 32, 3), (10, 128, 128, 3)],
-    inputs_types=[torch.bfloat16, torch.bfloat16],
-    targets=["ttnn"],
-)
-def test_upsample2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.upsample2d(in0, in1, scale_factor=DenseI32ArrayAttr.get([2, 4]))
+@pytest.mark.parametrize("shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]])
+@pytest.mark.parametrize("scale_factor", [[2,4]])
+def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
+    def upsample2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.upsample2d(in0, in1, scale_factor=DenseI32ArrayAttr.get(scale_factor))
+    _compile_to_flatbuffer(upsample2d, shapes, test_name=request.node.name)
 
 
-@compile_to_flatbuffer([(5,)], inputs_types=[torch.bfloat16], targets=["ttnn"])
-def test_arange(in0: Operand, builder: TTIRBuilder):
-    return builder.arange(in0, 0, 5, 1, 0)
+@pytest.mark.parametrize("shape,start,end,step,dim", [((5,), 0, 5, 1, 0)])
+def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request):
+    def arange(in0: Operand, builder: TTIRBuilder):
+        return builder.arange(in0, start, end, step, dim)
+    _compile_to_flatbuffer(arange, [shape], test_name=request.node.name)
 
 
-@compile_to_flatbuffer(
-    [(32, 32), (32, 32)], inputs_types=[torch.uint32, torch.uint16], targets=["ttnn"]
-)
-def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.typecast(in0, in1)
+@pytest.mark.parametrize("shape", [(32, 32)])
+@pytest.mark.parametrize("from_type,to_type", [(torch.uint32, torch.uint16)])
+def test_typecast(
+        shape: Shape,
+        from_type: torch.dtype,
+        to_type: torch.dtype):
+    def typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.typecast(in0, in1)
+
+    _compile_to_flatbuffer(typecast, [shape, shape], [from_type, to_type])
 
 
-@compile_to_flatbuffer(
-    [(128, 10, 32, 4)],
-    inputs_types=[torch.bfloat16],
-    targets=["ttnn"],
-)
-def test_prod(in0: Operand, builder: TTIRBuilder):
-    return builder.prod(in0, [1])
+@pytest.mark.parametrize("shapes", [[(4, 4, 128, 128), (4, 4, 128, 128)]])
+@pytest.mark.parametrize("dim", [1])
+def test_cumsum(shapes: List[Shape], dim: int, request):
+    def cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.cumsum(in0, in1, dim=dim)
+    _compile_to_flatbuffer(cumsum, shapes, test_name=request.node.name)
+
+def prod(in0: Operand, builder: TTIRBuilder):
+    return builder.prod(in0, [1], False)
 
 
-@compile_to_flatbuffer(
-    [(4, 4, 128, 128), (4, 4, 128, 128)],
-    inputs_types=[torch.bfloat16, torch.bfloat16],
-    targets=["ttnn"],
-)
-def test_cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.cumsum(in0, in1, dim=1)
+@pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]])
+def test_fill_cache(shapes: List[Shape], request):
+    def fill_cache(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.fill_cache(in0, in1)
+    _compile_to_flatbuffer(fill_cache, shapes, test_name=request.node.name)
 
 
-@compile_to_flatbuffer(
-    [(512, 1024)],
-    inputs_types=[torch.bfloat16],
-    targets=["ttnn"],
-)
-def test_softmax(in0: Operand, builder: TTIRBuilder):
-    return builder.softmax(in0, dimension=-1)
+@pytest.mark.parametrize("shapes", [[512, 1024]])
+def test_softmax(shapes: List[Shape], request):
+    def softmax(in0: Operand, builder: TTIRBuilder):
+        return builder.softmax(in0, dimension=-1)
+    _compile_to_flatbuffer(softmax, shapes, test_name=request.node.name)
 
 
-@compile_to_flatbuffer(
-    [(32, 32), (512, 128)],
-    inputs_types=[torch.bfloat16, torch.bfloat16],
-    targets=["ttnn"],
-)
-def test_embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.embedding(in0, in1)
+@pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]])
+@pytest.mark.parametrize("dtypes", [[torch.bfloat16, torch.bfloat16, torch.int32]])
+def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
+    def update_cache(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        return builder.update_cache(in0, in1, in2)
+    _compile_to_flatbuffer(update_cache, shapes, inputs_types=dtypes, test_name=request.node.name)
 
-
-@compile_to_flatbuffer(
-    [
-        (1, 32, 64, 512),
-        (1, 32, 3, 512),
-    ],
-    targets=["ttnn"],
-)
-def test_fill_cache(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.fill_cache(in0, in1)
-
-
-@compile_to_flatbuffer(
-    [
-        (1, 32, 64, 512),
-        (1, 32, 1, 512),
-        (1,),
-    ],
-    inputs_types=[torch.bfloat16, torch.bfloat16, torch.int32],
-    targets=["ttnn"],
-)
-def test_update_cache(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-    return builder.update_cache(in0, in1, in2)
+def embedding(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.embedding(in0, in1, in2)
 
 
 def hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -678,9 +647,11 @@ def hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
         use_zeros=True,
     )
 
-unary_ops = [exp, expm1, floor, abs, logical_not, neg, sign, cos, sin, tan,
-             tanh, log,log1p, relu, gelu, clamp, leaky_relu, sqrt, cbrt, rsqrt,
-             sigmoid, reciprocal, is_finite, ceil, sum, mean, max, min]
+
+# TODO: look through these thorougly to find ops that might have attributes, break out into their own tests
+unary_ops = [exp, expm1, floor, abs, logical_not, neg, sign, cos, sin, tan, atan,
+             tanh, log,log1p, relu, gelu, leaky_relu, sqrt, cbrt, rsqrt,
+             sigmoid, reciprocal, is_finite, ceil, sum, mean, max, min, prod, get_dimension_size]
 
 @compile_to_flatbuffer(
     [(128, 128)],
@@ -768,31 +739,41 @@ if __name__ == "__main__":
 
 @pytest.mark.parametrize("shape", [(128,128)], ids=str)
 @pytest.mark.parametrize("test_fn", unary_ops)
-def test_unary_ops_to_flatbuffer(
+def test_unary_ops(
     test_fn: Callable,
     shape: Shape,
-    request):
-    _compile_to_flatbuffer(test_fn, inputs_shapes=[shape], test_name=request.node.name)
+    dtype: torch.dtype = torch.float32):
+    _compile_to_flatbuffer(test_fn, inputs_shapes=[shape], inputs_types=[dtype], test_name=f"test_{test_fn.__name__}")
 
 
 @pytest.mark.parametrize("shape", [(128,128)], ids=str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("test_fn", [add, multiply, subtract, eq, ne, le, lt,
                                      ge, gt, div, remainder, maximum, minimum,
                                      pow, matmul, hoisted_add])
-def test_binary_ops_to_flatbuffer(
+def test_binary_ops(
     test_fn: Callable,
     shape: Shape,
-    request):
+    dtype: torch.dtype):
     """ NOTE: this function is _only_ for binary ops that take the same shape arguments
     """
-    _compile_to_flatbuffer(test_fn, inputs_shapes=[shape, shape], test_name=request.node.name)
+    _compile_to_flatbuffer(test_fn, inputs_shapes=[shape] * 2, inputs_types=[dtype] * 2, test_name=f"test_{test_fn.__name__}")
+
+
+@pytest.mark.parametrize("shape", [(128,128)], ids=str)
+@pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
+def test_bitwise_binary_ops(
+    test_fn: Callable,
+    shape: Shape):
+    _compile_to_flatbuffer(test_fn, inputs_shapes=[shape] * 2, inputs_types=[torch.int8] * 2, test_name=f"test_{test_fn.__name__}")
 
 
 @pytest.mark.parametrize("test_fn,inputs_shapes,inputs_dtypes", [
     (transpose,[(64,32)],None),
     (reshape,[(64,32)],None),
+    (embedding,[(32, 32), (512, 128)], [torch.bfloat16] * 2)
     ])
-def test_unique_ops_to_flatbuffer(
+def test_unique_ops(
         test_fn: Callable,
         inputs_shapes: List[Shape],
         inputs_dtypes: List[torch.dtype]

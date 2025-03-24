@@ -4,27 +4,73 @@
 
 # RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
 
-import os
-import inspect
 import torch
 import pytest
-from typing import Callable, List, Optional
-from functools import wraps
+from typing import Callable, List, Optional, Tuple
 
-from ttmlir.ir import Context
-from ttmlir.test_utils import  set_output_path, compile_as_mlir_module, ttir_to_ttnn, ttnn_to_flatbuffer, ttir_to_ttmetal, ttmetal_to_flatbuffer
+from ttmlir.test_utils import  compile_as_mlir_module, ttir_to_ttnn, ttnn_to_flatbuffer, ttir_to_ttmetal, ttmetal_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Shape
 from ttmlir.passes import MLIRModuleLogger
 
 def compile_to_flatbuffer(
-    test_fn: Callable,
+    fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[torch.dtype]] = None,
     test_base: str = "test",
     output_root: str = "",
     target: str = "ttnn",
+    mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = True,
 ):
+    """
+    Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer 
+
+    This decorator is mainly a wrapper around the following functions, with
+    each next function called on the output of the last:
+
+    1. `compile_as_mlir_module`
+    2. `ttir_to_tt{nn,metal}`
+    3. `tt{nn,metal}_to_flatbuffer`
+
+    The choice of TTNN vs. TTMetal is controlled by the `target` parameter
+
+    Arguments
+    ---------
+
+    fn: Callable
+        The TTIRBuilder function to compile. Must take `builder : TTIRBuilder` as a kwarg
+
+    inputs_shapes: List[Shape]
+        Shapes of the respective ranked tensor inputs of the test function.
+
+    inputs_types: Optional[List[torch.dtype]]
+        The dtypes to use for the inputs to `fn`. Note that if supplied,
+        `len(inputs_shapes) == len(inputs_types)` must be true. Defaults to
+        `None`
+
+    test_base: str
+        The string to be used as the base name for dumped files throughout the
+        process. If `None` is provided, then the `__name__` of `fn` will be used.
+
+    output_root: str
+        The path to dump all generated arguments under. If this path doesn't
+        exist, it will be created
+
+    target: str
+        Either `"ttnn"` or `"ttmetal"`. This controls which backend to use
+
+    mesh_shape: Optional[Tuple[int, int]]
+        A list that contains shape of the mesh to be applied on ttir to ttnn
+        conversion path. Defaults to `None`
+
+    module_dump: bool
+        Set to True to print out generated TTIR MLIR module.
+
+    """
+
+    if inputs_types is not None:
+        assert(len(inputs_shapes) == len(inputs_types))
+
     from_ttir: Callable
     to_flatbuffer: Callable
     mlir_suffix: str
@@ -40,7 +86,7 @@ def compile_to_flatbuffer(
 
     # Compile model to TTIR MLIR
     module, builder = compile_as_mlir_module(
-        test_fn, inputs_shapes, inputs_types
+        fn, inputs_shapes, inputs_types, mesh_shape=mesh_shape
     )
 
     if module_dump:
@@ -82,7 +128,7 @@ def test_arbitrary_model(
                                     [(1, 1024), (1024, 256), (1, 256), (256, 10), (1, 10)],
                                     [(1, 1024), (1024, 256), (1, 256), (256, 26), (1, 26),]],
                          ids=["28x28_digits", "32x32_digits", "32x32_letters"])
-@pytest.mark.parametrize("target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)], ids=lambda _ : "")
+@pytest.mark.parametrize("target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)])
 def test_mnist(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
