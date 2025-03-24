@@ -182,7 +182,6 @@ public:
     return success();
   }
 };
-
 } // namespace
 
 namespace {
@@ -248,6 +247,30 @@ public:
 };
 } // namespace
 
+namespace {
+class SoftmaxOpConversionPattern : public OpConversionPattern<ttir::SoftmaxOp> {
+public:
+  using OpConversionPattern<ttir::SoftmaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SoftmaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Value input = adaptor.getInput();
+    const size_t inputSize =
+        dyn_cast<RankedTensorType>(input.getType()).getShape().size();
+    const int32_t dimension = (op.getDimension() < 0)
+                                  ? op.getDimension() + inputSize
+                                  : op.getDimension();
+
+    rewriter.replaceOpWithNewOp<linalg::SoftmaxOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), input,
+        adaptor.getOutput(), dimension);
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -267,7 +290,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseOpConversionPattern<ttir::FloorOp, linalg::FloorOp>,
       ElementwiseOpConversionPattern<ttir::TanhOp, linalg::TanhOp>,
       ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>,
-      TransposeOpConversionPattern>(typeConverter, ctx);
+      TransposeOpConversionPattern,
+      SoftmaxOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
