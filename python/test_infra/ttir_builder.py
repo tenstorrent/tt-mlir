@@ -1319,27 +1319,27 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def zeros(self, shapes: List[Shape], data_type: Optional[Type] = None) -> OpView:
-        output = self.ranked_tensor_type(shapes)
+    def zeros(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
+        output = self.ranked_tensor_type(shape)
         dtype = data_type if data_type is not None else self._default_dtype
         return self.op_proxy(
             torch.zeros,
             ttir.ZerosOp,
             [],
-            golden_kwargs={"size": shapes},
-            ttir_kwargs={"result": output, "shape": shapes},
+            golden_kwargs={"size": shape},
+            ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
         )
 
-    def ones(self, shapes: List[Shape]) -> OpView:
-        output = self.ranked_tensor_type(shapes)
+    def ones(self, shape: Shape) -> OpView:
+        output = self.ranked_tensor_type(shape)
         return self.op_proxy(
             torch.ones,
             ttir.OnesOp,
             [],
-            golden_kwargs={"size": shapes},
-            ttir_kwargs={"result": output, "shape": shapes},
+            golden_kwargs={"size": shape},
+            ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
         )
 
