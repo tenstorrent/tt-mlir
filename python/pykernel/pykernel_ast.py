@@ -8,7 +8,7 @@ import functools
 import os
 from ttmlir.ir import *
 from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
-from ttmlir.passes import ttkernel_to_cpp
+from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
 # ttmlir-translate --ttkernel-to-cpp-noc
 
@@ -616,6 +616,10 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False):
             # Check if generated IR is valid
             print(b.module)
             b.module.operation.verify()
+
+            # Run the PyKernel Compile Pipeline to fit model for Trnaslation
+            pykernel_compile_pipeline(b.module)
+            print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
             if kernel_type:
                 assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
