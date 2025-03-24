@@ -97,7 +97,7 @@ public:
     auto systemDesc =
         moduleOp->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
     auto chipDesc = systemDesc.getChipDescs().front();
-    getOperation().walk([&](GenericOp op) {
+    moduleOp.walk([&](GenericOp op) {
       // assert that the op has a valid HW thread selection
       if (op.getNumRegions() >= (chipDesc.getNumComputeThreads() +
                                  chipDesc.getNumDatamovementThreads())) {
