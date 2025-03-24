@@ -382,29 +382,29 @@ def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::Modul
 
     Example:
       Before:
-        %dps = tensor.empty() : tensor<3x15x15x8xbf16>
+        %dps = tensor.empty() : tensor<3x15x30x16xbf16>
          %1 = "ttir.conv2d"(%input, %weight, %bias, %dps)
             <{
               stride = 2: i32,
               padding = 0: i32,
               dilation = 1: i32,
               groups = 1: i32
-            }> : (tensor<3x32x32x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<3x15x15x16xbf16>) -> tensor<3x15x15x16xbf16>
+            }> : (tensor<3x32x64x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<3x15x30x16xbf16>) -> tensor<3x15x30x16xbf16>
 
       After:
-        %reshape_dps = tensor.empty() : tensor<1x1x3072x8xbf16>
-        %0 = "ttir.reshape"(%input, %reshape_dps) <{[i32: 1, i32: 1, i32: 3072, i32: 8]}> : (tensor<3x32x32x8xbf16>, tensor<1x1x3072x8xbf16>) -> tensor<1x1x3072x8xbf16>
-        %new_conv_dps = tensor.empty() : tensor<1x1x675x16xbf16>
+        %reshape_dps = tensor.empty() : tensor<1x1x6144x8xbf16>
+        %0 = "ttir.reshape"(%input, %reshape_dps) <{[i32: 1, i32: 1, i32: 6144, i32: 8]}> : (tensor<3x32x64x8xbf16>, tensor<1x1x6144x8xbf16>) -> tensor<1x1x6144x8xbf16>
+        %new_conv_dps = tensor.empty() : tensor<1x1x1350x16xbf16>
         %1 = "ttir.conv2d"(%1, %weight, %bias, %new_conv_dps)
             <{
               stride = 2: i32,
               padding = 0: i32,
               dilation = 1: i32,
               groups = 1: i32,
-              flattened_compat_info = #ttir<flattened_compat in_channels = 8, out_channels = 15, batch_size = 3, input_height = 32, input_width = 32,>
-            }> : (tensor<1x1x3072x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<1x1x675x16xbf16>) -> tensor<1x1x675x16xbf16>
-          %output_reshape_dps = tensor.empty() : tensor<3x15x15x16xbf16>
-          %2 = "ttir.reshape"(%1, %output_reshape_dps) <{[i32: 3, i32: 15, i32: 15, i32: 16]}> : (tensor<1x1x675x16xbf16>, tensor<3x15x15x16xbf16>) -> tensor<3x15x15x16xbf16>
+              flattened_compat_info = #ttir<flattened_compat in_channels = 8, out_channels = 15, batch_size = 3, input_height = 32, input_width = 64,>
+            }> : (tensor<1x1x6144x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<1x1x1350x16xbf16>) -> tensor<1x1x1350x16xbf16>
+          %output_reshape_dps = tensor.empty() : tensor<3x15x30x16xbf16>
+          %2 = "ttir.reshape"(%1, %output_reshape_dps) <{[i32: 3, i32: 15, i32: 30, i32: 16]}> : (tensor<1x1x1350x16xbf16>, tensor<3x15x30x16xbf16>) -> tensor<3x15x30x16xbf16>
   }];
 }
 

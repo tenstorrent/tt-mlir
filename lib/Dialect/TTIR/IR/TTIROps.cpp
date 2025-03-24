@@ -200,10 +200,11 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       return emitOpError("Bias must only have data on the final dimenstion");
     }
   }
-
+  // FLATTEN_DIM corresponds to the second last dimension as it is where N, H, W
+  // are flattened to by FlattenSlidingWindow
   constexpr unsigned int BATCH_DIM = 0, HEIGHT_DIM = 1, WIDTH_DIM = 2,
-                         CHANNEL_DIM = 3;
-  if (!getFlattenedCompatInfo().has_value() &&
+                         CHANNEL_DIM = 3, FLATTEN_DIM = 2;
+  if (!getFlattenedCompatInfo() &&
       inputType.getDimSize(BATCH_DIM) != outputType.getDimSize(BATCH_DIM)) {
     return emitOpError()
            << "Batch size from the input tensor ("
@@ -216,11 +217,20 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   uint32_t inputWidth = inputType.getDimSize(WIDTH_DIM);
   uint32_t inChannels = inputType.getDimSize(CHANNEL_DIM);
   uint32_t outChannels = outputType.getDimSize(CHANNEL_DIM);
-  if (getFlattenedCompatInfo().has_value()) {
+
+  if (getFlattenedCompatInfo()) {
+    int64_t batchSize = getFlattenedCompatInfo()->getBatchSize();
     inputHeight = getFlattenedCompatInfo()->getInputHeight();
     inputWidth = getFlattenedCompatInfo()->getInputWidth();
     inChannels = getFlattenedCompatInfo()->getInChannels();
     outChannels = getFlattenedCompatInfo()->getOutChannels();
+
+    if (inputType.getDimSize(FLATTEN_DIM) !=
+        batchSize * inputHeight * inputWidth) {
+      return emitOpError() << "Expected dim 2 of the input tensor to have size "
+                           << batchSize * inputHeight * inputWidth
+                           << " but got " << inputType.getDimSize(FLATTEN_DIM);
+    }
   }
 
   auto stride = ttmlir::utils::getPairOfInteger<int32_t>(getStride());
@@ -591,9 +601,9 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  std::vector<int64_t> inputShape = inputType.getShape().vec();
+  ArrayRef<int64_t> inputShape = inputType.getShape();
   ::mlir::RankedTensorType outputType = getOutput().getType();
-  std::vector<int64_t> outputShape = outputType.getShape().vec();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
 
   if (inputType.getRank() != 4) {
     return emitOpError()
@@ -601,11 +611,27 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
            << inputType.getRank() << ". Shape: (" << inputShape << ").";
   }
 
-  if (getFlattenedCompatInfo().has_value()) {
-    inputShape[0] = getFlattenedCompatInfo()->getBatchSize();
-    inputShape[1] = getFlattenedCompatInfo()->getInputHeight();
-    inputShape[2] = getFlattenedCompatInfo()->getInputWidth();
-    inputShape[3] = getFlattenedCompatInfo()->getInChannels();
+  if (outputType.getRank() != 4) {
+    return emitOpError()
+           << "Output tensor rank must be 4. Recieved output with rank "
+           << outputType.getRank() << ". Shape: (" << outputShape << ").";
+  }
+
+  // FLATTEN_DIM corresponds to the second last dimension as it is where N, H, W
+  // are flattened to by FlattenSlidingWindow
+  constexpr unsigned int BATCH_DIM = 0, HEIGHT_DIM = 1, WIDTH_DIM = 2,
+                         CHANNEL_DIM = 3, FLATTEN_DIM = 2;
+  int64_t batchSize = inputType.getDimSize(BATCH_DIM);
+  int64_t inputHeight = inputType.getDimSize(HEIGHT_DIM);
+  int64_t inputWidth = inputType.getDimSize(WIDTH_DIM);
+  int64_t inChannels = inputType.getDimSize(CHANNEL_DIM);
+  int64_t outChannels = outputType.getDimSize(CHANNEL_DIM);
+  if (getFlattenedCompatInfo()) {
+    batchSize = getFlattenedCompatInfo()->getBatchSize();
+    inputHeight = getFlattenedCompatInfo()->getInputHeight();
+    inputWidth = getFlattenedCompatInfo()->getInputWidth();
+    inChannels = getFlattenedCompatInfo()->getInChannels();
+    outChannels = getFlattenedCompatInfo()->getOutChannels();
 
     if (getFlattenedCompatInfo()->getInChannels() !=
         getFlattenedCompatInfo()->getOutChannels()) {
@@ -615,27 +641,45 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
                            << getFlattenedCompatInfo()->getOutChannels()
                            << ") as defined in flattened_compat_info.";
     }
+
+    if (inputType.getDimSize(2) != batchSize * inputHeight * inputWidth) {
+      return emitOpError() << "Expected dim 2 of the input tensor to have size "
+                           << batchSize * inputHeight * inputWidth
+                           << " but got " << inputType.getDimSize(FLATTEN_DIM);
+    }
   }
 
-  if (outputShape.back() != inputShape.back()) {
-    return emitOpError() << "Output tensor channels (" << outputShape.back()
-                         << ") must match input tensor channels ("
-                         << inputShape.back() << ").";
+  if (outChannels != outputType.getDimSize(CHANNEL_DIM)) {
+    return emitOpError() << "Expected dim 3 of the output tensor to have size "
+                         << outChannels << " but got "
+                         << outputType.getDimSize(CHANNEL_DIM);
   }
 
-  if (getKernelHeight() > inputShape[1]) {
+  if (inChannels != inputType.getDimSize(CHANNEL_DIM)) {
+    return emitOpError() << "Expected dim 3 of the input tensor to have size "
+                         << inChannels << " but got "
+                         << inputType.getDimSize(CHANNEL_DIM);
+  }
+
+  if (outChannels != inChannels) {
+    return emitOpError() << "Output tensor channels (" << outChannels
+                         << ") must match input tensor channels (" << inChannels
+                         << ").";
+  }
+
+  if (getKernelHeight() > inputHeight) {
     return emitOpError() << "Kernel height " << getKernelHeight()
-                         << " is greater than input height " << inputShape[1]
-                         << (getFlattenedCompatInfo().has_value()
+                         << " is greater than input height " << inputHeight
+                         << (getFlattenedCompatInfo()
                                  ? "(as defined in flattened_compat_info)"
                                  : "")
                          << ". This MaxPool2d configuration is invalid.";
   }
 
-  if (getKernelWidth() > inputShape[2]) {
+  if (getKernelWidth() > inputWidth) {
     return emitOpError() << "Kernel width " << getKernelWidth()
-                         << " is greater than input width " << inputShape[2]
-                         << (getFlattenedCompatInfo().has_value()
+                         << " is greater than input width " << inputWidth
+                         << (getFlattenedCompatInfo()
                                  ? "(as defined in flattened_compat_info)"
                                  : "")
                          << ". This MaxPool2d configuration is invalid.";
@@ -790,16 +834,16 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   return success();
 }
 
-mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttir::ReshapeOp op) {
-  // Fold the operation if the type of the input and output types are the same.
+// Fold the operation if the type of the input and output types are the same.
+static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttir::ReshapeOp op) {
   if (op.getType() == op.getInput().getType()) {
     return op.getInput();
   }
   return nullptr;
 }
 
-mlir::OpFoldResult foldOperandReshape(mlir::tt::ttir::ReshapeOp op) {
-  // Back to back reshapes can be replaced with the final reshape.
+// Back to back reshapes can be replaced with the final reshape.
+static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   if (auto reshapeOperand =
           op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>()) {
     op.setOperand(0, reshapeOperand.getInput());
@@ -814,7 +858,7 @@ mlir::OpFoldResult foldOperandReshape(mlir::tt::ttir::ReshapeOp op) {
     return foldResult;
   }
 
-  if (auto foldResult = foldOperandReshape(*this)) {
+  if (auto foldResult = foldConsecutiveReshape(*this)) {
     return foldResult;
   }
 
@@ -1297,44 +1341,49 @@ mlir::OpFoldResult foldOperandReshape(mlir::tt::ttir::ReshapeOp op) {
   return success();
 }
 
-mlir::OpFoldResult foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
-  // TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
+// TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
+static mlir::OpFoldResult
+foldIdentityTranspose(mlir::tt::ttir::TransposeOp op) {
   if (op.getDim0() == op.getDim1()) {
     return op.getInput();
   }
   return nullptr;
 }
 
-mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
-  // Rewrite a transpose of to a canonical form where the 'dim0' is less than
-  // 'dim1'.
-  if (op.getDim0() > op.getDim1()) {
-    auto tmp = op.getDim0();
-    op.setDim0(op.getDim1());
-    op.setDim1(tmp);
-    return op.getResult();
+// Rewrite a transpose of to a canonical form where the 'dim0' is less than
+// 'dim1'.
+static mlir::OpFoldResult sortTansposeDims(mlir::tt::ttir::TransposeOp op) {
+  if (op.getDim0() < op.getDim1()) {
+    return nullptr;
   }
-  return nullptr;
+
+  auto oldDim0 = op.getDim0();
+  op.setDim0(op.getDim1());
+  op.setDim1(oldDim0);
+  return op.getResult();
 }
 
-mlir::OpFoldResult forcePositiveTransposeDims(mlir::tt::ttir::TransposeOp op) {
-  // Rewrite tranpose dims to a canonical form where the 'dim0' and 'dim1' are
-  // in range [0, N), where N is a rank of input tensor.
-  if (op.getDim0() < 0 || op.getDim1() < 0) {
-    if (op.getDim0() < 0) {
-      op.setDim0(op.getDim0() + op.getInput().getType().getRank());
-    }
-    if (op.getDim1() < 0) {
-      op.setDim1(op.getDim1() + op.getInput().getType().getRank());
-    }
-    return op.getResult();
+// Rewrite tranpose dims to a canonical form where the 'dim0' and 'dim1' are
+// in range [0, N), where N is a rank of input tensor.
+static mlir::OpFoldResult
+forcePositiveTransposeDims(mlir::tt::ttir::TransposeOp op) {
+  if (op.getDim0() >= 0 && op.getDim1() >= 0) {
+    return nullptr;
   }
-  return nullptr;
+
+  if (op.getDim0() < 0) {
+    op.setDim0(op.getDim0() + op.getInput().getType().getRank());
+  } else if (op.getDim1() < 0) {
+    op.setDim1(op.getDim1() + op.getInput().getType().getRank());
+  }
+
+  return op.getResult();
 }
 
-mlir::OpFoldResult foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
-  // Transposing twice in the row over the same dimensions results in identity,
-  // hence y = T(T(x)) can be replaced with y = x.
+// Transposing twice in the row over the same dimensions results in identity,
+// hence y = T(T(x)) can be replaced with y = x.
+static mlir::OpFoldResult
+foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
   if (auto producerOp =
           op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>()) {
     if (op.getDim0() == producerOp.getDim0() &&
@@ -2831,18 +2880,18 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
   return success();
 }
 
-mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttir::PermuteOp op) {
-  // PermuteOp with identity permutation is a no-op.
-  // The input can be used directly as the output.
+// PermuteOp with identity permutation is a no-op.
+// The input can be used directly as the output.
+static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttir::PermuteOp op) {
   if (llvm::is_sorted(op.getPermutation())) {
     return op.getInput();
   }
   return nullptr;
 }
 
-mlir::OpFoldResult foldOperandPermute(mlir::tt::ttir::PermuteOp op) {
-  // If the producer is a PermuteOp we can compose the permutation attributes
-  // into `op`, and set the input to the producers input.
+// If the producer is a PermuteOp we can compose the permutation attributes
+// into `op`, and set the input to the producers input.
+static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
   if (auto producerOp =
           op.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>()) {
     llvm::SmallVector<int64_t> composedPermutation =
@@ -2862,7 +2911,7 @@ mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
     return foldResult;
   }
 
-  if (auto foldResult = foldOperandPermute(*this)) {
+  if (auto foldResult = foldConsecutivePermute(*this)) {
     return foldResult;
   }
 

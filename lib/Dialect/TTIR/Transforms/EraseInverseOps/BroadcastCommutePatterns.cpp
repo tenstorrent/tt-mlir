@@ -5,10 +5,11 @@
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
 
-SmallVector<int64_t> getContiguousStrides(ArrayRef<int64_t> shape) {
+static SmallVector<int64_t> getContiguousStrides(ArrayRef<int64_t> shape) {
   SmallVector<int64_t> strides(shape.size(), 1);
   for (int64_t i = shape.size() - 2; i >= 0; i--) {
     strides[i] = shape[i + 1] * strides[i + 1];
@@ -16,16 +17,20 @@ SmallVector<int64_t> getContiguousStrides(ArrayRef<int64_t> shape) {
   return strides;
 }
 
-SmallVector<int64_t> getStrideAfterBroadcast(ArrayRef<int64_t> originalShape,
-                                             ArrayRef<int64_t> broadcastShape) {
+// This function calculates the theoretical strides of a tensor after it has
+// been broadcasted. Put simply - if a dimension is broadcasted, the stride
+// of that dimension becomes 0 as you do not have to travel along the buffer
+// which stores the tensor data to retrieve the next segment of data along
+// that dimension. All other strides remain the same.
+static SmallVector<int64_t>
+getStrideAfterBroadcast(ArrayRef<int64_t> originalShape,
+                        ArrayRef<int64_t> broadcastShape) {
   SmallVector<int64_t> strides = getContiguousStrides(originalShape);
   SmallVector<int64_t> newStrides(originalShape.size(), 0);
-  for (int64_t i = originalShape.size() - 1; i >= 0; i--) {
-    if (originalShape[i] == broadcastShape[i]) {
-      newStrides[i] = strides[i];
-    } else {
-      newStrides[i] = 0;
-    }
+  for (uint64_t i = 0; i < originalShape.size(); i++) {
+    // Want to set the stride to 0 if the boolean expression is false,
+    // strides[i] if true.
+    newStrides[i] = (originalShape[i] == broadcastShape[i]) * strides[i];
   }
   return newStrides;
 }
@@ -98,39 +103,23 @@ public:
     auto resultShape = tmResultType.getShape();
 
     SmallVector<int64_t> newShape(resultShape);
-    ttir::TransposeOp newTranspose;
-    SmallVector<int64_t> newBroadcastDimensions;
 
     // Commuting a transpose above a broadcast requires us to swap the broadcast
     // dimensions according to the transpose dimensions.
-    for (int32_t i = 0;
-         i < static_cast<int32_t>(op.getBroadcastDimensions().size()); i++) {
-      if (i == transpose.getDim0()) {
-        newBroadcastDimensions.push_back(
-            op.getBroadcastDimensions()[transpose.getDim1()]);
-      } else if (i == transpose.getDim1()) {
-        newBroadcastDimensions.push_back(
-            op.getBroadcastDimensions()[transpose.getDim0()]);
-      } else {
-        newBroadcastDimensions.push_back(op.getBroadcastDimensions()[i]);
-      }
-    }
+    SmallVector<int64_t> newBroadcastDimensions(op.getBroadcastDimensions());
+    std::swap(newBroadcastDimensions[transpose.getDim0()],
+              newBroadcastDimensions[transpose.getDim1()]);
 
-    auto newTMResultType =
-        tmResultType.cloneWith(newShape, tmResultType.getElementType());
+    auto newTranspose = ttmlir::utils::createDPSOp<ttir::TransposeOp>(
+        rewriter, op->getLoc(), newShape, tmResultType.getElementType(),
+        tmResultType.getEncoding(), operand, transpose.getDim0(),
+        transpose.getDim1());
 
-    auto transposeDPS = rewriter.create<tensor::EmptyOp>(
-        op->getLoc(), newTMResultType.getShape(),
-        newTMResultType.getElementType());
-    newTranspose = rewriter.create<ttir::TransposeOp>(
-        op->getLoc(), newTMResultType, operand, transposeDPS,
-        transpose.getDim0(), transpose.getDim1());
+    assert(newBroadcastDimensions.size() ==
+           static_cast<size_t>(tmResultType.getRank()));
 
-    auto broadcastDPS = rewriter.create<tensor::EmptyOp>(
-        op->getLoc(), resultShape, tmResultType.getElementType());
-    assert(newBroadcastDimensions.size() <= (uint32_t)tmResultType.getRank());
-    auto newBroadcast = rewriter.create<ttir::BroadcastOp>(
-        op->getLoc(), tmResultType, newTranspose, broadcastDPS,
+    auto newBroadcast = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+        rewriter, op->getLoc(), tmResultType, newTranspose,
         newBroadcastDimensions);
 
     rewriter.replaceOp(transpose, newBroadcast);
@@ -141,7 +130,7 @@ private:
   matchCommutePattern(ttir::BroadcastOp op, ArrayRef<Value> operands,
                       ArrayRef<Operation *> users) const override {
     // We will match a broacast -> transpose sequence if at least one user is a
-    // transpose
+    // transpose.
     for (Operation *user : users) {
       if (isa<ttir::TransposeOp>(user)) {
         return success();
@@ -172,17 +161,15 @@ public:
     Value operand = operands[0];
     auto reshape = cast<ttir::ReshapeOp>(users[0]);
     auto originalShape = cast<RankedTensorType>(operand.getType()).getShape();
-    auto broadcastShape =
-        cast<RankedTensorType>(op.getResult().getType()).getShape();
+    auto broadcastShape = op.getResult().getType().getShape();
 
-    auto tmResultType = cast<RankedTensorType>(reshape->getResult(0).getType());
+    auto tmResultType = reshape.getResult().getType();
 
     auto resultShape = tmResultType.getShape();
-    auto finalShape = resultShape;
 
     std::optional<SmallVector<int64_t>> finalStrides =
         getStrideAfterBroadcastReshape(originalShape, broadcastShape,
-                                       finalShape);
+                                       resultShape);
 
     assert(finalStrides.has_value() &&
            "matchCommutePattern should have ensured that this is possible.");
@@ -190,8 +177,8 @@ public:
     // All dimensions with stride 0 will be broadcasted. So the new reshape
     // should have the same shape as the desired output - except with all
     // broadcasted dimensions as `1`.
-    SmallVector<int64_t> newReshapeShape(finalShape);
-    for (uint64_t i = 0; i < finalShape.size(); i++) {
+    SmallVector<int64_t> newReshapeShape(resultShape);
+    for (uint64_t i = 0; i < resultShape.size(); i++) {
       if (finalStrides.value()[i] == 0) {
         newReshapeShape[i] = 1;
       }
@@ -199,8 +186,8 @@ public:
 
     // The broadcasted dimensions should all be `1` except for the dimensions
     // which we actually want to broadcast.
-    SmallVector<int64_t> newBroadcastDimensions(finalShape);
-    for (uint64_t i = 0; i < finalShape.size(); i++) {
+    SmallVector<int64_t> newBroadcastDimensions(resultShape);
+    for (uint64_t i = 0; i < resultShape.size(); i++) {
       if (finalStrides.value()[i] != 0) {
         newBroadcastDimensions[i] = 1;
       }

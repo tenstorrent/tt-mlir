@@ -980,26 +980,26 @@ public:
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    if (!adaptor.getFlattenedCompatInfo().has_value()) {
+    if (!adaptor.getFlattenedCompatInfo()) {
       return rewriter.notifyMatchFailure(
           op, "TTNN only supports flattened input tensors for Conv2dOp. Please "
               "run the FlattenSlidingWindow pass before lowering to TTNN.");
     }
-    auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo().value();
+    auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo();
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
 
     auto batchSizeAttr =
-        rewriter.getI32IntegerAttr(flattenedCompatInfo.getBatchSize());
+        rewriter.getI32IntegerAttr(flattenedCompatInfo->getBatchSize());
     auto inputHeightAttr =
-        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputHeight());
+        rewriter.getI32IntegerAttr(flattenedCompatInfo->getInputHeight());
     auto inputWidthAttr =
-        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputWidth());
+        rewriter.getI32IntegerAttr(flattenedCompatInfo->getInputWidth());
     auto inChannelsAttr =
-        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInChannels());
+        rewriter.getI32IntegerAttr(flattenedCompatInfo->getInChannels());
     auto outChannelsAttr =
-        rewriter.getI32IntegerAttr(flattenedCompatInfo.getOutChannels());
+        rewriter.getI32IntegerAttr(flattenedCompatInfo->getOutChannels());
 
     auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(SmallVector<int32_t, 2>(
         {static_cast<int32_t>(kernelTy.getDimSize(2)),
@@ -1211,7 +1211,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!adaptor.getFlattenedCompatInfo().has_value()) {
+    if (!adaptor.getFlattenedCompatInfo()) {
       return rewriter.notifyMatchFailure(
           op,
           "TTNN only supports flattened input tensors for MaxPool2dOp. Please "
