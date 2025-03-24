@@ -37,6 +37,7 @@ public:
       if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
         Block &entryBlock = funcOp.getBody().front();
 
+        // parse arguments and add relevant mesh shard operations
         for (BlockArgument arg : entryBlock.getArguments()) {
           if (arg.use_empty()) {
               continue;
@@ -54,9 +55,19 @@ public:
             builder.setInsertionPoint(firstUser);
             auto loc = arg.getLoc();
             auto outputType = dyn_cast<RankedTensorType>(arg.getType());
-            auto outputTensor = builder.create<tensor::EmptyOp>(loc, outputType.getShape(), outputType.getElementType());
-            auto newResult = builder.create<ttir::MeshShardOp>(loc, outputType, arg, outputTensor, mlir::tt::MeshShardType::Identity,
-              mlir::tt::MeshShardDirection::FullToShard, llvm::SmallVector<int64_t>{1}, llvm::SmallVector<int64_t>{-1});
+            auto outputTensor = builder.create<tensor::EmptyOp>(
+              loc, 
+              outputType.getShape(), 
+              outputType.getElementType());
+            auto newResult = builder.create<ttir::MeshShardOp>(
+              loc, 
+              outputType, 
+              arg, 
+              outputTensor, 
+              mlir::tt::MeshShardType::Replicate,
+              mlir::tt::MeshShardDirection::FullToShard, 
+              /*shard_shape*/ llvm::SmallVector<int64_t>{1}, 
+              /*shard_dims*/ llvm::SmallVector<int64_t>{-1});
 
             for (auto &use : arg.getUses()) {
               Operation *userOp = use.getOwner();
@@ -67,8 +78,57 @@ public:
             }
           }
         }
+
+        // parse outputs and add relevant mesh shard operations
+        for (auto &op : entryBlock) {
+          if (auto returnOp = llvm::dyn_cast<func::ReturnOp>(&op)) {
+            auto returnTensors = returnOp.getOperands();
+
+            // need to assert returnTensors is of size 1
+
+            for (auto tensor : returnTensors) {
+              auto producerOp = tensor.getDefiningOp();
+
+              builder.setInsertionPoint(returnOp);
+              auto loc = tensor.getLoc();
+              auto outputType = dyn_cast<RankedTensorType>(tensor.getType());
+              auto outputTensor = builder.create<tensor::EmptyOp>(
+                loc, 
+                outputType.getShape(), 
+                outputType.getElementType());
+              [[ maybe_unused ]] auto newResult = builder.create<ttir::MeshShardOp>(
+                loc, 
+                outputType, 
+                producerOp->getResult(0), 
+                outputTensor, 
+                mlir::tt::MeshShardType::Replicate,
+                mlir::tt::MeshShardDirection::ShardToFull, 
+                /*shard_shape*/ llvm::SmallVector<int64_t>{1}, 
+                /*shard_dims*/ llvm::SmallVector<int64_t>{-1});
+
+                for (auto &use : tensor.getUses()) {
+                  Operation *userOp = use.getOwner();
+    
+                  if (userOp != newResult) {
+                    userOp->replaceUsesOfWith(tensor, newResult);
+                  } 
+                }
+            }
+          }
+        }
       }
     }
   }
 };
 } // namespace mlir::tt::ttir
+
+/*
+- for each argument, figure out what type it is
+  - input, parameter, constant
+- for parameter + constant
+  - we are going to replicate this tensor across all devices
+- for input
+  - we are going to split it's batch dimension across all devices
+  - we need to calculate it's new output shape based on the split batch
+  - we need to propogate this new shape to all places that use this input
+*/
