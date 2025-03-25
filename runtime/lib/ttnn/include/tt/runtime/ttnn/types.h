@@ -8,10 +8,17 @@
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/tensor_cache.h"
 #include "tt/runtime/types.h"
 
+#include <cstdint>
+#include <memory>
 #include <optional>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace tt::runtime::ttnn {
 using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
@@ -188,6 +195,30 @@ public:
   ProgramTensorPool &getTensorPool() { return tensorPool; }
   const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
+  //
+  // Tensor Cache Operations
+  //
+  // Get the tensor cache for the parent mesh
+  TensorCache &getParentMeshCache() { return parentMeshCache; }
+  // Get the tensor cache for a specific submesh
+  TensorCache &getSubMeshCache(uint32_t meshId) {
+    auto it = subMeshCaches.find(meshId);
+    if (it == subMeshCaches.end()) {
+      auto [newIt, inserted] = subMeshCaches.emplace(meshId, TensorCache());
+      return newIt->second;
+    }
+    return it->second;
+  }
+  // Get the appropriate cache based on the mesh ID
+  // If meshId is 0, returns the parent mesh cache
+  TensorCache &getCache(uint32_t meshId) {
+    if (meshId == 0) {
+      return getParentMeshCache();
+    } else {
+      return getSubMeshCache(meshId);
+    }
+  }
+
 private:
   ProgramTensorPool tensorPool;
 
@@ -199,6 +230,10 @@ private:
   // Contains subMeshes of the parentMesh that are used by the program
   // Will be populated by GetDevice ops
   std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
+  // Tensor cache for the parent mesh
+  TensorCache parentMeshCache;
+  // Tensor caches for each submesh
+  std::unordered_map<uint32_t, TensorCache> subMeshCaches;
 };
 } // namespace tt::runtime::ttnn
 

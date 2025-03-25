@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -156,6 +157,7 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineWorkaroundPass(devicePm, options);
   createTTNNPipelineAnalysisPasses(devicePm, options);
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+  devicePm.addPass(transforms::createConstEvalHoistTransform());
   createTTNNPipelineDeallocPass(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
