@@ -684,6 +684,15 @@ def test_permute(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
+    [(10, 64, 32, 3), (10, 128, 128, 3)],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_upsample2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.upsample2d(in0, in1, scale_factor=DenseI32ArrayAttr.get([2, 4]))
+
+
+@compile_to_flatbuffer(
     [(32, 32), (32, 32)], inputs_types=[torch.uint32, torch.uint16], targets=["ttnn"]
 )
 def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -710,12 +719,12 @@ def test_cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
-    [(32, 32), (512, 128), (32, 32, 128)],
-    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    [(32, 32), (512, 128)],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
     targets=["ttnn"],
 )
-def test_embedding(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-    return builder.embedding(in0, in1, in2)
+def test_embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.embedding(in0, in1)
 
 
 @compile_to_flatbuffer(

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-attach-metal-layout="use-stream-layout=true" --ttir-generalize-named-ops %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-attach-metal-layout --ttir-generalize-named-ops %s | FileCheck %s
 
 !ttype = tensor<128x96xf32>
 
