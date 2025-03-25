@@ -14,6 +14,8 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -80,7 +82,10 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
+    target.addLegalOp<tt::DeviceOp>();
+    target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
+    target.addLegalOp<memref::CollapseShapeOp>();
     target.addIllegalOp<memref::StoreOp>();
 
     TypeConverter typeConverter;
@@ -99,7 +104,6 @@ struct ConvertTTIRToTTKernel
 
     target.addIllegalOp<memref::AllocOp>();
     target.addIllegalOp<memref::LoadOp>();
-    target.addIllegalOp<memref::CollapseShapeOp>();
     target.addIllegalOp<ttir::GenericOp>();
 
     RewritePatternSet topLevelPatterns(&getContext());

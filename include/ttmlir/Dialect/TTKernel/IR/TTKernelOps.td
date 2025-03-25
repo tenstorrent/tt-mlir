@@ -637,6 +637,17 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
     let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
 }
 
+def TTKernel_MetalCompileTimeArgOp : TTKernel_Op<"metal_compile_time_arg"> {
+    let summary = "MetalCompileTimeArg";
+    let description = [{
+      MetalCompileTimeArg
+    }];
+
+    let arguments = (ins I64Attr:$arg_index);
+
+    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Helper functions
 //===----------------------------------------------------------------------===//
