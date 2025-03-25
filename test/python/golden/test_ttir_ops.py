@@ -268,6 +268,12 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
         return builder.prod(in0, in1, [dim_arg], keep_dim)
     compile_to_flatbuffer(prod, [shape, shape], test_base=request.node.name) 
 
+@pytest.mark.parametrize("shape", [(128,128)])
+def test_lt(shape: Shape, request):
+    def lt(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.lt(in0, in1)
+    compile_to_flatbuffer(lt, [shape, shape], test_base=request.node.name) 
+
 
 def where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     return builder.where(in0, in1, in2)
@@ -739,7 +745,7 @@ def test_requantize(shape: Shape, input_dtype: TypeInfo, scale: float, zero_poin
 #if __name__ == "__main__":
 #    import argparse, os
 
-@pytest.mark.parametrize("shape", [(128,128)], ids=str)
+@pytest.mark.parametrize("shape", [(128,128)])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable,
@@ -749,7 +755,7 @@ def test_unary_ops(
     compile_to_flatbuffer(test_fn, inputs_shapes=[shape], inputs_types=[dtype], test_base=request.node.name)
 
 
-@pytest.mark.parametrize("shape", [(128,128)], ids=str)
+@pytest.mark.parametrize("shape", [(128,128)])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", [add, multiply, subtract, eq, ne, le, lt,
                                      ge, gt, div, remainder, maximum, minimum,
@@ -761,12 +767,13 @@ def test_binary_ops(
     request):
     """ NOTE: this function is _only_ for binary ops that take the same shape arguments
     """
-    compile_to_flatbuffer(test_fn, inputs_shapes=[shape] * 2, inputs_types=[dtype] * 2, test_base=request.node.name)
+    print(test_fn)
+    compile_to_flatbuffer(test_fn, [shape, shape], test_base=request.node.name)
 
 
 # TODO: create issue for this
 @pytest.mark.skip("uint8_t is unsupported here, investigate")
-@pytest.mark.parametrize("shape", [(128,128)], ids=str)
+@pytest.mark.parametrize("shape", [(128,128)])
 @pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
 def test_bitwise_binary_ops(
     test_fn: Callable,
