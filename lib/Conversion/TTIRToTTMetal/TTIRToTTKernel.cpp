@@ -50,39 +50,16 @@ public:
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    for (auto &region : op->getRegions()) {
-      assert(region.getBlocks().size() <= 1 &&
-             "Expected single block in region (temporary), failing.");
-      Block &block = region.getBlocks().front();
-      assert(
-          block.getNumArguments() == op.getNumOperands() &&
-          "Mismatch between number of operands and block arguments, failing.");
-      for (uint32_t i = 0; i < block.getNumArguments(); i++) {
-        auto memref = mlir::cast<MemRefType>(block.getArgument(i).getType());
-        auto cbPort = ttkernel::symbolizeCBPort(i);
-        assert(cbPort.has_value() && "Out of CBs, failing.");
-        auto cbType = ttkernel::CBType::get(rewriter.getContext(),
-                                            cbPort.value(), 0, memref);
-        for (Operation *user : block.getArgument(i).getUsers()) {
-          rewriter.eraseOp(user);
-        }
-        rewriter.modifyOpInPlace(
-            op, [&]() { block.getArgument(i).setType(cbType); });
-      }
-
-      auto enqueueProgramOp = rewriter.create<ttmetal::EnqueueProgramOp>(
-          op->getLoc(), op->getResultTypes(), op.getInputs(), op.getOutputs(),
-          rewriter.getArrayAttr({}), rewriter.getArrayAttr({}),
-          op->getNumRegions());
-      rewriter.modifyOpInPlace(enqueueProgramOp, [&]() {
-        for (uint32_t i = 0; i < op->getNumRegions(); i++) {
-          auto &region = enqueueProgramOp->getRegion(i);
-          region.takeBody(op->getRegion(i));
-        }
-      });
+    auto coreRanges = llvm::SmallVector<Attribute>();
+    coreRanges.reserve(op.getKernelSymbols()->size());
+    for (size_t i = 0; i < op.getKernelSymbols()->size(); i++) {
+      coreRanges.push_back(
+          rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
     }
-
-    rewriter.eraseOp(op);
+    rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
+        op, op->getResultTypes(), op.getInputs(), op.getOutputs(),
+        rewriter.getArrayAttr(op.getKernelSymbols()->getValue()),
+        rewriter.getArrayAttr(coreRanges), rewriter.getArrayAttr({}));
     return success();
   };
 };

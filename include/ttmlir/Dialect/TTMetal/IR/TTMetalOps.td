@@ -29,10 +29,10 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOp
 
     let arguments = (ins Variadic<AnyNon0RankedMemRef>:$inputs,
                          Variadic<AnyNon0RankedMemRef>:$outputs,
+                         ArrayAttr:$kernel_symbols,
                          TTMetal_CoreRangeArrayAttr:$core_ranges,
                          TTKernel_KernelConfigArrayAttr:$kernelConfigs);
     let results = (outs Variadic<AnyNon0RankedMemRef>:$results);
-    let regions = (region VariadicRegion<AnyRegion>:$regions);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
