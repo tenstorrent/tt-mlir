@@ -260,6 +260,14 @@ def reshape(in0: Operand, builder: TTIRBuilder):
 def transpose(in0: Operand, builder: TTIRBuilder):
     return builder.transpose(in0)
 
+@pytest.mark.parametrize("shape", [(128,128)])
+@pytest.mark.parametrize("dim_arg", [0])
+@pytest.mark.parametrize("keep_dim", [False])
+def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
+    def prod(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.prod(in0, in1, [dim_arg], keep_dim)
+    compile_to_flatbuffer(prod, [shape, shape], test_base=request.node.name) 
+
 
 def where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     return builder.where(in0, in1, in2)
@@ -272,6 +280,7 @@ def test_concat( shapes: List[Shape], dim: int, request):
         return builder.concat([in0, in1, in2], dim=dim)
     compile_to_flatbuffer(concat, shapes, test_base=request.node.name)
 
+
 @pytest.mark.skip("This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371")
 @pytest.mark.parametrize("shape", [(1, 128, 128, 1)])
 @pytest.mark.parametrize("dim", [0])
@@ -281,7 +290,6 @@ def test_squeeze(shape: Shape, dim: int, request):
     compile_to_flatbuffer(squeeze, [shape], test_base=request.node.name)
 
 
-# NOTE: Same as Squeeze, this Op is not valid for TTRT Perf. Issue #2371
 @pytest.mark.skip("This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371")
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dim", [0])
@@ -298,13 +306,13 @@ def test_repeat(shape: Shape, dims: List[int], request):
     compile_to_flatbuffer(repeat, [shape], test_base=request.node.name)
 
 
-@pytest.mark.parametrize("shapes", [[(1, 8, 1, 12, 64), (1, 8, 1, 12, 64),],])
+@pytest.mark.parametrize("shapes", [[(1, 8, 1, 12, 64), (1, 8, 1, 12, 64)],])
 @pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("repeats", [2])
-def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int):
+@pytest.mark.parametrize("repeats", [1])
+def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request):
     def repeat_interleave(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.repeat_interleave(in0, in1, repeats=repeats, dim=dim)
-    compile_to_flatbuffer(repeat_interleave, shapes, test_base="test_repeat_interleave")
+    compile_to_flatbuffer(repeat_interleave, shapes, test_base=request.node.name)
 
 
 @pytest.mark.parametrize("shapes", [[(1, 1, 32), (1, 16, 32)]])
@@ -324,24 +332,18 @@ def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request
         ]
     ])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
-@pytest.mark.parametrize("_stride,_padding,_dilation,_groups", [([2, 1], [2, 1], [2, 1], 2)])
+@pytest.mark.parametrize("stride,padding,dilation,groups", [([2, 1], [2, 1], [2, 1], 2)])
 def test_conv2d(
         shapes: List[Shape],
         dtypes: List[torch.dtype],
-        _stride: List[int],
-        _padding: List[int],
-        _dilation: List[int],
-        _groups: int,
+        stride: List[int],
+        padding: List[int],
+        dilation: List[int],
+        groups: int,
         request):
     def conv2d(
         in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
     ):
-        #wrap attrs in attr types
-        stride = DenseI32ArrayAttr.get(_stride)
-        padding = DenseI32ArrayAttr.get(_padding)
-        dilation = DenseI32ArrayAttr.get(_dilation)
-        groups = IntegerAttr.get(IntegerType.get_signless(32), _groups)
-
         return builder.conv2d(
             in0,
             weight,
@@ -392,26 +394,20 @@ def test_conv2d_consteval(
         (1, 10, 10, 256),
     ]])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
-@pytest.mark.parametrize("_stride,_padding,_output_padding,_dilation,_groups", [(1, 0, 0, 1, 1)])
+@pytest.mark.parametrize("stride,padding,output_padding,dilation,groups", [(1, 0, 0, 1, 1)])
 def test_conv_transpose2d(
         shapes: List[Shape],
         dtypes: List[torch.dtype],
-        _stride: int,
-        _padding: int,
-        _output_padding: int,
-        _dilation: int,
-        _groups: int,
+        stride: int,
+        padding: int,
+        output_padding: int,
+        dilation: int,
+        groups: int,
         request):
 
     def conv_transpose2d(
         in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
     ):
-        #wrap attrs in attr types
-        stride = IntegerAttr.get(IntegerType.get_signless(32), _stride)
-        padding = IntegerAttr.get(IntegerType.get_signless(32), _padding)
-        output_padding = IntegerAttr.get(IntegerType.get_signless(32), _output_padding)
-        dilation = IntegerAttr.get(IntegerType.get_signless(32), _dilation)
-        groups = IntegerAttr.get(IntegerType.get_signless(32), _groups)
         return builder.conv_transpose2d(
             in0,
             weight,
@@ -684,6 +680,7 @@ def test_requantize(shape: Shape, input_dtype: TypeInfo, scale: float, zero_poin
     compile_to_flatbuffer(requantize, [shape], inputs_types=[input_dtype], test_base=request.node.name)
 
 
+# FIXME: figure out how to incorporate this into the pytest framework
 #def test_provided_graph_input_output():
 #    def golden_tensor_to_torch_tensor(golden):
 #        shape = golden.shape

@@ -1120,9 +1120,9 @@ class TTIRBuilder:
         weight: Operand,
         bias: Optional[Operand],
         in1: Operand,
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
-        padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         groups: int,
     ) -> OpView:
         if not bias:
@@ -1190,10 +1190,10 @@ class TTIRBuilder:
         weight: Operand,
         bias: Optional[Operand],
         in1: Operand,
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
-        padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        output_padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        output_padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         groups: int,
     ) -> OpView:
         if not bias:
