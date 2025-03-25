@@ -46,8 +46,6 @@ add_custom_target(compile-ttmlir-tests DEPENDS ${TTMLIR_TEST_DEPENDS})
 
 add_lit_testsuite(check-ttmlir "Running the ttmlir regression tests"
     ${CMAKE_CURRENT_BINARY_DIR}
-    --verbose
-    --show-sandbox
     --debug
     --xunit-xml-output report.xml
     DEPENDS ${TTMLIR_TEST_DEPENDS}
