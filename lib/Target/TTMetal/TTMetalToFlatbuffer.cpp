@@ -347,52 +347,54 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
             emitEnqueueProgramOpRegionsAsCpp(enqueueProgramOp, cppKernels);
         assert(success.succeeded() &&
                "failed to emit enqueue program op regions as cpp");
-        for (auto &region : enqueueProgramOp.getRegions()) {
-          std::vector<::tt::target::Dim2dRange> coreRangeSet = {
-              toFlatbuffer(mlir::cast<CoreRangeAttr>(
-                  enqueueProgramOp.getCoreRanges()[region.getRegionNumber()]))};
-          std::vector<::flatbuffers::Offset<::tt::target::metal::CBRef>> cbs;
-          size_t argNumber = 0;
-          std::vector<::tt::target::metal::RuntimeArg> runtime_args_type;
-          std::vector<::flatbuffers::Offset<void>> runtime_args;
-          for (auto arg : region.getArguments()) {
-            if (mlir::isa<ttkernel::CBType>(arg.getType())) {
-              auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
-              auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-              auto tensorRef =
-                  argNumber >= operands.size() ? 0 : operands[argNumber++];
-              cbs.push_back(::tt::target::metal::CreateCBRef(
-                  fbb, cache.global_id++, tensorRef, cbType.getAddress(),
-                  cbDesc));
-            } else if (mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
-              auto semType = mlir::cast<ttkernel::SemaphoreType>(arg.getType());
-              auto [runtime_arg_type, runtime_arg] =
-                  toFlatbuffer(cache, semType);
-              runtime_args_type.push_back(runtime_arg_type);
-              runtime_args.push_back(runtime_arg);
-            } else {
-              llvm_unreachable(
-                  "Block arguments must be either CBType or SemaphoreType");
-            }
-          }
+        // for (auto &region : enqueueProgramOp.getRegions()) {
+        //   std::vector<::tt::target::Dim2dRange> coreRangeSet = {
+        //       toFlatbuffer(mlir::cast<CoreRangeAttr>(
+        //           enqueueProgramOp.getCoreRanges()[region.getRegionNumber()]))};
+        //   std::vector<::flatbuffers::Offset<::tt::target::metal::CBRef>> cbs;
+        //   size_t argNumber = 0;
+        //   std::vector<::tt::target::metal::RuntimeArg> runtime_args_type;
+        //   std::vector<::flatbuffers::Offset<void>> runtime_args;
+        //   for (auto arg : region.getArguments()) {
+        //     if (mlir::isa<ttkernel::CBType>(arg.getType())) {
+        //       auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
+        //       auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
+        //       auto tensorRef =
+        //           argNumber >= operands.size() ? 0 : operands[argNumber++];
+        //       cbs.push_back(::tt::target::metal::CreateCBRef(
+        //           fbb, cache.global_id++, tensorRef, cbType.getAddress(),
+        //           cbDesc));
+        //     } else if (mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
+        //       auto semType =
+        //       mlir::cast<ttkernel::SemaphoreType>(arg.getType()); auto
+        //       [runtime_arg_type, runtime_arg] =
+        //           toFlatbuffer(cache, semType);
+        //       runtime_args_type.push_back(runtime_arg_type);
+        //       runtime_args.push_back(runtime_arg);
+        //     } else {
+        //       llvm_unreachable(
+        //           "Block arguments must be either CBType or SemaphoreType");
+        //     }
+        //   }
 
-          std::string &source = cppKernels[region.getRegionNumber()];
-          assert(source.size() > 0 && "empty kernel source");
+        //   std::string &source = cppKernels[region.getRegionNumber()];
+        //   assert(source.size() > 0 && "empty kernel source");
 
-          // Get pair of kernel's config type and config itself.
-          auto kernelConfig =
-              enqueueProgramOp.getKernelConfigs()[region.getRegionNumber()];
-          auto [kernelConfigType, kernelConfigUnion] = toFlatbuffer(
-              fbb, mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig));
+        //   // Get pair of kernel's config type and config itself.
+        //   auto kernelConfig =
+        //       enqueueProgramOp.getKernelConfigs()[region.getRegionNumber()];
+        //   auto [kernelConfigType, kernelConfigUnion] = toFlatbuffer(
+        //       fbb,
+        //       mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig));
 
-          kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
-              fbb, ::tt::target::metal::Kernel::KernelSource,
-              ::tt::target::metal::CreateKernelSourceDirect(
-                  fbb, source.c_str(), kernelConfigType, kernelConfigUnion)
-                  .Union(),
-              &coreRangeSet, &cbs, &runtime_args_type, &runtime_args,
-              nullptr /*TODO debug info*/));
-        }
+        //   kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
+        //       fbb, ::tt::target::metal::Kernel::KernelSource,
+        //       ::tt::target::metal::CreateKernelSourceDirect(
+        //           fbb, source.c_str(), kernelConfigType, kernelConfigUnion)
+        //           .Union(),
+        //       &coreRangeSet, &cbs, &runtime_args_type, &runtime_args,
+        //       nullptr /*TODO debug info*/));
+        // }
         ::flatbuffers::Offset<::tt::target::metal::ProgramDesc> program =
             ::tt::target::metal::CreateProgramDescDirect(fbb, &kernels);
 
