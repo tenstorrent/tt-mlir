@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Dialect/Index/IR/IndexOps.h"
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/IR/Dominance.h>
@@ -209,6 +210,9 @@ public:
   using OpRewritePattern<T>::OpRewritePattern;
 
   static uint32_t getCbId(Value value) {
+    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+      return blockArg.getArgNumber();
+    }
     memref::CollapseShapeOp collapseOp =
         llvm::cast<memref::CollapseShapeOp>(value.getDefiningOp());
     if (auto blockArg =
@@ -223,15 +227,14 @@ public:
     for (Value input : op.getValues()) {
       auto cbId = i32(getCbId(input), rewriter);
       auto type = mlir::cast<MemRefType>(input.getType());
-      assert(type.getShape().size() == 1 &&
-             "Expected collapsed 1D memref, failing.");
       auto numPages = i32(type.getNumElements(), rewriter);
       Block *block = op->getBlock();
       if (mlir::isa<ttir::AwaitOp>(op)) {
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), cbId, numPages);
         auto popFront = rewriter.create<ttkernel::CBPopFrontOp>(op.getLoc(),
                                                                 cbId, numPages);
-        rewriter.moveOpBefore(popFront, block, block->end());
+        rewriter.moveOpBefore(popFront, block,
+                              block->getOps<func::ReturnOp>().begin());
       } else if (mlir::isa<ttir::YieldOp>(op)) {
         auto reserveBack = rewriter.create<ttkernel::CBReserveBackOp>(
             op.getLoc(), cbId, numPages);
