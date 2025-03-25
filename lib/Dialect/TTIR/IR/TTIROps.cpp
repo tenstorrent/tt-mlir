@@ -3030,26 +3030,6 @@ mlir::tt::ttir::GenericOp::getIteratorTypesValue() {
 }
 
 mlir::SmallVector<mlir::SmallVector<int64_t>>
-mlir::tt::ttir::GenericOp::getOperandShardShapes() {
-  SmallVector<SmallVector<int64_t>> gridShapes;
-  gridShapes.reserve(getOperands().size());
-  for (auto operand : this->getOperands()) {
-    auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
-    if (memrefType) {
-      assert(memrefType.getRank() % 2 == 0);
-      gridShapes.emplace_back(
-          memrefType.getShape().drop_front(memrefType.getRank() / 2));
-    } else {
-      auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
-      MetalLayoutAttr layout =
-          mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
-      gridShapes.emplace_back(layout.getMemref().getShape());
-    }
-  }
-  return gridShapes;
-}
-
-mlir::SmallVector<mlir::SmallVector<int64_t>>
 mlir::tt::ttir::GenericOp::getOperandGridShapes() {
   SmallVector<SmallVector<int64_t>> gridShapes;
   gridShapes.reserve(getOperands().size());

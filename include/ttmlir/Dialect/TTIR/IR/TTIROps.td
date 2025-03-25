@@ -123,7 +123,6 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       SmallVector<int64_t> getLoopBounds();
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<IteratorType> getIteratorTypesValue();
-      SmallVector<SmallVector<int64_t>> getOperandShardShapes();
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
     }];
 }
