@@ -772,9 +772,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def prod(
-        self, in0: Operand, in1: Operand, dim_arg: List[int], keep_dim: bool = False
-    ) -> OpView:
+    def prod(self, in0: Operand, dim_arg: List[int], keep_dim: bool = False) -> OpView:
         g_kwargs = {}
         if len(dim_arg) == 1:
             g_kwargs["dim"] = dim_arg[0]
@@ -789,9 +787,6 @@ class TTIRBuilder:
             golden_kwargs=g_kwargs,
             ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
-            output_type=self.get_type_from_torch_dtype(
-                self._get_golden_tensor(in1).dtype
-            ),
         )
 
     def embedding(self, in0: Operand, in1: Operand) -> OpView:
