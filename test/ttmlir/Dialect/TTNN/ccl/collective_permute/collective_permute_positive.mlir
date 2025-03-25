@@ -8,6 +8,7 @@ module attributes {} {
     %0 = tensor.empty() : tensor<1x1x8192x512xf32>
     %1 = "ttir.collective_permute"(%arg0, %0) <{source_target_pairs = dense<[[0, 1], [1, 0]]> : tensor<2x2xi64>}> : (tensor<1x1x8192x512xf32>, tensor<1x1x8192x512xf32>) -> tensor<1x1x8192x512xf32>
     // CHECK: "ttnn.collective_permute"
+    // CHECK-SAME: source_target_pairs = dense<{{([[])}}[0, 1], [1, 0]]> : tensor<2x2xi64>
     return %1 : tensor<1x1x8192x512xf32>
   }
 }
@@ -35,7 +36,6 @@ module attributes {} {
     %1 = "ttir.collective_permute"(%arg0, %0) <{source_target_pairs = dense<[[0, 0], [1, 2]]> : tensor<2x2xi64>}> : (tensor<1x1x8192x512xf32>, tensor<1x1x8192x512xf32>) -> tensor<1x1x8192x512xf32>
     // CHECK: "ttnn.collective_permute"
     // CHECK-SAME: source_target_pairs = dense<{{([[])}}[1, 2]]> : tensor<1x2xi64>
-    // CHECK-NOT: [0, 0]
     return %1 : tensor<1x1x8192x512xf32>
   }
 }

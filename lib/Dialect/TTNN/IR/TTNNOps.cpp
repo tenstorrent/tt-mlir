@@ -1751,11 +1751,12 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   ::mlir::DenseIntElementsAttr srcTargetPairs = getSourceTargetPairs();
 
-  // Filter out self-mapping src-target pairs
+  // Filter out self-mapping src-target pairs.
+  auto elements = srcTargetPairs.getValues<APInt>();
   SmallVector<APInt> filteredPairs;
-  for (auto it = srcTargetPairs.begin(), e = srcTargetPairs.end(); it != e;) {
-    auto src = *it++;
-    auto target = *it++;
+  for (size_t idx = 0; idx < elements.size(); idx += 2) {
+    auto src = elements[idx];
+    auto target = elements[idx + 1];
     if (src == target) {
       continue;
     }
@@ -1763,22 +1764,20 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     filteredPairs.push_back(target);
   }
 
-  if (filteredPairs.size() != 0) {
-    // There are effective permutations left.
-    if (srcTargetPairs.getNumElements() !=
-        static_cast<int64_t>(filteredPairs.size())) {
-      // Update source_target_pairs if changed.
-      std::array<int64_t, 2> shape = {
-          static_cast<int64_t>(filteredPairs.size() / 2), 2};
-      auto newShape = llvm::ArrayRef<int64_t>(shape);
-      auto newType = RankedTensorType::get(
-          newShape, srcTargetPairs.getType().getElementType());
-      setSourceTargetPairsAttr(
-          DenseIntElementsAttr::get(newType, filteredPairs));
-    }
-  } else {
+  if (filteredPairs.empty()) {
     // No permutations left. Exclude this op.
     return getInput();
+  }
+
+  // There are effective permutations left.
+  if (srcTargetPairs.getNumElements() !=
+      static_cast<int64_t>(filteredPairs.size())) {
+    // Update source_target_pairs if changed.
+    std::array<int64_t, 2> shape = {
+        static_cast<int64_t>(filteredPairs.size() / 2), 2};
+    auto newType =
+        RankedTensorType::get(shape, srcTargetPairs.getType().getElementType());
+    setSourceTargetPairsAttr(DenseIntElementsAttr::get(newType, filteredPairs));
   }
   return {};
 }
