@@ -30,6 +30,7 @@ add_mlir_library(TTMLIRCompilerStatic
 
   LINK_LIBS PUBLIC
   ${TTMLIR_LIBS}
+  coverage_config
 )
 
 #
