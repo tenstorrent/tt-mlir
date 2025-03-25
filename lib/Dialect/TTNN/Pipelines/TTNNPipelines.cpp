@@ -163,6 +163,7 @@ void createTTIRToTTNNBackendPipeline(
   }
   createTTNNPipelineAnalysisPasses(devicePm, options);
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+  devicePm.addPass(transforms::createConstEvalHoistTransform());
   createTTNNPipelineDeallocPass(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
