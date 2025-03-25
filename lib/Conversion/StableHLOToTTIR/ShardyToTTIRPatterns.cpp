@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <iostream>
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
@@ -115,7 +116,7 @@ void propagateTensorMeshSharding(
                     std::is_same_v<OpTy, mlir::func::FuncOp>,
                 "Only propagate TensorMeshSharding to "
                 "mlir::sdy::ManualComputationOp or mlir::func::FuncOp.");
-
+  std::cerr << "BBBBBB" << std::endl;
   // Propagate to sdy::ManualComputationOp args.
   if constexpr (std::is_same_v<OpTy, mlir::sdy::ManualComputationOp>) {
     addTensorMeshShardingAttrToValues(srcOp.getBody().getArguments(),
@@ -129,6 +130,7 @@ void propagateTensorMeshSharding(
             mlir::isa<mlir::func::ReturnOp>(op)) {
           return mlir::WalkResult::skip();
         }
+        std::cerr << "aaaa" << std::endl;
         if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(op)) {
           auto funcOp = getCalledFunction(callOp);
           // Only visit the function that never visited.
@@ -138,6 +140,9 @@ void propagateTensorMeshSharding(
             auto inputTypes = addTensorMeshShardingAttrToValues(
                 funcOp.getArguments(), tensorMeshShardingAttr);
             // Visit function in a recursive manner.
+            std::cerr << "AAAAAA" << std::endl;
+            funcOp.dump();
+            std::cerr << "AAAAAA" << std::endl;
             mlir::tt::propagateTensorMeshSharding<mlir::func::FuncOp>(
                 funcOp, tensorMeshShardingAttr);
             // Propagate to function returns.
@@ -344,7 +349,7 @@ public:
       llvm_unreachable(
           "mlir::sdy::MeshOp requires module as one of parent ops.");
     }
-
+    std::cerr << "I AM CONVERTING" << std::endl;
     mlir::StringAttr meshName = srcOp.getSymNameAttr();
     llvm::SmallVector<int64_t> meshShape;
     mlir::sdy::MeshAttr sdyMesh = srcOp.getMesh();
@@ -399,7 +404,6 @@ public:
           mlir::tt::sharding_utils::addTensorMeshShardingAttrToFunctionArg(
               funcOp, argIdx, meshSharding.getTensorMeshShardingAttr(rewriter));
         });
-
         auto meshShardOp =
             ttmlir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
                 rewriter, firstUserOp->getLoc(), outputType, arg,
@@ -408,6 +412,27 @@ public:
 
         rewriter.replaceAllUsesExcept(arg, meshShardOp.getResult(),
                                       meshShardOp);
+      }
+      for (auto it : llvm::enumerate(funcOp.getFunctionType().getResults())) {
+        unsigned resultIdx = it.index();
+        auto resultShardingAttr =
+            funcOp.getResultAttrOfType<mlir::sdy::TensorShardingAttr>(
+              resultIdx, mlir::sdy::kShardingAttr);
+        if (!resultShardingAttr) {
+          continue;
+        }
+        mlir::tt::sharding_utils::MeshSharding meshSharding;
+        auto error = meshSharding.convertSdyShardingToMeshSharding(
+          resultShardingAttr, sdyMesh,
+          mlir::tt::MeshShardDirection::FullToShard);
+        if (auto e = error.takeError()) {
+          llvm_unreachable(llvm::toString(std::move(e)).c_str());
+        }
+        rewriter.modifyOpInPlace(funcOp, [&]() {
+          funcOp.removeResultAttr(resultIdx, mlir::StringAttr::get(funcOp.getContext(), mlir::sdy::kShardingAttr));
+          mlir::tt::sharding_utils::addTensorMeshShardingAttrToFunctionRet(
+              funcOp, resultIdx, meshSharding.getTensorMeshShardingAttr(rewriter));
+        });
       }
       return mlir::WalkResult::advance();
     });
