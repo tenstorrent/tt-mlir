@@ -12,6 +12,7 @@ include "ttmlir/Target/TTNN/operations/eltwise.fbs";
 include "ttmlir/Target/TTNN/operations/embedding.fbs";
 include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
 include "ttmlir/Target/TTNN/operations/layout.fbs";
+include "ttmlir/Target/TTNN/operations/load_cached.fbs";
 include "ttmlir/Target/TTNN/operations/matmul.fbs";
 include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
 include "ttmlir/Target/TTNN/operations/softmax.fbs";
@@ -69,7 +70,8 @@ union OpType {
   UpsampleOp,
   ReductionArgMaxOp,
   ReductionOp,
-  ReductionProdOp
+  ReductionProdOp,
+  LoadCachedOp,
 }
 
 table Operation {
