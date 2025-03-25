@@ -1292,6 +1292,39 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
         )
 
+    def arange(
+        self, result=Operand, start=int, end=int, step=int, arange_dimension=int
+    ) -> OpView:
+        single_dim_tensor = torch.arange(
+            start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
+        )
+        shape = self.get_shape(result)
+        repeat_dims = []
+        for i in range(len(shape)):
+            if i == arange_dimension:
+                repeat_dims.append(int(shape[i] / ((end - start) / step)))
+            else:
+                repeat_dims.append(shape[i])
+
+        return self.op_proxy(
+            torch.Tensor.repeat,
+            ttir.ArangeOp,
+            [result, single_dim_tensor],
+            golden_kwargs={"repeats": tuple(repeat_dims)},
+            ttir_kwargs={
+                "start": start,
+                "end": end,
+                "step": step,
+                "arange_dimension": arange_dimension,
+            },
+            organize_ttir_args=lambda i, o, _: (self._get_type(o),),
+            organize_golden_args=lambda i: [i[1]],
+            output_shape=shape,
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(result).dtype
+            ),
+        )
+
     # TTIR top level generic ops
     # class TTIR_GenericElementwiseUnaryOp
 
