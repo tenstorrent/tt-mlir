@@ -72,16 +72,6 @@ namespace mlir::tt::ttmetal {
       return emitOpError("Input tensor must be in device memory space");
     }
   }
-
-  // Assert block inputs are CBs
-  for (auto &region : getRegions()) {
-    for (auto arg : region.getArguments()) {
-      if (!mlir::isa<ttkernel::CBType>(arg.getType()) &&
-          !mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
-        return emitOpError("Block inputs must be CBType or SemType");
-      }
-    }
-  }
   return success();
 }
 
