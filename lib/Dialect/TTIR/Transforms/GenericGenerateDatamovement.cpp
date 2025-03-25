@@ -236,10 +236,12 @@ public:
     // fly. i.e. adding semaphore arguments.
     for (unsigned regionIdx = 0; regionIdx < numTotalRegions; ++regionIdx) {
       Block &block = newGeneric.getRegion(regionIdx).emplaceBlock();
-      block.addArguments(generic.getRegion(0).getArgumentTypes(),
-                         SmallVector<mlir::Location>(
-                             generic.getRegion(0).getArgumentTypes().size(),
-                             generic.getLoc()));
+      rewriter.modifyOpInPlace(newGeneric, [&] {
+        block.addArguments(generic.getRegion(0).getArgumentTypes(),
+                           SmallVector<mlir::Location>(
+                               generic.getRegion(0).getArgumentTypes().size(),
+                               generic.getLoc()));
+      });
     }
 
     // Insert the new data movement regions.
