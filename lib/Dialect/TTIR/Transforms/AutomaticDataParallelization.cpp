@@ -30,6 +30,10 @@ public:
   using impl::TTIRAutomaticDataParallelizationBase<TTIRAutomaticDataParallelization>::TTIRAutomaticDataParallelizationBase;
 
   void runOnOperation() final {
+    [[ maybe_unused ]] ArrayRef<int64_t> copiedMeshShape = *meshShape;
+    llvm::outs() << "(" << copiedMeshShape[0] << "," << copiedMeshShape[1] << ")\n";
+    // need to assert that dim0 of mesh shape == 1 and dim1 is the actual dim that we want to do batch parallelization on
+
     mlir::ModuleOp rootModule = getOperation();
     OpBuilder builder(rootModule.getContext());
 
@@ -53,28 +57,62 @@ public:
 
           if (firstUser) {
             builder.setInsertionPoint(firstUser);
-            auto loc = arg.getLoc();
-            auto outputType = dyn_cast<RankedTensorType>(arg.getType());
-            auto outputTensor = builder.create<tensor::EmptyOp>(
-              loc, 
-              outputType.getShape(), 
-              outputType.getElementType());
-            auto newResult = builder.create<ttir::MeshShardOp>(
-              loc, 
-              outputType, 
-              arg, 
-              outputTensor, 
-              mlir::tt::MeshShardType::Replicate,
-              mlir::tt::MeshShardDirection::FullToShard, 
-              /*shard_shape*/ llvm::SmallVector<int64_t>{1}, 
-              /*shard_dims*/ llvm::SmallVector<int64_t>{-1});
 
-            for (auto &use : arg.getUses()) {
-              Operation *userOp = use.getOwner();
+            DictionaryAttr attrDict = funcOp.getArgAttrDict(arg.getArgNumber());
+            auto argumentTypeAttr = dyn_cast<ArgumentTypeAttr>(attrDict.get(ArgumentTypeAttr::name));
 
-              if (userOp != newResult) {
-                userOp->replaceUsesOfWith(arg, newResult);
-              } 
+            if (argumentTypeAttr.getValue() != ArgumentType::Input) {
+              auto loc = arg.getLoc();
+              auto outputType = dyn_cast<RankedTensorType>(arg.getType());
+              auto outputTensor = builder.create<tensor::EmptyOp>(
+                loc, 
+                outputType.getShape(), 
+                outputType.getElementType());
+              auto newResult = builder.create<ttir::MeshShardOp>(
+                loc, 
+                outputType, 
+                arg, 
+                outputTensor, 
+                mlir::tt::MeshShardType::Replicate,
+                mlir::tt::MeshShardDirection::FullToShard, 
+                /*shard_shape*/ llvm::SmallVector<int64_t>{1}, 
+                /*shard_dims*/ llvm::SmallVector<int64_t>{-1});
+            
+              for (auto &use : arg.getUses()) {
+                Operation *userOp = use.getOwner();
+            
+                if (userOp != newResult) {
+                  userOp->replaceUsesOfWith(arg, newResult);
+                } 
+              }
+            }
+            else {
+              auto loc = arg.getLoc();
+              auto outputType = dyn_cast<RankedTensorType>(arg.getType());
+              llvm::SmallVector<int64_t, 4> newShape(outputType.getShape().begin(), outputType.getShape().end());
+              newShape[0] = outputType.getShape()[0] / copiedMeshShape[1];
+              auto newOutputType = RankedTensorType::get(newShape, outputType.getElementType());
+              auto outputTensor = builder.create<tensor::EmptyOp>(
+                loc, 
+                newOutputType.getShape(), 
+                newOutputType.getElementType());
+              auto newResult = builder.create<ttir::MeshShardOp>(
+                loc, 
+                newOutputType, 
+                arg, 
+                outputTensor, 
+                mlir::tt::MeshShardType::Devices,
+                mlir::tt::MeshShardDirection::FullToShard, 
+                /*shard_shape*/ llvm::SmallVector<int64_t>{copiedMeshShape[1], 1, 1, 1}, 
+                /*shard_dims*/ llvm::SmallVector<int64_t>{-1, 0});
+            
+              for (auto &use : arg.getUses()) {
+                Operation *userOp = use.getOwner();
+            
+                if (userOp != newResult) {
+                  userOp->replaceUsesOfWith(arg, newResult);
+                } 
+              }
             }
           }
         }
@@ -96,7 +134,7 @@ public:
                 loc, 
                 outputType.getShape(), 
                 outputType.getElementType());
-              [[ maybe_unused ]] auto newResult = builder.create<ttir::MeshShardOp>(
+              auto newResult = builder.create<ttir::MeshShardOp>(
                 loc, 
                 outputType, 
                 producerOp->getResult(0), 
@@ -126,9 +164,14 @@ public:
 - for each argument, figure out what type it is
   - input, parameter, constant
 - for parameter + constant
-  - we are going to replicate this tensor across all devices
+  - we are going to replicate this tensor across all devices (so nothing changes)
 - for input
   - we are going to split it's batch dimension across all devices
   - we need to calculate it's new output shape based on the split batch
   - we need to propogate this new shape to all places that use this input
+*/
+
+/*
+  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: -1, 0>, shard_direction = #tt.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 1, 1, 1>, shard_type = #tt.shard_type<devices>}> : (tensor<64x1x1024x2048xf32>, tensor<32x1x1024x2048xf32>) -> tensor<32x1x1024x2048xf32>
+
 */
