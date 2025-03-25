@@ -1156,9 +1156,9 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
         - `W_out = (W_in + 2 * pW - dW * (K_W - 1) - 1) / sW + 1`
 
       Example:
-        %input = tensor.empty() : () -> tensor<1x1x1024x64xbf16>
-        %weight = tensor.empty() : () -> tensor<64x64x3x3xbf16>
-        %bias = tensor.empty() : () -> tensor<1x1x1x64xbf16>
+        %input = ttir.empty() : () -> tensor<1x1x1024x64xbf16>
+        %weight = ttir.empty() : () -> tensor<64x64x3x3xbf16>
+        %bias = ttir.empty() : () -> tensor<1x1x1x64xbf16>
         %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         %0 = "ttnn.conv2d"(%input, %weight, %bias, %device)
           <{
@@ -1590,7 +1590,7 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
         - `permutation` array<i64>: The permutation of the input tensor dimensions.
 
       Example:
-      %a = tensor.empty() : () -> tensor<2x3x4xi32>
+      %a = ttir.empty() : () -> tensor<2x3x4xi32>
       %0 = "ttir.permute"(%a) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>) -> tensor<3x4x2xi32>
     }];
 

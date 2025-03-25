@@ -35,13 +35,12 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-class TensorEmptyConversionPattern
-    : public OpConversionPattern<tensor::EmptyOp> {
+class TensorEmptyConversionPattern : public OpConversionPattern<ttir::EmptyOp> {
 public:
-  using OpConversionPattern<tensor::EmptyOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     // Get ttnn::TTNNLayoutAttr of the result type
@@ -243,7 +242,7 @@ public:
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Get the DPS operand and delete it's creator op, if it's tensor::emptyOp
+    // Get the DPS operand and delete it's creator op, if it's ttir::EmptyOp
     //
     Value dpsOperand = adaptor.getOperands().back();
     ttnn::EmptyOp emptyOp = dpsOperand.getDefiningOp<ttnn::EmptyOp>();

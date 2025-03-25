@@ -35,7 +35,7 @@ module {
 
   // CHECK-LABEL: func @named_reductions_R
   func.func @named_reductions_R(%arg: !ttype) -> (tensor<1x96xf32>) {
-    %0 = tensor.empty() : tensor<1x96xf32>
+    %0 = ttir.empty() : tensor<1x96xf32>
     // CHECK: ttir.constant
     // CHECK: ttir.generic{{.+}}iterator_types = [#reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
@@ -46,7 +46,7 @@ module {
 
   // CHECK-LABEL: func @named_reductions_C
   func.func @named_reductions_C(%arg: !ttype) -> (tensor<128x1xf32>) {
-    %0 = tensor.empty() : tensor<128x1xf32>
+    %0 = ttir.empty() : tensor<128x1xf32>
     // CHECK: ttir.constant
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
@@ -57,7 +57,7 @@ module {
 
   // CHECK-LABEL: func @named_reductions_RC
   func.func @named_reductions_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
-    %0 = tensor.empty() : tensor<1x1xf32>
+    %0 = ttir.empty() : tensor<1x1xf32>
     // CHECK: ttir.constant
     // CHECK: ttir.generic{{.+}}iterator_types = [#reduction, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]

@@ -248,7 +248,7 @@ private:
                                 ConversionPatternRewriter &rewriter) const {
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     // Can't reuse the original dimensions attribute because it uses i64 type.
@@ -852,7 +852,7 @@ public:
 
     SmallVector<Value> outputsVec;
     for (uint32_t i = 0; i < srcOp.getResults().size(); i++) {
-      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+      ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
           srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
       outputsVec.push_back(outputTensor);
     }

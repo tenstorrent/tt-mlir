@@ -3,7 +3,7 @@
 module attributes {} {
   func.func public @test_reduce_prod_4to3dim(%arg0: tensor<128x10x32x4xf32>) -> tensor<128x32x4xf32> {
     // CHECK-LABEL: func.func public @test_reduce_prod_4to3dim
-    %0 = tensor.empty() : tensor<128x32x4xf32>
+    %0 = ttir.empty() : tensor<128x32x4xf32>
     // CHECK: "ttnn.prod"
     // CHECK: all_dimensions = false
     // CHECK-SAME: dim_arg = 1
@@ -16,7 +16,7 @@ module attributes {} {
 
   func.func public @test_reduce_prod_4to0dim(%arg0: tensor<128x10x32x4xbf16>) -> tensor<1xbf16> {
     // CHECK-LABEL: func.func public @test_reduce_prod_4to0dim
-    %0 = tensor.empty() : tensor<1xbf16>
+    %0 = ttir.empty() : tensor<1xbf16>
     // CHECK: "ttnn.prod"
     // CHECK: all_dimensions = true
     // CHECK-SAME: dim_arg = 0
@@ -29,7 +29,7 @@ module attributes {} {
 
   func.func public @test_reduce_prod_3to2dim(%arg0: tensor<128x10x4xf32>) -> tensor<128x4xf32> {
     // CHECK-LABEL: func.func public @test_reduce_prod_3to2dim
-    %0 = tensor.empty() : tensor<128x4xf32>
+    %0 = ttir.empty() : tensor<128x4xf32>
     // CHECK: "ttnn.prod"
     // CHECK: all_dimensions = false
     // CHECK-SAME: dim_arg = 1
@@ -42,7 +42,7 @@ module attributes {} {
 
   func.func public @test_reduce_prod_3to0dim(%arg0: tensor<128x10x4xbf16>) -> tensor<1xbf16> {
     // CHECK-LABEL: func.func public @test_reduce_prod_3to0dim
-    %0 = tensor.empty() : tensor<1xbf16>
+    %0 = ttir.empty() : tensor<1xbf16>
     // CHECK: "ttnn.prod"
     // CHECK: all_dimensions = true
     // CHECK-SAME: dim_arg = 0
@@ -55,7 +55,7 @@ module attributes {} {
 
   func.func public @test_reduce_prod_1to0dim(%arg0: tensor<128xbf16>) -> tensor<1xbf16> {
     // CHECK-LABEL: func.func public @test_reduce_prod_1to0dim
-    %0 = tensor.empty() : tensor<1xbf16>
+    %0 = ttir.empty() : tensor<1xbf16>
     // CHECK: "ttnn.prod"
     // CHECK: all_dimensions = true
     // CHECK-SAME: dim_arg = 0
