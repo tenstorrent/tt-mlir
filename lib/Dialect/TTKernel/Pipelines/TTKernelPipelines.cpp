@@ -4,12 +4,12 @@
 
 #include "ttmlir/Dialect/TTKernel/Pipelines/TTKernelPipelines.h"
 
+#include "ttmlir/Conversion/Passes.h"
+
 #include "mlir/Dialect/EmitC/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
-
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include "ttmlir/Conversion/Passes.h"
 
 namespace mlir::tt::ttkernel {
 //===----------------------------------------------------------------------===//
