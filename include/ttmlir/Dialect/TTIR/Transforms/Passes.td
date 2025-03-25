@@ -17,11 +17,7 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
     Option<"initMemorySpace", "init-memory-space",
           "::mlir::tt::MemorySpace",
           /*default=*/"::mlir::tt::MemorySpace::DeviceL1",
-           "set the initial memory space for tensors to start in">,
-    Option<"useStreamLayout", "use-stream-layout",
-          "bool",
-          /*default=*/"false",
-           "turn on #tt.stream layout decoration">
+           "set the initial memory space for tensors to start in">
   ];
 }
 
@@ -177,6 +173,50 @@ def TTIRGenericGenerateDatamovement: Pass<"ttir-generic-generate-datamovement", 
       }
       ttir.yield %arg4 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>)
     })
+    ```
+  }];
+}
+
+def TTIRGenericHWThreadSelection : Pass<"ttir-generic-hw-thread-selection", "::mlir::ModuleOp"> {
+  let summary = "Assign datamovement regions to hardware threads.";
+  let description = [{
+    This pass assigns the data movement regions to hardware threads. This usually means
+    merging 2 or more data movement regions into a single region that is executed by one
+    of the 2 datamovement threads (on wormhole).
+
+    ```mlir
+    "ttir.generic"(%arg0, %arg1, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
+    ^datamovement0(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+      ttir.yield %cb0 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>)
+    }, {
+    ^datamovement1(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+      ttir.yield %cb1 : (memref<4x2x!tt.tile<32x32, f32>, #l1_>)
+    }, {
+    ^datamovement2(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+      ttir.await %cb2 : (memref<2x2x!tt.tile<32x32, f32>, #l1_>)
+    }, {
+    ^compute(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+      ttir.await %cb0, %cb1 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>, memref<4x2x!tt.tile<32x32, f32>, #l1_>)
+      "ttir.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<2x4x!tt.tile<32x32, f32>, #l1_>, memref<4x2x!tt.tile<32x32, f32>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> ()
+      ttir.yield %cb2 : (memref<2x2x!tt.tile<32x32, f32>, #l1_>)
+    }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x4x2x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_>) -> ()
+    ```
+
+    Might move a trivial output datamovement thread to the compute thread to become:
+    ```mlir
+    "ttir.generic"(%arg0, %arg1, %alloc) <{grid = #tt.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
+    ^datamovement0(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+      ttir.yield %cb0 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>)
+    }, {
+    ^datamovement1(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+      ttir.yield %cb1 : (memref<4x2x!tt.tile<32x32, f32>, #l1_>)
+    }, {
+    ^compute(%cb0: memref<2x4x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!tt.tile<32x32, f32>, #l1_>):
+      ttir.await %cb0, %cb1 : (memref<2x4x!tt.tile<32x32, f32>, #l1_>, memref<4x2x!tt.tile<32x32, f32>, #l1_>)
+      "ttir.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<2x4x!tt.tile<32x32, f32>, #l1_>, memref<4x2x!tt.tile<32x32, f32>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> ()
+      ttir.yield %cb2 : (memref<2x2x!tt.tile<32x32, f32>, #l1_>)
+      ttir.await %cb2 : (memref<2x2x!tt.tile<32x32, f32>, #l1_>)
+    }) : (memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, memref<1x1x4x2x!tt.tile<32x32, f32>, #l1_>, memref<1x1x2x2x!tt.tile<32x32, f32>, #l1_>) -> ()
     ```
   }];
 }

@@ -20,32 +20,25 @@ namespace {
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
-                                bool useStreamLayout, GridAttr deviceGrid) {
+                                GridAttr deviceGrid) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx, useStreamLayout, deviceGrid,
-                   initMemorySpace](RankedTensorType type) -> Type {
-      if (type.getEncoding()) {
-        return type;
-      }
-      std::int64_t deviceGridRank = deviceGrid.getShape().size();
-      // Default to single core grid
-      auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
+    addConversion(
+        [ctx, deviceGrid, initMemorySpace](RankedTensorType type) -> Type {
+          if (type.getEncoding()) {
+            return type;
+          }
+          std::int64_t deviceGridRank = deviceGrid.getShape().size();
+          // Default to single core grid.
+          auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
 
-      MetalLayoutAttr newLayout = [&]() {
-        // Default to initMemorySpace, the optimizer might decide otherwise:
-        auto layout =
-            MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
-        if (!useStreamLayout) {
-          return layout;
-        }
+          auto tileType = TileType::get(ctx, type.getElementType());
+          MetalLayoutAttr newLayout =
+              MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid)
+                  .withElementType(ctx, tileType);
 
-        auto tileType = TileType::get(ctx, type.getElementType());
-        return layout.withElementType(ctx, tileType);
-      }();
-
-      return RankedTensorType::get(type.getShape(), type.getElementType(),
-                                   newLayout);
-    });
+          return RankedTensorType::get(type.getShape(), type.getElementType(),
+                                       newLayout);
+        });
   }
 };
 } // namespace
@@ -61,7 +54,6 @@ class TTIRAttachMetalLayout
     auto device = lookupDevice(getOperation());
     assert(device && "Device not found");
     TTIRLayoutTensorTypeConverter typeConverter(&getContext(), initMemorySpace,
-                                                useStreamLayout,
                                                 device.getWorkerGrid());
     RewritePatternSet patterns(&getContext());
     patterns.add<UniformTypeRewriter>(typeConverter, &getContext());
