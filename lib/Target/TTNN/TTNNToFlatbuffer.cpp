@@ -1634,6 +1634,26 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
+createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
+  // Collect input tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
+  for (auto input : op.getInputs()) {
+    inputs.push_back(tensorValueToFlatbuffer(cache, input, kHostAllocatedSize));
+  }
+
+  // Collect output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  // Create the LoadCachedOp
+  return ::tt::target::ttnn::CreateLoadCachedOpDirect(
+      *cache.fbb, &inputs, op.getCallee().str().c_str(), &outputs);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString, std::string const &locInfo) {
@@ -2062,6 +2082,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
   }
+  if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
+    return createOperation(cache, createOp(cache, loadCachedOp), debugString,
+                           locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -2072,6 +2096,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   assert(rootModule && "Expected ModuleOp as top level operation");
+
+  llvm::errs() << "inside ttnnToFlatbuffer\n";
 
   // If we have a nested module structure, we want to use nested module inside
   // DeviceModule for most conversions.
