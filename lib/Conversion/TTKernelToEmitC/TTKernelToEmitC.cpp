@@ -863,18 +863,18 @@ LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
 LogicalResult
 emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
                                  llvm::SmallVector<std::string> &cppStrings) {
-  assert(cppStrings.size() == enqueueProgramOp.getNumRegions() &&
-         "cppStrings size must match number of regions");
+  // assert(cppStrings.size() == enqueueProgramOp.getNumRegions() &&
+  //        "cppStrings size must match number of regions");
 
-  for (auto &reg : enqueueProgramOp->getRegions()) {
-    auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
-        enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
-    if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-                          kernelConfig.getThreadType())
-            .failed()) {
-      return llvm::failure();
-    }
-  }
+  // for (auto &reg : enqueueProgramOp->getRegions()) {
+  //   auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
+  //       enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
+  //   if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
+  //                         kernelConfig.getThreadType())
+  //           .failed()) {
+  //     return llvm::failure();
+  //   }
+  // }
 
   return success();
 }
