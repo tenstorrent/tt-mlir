@@ -490,4 +490,25 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutUint32Workaround);
 }
+
+// Factory method to create a set of workarounds for Pad op operands.
+// tt-metal only supports float32 and bfloat16 data types.
+// tt-metal generates incorrect output for tile layout.
+// https://github.com/tenstorrent/tt-metal/issues/19513
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
+    mlir::TypedValue<mlir::RankedTensorType> input,
+    ttnn::TTNNLayoutAttr layoutAttr) {
+  TTNNOperandWorkarounds operandWorkaround;
+  if (layoutAttr.isTiled()) {
+    operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  }
+  if (isa<IntegerType>(input.getType().getElementType())) {
+    operandWorkaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  }
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
 } // namespace mlir::tt::ttnn::wa
