@@ -3009,7 +3009,9 @@ unsigned mlir::tt::ttir::GenericOp::getNumLoops() { return getNumDims(); }
 unsigned mlir::tt::ttir::GenericOp::getNumDims() {
   assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
                                        "with indexing maps to use this method");
-  return getIndexingMapsValue()[0].getNumDims();
+  return mlir::cast<mlir::AffineMapAttr>(getIndexingMapsAttr()[0])
+      .getAffineMap()
+      .getNumDims();
 }
 
 mlir::SmallVector<mlir::AffineMap>

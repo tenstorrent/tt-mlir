@@ -4,11 +4,8 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
@@ -69,8 +66,10 @@ public:
 
     auto loopedGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getGrid(), rewriter.getArrayAttr({}),
-        rewriter.getArrayAttr({}), generic.getNumRegions());
+        generic.getOutputs(), generic.getGrid(),
+        /* indexing_maps */ rewriter.getArrayAttr({}),
+        /* iterator_types */ rewriter.getArrayAttr({}),
+        generic.getNumRegions());
 
     SmallVector<int64_t> loopBounds = generic.getLoopBounds();
     for (Region &region : generic.getRegions()) {
@@ -84,7 +83,9 @@ public:
       rewriter.setInsertionPointToStart(loopedBlock);
       scf::LoopNest loopNest = buildLoopNest(
           rewriter, generic.getLoc(), loopBounds, regionBlock, loopedBlock);
-      replaceIterIndexUses(rewriter, generic.getLoc(), loopNest);
+      rewriter.modifyOpInPlace(loopedGeneric, [&]() {
+        replaceIterIndexUses(rewriter, generic.getLoc(), loopNest);
+      });
     }
 
     rewriter.replaceOp(generic, loopedGeneric.getResults());
@@ -104,8 +105,7 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRGenericGenerateLoopsRewriter>(&getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
   }
