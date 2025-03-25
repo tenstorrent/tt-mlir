@@ -477,6 +477,41 @@ public:
 
 } // namespace
 
+namespace {
+class TTIRDMAWaitRewriter : public OpRewritePattern<ttir::DMAWaitOp> {
+public:
+  using OpRewritePattern<ttir::DMAWaitOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::DMAWaitOp op,
+                                PatternRewriter &rewriter) const final {
+    if (!op.getMemTx().getDefiningOp<ttir::DMAOp>().isSrcLocal()) {
+      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+    } else {
+      rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+    }
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+
+class TTIRGetGlobalOperandRewriter
+    : public OpRewritePattern<ttir::GetGlobalOperandOp> {
+public:
+  using OpRewritePattern<ttir::GetGlobalOperandOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::GetGlobalOperandOp op,
+                                PatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::MetalCompileTimeArgOp>(
+        op, rewriter.getI32Type(), op.getOperandIndex());
+    return success();
+  }
+};
+
+} // namespace
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
@@ -488,7 +523,9 @@ void populateTTIRToTTKernelInnerRegionPatterns(
   patterns.add<ttkernel::TTIRTileOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
                ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
-               ttkernel::TTIRDMARewriter, ttkernel::TTIRCoreIndexRewriter>(ctx);
+               ttkernel::TTIRDMARewriter, ttkernel::TTIRDMAWaitRewriter,
+               ttkernel::TTIRCoreIndexRewriter,
+               ttkernel::TTIRGetGlobalOperandRewriter>(ctx);
 }
 
 void populateTTIRToTTKernelTopLevelPatterns(MLIRContext *ctx,
