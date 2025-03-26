@@ -700,12 +700,12 @@ def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
-    [(128, 10, 32, 4), (128, 1, 32, 4)],
-    inputs_types=[torch.bfloat16, torch.bfloat16],
+    [(128, 10, 32, 4)],
+    inputs_types=[torch.bfloat16],
     targets=["ttnn"],
 )
-def test_prod(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.prod(in0, in1, [1])
+def test_prod(in0: Operand, builder: TTIRBuilder):
+    return builder.prod(in0, [1])
 
 
 @compile_to_flatbuffer(
