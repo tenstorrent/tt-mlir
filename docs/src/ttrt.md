@@ -416,12 +416,13 @@ The `ttrt` toolchain verifies whether the current system configuration matches t
 To resolve issues stemming from these synchronization problems, follow this workflow:
 
 1. **Incremental build**
-'''<make some changes>
-commit
-cmake --build build
-cmake --build build -- ttrt
-(note you need to generate system_desc and flatbuffer again once you do this)
-'''
+```bash
+  # make some changes
+  # commit
+  cmake --build build
+  cmake --build build -- ttrt
+  # note you need to generate system_desc and flatbuffer again once you do this
+```
 
 This incremental build should be sufficient. If it does not resolve the error, please file an issue and proceed with the following steps for now.
 
@@ -433,7 +434,7 @@ This incremental build should be sufficient. If it does not resolve the error, p
 This ensures that all previous build artifacts and dependencies are removed, preventing conflicts or stale files from affecting the new build.
 
 3. **Rebuild from scratch:**
-Once the build directories are cleared, rebuild the project from the ground up. This ensures that the build process incorporates all the necessary components without any remnants of previous builds. [Build Instructions](./build.md#build)
+After clearing the build directories, rebuild the project from the ground up. This ensures that the build process incorporates all the necessary components without any remnants of previous builds. [Build Instructions](./build.md#build)
 
 4. **Switch build configurations:**
 If switching from a Debug to a Release build (or vice versa), ensure that you clean the build environment before transitioning. This avoids inconsistencies between build configurations and potential issues with optimization levels or debugging symbols.
