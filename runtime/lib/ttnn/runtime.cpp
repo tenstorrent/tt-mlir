@@ -637,8 +637,12 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_MaxPool2dOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::AllGatherOp: {
-    tensorRef = opContext.type_as_AllGatherOp()->out();
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    tensorRef = opContext.type_as_ArangeOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    tensorRef = opContext.type_as_UpsampleOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
