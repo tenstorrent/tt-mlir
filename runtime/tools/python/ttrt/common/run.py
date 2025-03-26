@@ -215,6 +215,13 @@ class Run:
             help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
         )
         Run.register_arg(
+            name="--enable-tensor-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable tensor caching between program runs for const-eval",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",

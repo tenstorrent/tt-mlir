@@ -187,6 +187,15 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs);
 
+namespace ttnn {
+class TensorCache;
+}
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputs,
+                           std::shared_ptr<ttnn::TensorCache> tensorCache);
+
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex, std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs);

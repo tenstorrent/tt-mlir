@@ -174,11 +174,16 @@ std::string getOpLocInfo(OpContext opContextHandle);
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
+       
+// Forward declare TensorCache to avoid circular dependencies
+class TensorCache;
 
-std::vector<::tt::runtime::Tensor>
-runProgram(::ttnn::MeshDevice &meshDevice, Binary executableHandle,
-           std::uint32_t programIndex,
-           std::vector<::tt::runtime::Tensor> &inputs);
+std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+                               Binary executableHandle,
+                               std::uint32_t programIndex,
+                               std::vector<::tt::runtime::Tensor> const &inputs,
+                               std::shared_ptr<TensorCache> tensorCache);
+
 
 } // namespace tt::runtime::ttnn
 
