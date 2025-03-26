@@ -5,25 +5,31 @@
 #include "operations/cache/load_cached.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/program.h"
 #include "tt/runtime/ttnn/tensor_cache.h"
 #include "tt/runtime/ttnn/types.h"
-#include "ttmlir/Target/TTNN/Target.h"
-
+#include "tt/runtime/types.h"
 #include <vector>
 
 namespace tt::runtime::ttnn::operations::cache {
+
+static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
+  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+      binary.handle.get());
+  LOG_ASSERT(isTTNN, "Unsupported binary format");
+  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
+}
 
 using LogType = ::tt::runtime::logger::LogType;
 
 void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   // TODO: think this through before PR
-  uint32_t meshId = 0;
 
   // Get the appropriate cache for this device
-  TensorCache &cache = context.getCache(meshId);
+  TensorCache &cache = context.getCache();
 
   // Extract function name
-  const std::string functionName = op->callee()->str();
+  const std::string functionName = op->callee_name()->str();
 
   // Collect input tensor IDs for the cache key
   std::vector<uint32_t> inputIds;
@@ -31,20 +37,24 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     inputIds.push_back(input->global_id());
   }
 
+  std::vector<uint32_t> outputIds;
+  for (const auto *output : *op->outputs()) {
+    outputIds.push_back(output->global_id());
+  }
+
   // Create the cache key
   CacheKey cacheKey(functionName, inputIds);
 
   // Check if the result is already in the cache
-  if (cache.contains(cacheKey)) {
+  if (auto outputs = cache.getAll(cacheKey); !outputs.empty()) {
     LOG_INFO("Cache hit for function: ", functionName);
 
     // Get the cached tensor
-    ::ttnn::Tensor *cachedTensor = cache.get(cacheKey);
-
     // Insert the cached tensor into the tensor pool for the output
-    for (const auto *out : *op->outputs()) {
-      context.getTensorPool().insertAndValidate(out->global_id(),
-                                                *cachedTensor);
+    assert(outputs.size() == op->outputs()->size());
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      context.getTensorPool().insertAndValidate(
+          op->outputs()->Get(i)->global_id(), *outputs[i].getTensor());
     }
 
     return;
@@ -52,33 +62,28 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   LOG_INFO("Cache miss for function: ", functionName);
 
-  // Get the function to call
-  const ::tt::target::ttnn::Operation *functionOp = op->function();
-
   // Execute the function
-  // This requires dispatching to the appropriate operation handler
-  // We need to determine the operation type and call the corresponding run
-  // function
-
-  // For now, we'll just log that we need to execute the function
-  // The actual implementation would need to handle different operation types
-  LOG_INFO("Executing function: ", functionName);
-
-  // In a real implementation, we would:
-  // 1. Determine the operation type
-  // 2. Call the appropriate run function
-  // 3. Get the result tensor
-  // 4. Cache the result
-  // 5. Return the result
-
-  // For demonstration, we'll assume we have a result tensor
-  // In a real implementation, this would come from executing the function
-  ::ttnn::Tensor resultTensor;
-
-  // Add the result to the cache
-  cache.add(cacheKey, resultTensor);
-
-  // Insert the result into the tensor pool for the output
-  context.getTensorPool().insertAndValidate(op->out(), resultTensor);
+  std::vector<::ttnn::Tensor *> inputs(inputIds.size());
+  for (size_t i = 0; i < inputIds.size(); ++i) {
+    LOG_INFO("Looking for tensor with id: ", inputIds[i]);
+    inputs[i] = &context.getTensorPool().getAndValidate(inputIds[i]);
+  }
+  const size_t programIndex = op->program_idx();
+  ::tt::target::ttnn::TTNNBinary const &fbb =
+      *getBinary(context.getExecutableHandle());
+  ::tt::target::ttnn::Program const *subProgram =
+      fbb.programs()->Get(programIndex);
+  executor::ProgramExecutor exec(subProgram, context.getExecutableHandle(),
+                                 inputs, &context.getParentMesh());
+  exec.execute();
+  LOG_INFO("executed sub-func: ", functionName);
+  std::vector<::ttnn::Tensor *> outputs = exec.gatherTTNNOutputTensors();
+  LOG_ASSERT(outputs.size() == outputIds.size());
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    ::ttnn::Tensor *output = outputs[i];
+    TensorPtrWrapper wrappedTensor(output);
+    cache.add(cacheKey, output);
+    context.getTensorPool().insertAndValidate(outputIds[i], *output);
+  }
 }
 } // namespace tt::runtime::ttnn::operations::cache

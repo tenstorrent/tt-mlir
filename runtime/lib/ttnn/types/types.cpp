@@ -350,6 +350,19 @@ const ::ttnn::Tensor &ProgramTensorPool::getAndValidate(
   return ttnnTensor;
 }
 
+::ttnn::Tensor &ProgramTensorPool::getAndValidate(const size_t globalId) {
+  return const_cast<::ttnn::Tensor &>(
+      static_cast<const ProgramTensorPool &>(*this).getAndValidate(globalId));
+}
+
+const ::ttnn::Tensor &
+ProgramTensorPool::getAndValidate(const size_t globalId) const {
+  LOG_ASSERT(liveTensors.contains(globalId));
+  const ::ttnn::Tensor &ttnnTensor = *liveTensors.at(globalId);
+  DEBUG_ASSERT(ttnnTensor.is_allocated());
+  return ttnnTensor;
+}
+
 ::ttnn::Tensor &ProgramTensorPool::getAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef) {
   return const_cast<::ttnn::Tensor &>(
@@ -364,6 +377,15 @@ ProgramTensorPool::insertAndValidate(
   std::uint32_t globalId = tensorRef->global_id();
   DEBUG_ASSERT(ttnnTensor.is_allocated());
   debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+  auto [iter, inserted] =
+      intermedTensors.insert_or_assign(globalId, ttnnTensor);
+  return liveTensors.insert_or_assign(globalId, &(iter->second));
+}
+
+std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
+ProgramTensorPool::insertAndValidate(const size_t globalId,
+                                     const ::ttnn::Tensor &ttnnTensor) {
+  DEBUG_ASSERT(ttnnTensor.is_allocated());
   auto [iter, inserted] =
       intermedTensors.insert_or_assign(globalId, ttnnTensor);
   return liveTensors.insert_or_assign(globalId, &(iter->second));
