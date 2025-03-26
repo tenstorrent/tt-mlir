@@ -486,12 +486,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        original_dir=$(pwd)
-        find . -name "*.gcno" | while read -r file; do
-          gcov -o "$(dirname "$file")" "$file" > /dev/null 2>&1
-        done
-        cd "$original_dir"
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file baseline.info
+        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${CMAKE_SOURCE_DIR}/.github/workflows/gcov_for_clang.sh
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
 
     - name: Prepare code coverage report
