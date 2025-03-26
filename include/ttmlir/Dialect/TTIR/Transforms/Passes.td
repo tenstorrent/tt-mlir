@@ -221,6 +221,46 @@ def TTIRGenericHWThreadSelection : Pass<"ttir-generic-hw-thread-selection", "::m
   }];
 }
 
+def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::ModuleOp"> {
+  let summary = "Generate generic loops.";
+  let description = [{
+    One of the final lowering forms of ttir generic op. This pass converts the affine declarative
+    loops into imperative loops and the affine maps are erased. For example a generic region
+    might transform as follows:
+
+    ```mlir
+    #lhs = affine_map<(d0, d1, d2) -> (d0, d2)>
+    #rhs = affine_map<(d0, d1, d2) -> (d2, d1)>
+    #out = affine_map<(d0, d1, d2) -> (d0, d1)>
+
+    grid = #tt.grid<2x4>
+    operands : (memref<2x4x4x6x!tt.tile<32x32, f32>>, memref<4x4x6x8x!tt.tile<32x32, f32>>, memref<2x4x4x8x!tt.tile<32x32, f32>>)
+
+    ^compute(%cb0: memref<4x6x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!tt.tile<32x32, f32>, #l1_>):
+      ttir.await %cb0, %cb1
+      "ttir.tile_matmul_block"(%cb0, %cb1, %cb2)
+      ttir.yield %cb2
+    ```
+
+    Into:
+    ```mlir
+    ^compute(%cb0: memref<4x6x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!tt.tile<32x32, f32>, #l1_>):
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c4 = arith.constant 4 : index
+      scf.for %arg2 = %c0 to %c1 step %c1 {
+        scf.for %arg3 = %c0 to %c1 step %c1 {
+          scf.for %arg4 = %c0 to %c4 step %c1 {
+            ttir.await %cb0, %cb1
+            "ttir.tile_matmul_block"(%cb0, %cb1, %cb2)
+            ttir.yield %cb2
+          }
+        }
+      }
+    ```
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{

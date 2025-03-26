@@ -157,3 +157,11 @@ void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
   int64_t dim = getDim();
   setNameFn(getResult(), "core" + std::to_string(dim));
 }
+
+//===----------------------------------------------------------------------===//
+// CoreIndexOp
+//===----------------------------------------------------------------------===//
+
+mlir::OpFoldResult mlir::tt::ttir::CoreIndexOp::fold(FoldAdaptor adaptor) {
+  return getDimAttr();
+}
