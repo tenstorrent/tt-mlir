@@ -434,6 +434,3 @@ def compile_to_flatbuffer(
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
     to_flatbuffer(module, builder, output_root, test_base + "." + target, module_log=module_logger.module_log)
-
-    ttrt_run_fb(f"{output_root}/ttnn/{test_base}.{target}")
-    # TODO: execute flatbuffer

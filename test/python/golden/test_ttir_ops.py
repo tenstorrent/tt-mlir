@@ -767,8 +767,7 @@ def test_binary_ops(
     request):
     """ NOTE: this function is _only_ for binary ops that take the same shape arguments
     """
-    print(test_fn)
-    compile_to_flatbuffer(test_fn, [shape, shape], test_base=request.node.name)
+    compile_to_flatbuffer(test_fn, [shape, shape], [dtype, dtype], test_base=request.node.name)
 
 
 # TODO: create issue for this
