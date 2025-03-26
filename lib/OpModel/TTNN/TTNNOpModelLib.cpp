@@ -336,6 +336,72 @@ ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// SqrtOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+SqrtOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                                  llvm::ArrayRef<int64_t> outputShape,
+                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto sqrtOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                        llvm::ArrayRef<int64_t> outputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout),
+        std::make_tuple(outputShape, outputLayout));
+
+    // run op constraint query
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::sqrt, device, inputSpec,
+        outputSpec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpConstraints("SqrtOpInterface", sqrtOpQuery, inputShape,
+                                     inputLayout, outputShape, outputLayout);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+SqrtOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                              llvm::ArrayRef<int64_t> outputShape,
+                              mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto sqrtOpQuery = [](llvm::ArrayRef<int64_t> inputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                        llvm::ArrayRef<int64_t> outputShape,
+                        mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+    // open device device, will close it at the end of function
+    ::tt::tt_metal::IDevice *device =
+        SingletonDeviceContext::getInstance().getDevice();
+
+    // prepare io specs
+    const auto [inputSpec, outputSpec] = detail::convertToTensorSpec(
+        device, std::make_tuple(inputShape, inputLayout),
+        std::make_tuple(outputShape, outputLayout));
+
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::sqrt, device, inputSpec,
+        outputSpec.tensor_layout().get_memory_config());
+  };
+
+  return operation::getOpRuntime("SqrtOpInterface", sqrtOpQuery, inputShape,
+                                 inputLayout, outputShape, outputLayout);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<std::tuple<size_t, size_t, size_t>>
