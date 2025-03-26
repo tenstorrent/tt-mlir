@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -24,7 +25,7 @@ public:
   using TTIRCommuteOpInterfaceRewritePattern<
       TMOpType, ElementwiseInterfaceType>::TTIRCommuteOpInterfaceRewritePattern;
 
-  void performCommuteRewrite(Operation *op, TMOpType tmUser,
+  void performCommuteRewrite(ElementwiseInterfaceType op, TMOpType tmUser,
                              PatternRewriter &rewriter) const override {
 
     auto eltwise = cast<ElementwiseInterfaceType>(op);
@@ -37,7 +38,7 @@ public:
                                                 oldEltwiseType.getElementType(),
                                                 oldTMResultType.getEncoding());
 
-    SmallVector<mlir::tensor::EmptyOp> newTMDPSOperands;
+    SmallVector<ttir::EmptyOp> newTMDPSOperands;
     SmallVector<Value> newEltwiseOperands;
     SmallVector<RankedTensorType> newTMResultTypes;
     for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
@@ -53,7 +54,7 @@ public:
       newTMResultTypes.push_back(
           oldTMResultType.clone(operandType.getElementType()));
 
-      auto dpsOperand = rewriter.create<tensor::EmptyOp>(
+      auto dpsOperand = rewriter.create<ttir::EmptyOp>(
           op->getLoc(), newEltwiseType.getShape(),
           operandType.getElementType());
       newTMDPSOperands.push_back(dpsOperand);
@@ -66,9 +67,9 @@ public:
       newEltwiseOperands.push_back(newTM);
     }
 
-    newEltwiseOperands.push_back(rewriter.create<tensor::EmptyOp>(
-        op->getLoc(), newEltwiseType.getShape(),
-        newEltwiseType.getElementType()));
+    newEltwiseOperands.push_back(
+        rewriter.create<ttir::EmptyOp>(op->getLoc(), newEltwiseType.getShape(),
+                                       newEltwiseType.getElementType()));
 
     Operation *newEltwise = rewriter.create(
         op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),
@@ -79,7 +80,7 @@ public:
     // the case, and we'll need to insert user clones on the
     // user edges that do not have an inverse on them.
     for (auto *user : users) {
-      assert(succeeded(checkIdenticalTms(tmUser, user)) &&
+      assert(checkIdenticalTms(tmUser, user) &&
              "shouldCommute should have ensured this is true");
       rewriter.replaceOp(user, newEltwise);
     }
@@ -97,17 +98,18 @@ public:
       TMOpType, ElementwiseUnary>::TTIRCommuteTmsAboveElementwiseRewriter;
 
 private:
-  LogicalResult isCommuteViable(Operation *op, TMOpType tmUser) const override {
+  LogicalResult isCommuteViable(ElementwiseUnary op,
+                                TMOpType tmUser) const override {
     // We can always commute a TM above an elementwise op
     return success();
   }
 
-  LogicalResult isCommuteFavorable(Operation *op, TMOpType) const override {
+  LogicalResult isCommuteFavorable(ElementwiseUnary op,
+                                   TMOpType) const override {
     // If all users of an elementwise unary op are identical tms, then it is
     // always favorable to commute them above it.
     SmallVector<Operation *> users(op->getUsers());
-    return success(users.size() > 0 &&
-                   succeeded(checkAllUsersAreIdenticalTms(users)));
+    return success(users.size() > 0 && checkAllUsersAreIdenticalTms(users));
   }
 };
 } // namespace
@@ -122,12 +124,14 @@ public:
       TMOpType, ElementwiseBinary>::TTIRCommuteTmsAboveElementwiseRewriter;
 
 private:
-  LogicalResult isCommuteViable(Operation *op, TMOpType tmUser) const override {
+  LogicalResult isCommuteViable(ElementwiseBinary op,
+                                TMOpType tmUser) const override {
     // We can always commute a TM above an elementwise op
     return success();
   }
 
-  LogicalResult isCommuteFavorable(Operation *op, TMOpType) const override {
+  LogicalResult isCommuteFavorable(ElementwiseBinary op,
+                                   TMOpType) const override {
     // In some cases there may be an implicit broadcast on one of the operands.
     // That is there is no broadcast op on one of the operands but a broadcast
     // is required to execute the op nonetheless. We do not handle this yet. So
@@ -141,7 +145,7 @@ private:
     // be able to erase/consteval one or both of the commuted operand TMs.
     SmallVector<Operation *> users(op->getUsers());
     return success(firstOperandType == secondOperandType && users.size() > 0 &&
-                   succeeded(checkAllUsersAreIdenticalTms(users)));
+                   checkAllUsersAreIdenticalTms(users));
   }
 };
 } // namespace
