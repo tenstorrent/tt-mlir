@@ -211,6 +211,13 @@ class Run:
             help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
         )
         Run.register_arg(
+            name="--enable-tensor-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable tensor caching between program runs for const-eval",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -461,6 +468,12 @@ class Run:
                 get_callback_fn(callback_runtime_config)
             )
 
+            # Create a tensor cache if enabled
+            tensor_cache = None
+            if self["--enable-tensor-cache"]:
+                tensor_cache = ttrt.runtime.TensorCache()
+                self.logging.info(f"Created tensor cache for const-eval")
+
             try:
                 for bin in binaries:
                     try:
@@ -577,12 +590,30 @@ class Run:
                                     )
 
                                 elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
-                                    runtime_outputs = ttrt.runtime.submit(
-                                        device,
-                                        bin.fbb,
-                                        program_index,
-                                        total_inputs[loop],
-                                    )
+                                    if self["--enable-tensor-cache"]:
+                                        # Use the tensor cache for this run
+                                        self.logging.debug(
+                                            f"Using tensor cache for program execution"
+                                        )
+                                        runtime_outputs = ttrt.runtime.submit(
+                                            device,
+                                            bin.fbb,
+                                            program_index,
+                                            total_inputs[loop],
+                                            tensor_cache,
+                                        )
+                                        # Log cache stats after execution
+                                        cache_stats = tensor_cache.get_stats()
+                                        self.logging.debug(
+                                            f"Tensor cache stats: entries={cache_stats['total_entries']}, tensors={cache_stats['total_tensors']}"
+                                        )
+                                    else:
+                                        runtime_outputs = ttrt.runtime.submit(
+                                            device,
+                                            bin.fbb,
+                                            program_index,
+                                            total_inputs[loop],
+                                        )
                                     ttrt.runtime.wait(runtime_outputs)
                                     for i, runtime_output_tensor in enumerate(
                                         runtime_outputs

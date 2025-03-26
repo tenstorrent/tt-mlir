@@ -54,10 +54,9 @@ struct CacheKeyHash {
  *
  * This class is used to manage the lifetime of tensors in the cache.
  */
-class TensorWrapper {
+class TensorPtrWrapper {
 public:
-  TensorWrapper(::ttnn::Tensor tensor)
-      : tensor(std::move(tensor)), refCount(1) {}
+  TensorPtrWrapper(::ttnn::Tensor *tensor) : tensor(tensor), refCount(1) {}
 
   // Increment reference count
   void addRef() { ++refCount; }
@@ -67,14 +66,14 @@ public:
   bool release() { return --refCount == 0; }
 
   // Get the wrapped tensor
-  ::ttnn::Tensor &getTensor() { return tensor; }
-  const ::ttnn::Tensor &getTensor() const { return tensor; }
+  ::ttnn::Tensor *getTensor() { return tensor; }
+  const ::ttnn::Tensor *getTensor() const { return tensor; }
 
   // Get the current reference count
   uint32_t getRefCount() const { return refCount; }
 
 private:
-  ::ttnn::Tensor tensor;
+  ::ttnn::Tensor *tensor;
   uint32_t refCount;
 };
 
@@ -90,40 +89,87 @@ public:
   TensorCache() = default;
   ~TensorCache() = default;
 
-  // Check if a tensor exists in the cache
+  // Make the cache copyable and movable
+  TensorCache(const TensorCache &) = default;
+  TensorCache &operator=(const TensorCache &) = default;
+  TensorCache(TensorCache &&) = default;
+  TensorCache &operator=(TensorCache &&) = default;
+
+  // Check if a key exists in the cache
   bool contains(const CacheKey &key) const {
     return cache.find(key) != cache.end();
   }
 
-  // Get a tensor from the cache, incrementing its reference count
-  ::ttnn::Tensor *get(const CacheKey &key) {
+  // Get all tensors for a key
+  const std::vector<TensorPtrWrapper> &getAll(const CacheKey &key) const {
+    static const std::vector<TensorPtrWrapper> empty;
     auto it = cache.find(key);
     if (it != cache.end()) {
-      it->second.addRef();
-      return &it->second.getTensor();
+      return it->second;
     }
-    return nullptr;
+    return empty;
   }
 
-  // Add a tensor to the cache
-  void add(const CacheKey &key, ::ttnn::Tensor tensor) {
-    cache.emplace(key, TensorWrapper(std::move(tensor)));
-  }
-
-  // Release a tensor, removing it from the cache if the reference count reaches
-  // zero
-  void release(const CacheKey &key) {
+  // Add a tensor wrapper to the cache under the specified key
+  void add(const CacheKey &key, TensorPtrWrapper wrapper) {
     auto it = cache.find(key);
-    if (it != cache.end() && it->second.release()) {
-      cache.erase(it);
+    if (it != cache.end()) {
+      // Key exists, add to the vector
+      it->second.push_back(std::move(wrapper));
+    } else {
+      // Key doesn't exist, create a new vector
+      std::vector<TensorPtrWrapper> wrappers;
+      wrappers.push_back(std::move(wrapper));
+      cache.emplace(key, std::move(wrappers));
     }
   }
+
+  // Add a tensor to the cache under the specified key
+  void add(const CacheKey &key, ::ttnn::Tensor *tensor) {
+    add(key, TensorPtrWrapper(tensor));
+  }
+
+  // Add multiple tensor wrappers at once under the specified key
+  void addAll(const CacheKey &key, std::vector<TensorPtrWrapper> wrappers) {
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+      // Key exists, move all wrappers to the existing vector
+      it->second.reserve(it->second.size() + wrappers.size());
+      for (auto &wrapper : wrappers) {
+        it->second.push_back(std::move(wrapper));
+      }
+    } else {
+      // Key doesn't exist, move the entire vector
+      cache.emplace(key, std::move(wrappers));
+    }
+  }
+
+  // Remove a key and all its associated tensors from the cache
+  void remove(const CacheKey &key) { cache.erase(key); }
 
   // Clear the entire cache
   void clear() { cache.clear(); }
 
+  // Get the size of the cache (number of entries)
+  size_t size() const { return cache.size(); }
+
+  // Get cache statistics
+  std::unordered_map<std::string, size_t> getStats() const {
+    std::unordered_map<std::string, size_t> stats;
+    stats["total_entries"] = cache.size();
+
+    size_t total_tensors = 0;
+    for (const auto &[key, wrappers] : cache) {
+      total_tensors += wrappers.size();
+    }
+    stats["total_tensors"] = total_tensors;
+
+    return stats;
+  }
+
 private:
-  std::unordered_map<CacheKey, TensorWrapper, CacheKeyHash> cache;
+  std::unordered_map<CacheKey, std::vector<TensorPtrWrapper>, CacheKeyHash>
+      cache;
 };
 
 } // namespace tt::runtime::ttnn

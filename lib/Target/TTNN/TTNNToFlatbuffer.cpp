@@ -83,6 +83,8 @@ toFlatbuffer(FlatbufferObjectCache &,
 
 namespace mlir::tt::ttnn {
 
+static std::map<std::string, unsigned int> programIdxMap;
+
 constexpr uint64_t kHostAllocatedSize = 0;
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -1438,7 +1440,9 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
   // Collect input tensors
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
   for (auto input : op.getInputs()) {
-    inputs.push_back(tensorValueToFlatbuffer(cache, input, kHostAllocatedSize));
+    auto in =
+        cache.at<::tt::target::ttnn::TensorRef>(getOperandThroughDPSOps(input));
+    inputs.push_back(in);
   }
 
   // Collect output tensors
@@ -1448,9 +1452,11 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
         cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
   }
 
+  const uint32_t programIdx = programIdxMap[op.getCallee().str()];
+
   // Create the LoadCachedOp
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
-      *cache.fbb, &inputs, op.getCallee().str().c_str(), &outputs);
+      *cache.fbb, &inputs, op.getCallee().str().c_str(), programIdx, &outputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -1939,6 +1945,12 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(
       fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
+
+  size_t programIdx = 0;
+  module->walk([&](func::FuncOp func) {
+    llvm::outs() << func.getSymName().str() << " : " << programIdx << "\n";
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  });
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {

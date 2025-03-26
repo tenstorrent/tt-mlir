@@ -149,10 +149,14 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> const &inputs);
 
+// Forward declare TensorCache to avoid circular dependencies
+class TensorCache;
+
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs);
+                               std::vector<::ttnn::Tensor *> const &inputs,
+                               std::shared_ptr<TensorCache> tensorCache);
 
 } // namespace tt::runtime::ttnn
 
