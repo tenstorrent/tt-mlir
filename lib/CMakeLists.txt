@@ -1,3 +1,8 @@
+if (CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+endif()
+
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
 
