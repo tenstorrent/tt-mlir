@@ -505,10 +505,10 @@ class TTIRBuilder:
         self,
         in0: Operand,
         in1: Operand,
-        batch_dims_lhs=List[int],
-        contract_dims_lhs=List[int],
-        batch_dims_rhs=List[int],
-        contract_dims_rhs=List[int],
+        batch_dims_lhs: List[int],
+        contract_dims_lhs: List[int],
+        batch_dims_rhs: List[int],
+        contract_dims_rhs: List[int],
     ) -> OpView:
         # Configure inputs for golden function
         lhs_dims = contract_dims_lhs + batch_dims_lhs
