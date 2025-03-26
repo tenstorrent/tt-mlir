@@ -502,12 +502,12 @@ def test_transpose(in0: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
-        (2, 3),
+        (1, 32, 32),
     ],
     targets=["ttnn"],
 )
 def test_repeat(in0: Operand, builder: TTIRBuilder):
-    return builder.repeat(in0, [2, 2])
+    return builder.repeat(in0, [32, 1, 1])
 
 
 @compile_to_flatbuffer(
@@ -618,12 +618,13 @@ def test_max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
-        (32, 32),
+        (1, 1, 5, 5),
     ],
+    inputs_types=[torch.bfloat16],
     targets=["ttnn"],
 )
 def test_pad(in0: Operand, builder: TTIRBuilder):
-    return builder.pad(in0, padding=[0, 2, 1, 0], value=0)
+    return builder.pad(in0, padding=[0, 0, 0, 0, 1, 1, 1, 1], value=0)
 
 
 @compile_to_flatbuffer([(32, 64)], targets=["ttnn"])

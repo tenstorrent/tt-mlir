@@ -348,7 +348,7 @@ class TTIRBuilder:
         """Convenience wrapper constructing `ttir.EmptyOp`."""
         dtype = data_type if data_type is not None else self._default_dtype
         with self._ctx, self._loc:
-            op = ttir.EmptyOp(RankedTensorType.get(shape, dtype))
+            op = ttir.EmptyOp(shape, dtype)
 
             self.generate_and_store_random_golden(op)
 
@@ -1115,16 +1115,8 @@ class TTIRBuilder:
         )
 
     def pad(self, in0: Operand, padding: List[int], value: int) -> OpView:
-        golden_padding = []
-        # Reformatting padding dimensions for golden tensor:
-        if len(padding) == 4:
-            golden_padding = padding.copy()
-            golden_padding.reverse()
-        if len(padding) > 4:
-            for i in range(int(len(padding) / 2) - 4):
-                i = i + 4
-                golden_padding.append(padding[(2 * i) + 1])
-                golden_padding.append(padding[2 * i])
+        golden_padding = padding.copy()
+        golden_padding.reverse()
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
