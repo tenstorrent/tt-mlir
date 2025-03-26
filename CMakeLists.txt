@@ -71,6 +71,7 @@ if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     -fPIC
   )
   target_link_options(coverage_config INTERFACE --coverage)
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 endif()
 
 install(TARGETS coverage_config EXPORT TTNNOpModelLibTargets)

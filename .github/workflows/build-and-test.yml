@@ -475,6 +475,12 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
+    - name: Upload compile commands
+      uses: actions/upload-artifact@v3
+      with:
+        name: compile-commands
+        path: ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
+
     - name: Check
       id: check
       shell: bash
