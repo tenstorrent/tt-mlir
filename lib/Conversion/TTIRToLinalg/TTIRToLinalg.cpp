@@ -182,7 +182,6 @@ public:
     return success();
   }
 };
-
 } // namespace
 
 namespace {
@@ -210,6 +209,68 @@ public:
 };
 } // namespace
 
+namespace {
+class TransposeOpConversionPattern
+    : public OpConversionPattern<ttir::TransposeOp> {
+public:
+  using OpConversionPattern<ttir::TransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TransposeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Value input = adaptor.getInput();
+    const size_t permSize =
+        dyn_cast<RankedTensorType>(input.getType()).getShape().size();
+    SmallVector<int64_t> permutation;
+    permutation.resize(permSize);
+    for (size_t i = 0; i < permSize; i++) {
+      permutation[i] = i;
+    }
+
+    auto dim0 = op.getDim0();
+    auto dim1 = op.getDim1();
+
+    if (dim0 < 0) {
+      dim0 = permSize + dim0;
+    }
+    if (dim1 < 0) {
+      dim1 = permSize + dim1;
+    }
+
+    permutation[dim1] = dim0;
+    permutation[dim0] = dim1;
+    rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
+        op, input, adaptor.getOutput(), permutation);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SoftmaxOpConversionPattern : public OpConversionPattern<ttir::SoftmaxOp> {
+public:
+  using OpConversionPattern<ttir::SoftmaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SoftmaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Value input = adaptor.getInput();
+    const size_t inputSize =
+        dyn_cast<RankedTensorType>(input.getType()).getShape().size();
+    const int32_t dimension = (op.getDimension() < 0)
+                                  ? op.getDimension() + inputSize
+                                  : op.getDimension();
+
+    rewriter.replaceOpWithNewOp<linalg::SoftmaxOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), input,
+        adaptor.getOutput(), dimension);
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -228,8 +289,9 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseOpConversionPattern<ttir::CeilOp, linalg::CeilOp>,
       ElementwiseOpConversionPattern<ttir::FloorOp, linalg::FloorOp>,
       ElementwiseOpConversionPattern<ttir::TanhOp, linalg::TanhOp>,
-      ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>>(
-      typeConverter, ctx);
+      ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>,
+      TransposeOpConversionPattern, SoftmaxOpConversionPattern>(typeConverter,
+                                                                ctx);
 }
 
 } // namespace mlir::tt

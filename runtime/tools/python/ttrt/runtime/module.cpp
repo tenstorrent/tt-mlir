@@ -44,6 +44,40 @@ PYBIND11_MODULE(_C, m) {
       .def_readonly("stride", &tt::runtime::TensorDesc::stride)
       .def_readonly("item_size", &tt::runtime::TensorDesc::itemsize)
       .def_readonly("dtype", &tt::runtime::TensorDesc::dataType);
+  py::class_<tt::runtime::MeshDeviceOptions>(m, "MeshDeviceOptions")
+      .def(py::init<>())
+      .def_readwrite("mesh_offset", &tt::runtime::MeshDeviceOptions::meshOffset)
+      .def_readwrite("device_ids", &tt::runtime::MeshDeviceOptions::deviceIds)
+      .def_readwrite("num_hw_cqs", &tt::runtime::MeshDeviceOptions::numHWCQs)
+      .def_readwrite("enable_async_ttnn",
+                     &tt::runtime::MeshDeviceOptions::enableAsyncTTNN)
+      .def_readwrite("enable_program_cache",
+                     &tt::runtime::MeshDeviceOptions::enableProgramCache)
+      .def_property(
+          "l1_small_size",
+          [](const tt::runtime::MeshDeviceOptions &o) {
+            return o.l1SmallSize.has_value() ? py::cast(o.l1SmallSize.value())
+                                             : py::none();
+          },
+          [](tt::runtime::MeshDeviceOptions &o, py::handle value) {
+            o.l1SmallSize = py::none().is(value)
+                                ? std::nullopt
+                                : std::make_optional(value.cast<size_t>());
+          })
+      .def_property(
+          "dispatch_core_type",
+          [](const tt::runtime::MeshDeviceOptions &o) {
+            return o.dispatchCoreType.has_value()
+                       ? py::cast(o.dispatchCoreType.value())
+                       : py::none();
+          },
+          [](tt::runtime::MeshDeviceOptions &o, py::handle value) {
+            o.dispatchCoreType =
+                py::none().is(value)
+                    ? std::nullopt
+                    : std::make_optional(
+                          value.cast<tt::runtime::DispatchCoreType>());
+          });
   py::class_<tt::runtime::Tensor>(m, "Tensor")
       .def("get_shape",
            [](tt::runtime::Tensor self) {
@@ -157,14 +191,16 @@ PYBIND11_MODULE(_C, m) {
       "Create a multi-device host tensor with owned memory");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
-  m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
-        py::arg("num_hw_cqs") = size_t{1},
-        py::arg("l1_small_size") = py::none(),
-        py::arg("dispatch_core_type") = py::none(),
-        py::arg("enable_async_ttnn") = py::none(),
-        py::arg("enable_program_cache") = py::none(),
-        "Open a mesh of devices for execution");
-  m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
+  m.def("open_mesh_device", &tt::runtime::openMeshDevice, py::arg("mesh_shape"),
+        py::arg("options"), "Open a parent mesh of devices");
+  m.def("close_mesh_device", &tt::runtime::closeMeshDevice,
+        py::arg("parent_mesh"), "Close a mesh device");
+  m.def("create_sub_mesh_device", &tt::runtime::createSubMeshDevice,
+        py::arg("parent_mesh"), py::arg("mesh_shape"),
+        py::arg("mesh_offset") = py::none(),
+        "Open a sub mesh of devices from a parent mesh");
+  m.def("release_sub_mesh_device", &tt::runtime::releaseSubMeshDevice,
+        py::arg("sub_mesh"), "Release a sub mesh device from the parent");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
         py::arg("untilize") = false, "Copy the tensor to the host");
   m.def("to_layout", &tt::runtime::toLayout, py::arg("tensor"),

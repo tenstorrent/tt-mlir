@@ -9,7 +9,7 @@ except (ImportError, ModuleNotFoundError):
     )
 import ttrt.runtime
 from ttrt.common.api import API
-from utils import Helper
+from .utils import Helper
 import pytest
 
 
