@@ -60,6 +60,7 @@ bool Conv2dConfigOverrideParser::parse(
 
     Conv2dConfigOverrideParams params;
 
+    // TODO: change BoolAtrr format from 1/0 to true/false
     for(const StringRef &param : conv2dParamParts) {
       SmallVector<StringRef> param_kv;
       param.split(param_kv, paramKVSeparator);
@@ -110,7 +111,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "input_channels_alignment") {
         uint32_t inputChannelsAlignment; 
-        if(!param_value.getAsInteger<uint32_t>(10, inputChannelsAlignment)) {
+        if(param_value.getAsInteger<uint32_t>(10, inputChannelsAlignment)) {
           opt.error("Invalid input_channels_alignment: " + param_value);
           return true;
         }
@@ -124,7 +125,7 @@ bool Conv2dConfigOverrideParser::parse(
       else if(param_name == "deallocate_activation") {
         bool deallocateActivation;
         // Is it safe (getAsInteger<bool>) ?
-        if(!param_value.getAsInteger<bool>(10, deallocateActivation)) {
+        if(param_value.getAsInteger<bool>(10, deallocateActivation)) {
           opt.error("Invalid deallocate_activation: " + param_value);
           return true;
         }
@@ -136,7 +137,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "reallocate_halo_output") {
         bool reallocateHaloOutput;
-        if(!param_value.getAsInteger<bool>(10, reallocateHaloOutput)) {
+        if(param_value.getAsInteger<bool>(10, reallocateHaloOutput)) {
           opt.error("Invalid reallocateHaloOutput: " + param_value);
           return true;
         }
@@ -148,7 +149,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "act_block_h_override") {
         uint32_t actBlockHOverride;
-        if(!param_value.getAsInteger<uint32_t>(10, actBlockHOverride)) {
+        if(param_value.getAsInteger<uint32_t>(10, actBlockHOverride)) {
           opt.error("Invalid actBlockHOverride: " + param_value);
           return true;
         }
@@ -160,7 +161,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "act_block_w_div") {
         uint32_t actBlockWDiv;
-        if(!param_value.getAsInteger<uint32_t>(10, actBlockWDiv)) {
+        if(param_value.getAsInteger<uint32_t>(10, actBlockWDiv)) {
           opt.error("Invalid actBlockWDiv: " + param_value);
           return true;
         }
@@ -172,7 +173,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "reshard_if_not_optimal") {
         bool reshardIfNotOptimal;
-        if(!param_value.getAsInteger<bool>(10, reshardIfNotOptimal)) {
+        if(param_value.getAsInteger<bool>(10, reshardIfNotOptimal)) {
           opt.error("Invalid reshardIfNotOptimal: " + param_value);
           return true;
         }
@@ -184,7 +185,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "override_sharding_config") {
         bool overrideShardingConfig;
-        if(!param_value.getAsInteger<bool>(10, overrideShardingConfig)) {
+        if(param_value.getAsInteger<bool>(10, overrideShardingConfig)) {
           opt.error("Invalid overrideShardingConfig: " + param_value);
           return true;
         }
@@ -207,11 +208,11 @@ bool Conv2dConfigOverrideParser::parse(
         params.shardLayout = shardLayout;
       }
       //TODO: Check coreGrid
-      else if(param_name == "coreGrid") 
+      else if(param_name == "core_grid") 
         continue;
       else if(param_name == "transpose_shards") {
         bool transposeShards;
-        if(!param_value.getAsInteger<bool>(10, transposeShards)) {
+        if(param_value.getAsInteger<bool>(10, transposeShards)) {
           opt.error("Invalid transposeShards: " + param_value);
           return true;
         }
@@ -235,7 +236,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "enable_act_double_buffer") {
         bool enableActDoubleBuffer;
-        if(!param_value.getAsInteger<bool>(10, enableActDoubleBuffer)) {
+        if(param_value.getAsInteger<bool>(10, enableActDoubleBuffer)) {
           opt.error("Invalid enableActDoubleBuffer: " + param_value);
           return true;
         }
@@ -247,7 +248,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "enable_weights_double_buffer") {
         bool enableWeightsDoubleBuffer;
-        if(!param_value.getAsInteger<bool>(10, enableWeightsDoubleBuffer)) {
+        if(param_value.getAsInteger<bool>(10, enableWeightsDoubleBuffer)) {
           opt.error("Invalid enableWeightsDoubleBuffer: " + param_value);
           return true;
         }
@@ -259,7 +260,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "enable_split_reader") {
         bool enableSplitReader;
-        if(!param_value.getAsInteger<bool>(10, enableSplitReader)) {
+        if(param_value.getAsInteger<bool>(10, enableSplitReader)) {
           opt.error("Invalid enableSplitReader: " + param_value);
           return true;
         }
@@ -271,7 +272,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       else if(param_name == "enable_subblock_padding") {
         bool enableSubblockPadding;
-        if(!param_value.getAsInteger<bool>(10, enableSubblockPadding)) {
+        if(param_value.getAsInteger<bool>(10, enableSubblockPadding)) {
           opt.error("Invalid enableSubblockPadding: " + param_value);
           return true;
         }
