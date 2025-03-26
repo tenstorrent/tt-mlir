@@ -62,8 +62,18 @@ public:
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
       const llvm::ArrayRef<int64_t> &gridPhyCores = GetPhysicalGridSize()) {
 
+    // Usually tensors are of rank 2, but in case of MaxPool2D or Conv2D ops, it
+    // is 4. Anyway this tensor will be flattened to {1, 1, Y, X} shape.
+    assert(tensorShape.size() >= 2);
+    for (size_t i = 0; i < tensorShape.size() - 2; i++) {
+      assert(tensorShape[i] == 1);
+    }
+    int32_t tensorRank = tensorShape.size();
+    int64_t tensorSizeX = tensorShape[tensorRank - 1];
+    int64_t tensorSizeY = tensorShape[tensorRank - 2];
+
     llvm::SmallVector<int64_t> tensorShapeTiles =
-        GetTensorShapeInTiles(tensorShape);
+        GetTensorShapeInTiles({tensorSizeY, tensorSizeX});
 
     int64_t tensorTiles = 1;
     for (const auto &dim : tensorShapeTiles) {

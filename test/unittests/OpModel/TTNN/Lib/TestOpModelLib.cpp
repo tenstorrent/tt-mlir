@@ -4,14 +4,18 @@
 
 #include "OpModelFixture.h"
 
-#include "../lib/OpModel/TTNN/SingletonDeviceContext.h"
+#include "SingletonDeviceContext.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Error.h"
 #include "gtest/gtest.h"
+
 #include <cstdint>
+#include <functional>
+#include <iostream>
 #include <optional>
 #include <tuple>
 
@@ -1069,6 +1073,23 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   }
 }
 
+class OpModelMaxPool2DParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,         // input
+                     detail::TestTensor,         // output
+                     int32_t,                    // batch_size
+                     int32_t,                    // input_height
+                     int32_t,                    // input_width
+                     int32_t,                    // input_channels
+                     llvm::SmallVector<int32_t>, // kernel_size
+                     llvm::SmallVector<int32_t>, // stride
+                     llvm::SmallVector<int32_t>, // padding
+                     llvm::SmallVector<int32_t>, // dilation
+                     bool,                       // ceil_mode
+                     bool                        // expected legal
+                     >> {};
+
 INSTANTIATE_TEST_SUITE_P(
     Conv2dTests, OpModelConv2dParam,
     ::testing::Values(
@@ -1092,5 +1113,97 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
                         llvm::SmallVector<int32_t>{1, 1}, 1, false, false)));
+
+TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto batchSize = std::get<2>(params);
+  const auto inputHeight = std::get<3>(params);
+  const auto inputWidth = std::get<4>(params);
+  const auto inputChannels = std::get<5>(params);
+  const auto kernelSize = std::get<6>(params);
+  const auto stride = std::get<7>(params);
+  const auto padding = std::get<8>(params);
+  const auto dilation = std::get<9>(params);
+  const auto ceilMode = std::get<10>(params);
+  const auto expectedLegal = std::get<11>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = MaxPool2DInterface::getOpConstraints(
+      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
+      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
+      outputShape, outputLayout);
+  if (!constraintsExp) {
+    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
+              << std::endl;
+  }
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = MaxPool2DInterface::getOpRuntime(
+      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
+      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
+      outputShape, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    MaxPool2DTests, OpModelMaxPool2DParam,
+    ::testing::Values(
+        std::make_tuple(
+            detail::TestTensor{{1, 1, 128 * 128, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{1, 1, 64 * 64, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            1, 128, 128, 32, llvm::SmallVector<int32_t>{2, 2},
+            llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{0, 0},
+            llvm::SmallVector<int32_t>{1, 1}, false, true),
+        std::make_tuple(
+            detail::TestTensor{{1, 1, 256 * 256, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{1, 1, 64 * 128, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            1, 256, 256, 32, llvm::SmallVector<int32_t>{3, 3},
+            llvm::SmallVector<int32_t>{4, 2}, llvm::SmallVector<int32_t>{0, 0},
+            llvm::SmallVector<int32_t>{1, 1}, false, true),
+        std::make_tuple(
+            detail::TestTensor{{1, 1, 17 * 21, 22},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::DRAM},
+            detail::TestTensor{{1, 1, 5 * 11, 22},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
+            llvm::SmallVector<int32_t>{4, 2}, llvm::SmallVector<int32_t>{0, 0},
+            llvm::SmallVector<int32_t>{1, 1}, false, false)));
 
 } // namespace mlir::tt::op_model::ttnn

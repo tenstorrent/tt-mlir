@@ -131,6 +131,7 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.tosa
   MLIRPythonSources.Dialects.memref
+  MLIRPythonSources.Dialects.emitc
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonTestInfra

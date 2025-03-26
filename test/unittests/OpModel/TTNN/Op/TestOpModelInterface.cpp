@@ -3,13 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "OpModelFixture.h"
+#include "SingletonDeviceContext.h"
 
-#include "../lib/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/IR/AffineExpr.h"
+#include "llvm/ADT/SmallVector.h"
 #include "gtest/gtest.h"
 
 #include <cstdint>
@@ -481,6 +482,65 @@ TEST_F(OpModelBase, Conv2dInterface) {
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   if (runtimeExp) {
     EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, maxPool2DOp) {
+  // Create maxPool2DOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 64 * 64, 32};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  // Input params
+  int32_t batchSize = 1;
+  int32_t inputHeight = 128;
+  int32_t inputWidth = 128;
+  int32_t numChannels = 32;
+
+  // Pooling params
+  int32_t kernelHeight = 2;
+  int32_t kernelWidth = 2;
+  int32_t strideHeight = 2;
+  int32_t strideWidth = 2;
+  int32_t dilationHeight = 1;
+  int32_t dilationWidth = 1;
+  bool ceilMode = false;
+  int32_t paddingHeight = 0;
+  int32_t paddingWidth = 0;
+
+  llvm::SmallVector<int32_t, 2> kernelSize = {kernelHeight, kernelWidth};
+  llvm::SmallVector<int32_t, 2> stride = {strideHeight, strideWidth};
+  llvm::SmallVector<int32_t, 2> padding = {paddingHeight, paddingWidth};
+  llvm::SmallVector<int32_t, 2> dilation = {dilationHeight, dilationWidth};
+
+  auto maxPool2DOp = builder.create<MaxPool2dOp>(
+      builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
+      inputWidth, numChannels, kernelSize, stride, padding, dilation, ceilMode);
+  maxPool2DOp->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
+  constexpr int32_t numRuns = 10;
+  for (int i = 0; i < numRuns; i++) {
+    op_model::ttnn::SingletonDeviceContext::resetInstance();
+    auto constraintsExp = getOpConstraints(maxPool2DOp.getOperation());
+    if (!constraintsExp) {
+      FAIL() << "Missing L1 constraints; Error="
+             << llvm::toString(constraintsExp.takeError()) << std::endl;
+    }
+    auto l1 = constraintsExp.get();
+    const auto &[cb_size, peak_size, output_size] = l1;
+    EXPECT_GT(cb_size, 0);
+    EXPECT_GT(peak_size, 0);
+    EXPECT_GT(output_size, 0);
+  }
+  op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp = getOpRuntime(maxPool2DOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }

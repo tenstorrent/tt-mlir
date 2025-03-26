@@ -7,7 +7,7 @@ import inspect
 import functools
 import os
 from ttmlir.ir import *
-from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref
+from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp
 
 # ttmlir-translate --ttkernel-to-cpp-noc
@@ -108,7 +108,7 @@ class TTKernelCompiler(ast.NodeVisitor):
         "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
     }
 
-    def __init__(self, name, args):
+    def __init__(self, name, *args, **kwargs):
         self.name = name
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
@@ -121,6 +121,63 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         self.cb_args = args
         self.rt_args = None
+
+        self.verbose = kwargs.get("verbose", False)
+        self.source_code = kwargs.get("source_code", "")
+
+    def get_source_comment(self, node):
+        """
+        Retrieve the source snippet corresponding to the given node and format it as comments.
+
+        This function extracts the relevant lines of source code using the node's location
+        attributes (lineno, end_lineno, col_offset, end_col_offset), prefixes each line with
+        '//', and returns the concatenated snippet as a single string.
+
+        Args:
+            node: An AST node that contains information about the source code segment location.
+
+        Returns:
+            str: The snippet of source code formatted with '//' at the beginning of each line.
+        """
+        result = ""
+        if self.verbose and self.source_code:
+            for i in range(node.lineno - 1, node.end_lineno):
+                result += (
+                    "// "
+                    + self.source_code[i][node.col_offset : node.end_col_offset]
+                    + "\n"
+                )
+        return result.strip()
+
+    def get_source_comment_block(self, node, delim: str = "):"):
+        """
+        Generates a comment block extracted from the source code related to the given AST node.
+
+        This function examines lines of source code starting at node.lineno and continuing up to
+        node.end_lineno, looking for the specified delimiter. Each line is prefixed with "// " to form
+        a comment block. If the delimiter is found, it stops appending further lines.
+
+        Args:
+            node: An AST node that provides line number boundaries (lineno, end_lineno) for source extraction.
+            delim (str): The string delimiter to indicate where to stop collecting lines. Defaults to "):".
+
+        Returns:
+            str: A multi-line comment string containing the relevant source code lines, each prefixed with "// ".
+        """
+        result = ""
+        if self.verbose and self.source_code:
+            idx = node.lineno - 1
+            result = "// "
+            while idx < node.end_lineno:
+                line = self.source_code[idx]
+                end_pattern = line.find(delim)
+                if end_pattern != -1:
+                    # First occurence of end_pattern detected, save the current splice of the string + exist
+                    result += line[: end_pattern + 2].lstrip()
+                    break
+                idx += 1
+                result += f"{line}\n// "
+        return result
 
     def var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
@@ -179,6 +236,13 @@ class TTKernelCompiler(ast.NodeVisitor):
         # update basic block
         self.symbol_tables.append(func_sym_table)
         with InsertionPoint(func_bb), Location.unknown():
+            # Insert verbose comment for function, to be picked up by Compiler pass it must exist within function region
+            # Need a bit of custom logic to make the function def look pretty:
+            # Get the source code from the main function decl:
+            if self.verbose and self.source_code:
+                comment = f"// --- Python Function Declaration for Above --- \n{self.get_source_comment_block(node)}\n// -- End Function Declaration"
+                emitc.verbatim(comment)
+
             for target in node.body:
                 self.visit(target)
 
@@ -241,6 +305,10 @@ class TTKernelCompiler(ast.NodeVisitor):
             )
         if isinstance(step.type, memref.MemRefType):
             step = memref.LoadOp(step, arith.ConstantOp(IndexType.get(self.ctx), 0))
+
+        if self.verbose:
+            comment = self.get_source_comment_block(node)
+            emitc.verbatim(comment)
 
         for_op = scf.ForOp(lower_bound, upper_bound, step)
         with (InsertionPoint(for_op.body)), Location.unknown():
@@ -522,17 +590,26 @@ class TTKernelCompiler(ast.NodeVisitor):
         if any(
             isinstance(node, supported_node) for supported_node in self.supported_nodes
         ):
+            if self.verbose and isinstance(node, (ast.Assign, ast.AnnAssign)):
+                # Create a verbatim Op here to store the comment
+                source_code = self.get_source_comment(node)
+                emitc.verbatim(source_code)
             return super().visit(node)
         else:
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
-def ttkernel_compile(kernel_type=None):
+def ttkernel_compile(kernel_type=None, verbose: bool = False):
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
+            if verbose is True:
+                # Create easily index-able object to store source code:
+                source_code = inspect.getsource(f).split("\n")
+                kwargs["source_code"] = source_code
+                kwargs["verbose"] = True
             m = ast.parse(inspect.getsource(f))
-            b = TTKernelCompiler(f.__name__, args)
+            b = TTKernelCompiler(f.__name__, *args, **kwargs)
             print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
@@ -551,9 +628,9 @@ def ttkernel_compile(kernel_type=None):
     return _decorator
 
 
-def ttkernel_tensix_compile():
-    return ttkernel_compile(kernel_type="tensix")
+def ttkernel_tensix_compile(verbose: bool = False):
+    return ttkernel_compile(kernel_type="tensix", verbose=verbose)
 
 
-def ttkernel_noc_compile():
-    return ttkernel_compile(kernel_type="noc")
+def ttkernel_noc_compile(verbose: bool = False):
+    return ttkernel_compile(kernel_type="noc", verbose=verbose)

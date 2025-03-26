@@ -10,7 +10,7 @@
 #layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<8x1x!tt.tile<32x32, f32>, #l1_>>
 
 func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
-  %0 = tensor.empty() : tensor<256x32xf32, #layout2>
+  %0 = ttir.empty() : tensor<256x32xf32, #layout2>
   // CHECK: %{{[a-z0-9_]+}} = "ttir.view_layout"
   // CHECK: %{{[a-z0-9_]+}} = "ttir.view_layout"
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
@@ -52,7 +52,7 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
 #layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #l1_>>
 
 func.func @reduce_prime(%arg0: tensor<32x608xf32, #layout1>, %arg1: tensor<32x608xf32, #layout1>) -> tensor<32x32xf32, #layout2> {
-  %0 = tensor.empty() : tensor<32x32xf32, #layout2>
+  %0 = ttir.empty() : tensor<32x32xf32, #layout2>
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],

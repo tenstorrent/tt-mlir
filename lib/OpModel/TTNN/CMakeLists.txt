@@ -21,7 +21,7 @@ if (TTMLIR_ENABLE_OPMODEL)
     endif()
 
     # Link to tt-metal libs and include directories
-    target_include_directories(${LIB_NAME} PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+    target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
     set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY)
     if (TT_RUNTIME_ENABLE_PERF_TRACE)
         list(APPEND TTNN_LIBS TRACY_LIBRARY)
@@ -38,6 +38,8 @@ target_include_directories(${LIB_NAME}
     PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/
     ${PROJECT_SOURCE_DIR}/include/ttmlir/OpModel/TTNN/)
+
+target_link_libraries(${LIB_NAME} PUBLIC coverage_config)
 
 
 # Add TTNNOpModelLib to the export set

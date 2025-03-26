@@ -17,3 +17,5 @@ add_mlir_public_c_api_library(TTMLIRCAPI
   MLIRSupport
   MLIRTargetCpp
 )
+
+target_link_libraries(TTMLIRCAPI PUBLIC coverage_config)

@@ -9,3 +9,5 @@ add_mlir_library(MLIRScheduler
       MLIRIR
       MLIRPass
 )
+
+target_link_libraries(MLIRScheduler PUBLIC coverage_config)

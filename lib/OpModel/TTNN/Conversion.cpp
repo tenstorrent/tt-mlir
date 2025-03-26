@@ -168,16 +168,6 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttnn::SmallVector<int>(vec.begin(), vec.end());
 }
 
-std::array<uint32_t, 2>
-convertArrayRefToArray(const llvm::ArrayRef<int32_t> array) {
-  assert(array.size() == 2);
-  std::array<uint32_t, 2> result;
-  for (size_t i = 0; i < 2; ++i) {
-    result[i] = static_cast<uint32_t>(array[i]);
-  }
-  return result;
-}
-
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
     const std::optional<mlir::tt::ttnn::Conv2dConfigAttr> &conv2dConfig) {
   if (!conv2dConfig) {

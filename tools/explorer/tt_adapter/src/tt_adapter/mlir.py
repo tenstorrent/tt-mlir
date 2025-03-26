@@ -796,7 +796,7 @@ class OpHandler:
 
 EMPTY_OPS = [
     "ttnn.empty",
-    "tensor.empty",
+    "ttir.empty",
 ]
 
 FILTERED_OPS = [

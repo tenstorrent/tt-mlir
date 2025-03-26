@@ -430,11 +430,12 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
-            device = ttrt.runtime.open_device(
-                self.query.device_ids,
-                dispatch_core_type=dispatch_core_type,
-                enable_async_ttnn=self["--enable-async-ttnn"],
-            )
+            mesh_shape = [1, len(self.query.device_ids)]
+            mesh_options = ttrt.runtime.MeshDeviceOptions()
+            mesh_options.device_ids = self.query.device_ids
+            mesh_options.dispatch_core_type = dispatch_core_type
+            mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
+            device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             callback_runtime_config = CallbackRuntimeConfig(
                 device,
@@ -720,7 +721,7 @@ class Run:
                         bin.test_result = result
                         continue
             finally:
-                ttrt.runtime.close_device(device)
+                ttrt.runtime.close_mesh_device(device)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

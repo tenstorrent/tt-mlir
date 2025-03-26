@@ -9,6 +9,7 @@ include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
+
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -117,6 +118,12 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
+      unsigned getNumLoops();
+      unsigned getNumDims();
+      SmallVector<int64_t> getLoopBounds();
+      SmallVector<AffineMap> getIndexingMapsValue();
+      SmallVector<IteratorType> getIteratorTypesValue();
+      SmallVector<SmallVector<int64_t>> getOperandGridShapes();
     }];
 }
 
@@ -791,7 +798,7 @@ def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
+    TTIR_NamedOp<mnemonic, traits> {
 
     let summary = "Reduction op.";
     let description = [{
@@ -804,38 +811,6 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
                          OptionalAttr<I32ArrayAttr>:$dim_arg);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
-
-      // Returns the indexing maps and iterator types for the reduction op.
-      // Indexing maps are identity maps with dropped dimensions corresponding to the
-      // reduction dimensions. Iterator types are parallel for non-reduction dimensions
-      // and reduction for reduction dimensions.
-      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        auto rank = mlir::cast<RankedTensorType>(getInput().getType()).getRank();
-        SmallVector<AffineMap> indexingMaps(getNumOperands(),
-                                            builder.getMultiDimIdentityMap(rank));
-        SmallVector<Attribute> iteratorTypes(
-            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
-
-        auto reduceDims = getDimArgAttr();
-        auto resultIndexingMap = indexingMaps.back();
-        for (auto reduceDim : reduceDims) {
-          int64_t reduceDimInt = mlir::cast<IntegerAttr>(reduceDim).getInt();
-          if (reduceDimInt < 0) {
-            reduceDimInt += rank;
-          }
-          assert(reduceDimInt >= 0 && reduceDimInt < rank);
-          resultIndexingMap.dropResult(reduceDimInt);
-          iteratorTypes[reduceDimInt] =
-              builder.getAttr<IteratorTypeAttr>(IteratorType::Reduction);
-        }
-
-        return {builder.getAffineMapArrayAttr(indexingMaps),
-                builder.getArrayAttr(iteratorTypes)};}
-    }];
 
     let hasVerifier = 1;
 }
@@ -855,7 +830,7 @@ def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
     // Input tensor of shape (128, 28, 28)
     %input = ... : tensor<128x28x28xbf16>
 
-    %empty = tensor.empty() : tensor<128x28xi32>
+    %empty = ttir.empty() : tensor<128x28xi32>
     %argmax = "ttir.argmax"(%arg0, %0) <{dim_arg = [0: i32, 2 : i32], keep_dim = false}> : (tensor<128x28x28xbf16>, tensor<128x28xi32>) -> tensor<128x28xi32>
     ```
 
@@ -1104,7 +1079,7 @@ def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
     %input = ... : tensor<2x3xf32>
 
     // Repeat each dimension twice
-    %empty = tensor.empty() : tensor<4x6xf32>
+    %empty = ttir.empty() : tensor<4x6xf32>
     %repeated = "repeat"(%input, %empty) {repeat_dimensions = array<i64: 2, 2>} : (tensor<2x3xf32>, tensor<4x6xf32>) -> tensor<4x6xf32>
     ```
   }];
@@ -1187,7 +1162,7 @@ def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
 
       Example:
       // %arg0: tensor<1x1x32xf32>
-      %0 = tensor.empty() : tensor<1x16x32xf32>
+      %0 = ttir.empty() : tensor<1x16x32xf32>
       %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
 
       Note: Currently, when generating a TTNN executable, the broadcast and repeat operations share the same semantics due to the lack of tensor view support in TTNN.
@@ -1302,10 +1277,10 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
       - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
 
       Example:
-        %input = tensor.empty() : () -> tensor<3x8x8x256xbf16>
-        %weight = tensor.empty() : () -> tensor<256x256x3x3xbf16>
-        %bias = tensor.empty() : () -> tensor<1x1x1x256xbf16>
-        %output = tensor.empty() : () -> tensor<1x10x10x256xbf16>
+        %input = ttir.empty() : () -> tensor<3x8x8x256xbf16>
+        %weight = ttir.empty() : () -> tensor<256x256x3x3xbf16>
+        %bias = ttir.empty() : () -> tensor<1x1x1x256xbf16>
+        %output = ttir.empty() : () -> tensor<1x10x10x256xbf16>
         %0 = "ttir.conv_transpose2d"(%input, %weight, %bias, %output)
           <{
             stride = 1: i32,
@@ -1704,6 +1679,29 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasCanonicalizer = 1;
 }
 
+def TTIR_EmptyOp : TTIR_Op<"empty", [Pure]> {
+    let summary = "Empty op.";
+    let description = [{
+      Tensor empty operation
+    }];
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType, "Attribute": $encoding),
+      [{
+        build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
+      }]>,
+      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType),
+      [{
+        build($_builder, $_state, shape, elementType, nullptr);
+      }]>
+    ];
+
+    let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
+}
+
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
                                            AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
@@ -1730,9 +1728,9 @@ def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
       Produces tensor filled with given fill value.
 
       Examples:
-        %0 = tensor.empty() : () -> tensor<2x3xi32>
+        %0 = ttir.empty() : () -> tensor<2x3xi32>
         %1 = "ttir.fill"(%0) {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
-        %2 = tensor.empty() : () -> tensor<2xf32>
+        %2 = ttir.empty() : () -> tensor<2xf32>
         %3 = "ttir.fill"(%2) {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
     }];
 
@@ -1748,10 +1746,10 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
       Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
 
       Example:
-        %a = tensor.empty() : () -> tensor<10x64x32xbf16>
-        %b = tensor.empty() : () -> tensor<32x128xbf16>
-        %bias = tensor.empty() : () -> tensor<128xbf16>
-        %output = tensor.empty() : () -> tensor<10x64x128xbf16>
+        %a = ttir.empty() : () -> tensor<10x64x32xbf16>
+        %b = ttir.empty() : () -> tensor<32x128xbf16>
+        %bias = ttir.empty() : () -> tensor<128xbf16>
+        %output = ttir.empty() : () -> tensor<10x64x128xbf16>
         %0 = "ttir.linear"(%a, %b, %bias, %output) : (tensor<10x64x32xbf16>, tensor<32x128xbf16>, tensor<128xbf16>, tensor<10x64x128xbf16>) -> tensor<10x64x128xbf16>
     }];
 
@@ -1799,8 +1797,8 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
         - `permutation` array<i64>: The permutation of the input tensor dimensions.
 
       Example:
-      %a = tensor.empty() : () -> tensor<2x3x4xi32>
-      %output = tensor.empty() : () -> tensor<3x4x2xi32>
+      %a = ttir.empty() : () -> tensor<2x3x4xi32>
+      %output = ttir.empty() : () -> tensor<3x4x2xi32>
       %0 = "ttir.permute"(%a, %output) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>, tensor<3x4x2xi32>) -> tensor<3x4x2xi32>
     }];
 
@@ -1826,8 +1824,8 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
       - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
 
       Example:
-        %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
-        %output = tensor.empty() : () -> tensor<10x128x128x3xbf16>
+        %a = ttir.empty() : () -> tensor<10x64x32x3xbf16>
+        %output = ttir.empty() : () -> tensor<10x128x128x3xbf16>
         %0 = "ttir.upsample2d"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128x3xbf16>
     }];
 
@@ -1846,26 +1844,7 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseUnaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
-
-      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(sameRank(getOperation()->getOperands()) &&
-               "Input and output operand must have the same rank");
-
-        auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
-
-        SmallVector<AffineMap> indexingMaps(2, builder.getMultiDimIdentityMap(rank));
-        SmallVector<Attribute> iteratorTypes(
-            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
-
-        return {builder.getAffineMapArrayAttr(indexingMaps),
-                builder.getArrayAttr(iteratorTypes)};
-      }
-    }];
+    TTIR_ElementwiseUnaryOp<mnemonic, traits> {
 }
 
 def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
@@ -1876,24 +1855,7 @@ def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
 }
 
 class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
-
-      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(sameRank(getOperation()->getOperands()) &&
-               "For now all operands must have the same rank");
-        auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
-        SmallVector<AffineMap> indexingMaps(getOperation()->getNumOperands(),
-                                            builder.getMultiDimIdentityMap(rank));
-        SmallVector<Attribute> iteratorTypes(
-            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
-        return {builder.getAffineMapArrayAttr(indexingMaps),
-                builder.getArrayAttr(iteratorTypes)};
-      }
-    }];
+    TTIR_ElementwiseBinaryOp<mnemonic, traits> {
 }
 
 def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
@@ -1951,8 +1913,6 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
                        I32Attr:$index_vector_dim,
                        BoolAttr:$indices_are_sorted,
                        BoolAttr:$unique_indices);
-
-  let regions = (region SizedRegion<1>:$update_computation);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -2025,9 +1985,6 @@ def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
                          UI32Attr:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$result);
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
     let hasVerifier = 1;
 }
 
@@ -2049,9 +2006,6 @@ def TTIR_CollectivePermuteOp : TTIR_DPSOp<"collective_permute"> {
                          I64ElementsAttr:$source_target_pairs);
 
     let results = (outs AnyRankedTensor:$result);
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
     let hasVerifier = 1;
 }
 

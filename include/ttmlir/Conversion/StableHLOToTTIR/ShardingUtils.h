@@ -52,20 +52,38 @@ public:
   // mesh_shard op needs to be created or not.
   bool checkAndUpdateShardyArgSharding(
       mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp,
-      mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr,
-      mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr);
+      mlir::Value argOperand, mlir::sdy::TensorShardingAttr shardingAttr);
 
   // Check and update ret sharding attribute and determine if mesh_shard op
   // needs to be created or not.
-  bool checkAndUpdateShardyRetSharding(
-      mlir::PatternRewriter &rewriter, mlir::func::FuncOp funcOp,
-      uint64_t retIdx, mlir::sdy::TensorShardingAttr shardingAttr,
-      mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr);
+  bool
+  checkAndUpdateShardyRetSharding(mlir::PatternRewriter &rewriter,
+                                  mlir::func::FuncOp funcOp, uint64_t retIdx,
+                                  mlir::sdy::TensorShardingAttr shardingAttr);
+
+  // Parse Shardy sharing attribuite. Make this as public for
+  // potential frontend use.
+  llvm::Expected<bool>
+  parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
+                   mlir::sdy::MeshAttr meshAttr);
+
+  // Given parsed MeshSharding info, get TensorMeshShardingAttr.
+  mlir::tt::TensorMeshShardingAttr
+  getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter);
 
   // Getter functions.
   mlir::tt::MeshShardDirection getShardDirection() const {
     return shardDirection;
   }
+
+  // Needed by the frontend (tt-xla) to create a 'strategy' map for creating
+  // multiDevice tensors based on the MeshSharding object attached to it. This
+  // is needed fren the frontend generates a multiDevice tensor as input.
+  static FailureOr<std::unordered_map<std::string, std::string>>
+  fillStrategyMapFromSharding(
+      const mlir::tt::sharding_utils::MeshSharding &meshSharding,
+      size_t num_devices);
+
   mlir::tt::MeshShardType getShardType() const { return shardType; }
   llvm::ArrayRef<int64_t> getShardShape() const { return shardShape; }
   llvm::ArrayRef<int64_t> getShardDims() const { return shardDims; }
@@ -93,8 +111,8 @@ private:
   // op will be ignored at runtime by simply copying input tensor to output.
   void setDummyShardingOp() { shardType = mlir::tt::MeshShardType::Identity; }
 
-  // Decide wheter to create mesh_shard op and shard_type. Detailed description
-  // can be found in function body.
+  // Decide wheter to create mesh_shard op and shard_type. Detailed
+  // description can be found in function body.
   bool determineMeshShardOpCreationAndShardType(bool foundArgSharding);
 
 private:
@@ -105,6 +123,7 @@ private:
   llvm::SmallVector<int64_t> shardDims{-1};
   llvm::SmallVector<int64_t> meshShape{-1};
   llvm::SmallVector<int64_t> deviceIds{-1};
+  std::string meshName;
   bool lastTileDimReplicate = false;
 };
 
