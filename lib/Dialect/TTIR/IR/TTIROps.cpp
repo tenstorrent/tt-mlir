@@ -383,7 +383,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
                             dilation->second * (kernelSize[1] - 1) - 1) /
                                stride->second +
                            1;
-  if (!getFlattenedCompatInfo().has_value()) {
+  if (!getFlattenedCompatInfo()) {
     if (calculatedHOut != outputType.getDimSize(HEIGHT_DIM) ||
         calculatedWOut != outputType.getDimSize(WIDTH_DIM)) {
       return emitOpError()

@@ -13,26 +13,19 @@
 
 namespace mlir::tt::ttir {
 
-template <typename TMOpType, typename CommutableOpType>
-class TTIRCommuteRewritePattern : public RewritePattern {
+template <typename TMOpType, typename CommutableOpOrInterface>
+class TTIRCommuteOpOrInterfaceRewritePattern
+    : public mlir::detail::OpOrInterfaceRewritePatternBase<
+          CommutableOpOrInterface> {
 public:
-  TTIRCommuteRewritePattern(MLIRContext *ctx)
-      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
+  using mlir::detail::OpOrInterfaceRewritePatternBase<
+      CommutableOpOrInterface>::OpOrInterfaceRewritePatternBase;
 
-  TTIRCommuteRewritePattern(MatchInterfaceOpTypeTag tag, TypeID interfaceID,
-                            PatternBenefit benefit, MLIRContext *context)
-      : RewritePattern(tag, interfaceID, benefit, context) {}
-
-  LogicalResult matchAndRewrite(Operation *op,
+  LogicalResult matchAndRewrite(CommutableOpOrInterface op,
                                 PatternRewriter &rewriter) const final {
-    CommutableOpType commutableOp = dyn_cast<CommutableOpType>(op);
-    if (!commutableOp) {
-      return failure();
-    }
-
     // This operation cannot have a TM below it if it has no users
     if (op->getUsers().empty()) {
-      return failure();
+      return rewriter.notifyMatchFailure(op, "op has no users.");
     }
 
     // Try to find a user which is a `TMOpType`.
@@ -40,16 +33,16 @@ public:
     // If it can, verify that it SHOULD be commuted above `op`.
     // If it should commute, perform the commute.
     TMOpType tmUser = nullptr;
-    for (Operation *user : commutableOp->getUsers()) {
+    for (Operation *user : op->getUsers()) {
       if (!isa<TMOpType>(user)) {
         continue;
       }
 
-      if (failed(isCommuteViable(commutableOp, cast<TMOpType>(user)))) {
+      if (failed(isCommuteViable(op, cast<TMOpType>(user)))) {
         continue;
       }
 
-      if (failed(isCommuteFavorable(commutableOp, cast<TMOpType>(user)))) {
+      if (failed(isCommuteFavorable(op, cast<TMOpType>(user)))) {
         continue;
       }
 
@@ -58,28 +51,53 @@ public:
     }
 
     if (!tmUser) {
-      return failure();
+      return rewriter.notifyMatchFailure(
+          op, "op has no users which can viably be commuted above it, and for "
+              "which commuting is favourable.");
     }
 
     // We have found a user that we can and should commute above `op`
-    performCommuteRewrite(commutableOp, tmUser, rewriter);
+    performCommuteRewrite(op, tmUser, rewriter);
     return success();
   }
 
 private:
   // This should return `success()` if `tmUser` can be commuted above `op`.
-  LogicalResult virtual isCommuteViable(CommutableOpType op,
+  virtual LogicalResult isCommuteViable(CommutableOpOrInterface op,
                                         TMOpType tmUser) const = 0;
 
   // This should return `success()` if there is a user of `op` that we should
   // commute above `op`. Note that the difference between this method and
-  // `canCommute` is that this function should be used to determine if
-  // commuting is beneficial, while `canCommute` should be used to
+  // `isCommuteViable` is that this function should be used to determine if
+  // commuting is favourable, while `isCommuteViable` should be used to
   // determine if commuting is possible.
-  LogicalResult virtual isCommuteFavorable(CommutableOpType op,
+  //
+  // An example of when a commute is viable AND favourable is as follows:
+  //
+  // We have an elementwise op with one user which is a TM, and one operand. TMs
+  // can always be commuted through an elementwise op, so this is viable. This
+  // commute would add no new ops and the computation cost of the TM will not
+  // change. If we perform this commute, the worse case scenario is that
+  // performance stays the same. In the best case, this commute brings the TM
+  // closer to its inverse(s). If there is more than one TM user, and all of
+  // them are an identical TM, commuting is favourable because you can replace
+  // all the TM users with one operand TM.
+  //
+  // An example of when a commute is viable but NOT favourable is as follows:
+  //
+  // We have an elementwise op with ten users, one of which is a TM, and one
+  // operand. TMs can always be commuted through an elementwise op, so this is
+  // viable. This commute would have to add an inverse of the TM to each of the
+  // other 9 users to keep the graph valid if it commutes. Lets say there are no
+  // inverses below those 9 users, and there is no inverses above the
+  // elementwise too. This means the commute does not cause any ops to be erased
+  // in the future and adds 9 ops.
+  //
+  virtual LogicalResult isCommuteFavorable(CommutableOpOrInterface op,
                                            TMOpType tmUser) const = 0;
 
-  void virtual performCommuteRewrite(CommutableOpType op, TMOpType tmUser,
+  virtual void performCommuteRewrite(CommutableOpOrInterface op,
+                                     TMOpType tmUser,
                                      PatternRewriter &rewriter) const = 0;
 };
 
@@ -87,75 +105,77 @@ private:
 // implements a given interface This is useful for implementing the elementwise
 // patterns. This way we do not have to create a separate pattern for each
 // elementwise operation.
-template <typename TMOpType, class CommutableOpInterface>
+template <typename TMOpType, typename CommutableOpInterface>
 class TTIRCommuteOpInterfaceRewritePattern
-    : public TTIRCommuteRewritePattern<TMOpType, Operation *> {
+    : public TTIRCommuteOpOrInterfaceRewritePattern<TMOpType,
+                                                    CommutableOpInterface> {
 public:
+  using TTIRCommuteOpOrInterfaceRewritePattern<
+      TMOpType, CommutableOpInterface>::TTIRCommuteOpOrInterfaceRewritePattern;
+
   TTIRCommuteOpInterfaceRewritePattern(MLIRContext *context,
                                        PatternBenefit benefit = 1)
-      : TTIRCommuteRewritePattern<TMOpType, Operation *>(
+      : TTIRCommuteOpOrInterfaceRewritePattern<TMOpType, CommutableOpInterface>(
             Pattern::MatchInterfaceOpTypeTag(),
             CommutableOpInterface::getInterfaceID(), benefit, context) {}
 };
 
-static LogicalResult checkIdenticalTms(Operation *op1, Operation *op2) {
+// Using this class will allow you to match against a specific operation type:
+// `CommutableOp`.
+template <typename TMOpType, typename CommutableOp>
+class TTIRCommuteOpRewritePattern
+    : public TTIRCommuteOpOrInterfaceRewritePattern<TMOpType, CommutableOp> {
+public:
+  using TTIRCommuteOpOrInterfaceRewritePattern<
+      TMOpType, CommutableOp>::TTIRCommuteOpOrInterfaceRewritePattern;
+
+  TTIRCommuteOpRewritePattern(MLIRContext *context, PatternBenefit benefit = 1,
+                              ArrayRef<StringRef> generatedNames = {})
+      : TTIRCommuteOpOrInterfaceRewritePattern<TMOpType, CommutableOp>(
+            CommutableOp::getOperationName(), benefit, context,
+            generatedNames) {}
+};
+
+static inline bool checkIdenticalTms(Operation *op1, Operation *op2) {
   if (!op1->hasTrait<ttir::TensorManipulation::Trait>() ||
       !op2->hasTrait<ttir::TensorManipulation::Trait>()) {
-    return failure();
+    return false;
   }
 
-  // Check that these are the same TM op
-  if (isa<ttir::TransposeOp>(op1) != isa<ttir::TransposeOp>(op2)) {
-    return failure();
+  auto transposeOp1 = dyn_cast<ttir::TransposeOp>(op1);
+  auto transposeOp2 = dyn_cast<ttir::TransposeOp>(op2);
+  if (transposeOp1 && transposeOp2) {
+    return transposeOp1.getDim0() == transposeOp2.getDim0() &&
+           transposeOp1.getDim1() == transposeOp2.getDim1();
   }
 
-  if (isa<ttir::PermuteOp>(op1) != isa<ttir::PermuteOp>(op2)) {
-    return failure();
+  auto permuteOp1 = dyn_cast<ttir::PermuteOp>(op1);
+  auto permuteOp2 = dyn_cast<ttir::PermuteOp>(op2);
+  if (permuteOp1 && permuteOp2) {
+    return permuteOp1.getPermutation() == permuteOp2.getPermutation();
   }
 
-  if (isa<ttir::ReshapeOp>(op1) != isa<ttir::ReshapeOp>(op2)) {
-    return failure();
+  auto reshapeOp1 = dyn_cast<ttir::ReshapeOp>(op1);
+  auto reshapeOp2 = dyn_cast<ttir::ReshapeOp>(op2);
+  if (reshapeOp1 && reshapeOp2) {
+    return reshapeOp1.getShape() == reshapeOp2.getShape();
   }
 
-  if (isa<ttir::TransposeOp>(op1)) {
-    if (cast<ttir::TransposeOp>(op1).getDim0() !=
-            cast<ttir::TransposeOp>(op2).getDim0() ||
-        cast<ttir::TransposeOp>(op1).getDim1() !=
-            cast<ttir::TransposeOp>(op2).getDim1()) {
-      return failure();
-    }
-  }
-
-  if (isa<ttir::PermuteOp>(op1)) {
-    if (cast<ttir::PermuteOp>(op1).getPermutation() !=
-        cast<ttir::PermuteOp>(op2).getPermutation()) {
-      return failure();
-    }
-  }
-
-  if (isa<ttir::ReshapeOp>(op1)) {
-    if (cast<ttir::ReshapeOp>(op1).getShape() !=
-        cast<ttir::ReshapeOp>(op2).getShape()) {
-      return failure();
-    }
-  }
-
-  return success();
+  return false;
 }
 
-static inline LogicalResult
-checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
+static inline bool checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
   if (users.size() == 0) {
-    return success();
+    return true;
   }
 
   Operation *firstUser = users[0];
   for (auto *user : users) {
-    if (failed(checkIdenticalTms(firstUser, user))) {
-      return failure();
+    if (!checkIdenticalTms(firstUser, user)) {
+      return false;
     }
   }
-  return success();
+  return true;
 }
 
 void populateElementwiseCommutePatterns(MLIRContext *ctx,
