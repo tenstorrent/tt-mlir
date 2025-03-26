@@ -94,7 +94,20 @@ bool LegalLayoutAnalysis::applyOverrides() {
   StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
   auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocName);
 
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
   if (overrideIt == analysisInput.outputLayoutOverrides->end()) {
+    if (opLocName == "matmul_1") {
+      analysisResult.push_back(
+          layout.withBufferType(op->getContext(), BufferType::DRAM)
+              .withMemoryLayout(op->getContext(),
+                                TensorMemoryLayout::Interleaved));
+      return true;
+    }
+
     return false;
   }
 
@@ -106,11 +119,6 @@ bool LegalLayoutAnalysis::applyOverrides() {
   if (not layoutOverride.fullLayoutOverride()) {
     return false;
   }
-
-  RankedTensorType tensorType =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
-  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
   GridAttr grid = GridAttr::get(op->getContext(),
                                 ArrayRef<int64_t>(layoutOverride.grid.value()));

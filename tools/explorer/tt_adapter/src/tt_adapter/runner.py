@@ -5,6 +5,8 @@ import subprocess
 import os
 import logging
 
+logging.basicConfig(level=logging.DEBUG)
+
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttrt import API as ttrt
