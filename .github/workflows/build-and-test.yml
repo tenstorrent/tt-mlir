@@ -486,13 +486,17 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        find . -name "*.gcno" | while read -r file; do
+          ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh -o "$(dirname "$file")" "$file" > /dev/null 2>&1
+        done
+        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
 
     - name: Prepare code coverage report
       run: |
+        source env/activate
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        lcov --no-external --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.base --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        lcov --add-tracefile coverage.base --add-tracefile coverage.info --output-file coverage.total
+        lcov --add-tracefile baseline.info --add-tracefile coverage.info --output-file coverage.total
         lcov --extract coverage.total '**/tt-mlir/*' --output-file coverage.info
         sed -i 's|SF:/__w/tt-mlir/tt-mlir/|SF:|' coverage.info
         lcov --list coverage.info
