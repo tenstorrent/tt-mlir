@@ -76,12 +76,12 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!tt.tile<32x32, f32>,
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK-NEXT: ttir.dma [[lhs]] #map1, %cb0
+  // CHECK-NEXT: ttir.dma [[lhs]] [#map1], %cb0
   // CHECK-NEXT: ttir.dma_wait
   // CHECK-NEXT: ttir.yield %cb0
   // Operand 1 (input)
   // CHECK: ^datamovement1
-  // CHECK-NEXT: ttir.dma [[rhs]] #map2, %cb1
+  // CHECK-NEXT: ttir.dma [[rhs]] [#map2], %cb1
   // CHECK-NEXT: ttir.dma_wait
   // CHECK-NEXT: ttir.yield %cb1
   // Operand 2 (output)
@@ -109,7 +109,7 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, 
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK: ttir.dma [[lhs]] #map1, %cb0
+  // CHECK: ttir.dma [[lhs]] [#map1], %cb0
   // CHECK-NEXT: ttir.dma_wait
   // CHECK-NEXT: ttir.semaphore_wait [[reader_ready_lhs:%[a-z0-9]+]]
   // CHECK-NEXT: ttir.dma %cb0, %cb0
@@ -120,7 +120,7 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, 
   // CHECK-NEXT: ttir.semaphore_wait [[writer_done_lhs]]
   // Operand 1 (input)
   // CHECK: ^datamovement1
-  // CHECK: ttir.dma [[rhs]] #map2, %cb1
+  // CHECK: ttir.dma [[rhs]] [#map2], %cb1
   // CHECK-NEXT: ttir.dma_wait
   // CHECK-NEXT: ttir.semaphore_wait [[reader_ready_rhs:%[a-z0-9]+]]
   // CHECK-NEXT: ttir.dma %cb1, %cb1
@@ -154,7 +154,7 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!tt.tile<32x32, f
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
-  // CHECK: ttir.dma [[lhs]] #map1, %cb0
+  // CHECK: ttir.dma [[lhs]] [#map1], %cb0
   // CHECK-NEXT: ttir.dma_wait
   // CHECK-NEXT: ttir.semaphore_wait [[reader_ready_lhs:%[a-z0-9]+]]
   // CHECK-NEXT: ttir.dma %cb0, %cb0
@@ -165,7 +165,7 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!tt.tile<32x32, f
   // CHECK-NEXT: ttir.semaphore_wait [[writer_done_lhs]]
   // Operand 1 (input)
   // CHECK: ^datamovement1
-  // CHECK: ttir.dma [[rhs]] #map2, %cb1
+  // CHECK: ttir.dma [[rhs]] [#map2], %cb1
   // CHECK-NEXT: ttir.dma_wait
   // CHECK-NEXT: ttir.semaphore_wait [[reader_ready_rhs:%[a-z0-9]+]]
   // CHECK-NEXT: ttir.dma %cb1, %cb1
