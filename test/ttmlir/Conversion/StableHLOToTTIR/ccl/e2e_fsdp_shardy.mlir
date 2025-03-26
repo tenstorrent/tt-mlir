@@ -179,7 +179,7 @@ module @jit_loss_fsdp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replic
 // CHECK-SAME: tensor<4x128xf32, #tt.mesh_sharding<"mesh">>
 // CHECK: "ttir.constant"
 // CHECK-SAME: -> tensor<1xf32, #tt.mesh_sharding<"mesh">>
-// CHECK: tensor.empty()
+// CHECK: ttir.empty()
 // CHECK-SAME: tensor<1x1xf32, #tt.mesh_sharding<"mesh">>
 // CHECK: "ttir.reshape"
 // CHECK-SAME: tensor<1xf32, #tt.mesh_sharding<"mesh">>

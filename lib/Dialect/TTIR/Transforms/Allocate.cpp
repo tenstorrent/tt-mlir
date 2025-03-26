@@ -158,7 +158,7 @@ public:
       func->setDiscardableAttr(ArgumentAllocationAttr::name,
                                rewriter.getArrayAttr(argumentAllocations));
 
-      func->walk([&](tensor::EmptyOp empty) {
+      func->walk([&](ttir::EmptyOp empty) {
         auto resultTy =
             mlir::cast<RankedTensorType>(empty.getResult().getType());
         assert(resultTy.getEncoding());

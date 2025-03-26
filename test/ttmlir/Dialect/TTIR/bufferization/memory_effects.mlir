@@ -8,7 +8,7 @@
 #reduction = #tt.iterator_type<reduction>
 
 func.func @matmul_pure_tensors(%arg0: tensor<2x4x!tt.tile<32x32, f32>>, %arg1: tensor<4x2x!tt.tile<32x32, f32>>) -> tensor<2x2x!tt.tile<32x32, f32>> {
-  %0 = tensor.empty() : tensor<2x2x!tt.tile<32x32, f32>>
+  %0 = ttir.empty() : tensor<2x2x!tt.tile<32x32, f32>>
   // No uses of %3, so it should be removed.
   // CHECK-NOT: "ttir.generic"
   %3 = "ttir.generic"(%arg0, %arg1, %0) <{grid = #tt.grid<1x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #parallel, #reduction], operandSegmentSizes = array<i32: 2, 1>}> ({
@@ -19,7 +19,7 @@ func.func @matmul_pure_tensors(%arg0: tensor<2x4x!tt.tile<32x32, f32>>, %arg1: t
 }
 
 func.func @to_layout_pure_tensors(%arg0: tensor<2x4x!tt.tile<32x32, f32>>) -> tensor<2x4x!tt.tile<32x32, f32>> {
-  %0 = tensor.empty() : tensor<2x4x!tt.tile<32x32, f32>>
+  %0 = ttir.empty() : tensor<2x4x!tt.tile<32x32, f32>>
   // No uses of %3, so it should be removed.
   // CHECK-NOT: "ttir.to_layout"
   %3 = "ttir.to_layout"(%arg0, %0) : (tensor<2x4x!tt.tile<32x32, f32>>, tensor<2x4x!tt.tile<32x32, f32>>) -> tensor<2x4x!tt.tile<32x32, f32>>

@@ -160,7 +160,7 @@ public:
           broadcastInput = rewriter.create<tensor::CollapseShapeOp>(
               loc, input, collapseDimGroups);
         }
-        auto initTensor = rewriter.create<tensor::EmptyOp>(
+        auto initTensor = rewriter.create<ttir::EmptyOp>(
             loc, broadcastedShape, inputRankedTensorType.getElementType());
         auto broadcastOp = rewriter.create<linalg::BroadcastOp>(
             loc, broadcastInput, initTensor.getResult(), broadcastDims);
@@ -271,6 +271,22 @@ public:
 };
 } // namespace
 
+namespace {
+class EmptyOpConversionPattern : public OpConversionPattern<ttir::EmptyOp> {
+public:
+  using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::EmptyOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        /*dynamicSizes*/ ValueRange());
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -290,8 +306,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ElementwiseOpConversionPattern<ttir::FloorOp, linalg::FloorOp>,
       ElementwiseOpConversionPattern<ttir::TanhOp, linalg::TanhOp>,
       ElementwiseOpConversionPattern<ttir::ReciprocalOp, linalg::ReciprocalOp>,
-      TransposeOpConversionPattern, SoftmaxOpConversionPattern>(typeConverter,
-                                                                ctx);
+      TransposeOpConversionPattern, SoftmaxOpConversionPattern,
+      EmptyOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

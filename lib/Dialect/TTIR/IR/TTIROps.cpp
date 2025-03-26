@@ -1572,7 +1572,7 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
     FoldAdaptor, llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
-  if (auto emptyOp = getInput().getDefiningOp<tensor::EmptyOp>()) {
+  if (auto emptyOp = getInput().getDefiningOp<ttir::EmptyOp>()) {
     results.push_back(getOutput());
     return mlir::success();
   }

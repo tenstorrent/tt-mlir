@@ -5,6 +5,8 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -383,11 +385,11 @@ auto splitAndCall(mlir::PatternRewriter &rewriter, mlir::Location loc,
 // Wrapper for creating a DPS op with a given output type. It's assumed that a
 // DPS op has exactly one output that comes after all of the inputs and before
 // any of the attributes in the builder of an op. The output is generated using
-// a tensor::EmptyOp. Calling this function:
+// a ttir::EmptyOp. Calling this function:
 // createDPSOp<OpTy>(rewriter, loc,  outputType, operand1, operand2, ...,
 // operandN, attribute1, attribute2, ..., attributeM);
 // is equivalent to:
-// auto output = rewriter.create<tensor::EmptyOp>(loc, outputType.getShape(),
+// auto output = rewriter.create<ttir::EmptyOp>(loc, outputType.getShape(),
 // outputType.getElementType(), outputType.getEncoding());
 // rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
 // output, attribute1, attribute2, ..., attributeM);
@@ -397,7 +399,7 @@ OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
   static_assert(
       OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
 
-  auto output = rewriter.create<mlir::tensor::EmptyOp>(
+  auto output = rewriter.create<mlir::tt::ttir::EmptyOp>(
       loc, outputType.getShape(), outputType.getElementType(),
       outputType.getEncoding());
 
@@ -408,14 +410,14 @@ OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
 // Wrapper for creating a DPS op with a given output shape, element type and
 // encoding. It's assumed that a  DPS op has exactly one output that comes after
 // all of the inputs and before any of the attributes in the builder of an op.
-// The output is generated using a tensor::EmptyOp. Calling this function:
+// The output is generated using a ttir::EmptyOp. Calling this function:
 // createDPSOp<OpTy>(rewriter, loc,  outputShape, outputElementType,
 // outputEncoding, operand1, operand2, ..., operandN, attribute1, attribute2,
 // ..., attributeM);
 // is equivalent to:
 // auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
 // outputEncoding);
-// auto output = rewriter.create<tensor::EmptyOp>(loc, outputShape,
+// auto output = rewriter.create<ttir::EmptyOp>(loc, outputShape,
 // outputElementType, outputEncoding);
 // rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
 // output, attribute1, attribute2, ..., attributeM);
@@ -436,11 +438,11 @@ OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
 // Wrapper for replacing an op with a DPS op with a given output type.
 // It's assumed that a  DPS op has exactly one output that comes after all of
 // the inputs and before any of the attributes in the builder of a DPS op. The
-// output is generated using a tensor::EmptyOp. Calling this function:
+// output is generated using a ttir::EmptyOp. Calling this function:
 // replaceOpWithNewDPSOp<OpTy>(rewriter, op, outputType, operand1, operand2,
 // ..., operandN, attribute1, attribute2, ..., attributeM);
 // is equivalent to:
-// auto output = rewriter.create<tensor::EmptyOp>(loc, outputType.getShape(),
+// auto output = rewriter.create<ttir::EmptyOp>(loc, outputType.getShape(),
 // outputType.getElementType(), outputType.getEncoding());
 // rewriter.replaceOpWithNewOp<OpTy>(op, outputType, operand1, operand2, ...,
 // operandN, output, attribute1, attribute2, ..., attributeM);
@@ -460,7 +462,7 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
 // Wrapper for replacing an op with a DPS op with a given output shape, element
 // type and encoding. It's assumed that a  DPS op has exactly one output that
 // comes after all of the inputs and before any of the attributes in the builder
-// of a DPS op. The output is generated using a tensor::EmptyOp. Calling this
+// of a DPS op. The output is generated using a ttir::EmptyOp. Calling this
 // function:
 // replaceOpWithNewDPSOp<OpTy>(rewriter, op,  outputShape,
 // outputElementType, outputEncoding, operand1, operand2, ..., operandN,
@@ -468,7 +470,7 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
 // is equivalent to:
 // auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
 // outputEncoding);
-// auto output = rewriter.create<tensor::EmptyOp>(loc, outputShape,
+// auto output = rewriter.create<ttir::EmptyOp>(loc, outputShape,
 // outputElementType, outputEncoding);
 // rewriter.replaceOpWithNewOp<OpTy>(op, outputType, operand1, operand2, ...,
 // operandN, output, attribute1, attribute2, ..., attributeM);

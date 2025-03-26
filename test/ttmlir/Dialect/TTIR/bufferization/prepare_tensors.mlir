@@ -10,8 +10,8 @@
 #layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<8x1x!tt.tile<32x32, f32>, #l1_>>
 
 func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
-  // CHECK: tensor.empty() : tensor<1x1x8x1x!tt.tile<32x32, f32>, #layout1>
-  %0 = tensor.empty() : tensor<256x32xf32, #layout2>
+  // CHECK: ttir.empty() : tensor<1x1x8x1x!tt.tile<32x32, f32>, #layout1>
+  %0 = ttir.empty() : tensor<256x32xf32, #layout2>
   // CHECK: : (tensor<1x1x8x12x!tt.tile<32x32, f32>, #layout>, tensor<1x1x8x12x!tt.tile<32x32, f32>, #layout>, tensor<1x1x8x1x!tt.tile<32x32, f32>, #layout1>) -> tensor<1x1x8x1x!tt.tile<32x32, f32>, #layout1>
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<1x1>,
@@ -39,8 +39,8 @@ func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32,
 #layout2 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <4x1>, memref<2x1x!tt.tile<32x32, f32>, #l1_>>
 
 func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
-  // CHECK: tensor.empty() : tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>
-  %0 = tensor.empty() : tensor<256x32xf32, #layout2>
+  // CHECK: ttir.empty() : tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>
+  %0 = ttir.empty() : tensor<256x32xf32, #layout2>
   // CHECK: : (tensor<4x3x2x4x!tt.tile<32x32, f32>, #layout>, tensor<4x3x2x4x!tt.tile<32x32, f32>, #layout>, tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>) -> tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<4x1>,

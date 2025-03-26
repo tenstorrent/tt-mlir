@@ -345,10 +345,10 @@ class TTIRBuilder:
         shape: Shape,
         data_type: Optional[Type] = None,
     ) -> OpView:
-        """Convenience wrapper constructing `tensor.EmptyOp`."""
+        """Convenience wrapper constructing `ttir.EmptyOp`."""
         dtype = data_type if data_type is not None else self._default_dtype
         with self._ctx, self._loc:
-            op = tensor.EmptyOp(shape, dtype)
+            op = ttir.EmptyOp(RankedTensorType.get(shape, dtype))
 
             self.generate_and_store_random_golden(op)
 

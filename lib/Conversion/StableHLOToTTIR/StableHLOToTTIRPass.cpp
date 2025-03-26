@@ -4,25 +4,11 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
-#include <llvm/ADT/ArrayRef.h>
-#include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Func/Transforms/FuncConversions.h>
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/Dialect.h>
-#include <mlir/IR/MLIRContext.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/Pass/Pass.h>
-
-#include <shardy/dialect/sdy/ir/dialect.h>
-#include <stablehlo/dialect/StablehloOps.h>
-
 #include "ttmlir/Conversion/StableHLOToTTIR/EmptyOpTypeConversion.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -115,7 +101,7 @@ struct ConvertStableHLOToTTIRPass
     target.addIllegalDialect<mlir::sdy::SdyDialect>();
 
     target.addLegalDialect<ttir::TTIRDialect>();
-    target.addLegalOp<mlir::tensor::EmptyOp>();
+    target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
     target.addLegalOp<mlir::func::FuncOp>();
     target.addLegalOp<mlir::func::ReturnOp>();
@@ -141,8 +127,8 @@ struct ConvertStableHLOToTTIRPass
         [&](func::CallOp op) { return typeConverter.isLegal(op); });
 
     addEmptyOpTypeConversionPattern(&getContext(), patterns, typeConverter);
-    target.addDynamicallyLegalOp<tensor::EmptyOp>(
-        [&](tensor::EmptyOp op) { return typeConverter.isLegal(op); });
+    target.addDynamicallyLegalOp<ttir::EmptyOp>(
+        [&](ttir::EmptyOp op) { return typeConverter.isLegal(op); });
 
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
     populateShardyToTTIRPatterns(&getContext(), patterns, typeConverter);

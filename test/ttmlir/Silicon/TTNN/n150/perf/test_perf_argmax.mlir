@@ -16,7 +16,7 @@
 module attributes {} {
   func.func public @argmax_2d(%arg0: tensor<64x64xf32>) -> tensor<64xi32> {
     // CHECK-LABEL: func.func public @argmax_2d(
-    %0 = tensor.empty() : tensor<64xi32>
+    %0 = ttir.empty() : tensor<64xi32>
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 1 : i32, use_multicore = false}>
     // CHECK-SAME: tensor<64x64xf32
