@@ -692,6 +692,11 @@ def test_upsample2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.upsample2d(in0, in1, scale_factor=DenseI32ArrayAttr.get([2, 4]))
 
 
+@compile_to_flatbuffer([(5,)], inputs_types=[torch.bfloat16], targets=["ttnn"])
+def test_arange(in0: Operand, builder: TTIRBuilder):
+    return builder.arange(in0, 0, 5, 1, 0)
+
+
 @compile_to_flatbuffer(
     [(32, 32), (32, 32)], inputs_types=[torch.uint32, torch.uint16], targets=["ttnn"]
 )
@@ -714,7 +719,6 @@ def test_prod(in0: Operand, builder: TTIRBuilder):
     targets=["ttnn"],
 )
 def test_cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    dim = IntegerAttr.get(IntegerType.get_signless(64), 1)
     return builder.cumsum(in0, in1, dim=1)
 
 
