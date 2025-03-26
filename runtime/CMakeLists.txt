@@ -29,3 +29,10 @@ if (TTMLIR_ENABLE_RUNTIME_TESTS)
 else()
   add_library(TTRuntimeTTNNTestLib INTERFACE)
 endif()
+
+# Add coverage_config to all targets in runtime
+foreach(target IN ITEMS TTRuntimeTTNNTestLib)
+  if (TARGET ${target})
+    target_link_libraries(${target} INTERFACE coverage_config)
+  endif()
+endforeach()
