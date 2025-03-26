@@ -431,6 +431,29 @@ MeshSharding::getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter) {
                                                tensorMeshShardingAxisAttr);
 }
 
+// Get MeshSharding given MeshAttr, TensorMeshShardingAttr, and
+// MeshShardDirection.
+void MeshSharding::extractMeshShardingFromTensorMeshShardingAttr(
+    mlir::tt::MeshAttr meshAttr,
+    mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
+    mlir::tt::MeshShardDirection direction) {
+  meshName = meshAttr.getName().str();
+  meshShape = llvm::SmallVector<int64_t>(meshAttr.getShape());
+  shardDirection = direction;
+
+  auto axes = tensorMeshShardingAttr.getTensorMeshShardingAxis();
+  shardShape.resize(axes.size());
+  shardDims.resize(axes.size(), -1);
+  for (auto [dim, axis] : llvm::enumerate(axes)) {
+    shardShape[dim] = axis.getShardShape();
+    for (auto deviceDim : axis.getAxes()) {
+      shardDims[deviceDim] = dim;
+    }
+  }
+
+  shardType = mlir::tt::MeshShardType::Devices;
+}
+
 FailureOr<std::unordered_map<std::string, std::string>>
 MeshSharding::fillStrategyMapFromSharding(
     const mlir::tt::sharding_utils::MeshSharding &meshSharding,

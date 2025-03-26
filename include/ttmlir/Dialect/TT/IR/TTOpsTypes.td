@@ -529,6 +529,16 @@ def TT_MeshesAttr : TT_Attr<"Meshes", "meshes"> {
   }];
   let parameters = (ins ArrayRefParameter<"MeshAttr">:$meshes);
   let assemblyFormat = "`<` `[` $meshes `]` `>`";
+  let extraClassDeclaration = [{
+      MeshAttr getMesh(StringRef name) {
+        for( auto mesh : getMeshes() ) {
+          if( mesh.getName() == name ) {
+            return mesh;
+          }
+        }
+        return nullptr;
+      }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
