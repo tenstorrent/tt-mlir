@@ -442,6 +442,19 @@ const ::ttnn::Tensor &ProgramTensorPool::getTTNNTensorAndValidate(
   return tensorWrapper.getTensor();
 }
 
+::ttnn::Tensor &ProgramTensorPool::getAndValidate(const size_t globalId) {
+  return const_cast<::ttnn::Tensor &>(
+      static_cast<const ProgramTensorPool &>(*this).getAndValidate(globalId));
+}
+
+const ::ttnn::Tensor &
+ProgramTensorPool::getAndValidate(const size_t globalId) const {
+  LOG_ASSERT(liveTensors.contains(globalId));
+  const ::ttnn::Tensor &ttnnTensor = *liveTensors.at(globalId);
+  DEBUG_ASSERT(ttnnTensor.is_allocated());
+  return ttnnTensor;
+}
+
 ::ttnn::Tensor &ProgramTensorPool::getTTNNTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef) {
   return const_cast<::ttnn::Tensor &>(
@@ -466,6 +479,7 @@ ProgramTensorPool::insertTTNNTensorAndValidate(
   return liveTensors.insert_or_assign(globalId, &(iter->second));
 }
 
+<<<<<<< HEAD
 std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
   std::vector<::tt::runtime::Tensor> outputs;
   outputs.reserve(programOutputIds.size());
@@ -482,6 +496,18 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
 }
 
 TensorPtrMapIterator
+=======
+std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
+ProgramTensorPool::insertAndValidate(const size_t globalId,
+                                     const ::ttnn::Tensor &ttnnTensor) {
+  DEBUG_ASSERT(ttnnTensor.is_allocated());
+  auto [iter, inserted] =
+      intermedTensors.insert_or_assign(globalId, ttnnTensor);
+  return liveTensors.insert_or_assign(globalId, &(iter->second));
+}
+
+size_t
+>>>>>>> 1c9e1bbdf (almost working)
 ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
   std::uint32_t globalId = tensorRef->global_id();
