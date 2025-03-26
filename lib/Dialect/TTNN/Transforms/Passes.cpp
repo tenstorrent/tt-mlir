@@ -24,6 +24,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 #include <cassert>
+#include <iomanip> // For setw
 #include <llvm/Support/raw_os_ostream.h>
 #include <llvm/Support/raw_ostream.h>
 #include <map>
@@ -175,9 +176,10 @@ private:
 
     ~OpClusterTree() { delete rootNode; }
 
-  private:
-    std::unordered_map<size_t, OpClusterNode *> hashToOCNodeMap;
     OpClusterNode *rootNode;
+
+  private:
+    // std::unordered_map<size_t, OpClusterNode *> hashToOCNodeMap;
 
   public:
     void addNode(mlir::Operation *op) {
@@ -188,6 +190,10 @@ private:
       auto [opName, components, fullPath] =
           splitLocationIntoChunks(op->getLoc());
 
+      if (opName == "conv2d_18.dc.conv2d.2") {
+        std::cout << "found it!" << std::endl;
+      }
+
       // Must have at least 1 component.
       //
       if (!components.size()) {
@@ -197,31 +203,43 @@ private:
 
       OpClusterNode *prev = rootNode;
 
+      bool foundFirstNew = false;
       for (const std::string &component : components) {
-        bool exists = doesExistNodeByStr(component);
+        OpClusterNode *node = nullptr;
+        bool exists = false;
+        for (OpClusterNode *child : prev->getChildrenNodes()) {
+          if (child->getStr() == component) {
+            exists = true;
+            node = child;
+            break;
+          }
+        }
 
         if (!exists) {
+          foundFirstNew = true;
+        }
+
+        if (foundFirstNew) {
           // Add node to path.
           //
-          // TODO: delete these nodes
+          // TODO: dealloc these new-init'ed nodes
           //
-          auto [iter, success] = hashToOCNodeMap.insert(std::make_pair(
-              hashString(component), new OpClusterNode(component)));
-
-          assert(success);
+          node = new OpClusterNode(component);
 
           // Add edge from parent to this ocNode.
           //
-          prev->addChild(iter->second);
-
-          // If last component, add Op pointer to it.
-          //
-          if (component == components.back()) {
-            iter->second->addOp(op);
-          }
-
-          prev = iter->second;
+          prev->addChild(node);
         }
+
+        // If last component, add Op pointer to it.
+        //
+        if (component == components.back()) {
+          node->addOp(op); //
+        }
+
+        // Set prev for next iteration.
+        //
+        prev = node;
       }
 
       // Debug prints.
@@ -233,11 +251,11 @@ private:
 
       // Add attr.
       //
-      if (mlir::isa<ttnn::Conv2dOp>(op)) {
-        op->setAttr("added_attr_string",
-                    mlir::StringAttr::get(op->getContext(),
-                                          locationToStr(op->getLoc())));
-      }
+      // if (mlir::isa<ttnn::Conv2dOp>(op)) {
+      op->setAttr(
+          "added_attr_string",
+          mlir::StringAttr::get(op->getContext(), locationToStr(op->getLoc())));
+      // }
     }
 
     void markNodeAsFn(const OpClusterNode *node) {
@@ -294,15 +312,53 @@ private:
       analyzeNode(rootNode);
     }
 
+    // void printTree(const OpClusterNode *node, int indent = 0) {
+
+    //   std::cout << std::setw(indent) << "" << node->getStr()
+    //             << std::endl; // Indent and print data
+
+    //   for (const OpClusterNode *child : rootNode->getChildrenNodes()) {
+    //     printTree(child, indent + 4); // Increase indent for children
+    //   }
+    // }
+
+    void printOpClusterTree(const OpClusterNode *node,
+                            const std::string &prefix = "") {
+      if (node == nullptr) {
+        return;
+      }
+
+      std::cout << prefix << node->getStr() << std::endl;
+
+      const std::vector<OpClusterNode *> children = node->getChildrenNodes();
+
+      for (size_t i = 0; i < children.size(); ++i) {
+        const OpClusterNode *child = children[i];
+        std::string newPrefix = prefix;
+        if (i < children.size() - 1) {
+          newPrefix += "├── ";
+        } else {
+          newPrefix += "└── ";
+        }
+
+        printOpClusterTree(child, newPrefix);
+      }
+    }
+
   private:
     bool isLocationValid(const mlir::Location &loc) {
       // TODO: Actually verify location
       return true;
     }
 
-    bool doesExistNodeByStr(std::string str) {
-      return hashToOCNodeMap.count(hashString(str));
-    }
+    // std::tuple<bool, OpClusterNode *> getNodeByStrIfExists(std::string str) {
+    //   auto it = hashToOCNodeMap.find(hashString(str));
+    //   if (it != hashToOCNodeMap.end()) {
+    //     return std::make_tuple(true, it->second);
+    //   } else {
+    //     return std::make_tuple(false, nullptr);
+    //   }
+    // }
 
   private:
     static size_t hashString(std::string str) {
@@ -367,6 +423,10 @@ private:
         fullPath += component;
       }
 
+      // Add op name to components
+      //
+      components.push_back(opName);
+
       return std::make_tuple(opName, components, fullPath);
     }
   };
@@ -378,6 +438,8 @@ private:
     OpClusterTree ocTree = OpClusterTree();
 
     funcOp->walk([&ocTree](mlir::Operation *op) { ocTree.addNode(op); });
+
+    ocTree.printOpClusterTree(ocTree.rootNode);
 
     ocTree.runAnalysis();
 
