@@ -425,6 +425,25 @@ class TTIRBuilder:
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
+        # Process builder to deal with _predefined_ type conflicts, by defaulting to F32 conversions
+        for _input in inputs:
+            i_type = self._get_type(_input)
+            print(
+                i_type,
+                i_type.element_type,
+                self._default_dtype,
+                i_type.element_type == self._default_dtype,
+            )
+            if i_type.element_type != self._default_dtype:
+                # Not a F32 attribute, cast it as such.
+                # First get the golden tensor, then override it
+                _golden = self._get_golden(_input)
+                tensor = _golden.tensor.float()
+                seed = _golden.seed
+
+                # Override the golden to be a F32 type so it doesn't complain when compiling.
+                self._override_golden(_input, Golden(tensor, seed))
+
         with self._ctx, self._loc:
             # Compute the golden
             # Account for cases in which golden_arg organization is not needed:
@@ -487,8 +506,11 @@ class TTIRBuilder:
         op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
+        output_type: Optional[Type] = None,
     ) -> OpView:
-        return self.op_proxy(op_golden_function, op_ttir_function, inputs)
+        return self.op_proxy(
+            op_golden_function, op_ttir_function, inputs, output_type=output_type
+        )
 
     # TTIR top level ops
 
@@ -1235,8 +1257,15 @@ class TTIRBuilder:
         )
 
     def matmul(
-        self, in0: Operand, in1: Operand, bias: Optional[Operand] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        bias: Optional[Operand] = None,
+        data_type: Optional[Type] = None,
     ) -> OpView:
+
+        data_type = self._default_dtype if data_type is None else data_type
+
         inputs = [in0, in1]
         if bias:
             inputs.append(bias)
@@ -1245,6 +1274,7 @@ class TTIRBuilder:
             ttir.MatmulOp,
             inputs,
             organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+            output_type=data_type,
         )
 
     def permute(
@@ -1268,8 +1298,12 @@ class TTIRBuilder:
 
     # class TTIR_GenericElementwiseBinaryOp
 
-    def add(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.add, ttir.AddOp, [in0, in1])
+    def add(
+        self, in0: Operand, in1: Operand, output_type: Optional[Type] = None
+    ) -> OpView:
+        return self.eltwise_proxy(
+            torch.add, ttir.AddOp, [in0, in1], output_type=output_type
+        )
 
     def multiply(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.multiply, ttir.MultiplyOp, [in0, in1])

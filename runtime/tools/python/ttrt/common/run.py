@@ -508,6 +508,8 @@ class Run:
                                         golden_tensor, dtype=dtype
                                     )
                                     golden_inputs.append(golden_tensor_torch)
+                                else:
+                                    print("WOAH WOAH WOAH BUDDY SOMETHING WASN'T READ")
 
                             program.populate_inputs(
                                 Run.TorchInitializer.get_initilizer(self["--init"]),
@@ -702,6 +704,7 @@ class Run:
                                     callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
+                        print(e)
                         result = "error"
                         if isinstance(e, TTRTTestException):
                             result = "test_error"

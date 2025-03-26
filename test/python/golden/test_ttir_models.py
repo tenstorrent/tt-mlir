@@ -8,6 +8,7 @@ import inspect
 
 from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder
+import torch
 
 
 @compile_to_flatbuffer(
@@ -30,6 +31,44 @@ def test_mnist(
 ):
     matmul_1 = builder.matmul(in0, in1)
     add_2 = builder.add(matmul_1, in2)
+    relu_3 = builder.relu(add_2)
+    matmul_5 = builder.matmul(relu_3, in3)
+    add_6 = builder.add(matmul_5, in4)
+    return builder.softmax(add_6, dimension=1)
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 784),
+        (784, 256),
+        (1, 256),
+        (256, 10),
+        (1, 10),
+    ],
+    targets=["ttnn"],
+    inputs_types=[
+        torch.float32,
+        torch.float32,
+        torch.uint16,
+        torch.float32,
+        torch.float32,
+    ],
+)
+def test_broken_mnist(
+    in0: Operand,  # Input 28x28 image
+    in1: Operand,  # Weight 1
+    in2: Operand,  # Bias 1
+    in3: Operand,  # Weight 2
+    in4: Operand,  # Bias 2
+    builder: TTIRBuilder,
+):
+    matmul_1 = builder.matmul(in0, in1)
+    # This add operation will be defined to operate on Int8 type tensors, but will be compared against a F32 golden.
+    # The inputs heading into the Op will be the F32 types quantized (with no Z-Point) into Int8 (killing accuracy)
+    # The outputs will Dequantize the Int8s into F32s (which will most certainly have very low accuracy) heading into the second MNIST Layer
+    add_2 = builder.add(
+        matmul_1, in2, output_type=builder.get_type_from_torch_dtype(torch.uint16)
+    )
     relu_3 = builder.relu(add_2)
     matmul_5 = builder.matmul(relu_3, in3)
     add_6 = builder.add(matmul_5, in4)
