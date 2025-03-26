@@ -56,4 +56,26 @@ def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Att
   }];
 }
 
+def TTIR_ThreadAttr : AttrDef<TTIR_Dialect, "Thread", [], "::mlir::Attribute"> {
+  let mnemonic = "thread";
+  let summary = "Thread information for a generic op.";
+  let description = [{
+    Holds the thread information corresponding to a single generic op region.
+  }];
+  let parameters = (ins
+    "ThreadType":$threadType,
+    OptionalParameter<"SymbolRefAttr">:$kernelSymbol
+  );
+
+  let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? `>` }];
+
+  let extraClassDeclaration = [{
+      static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {
+        return get(context, threadType, nullptr);
+      }
+  }];
+}
+
+def TTIR_ThreadArrayAttr : TypedArrayAttrBase<TTIR_ThreadAttr, "">;
+
 #endif // TTMLIR_TTIR_ATTRS_TD

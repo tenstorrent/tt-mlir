@@ -10,6 +10,7 @@ func.func @reduce_dim_arg(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) 
       grid = #tt.grid<1x1>,
       indexing_maps = [#map, #map, #map],
       iterator_types = [#parallel, #parallel],
+      threads = [#ttir.thread<compute>],
       operandSegmentSizes = array<i32: 2, 1>
       }> ({
       ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_alias>,
@@ -29,12 +30,4 @@ func.func @reduce_dim_arg(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) 
       "ttir.yield"() : () -> ()
       }) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
-}
-
-// -----
-
-func.func @not_in_generic_region(%a: !tt.tile<32x32, f32>, %b: !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32> {
-    // CHECK: error: 'ttir.tile_reduce_max' op TTIR Generic Ops must be inside a generic region
-  %1 = "ttir.tile_reduce_max" (%a, %b) {reduce_dim = #ttir<reduce_dim R>} : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
-  return %1 : !tt.tile<32x32, f32>
 }

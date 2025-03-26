@@ -63,6 +63,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
   pm.addPass(mlir::tt::ttir::createTTIRGenericHWThreadSelection());
   pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateLoops());
+  pm.addPass(mlir::tt::ttir::createTTIRGenericRegionsToFuncs());
 }
 
 //===----------------------------------------------------------------------===//
