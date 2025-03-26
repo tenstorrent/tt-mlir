@@ -476,7 +476,7 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
     - name: Upload compile commands
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: compile-commands
         path: ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
@@ -490,8 +490,10 @@ jobs:
 
     - name: Prepare code coverage report
       run: |
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --directory ${{ steps.strings.outputs.work-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        lcov --extract coverage.info '**/tt-mlir/*' --output-file coverage.info
+        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
+        lcov --no-external --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.base --gcov-tool ${CMAKE_SOURCE_DIR}/.github/workflows/gcov_for_clang.sh
+        lcov --add-tracefile coverage.base --add-tracefile coverage.info --output-file coverage.total
+        lcov --extract coverage.total '**/tt-mlir/*' --output-file coverage.info
         sed -i 's|SF:/__w/tt-mlir/tt-mlir/|SF:|' coverage.info
         lcov --list coverage.info
 
