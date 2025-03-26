@@ -514,11 +514,19 @@ class TTIRBuilder:
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp
 
-    # NOTE torch.where doesn't take the same inputs as ttir.WhereOp, needs more extensive configuration
     def where(
         self, in0: Operand, in1: Operand, in2: Operand, operandSegmentSizes=List[int]
     ) -> OpView:
-        return self.eltwise_proxy(torch.where, ttir.WhereOp, [in0, in1, in2])
+        return self.op_proxy(
+            torch.where,
+            ttir.WhereOp,
+            [in0, in1, in2],
+            organize_golden_args=lambda i: (
+                self._get_golden_tensor(i[0]).to(dtype=torch.bool),
+                self._get_golden_tensor(i[1]),
+                self._get_golden_tensor(i[2]),
+            ),
+        )
 
     # class TTIR_ElementwiseUnaryOp
 

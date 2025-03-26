@@ -487,17 +487,17 @@ def test_transpose(in0: Operand, builder: TTIRBuilder):
     return builder.transpose(in0)
 
 
-# @compile_to_flatbuffer(
-# [
-#    (64, 64),
-#    (64, 64),
-#    (64, 64),
-# ],
-# inputs_types = [torch.int8, torch.float32, torch.float32],
-# targets=["ttnn"],
-# )
-# def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-# return builder.where(in0, in1, in2)
+@compile_to_flatbuffer(
+    [
+        (64, 64),
+        (64, 64),
+        (64, 64),
+    ],
+    inputs_types=[torch.int8, torch.float32, torch.float32],
+    targets=["ttnn"],
+)
+def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.where(in0, in1, in2)
 
 
 @compile_to_flatbuffer(
