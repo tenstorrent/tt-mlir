@@ -204,6 +204,13 @@ class Run:
             help="disable putting dispatch on ethernet cores - place it on worker cores instead",
         )
         Run.register_arg(
+            name="--ignore-version",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Ignore version warning preventing flatbuffers from being run",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -274,7 +281,7 @@ class Run:
         for path in ttnn_binary_paths:
             bin = Binary(self.logger, self.file_manager, path)
             try:
-                bin.check_version()
+                bin.check_version(ignore=self["--ignore-version"])
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -330,7 +337,7 @@ class Run:
         for path in ttmetal_binary_paths:
             bin = Binary(self.logger, self.file_manager, path)
             try:
-                bin.check_version()
+                bin.check_version(ignore=self["--ignore-version"])
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -704,7 +711,7 @@ class Run:
                                     callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
-                        print(e)
+                        print(e, type(e))
                         result = "error"
                         if isinstance(e, TTRTTestException):
                             result = "test_error"

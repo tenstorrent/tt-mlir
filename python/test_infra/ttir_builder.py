@@ -583,8 +583,10 @@ class TTIRBuilder:
     def reciprocal(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.reciprocal, ttir.ReciprocalOp, [in0])
 
-    def relu(self, in0: Operand) -> OpView:
-        return self.eltwise_proxy(torch.relu, ttir.ReluOp, [in0])
+    def relu(self, in0: Operand, output_type: Optional[Type] = None) -> OpView:
+        return self.eltwise_proxy(
+            torch.relu, ttir.ReluOp, [in0], output_type=output_type
+        )
 
     def rsqrt(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.rsqrt, ttir.RsqrtOp, [in0])
@@ -1261,11 +1263,8 @@ class TTIRBuilder:
         in0: Operand,
         in1: Operand,
         bias: Optional[Operand] = None,
-        data_type: Optional[Type] = None,
+        output_type: Optional[Type] = None,
     ) -> OpView:
-
-        data_type = self._default_dtype if data_type is None else data_type
-
         inputs = [in0, in1]
         if bias:
             inputs.append(bias)
@@ -1274,7 +1273,7 @@ class TTIRBuilder:
             ttir.MatmulOp,
             inputs,
             organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
-            output_type=data_type,
+            output_type=output_type,
         )
 
     def permute(
