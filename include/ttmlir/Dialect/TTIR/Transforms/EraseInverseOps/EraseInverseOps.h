@@ -7,57 +7,50 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
-#include <llvm/Support/LogicalResult.h>
-#include <mlir/IR/OpDefinition.h>
-#include <mlir/IR/PatternMatch.h>
 
 namespace mlir::tt::ttir {
 
 template <typename TMOpType, typename CommutableOpOrInterface>
-class TTIRCommuteOpOrInterfaceRewritePattern
-    : public mlir::detail::OpOrInterfaceRewritePatternBase<
-          CommutableOpOrInterface> {
+class TTIRCommuteRewritePatternBase {
 public:
-  using mlir::detail::OpOrInterfaceRewritePatternBase<
-      CommutableOpOrInterface>::OpOrInterfaceRewritePatternBase;
+  virtual ~TTIRCommuteRewritePatternBase() {};
 
-  LogicalResult matchAndRewrite(CommutableOpOrInterface op,
-                                PatternRewriter &rewriter) const final {
-    // This operation cannot have a TM below it if it has no users
+protected:
+  LogicalResult matchAndRewriteImpl(CommutableOpOrInterface op,
+                                    PatternRewriter &rewriter) const {
+    // This operation cannot have a TM below it if it has no users.
     if (op->getUsers().empty()) {
-      return rewriter.notifyMatchFailure(op, "op has no users.");
+      return failure();
     }
 
     // Try to find a user which is a `TMOpType`.
     // If found, verify that it can be commuted above `op`.
     // If it can, verify that it SHOULD be commuted above `op`.
     // If it should commute, perform the commute.
-    TMOpType tmUser = nullptr;
+    TMOpType userToCommute = nullptr;
     for (Operation *user : op->getUsers()) {
-      if (!isa<TMOpType>(user)) {
+      auto tmUser = dyn_cast<TMOpType>(user);
+      if (!tmUser) {
         continue;
       }
 
-      if (failed(isCommuteViable(op, cast<TMOpType>(user)))) {
+      if (failed(isCommuteViable(op, tmUser))) {
         continue;
       }
 
-      if (failed(isCommuteFavorable(op, cast<TMOpType>(user)))) {
+      if (failed(isCommuteFavorable(op, tmUser))) {
         continue;
       }
-
-      tmUser = cast<TMOpType>(user);
+      userToCommute = tmUser;
       break;
     }
 
-    if (!tmUser) {
-      return rewriter.notifyMatchFailure(
-          op, "op has no users which can viably be commuted above it, and for "
-              "which commuting is favourable.");
+    if (!userToCommute) {
+      return failure();
     }
 
-    // We have found a user that we can and should commute above `op`
-    performCommuteRewrite(op, tmUser, rewriter);
+    // We have found a user that we can and should commute above `op`.
+    performCommuteRewrite(op, userToCommute, rewriter);
     return success();
   }
 
@@ -85,7 +78,7 @@ private:
   //
   // An example of when a commute is viable but NOT favourable is as follows:
   //
-  // We have an elementwise op with ten users, one of which is a TM, and one
+  // We have an elementwise op with 10 users, one of which is a TM, and one
   // operand. TMs can always be commuted through an elementwise op, so this is
   // viable. This commute would have to add an inverse of the TM to each of the
   // other 9 users to keep the graph valid if it commutes. Lets say there are no
@@ -102,41 +95,38 @@ private:
 };
 
 // Using this class will allow you to match against any operation that
-// implements a given interface This is useful for implementing the elementwise
+// implements a given interface. This is useful for implementing the elementwise
 // patterns. This way we do not have to create a separate pattern for each
 // elementwise operation.
 template <typename TMOpType, typename CommutableOpInterface>
 class TTIRCommuteOpInterfaceRewritePattern
-    : public TTIRCommuteOpOrInterfaceRewritePattern<TMOpType,
-                                                    CommutableOpInterface> {
+    : public OpInterfaceRewritePattern<CommutableOpInterface>,
+      public TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface> {
 public:
-  using TTIRCommuteOpOrInterfaceRewritePattern<
-      TMOpType, CommutableOpInterface>::TTIRCommuteOpOrInterfaceRewritePattern;
+  using OpInterfaceRewritePattern<
+      CommutableOpInterface>::OpInterfaceRewritePattern;
 
-  TTIRCommuteOpInterfaceRewritePattern(MLIRContext *context,
-                                       PatternBenefit benefit = 1)
-      : TTIRCommuteOpOrInterfaceRewritePattern<TMOpType, CommutableOpInterface>(
-            Pattern::MatchInterfaceOpTypeTag(),
-            CommutableOpInterface::getInterfaceID(), benefit, context) {}
+  LogicalResult matchAndRewrite(CommutableOpInterface op,
+                                PatternRewriter &rewriter) const override {
+    return this->matchAndRewriteImpl(op, rewriter);
+  }
 };
 
 // Using this class will allow you to match against a specific operation type:
 // `CommutableOp`.
 template <typename TMOpType, typename CommutableOp>
 class TTIRCommuteOpRewritePattern
-    : public TTIRCommuteOpOrInterfaceRewritePattern<TMOpType, CommutableOp> {
+    : public OpRewritePattern<CommutableOp>,
+      public TTIRCommuteRewritePatternBase<TMOpType, CommutableOp> {
 public:
-  using TTIRCommuteOpOrInterfaceRewritePattern<
-      TMOpType, CommutableOp>::TTIRCommuteOpOrInterfaceRewritePattern;
+  using OpRewritePattern<CommutableOp>::OpRewritePattern;
 
-  TTIRCommuteOpRewritePattern(MLIRContext *context, PatternBenefit benefit = 1,
-                              ArrayRef<StringRef> generatedNames = {})
-      : TTIRCommuteOpOrInterfaceRewritePattern<TMOpType, CommutableOp>(
-            CommutableOp::getOperationName(), benefit, context,
-            generatedNames) {}
+  LogicalResult matchAndRewrite(CommutableOp op,
+                                PatternRewriter &rewriter) const override {
+    return this->matchAndRewriteImpl(op, rewriter);
+  }
 };
-
-static inline bool checkIdenticalTms(Operation *op1, Operation *op2) {
+inline bool checkIdenticalTms(Operation *op1, Operation *op2) {
   if (!op1->hasTrait<ttir::TensorManipulation::Trait>() ||
       !op2->hasTrait<ttir::TensorManipulation::Trait>()) {
     return false;
@@ -164,7 +154,7 @@ static inline bool checkIdenticalTms(Operation *op1, Operation *op2) {
   return false;
 }
 
-static inline bool checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
+inline bool checkAllUsersAreIdenticalTms(ArrayRef<Operation *> users) {
   if (users.size() == 0) {
     return true;
   }
