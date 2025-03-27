@@ -84,6 +84,8 @@ jobs:
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "op_test_report_path=op_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "model_test_report_path=model_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -282,6 +284,22 @@ jobs:
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
+
+    - name: Run Builder Op Tests
+      if: matrix.build.type == 'ttrt'
+      shell: bash
+      run: |
+        source env/activate
+        pytest test/python/golden/test_ttir_ops.py --junit-xml="builder-op-tests.xml"
+        cp builder-op-tests.xml ${{ steps.strings.outputs.op_test_report_path }}
+
+    - name: Run Builder Model Tests
+      if: matrix.build.type == 'ttrt'
+      shell: bash
+      run: |
+        source env/activate
+        pytest test/python/golden/test_ttir_models.py --junit-xml="builder-model-tests.xml"
+        cp builder-op-tests.xml ${{ steps.strings.outputs.model_test_report_path }}
 
     # TTRT test runner
     - name: Run TTRT tests
