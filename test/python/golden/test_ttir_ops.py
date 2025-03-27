@@ -447,7 +447,6 @@ def test_conv_transpose2d(
     groups: int,
     request,
 ):
-
     def conv_transpose2d(
         in0: Operand, weight: Operand, bias: Operand, in1: Operand, builder: TTIRBuilder
     ):
@@ -488,7 +487,6 @@ def test_max_pool2d(
     padding_bottom: int,
     request,
 ):
-
     def max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.max_pool2d(
             in0,
