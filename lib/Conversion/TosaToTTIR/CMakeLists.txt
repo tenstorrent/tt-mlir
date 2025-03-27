@@ -13,5 +13,3 @@ add_mlir_conversion_library(TTMLIRTosaToTTIR
   MLIRPass
   MLIRTosaDialect
 )
-
-target_link_libraries(TTMLIRTosaToTTIR PUBLIC coverage_config)

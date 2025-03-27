@@ -24,5 +24,3 @@ add_mlir_conversion_library(TTMLIRStableHLOToTTIR
   MLIRPass
   StablehloPasses
 )
-
-target_link_libraries(TTMLIRStableHLOToTTIR PUBLIC coverage_config)

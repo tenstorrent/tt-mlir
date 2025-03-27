@@ -12,5 +12,3 @@ add_mlir_conversion_library(TTMLIRTTIRToTTMetal
   MLIRIR
   MLIRPass
 )
-
-target_link_libraries(TTMLIRTTIRToTTMetal PUBLIC coverage_config)

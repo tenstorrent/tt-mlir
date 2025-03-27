@@ -13,5 +13,3 @@ add_mlir_dialect_library(MLIRTTMetalPipelines
   MLIRPass
   MLIRTransforms
 )
-
-target_link_libraries(MLIRTTMetalPipelines PUBLIC coverage_config)

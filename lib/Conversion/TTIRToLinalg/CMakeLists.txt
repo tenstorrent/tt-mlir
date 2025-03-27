@@ -14,5 +14,3 @@ add_mlir_conversion_library(TTMLIRTTIRToLinalg
   MLIRLinalgDialect
   MLIRArithDialect
 )
-
-target_link_libraries(TTMLIRTTIRToLinalg PUBLIC coverage_config)

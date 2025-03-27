@@ -12,5 +12,3 @@ add_mlir_conversion_library(TTMLIRTTIRToTTIRDecomposition
   MLIRIR
   MLIRPass
 )
-
-target_link_libraries(TTMLIRTTIRToTTIRDecomposition PUBLIC coverage_config)

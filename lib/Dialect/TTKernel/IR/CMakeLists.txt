@@ -13,5 +13,3 @@ add_mlir_dialect_library(MLIRTTKernelDialect
         LINK_LIBS PUBLIC
         MLIRTTMetalDialect
         )
-
-target_link_libraries(MLIRTTKernelDialect PUBLIC coverage_config)

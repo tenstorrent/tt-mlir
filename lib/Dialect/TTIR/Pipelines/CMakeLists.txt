@@ -24,5 +24,3 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   MLIRPass
   MLIRTransforms
 )
-
-target_link_libraries(MLIRTTIRPipelines PUBLIC coverage_config)
