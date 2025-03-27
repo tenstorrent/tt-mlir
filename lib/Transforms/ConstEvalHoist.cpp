@@ -48,7 +48,6 @@ namespace {
 class ConstEvalAnalyze {
 public:
   ConstEvalAnalyze(func::FuncOp *funcOp) : funcOp(funcOp) {
-    llvm::outs() << "analyzing: " << funcOp->getSymName() << "\n";
     populateConstParams();
     buildConstEvalSubgraphs();
   }
@@ -151,12 +150,13 @@ private:
   }
 
   void unionSubgraphs(size_t x, size_t y) {
-    llvm::outs() << "merging " << x << " and " << y << "\n";
-    size_t rootX = findRoot(x);
-    size_t rootY = findRoot(y);
+    const size_t rootX = findRoot(x);
+    const size_t rootY = findRoot(y);
 
-    if (rootX == rootY)
+    // If subgraph are already merged, do nothing.
+    if (rootX == rootY) {
       return;
+    }
 
     // Union by rank
     if (rank[rootX] < rank[rootY]) {
@@ -181,7 +181,6 @@ private:
   }
 
   void processOp(Operation *op) {
-    llvm::outs() << "processing " << op->getName() << "\n";
     // Skip unhoistable and creation ops
     if (isUnhoistableOp(op) || isCreationOp(op)) {
       return;
@@ -242,12 +241,9 @@ private:
 
     // Track this op in the subgraph
     opToSubgraphMap[op] = targetSubgraphId;
-    llvm::outs() << "mapping op to subgraph: " << targetSubgraphId << "\n";
 
     // Add creation ops to the subgraph as well
     for (Operation *creationOp : creationOps) {
-      llvm::outs() << "mapping creationOp " << creationOp->getName()
-                   << " to subgraph: " << targetSubgraphId << "\n";
       opToSubgraphMap[creationOp] = targetSubgraphId;
     }
 
@@ -405,9 +401,6 @@ private:
     mlir::MLIRContext *context = &this->getContext();
     mlir::OpBuilder builder(context);
 
-    llvm::outs() << subgraph.inputParameters.size() << " params mapped to "
-                 << originalFunc.getSymName() << "\n";
-
     // Identify all outputs of the subgraph.
     llvm::SmallVector<mlir::BlockArgument, 4> inputs(
         subgraph.inputParameters.begin(), subgraph.inputParameters.end());
@@ -509,10 +502,8 @@ private:
     assert(!op->hasTrait<mlir::OpTrait::IsTerminator>());
 
     llvm::SmallVector<mlir::Value, 4> remappedOperands;
-    llvm::outs() << "processing operands for " << op->getName() << "\n";
     for (auto operand : op->getOperands()) {
       auto it = valueMap.find(operand);
-      operand.dump();
       assert(it != valueMap.end() && "Subgraph depends on out-of-scope value!");
       remappedOperands.push_back(it->second);
     }
