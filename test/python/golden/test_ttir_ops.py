@@ -264,9 +264,9 @@ def transpose(in0: Operand, builder: TTIRBuilder):
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
 def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
-    def prod(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.prod(in0, in1, [dim_arg], keep_dim)
-    compile_to_flatbuffer(prod, [shape, shape], test_base=request.node.name) 
+    def prod(in0: Operand, builder: TTIRBuilder):
+        return builder.prod(in0, [dim_arg], keep_dim)
+    compile_to_flatbuffer(prod, [shape], test_base=request.node.name) 
 
 @pytest.mark.parametrize("shape", [(128,128)])
 def test_lt(shape: Shape, request):

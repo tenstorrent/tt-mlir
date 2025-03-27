@@ -1151,18 +1151,18 @@ class TTIRBuilder:
         input_tensor: Operand,
         weight: Operand,
         bias: Optional[Operand],
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
-        padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         groups: int,
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
-        stride = tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
+        stride = list(stride) if not isinstance(stride, int) else int(stride)
         padding = (
-            tuple(padding) if not isinstance(padding, IntegerAttr) else int(padding)
+            list(padding) if not isinstance(padding, int) else int(padding)
         )
         dilation = (
-            tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
+            list(dilation) if not isinstance(dilation, int) else int(dilation)
         )
 
         # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias is rank 1: [C_out]
@@ -1224,24 +1224,24 @@ class TTIRBuilder:
         self,
         input_tensor: Operand,
         weight: Operand,
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
-        padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        output_padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        output_padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         groups: int,
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
-        stride = tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
+        stride = list(stride) if not isinstance(stride, int) else int(stride)
         padding = (
-            tuple(padding) if not isinstance(padding, IntegerAttr) else int(padding)
+            list(padding) if not isinstance(padding, int) else int(padding)
         )
         output_padding = (
-            tuple(output_padding)
-            if not isinstance(output_padding, IntegerAttr)
+            list(output_padding)
+            if not isinstance(output_padding, int)
             else int(output_padding)
         )
         dilation = (
-            tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
+            list(dilation) if not isinstance(dilation, int) else int(dilation)
         )
         golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
@@ -1466,7 +1466,7 @@ class TTIRBuilder:
             ttir.ZerosOp,
             [],
             golden_kwargs={"size": shapes},
-            ttir_kwargs={"result": output, "shape": shape},
+            ttir_kwargs={"result": output, "shape": shapes},
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
         )
