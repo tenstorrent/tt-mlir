@@ -886,6 +886,30 @@ class TTIRBuilder:
             ),
         )
 
+    def update_cache(
+        self, in0: Operand, in1: Operand, in2: Operand, batch_offset: int = 0
+    ) -> OpView:
+        return self.op_proxy(
+            self.update_cache_golden_function,
+            ttir.UpdateCacheOp,
+            [in0, in1, in2],
+            golden_kwargs={"batch_offset": batch_offset},
+            ttir_kwargs={"batch_offset": batch_offset},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
+        )
+
+    def update_cache_golden_function(
+        self,
+        in0: Operand,
+        in1: Operand,
+        in2: Optional[Operand] = None,
+        batch_offset: int = 0,
+    ) -> Operand:
+        index = torch.clamp(in2, 0, in0.size()[2])
+        a = in0[:, :, : index[0], :]
+        b = in0[:, :, : (in0.size()[2] - index[0] - 1), :]
+        return torch.cat((a, in1, b), 2)
+
     def broadcast(
         self, in0: Operand, in1: Operand, broadcast_dimensions: List[int]
     ) -> OpView:
