@@ -171,6 +171,17 @@ def test_get_dimension_size(in0: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
+        (4, 10, 3, 5, 7),
+        (4, 10, 5, 7, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_dot_general(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.dot_general(in0, in1, [0], [3], [0], [2])
+
+
+@compile_to_flatbuffer(
+    [
         (64, 128),
         (32, 128),
         (16, 128),
