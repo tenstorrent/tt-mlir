@@ -795,5 +795,5 @@ if __name__ == "__main__":
     )
 
     for function_name, func in test_functions:
-        if function_name.startswith("test_up"):
+        if function_name.startswith("test_"):
             func()
