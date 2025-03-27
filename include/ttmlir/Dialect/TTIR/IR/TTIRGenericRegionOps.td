@@ -13,6 +13,7 @@ include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/Interfaces/InferIntRangeInterface.td"
 
 class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = [TTIR_GenericRegionOpTrait, TTIR_GenericParent]> :
     TTIR_Op<mnemonic, traits> {
@@ -219,7 +220,7 @@ def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
         Given some affine map, as demonstrated below, the dma op will be evaluated at each point in the affine map's iteration space.
       ```mlir
       #map1 = affine_map<(d0, d1, d2) -> (d0, d2)>
-      %tx = ttir.dma %stream #map1, %cb0 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 32768 + d3 * 4096)>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem
+      %tx = ttir.dma %stream<#map1>, %cb0 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 32768 + d3 * 4096)>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem
       ```
 _tx
 
@@ -233,7 +234,7 @@ _tx
                          OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
-    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? (`[` $srcAffineMap^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`[` $dstAffineMap^ `]`)? (`,` $optNumElems^)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -263,6 +264,18 @@ _tx
                getOptNumElems();
       }
     }];
+}
+
+def TTIR_NullTxOp : TTIR_GenericRegionOp<"null_tx", [Pure]> {
+    let summary = "Create a null transaction.";
+    let description = [{
+      Utility op to create a null transaction.  This is required for creating a sentinel
+      starting transaction for a DMA nested inside of a loop nest.
+    }];
+
+    let results = (outs TTIR_MemTx:$result);
+
+    let assemblyFormat = [{ attr-dict }];
 }
 
 def TTIR_DMAWaitOp : TTIR_GenericRegionOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
@@ -393,6 +406,7 @@ class TTIR_IndexOp<string mnemonic, list<Trait> traits = []> : TTIR_GenericRegio
   traits #
   [ Pure
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
   ]> {
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
