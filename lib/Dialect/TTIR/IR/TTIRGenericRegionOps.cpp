@@ -6,8 +6,16 @@
 
 #include "ttmlir/Utils.h"
 
+#include "llvm/Support/MathExtras.h"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"
+
+static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
+  unsigned width = mlir::IndexType::kInternalStorageBitWidth;
+  return mlir::ConstantIntRanges::fromUnsigned(mlir::APInt(width, umin),
+                                               mlir::APInt(width, umax));
+}
 
 //===----------------------------------------------------------------------===//
 // TileMatmulBlockOp
@@ -152,6 +160,13 @@ void mlir::tt::ttir::IterIndexOp::getAsmResultNames(
   setNameFn(getResult(), "iter" + std::to_string(dim));
 }
 
+void mlir::tt::ttir::IterIndexOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
 void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   int64_t dim = getDim();
@@ -164,4 +179,11 @@ void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
 
 mlir::OpFoldResult mlir::tt::ttir::CoreIndexOp::fold(FoldAdaptor adaptor) {
   return getDimAttr();
+}
+
+void mlir::tt::ttir::CoreIndexOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }

@@ -511,14 +511,65 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(torch.int32),
         )
 
+    def dot_general(
+        self,
+        in0: Operand,
+        in1: Operand,
+        batch_dims_lhs: List[int],
+        contract_dims_lhs: List[int],
+        batch_dims_rhs: List[int],
+        contract_dims_rhs: List[int],
+    ) -> OpView:
+        # Configure inputs for golden function
+        lhs_dims = contract_dims_lhs + batch_dims_lhs
+        rhs_dims = contract_dims_rhs + batch_dims_rhs
+
+        # Get output_shape from inputs' shapes and dimensions
+        lhs = self._get_golden_tensor(in0)
+        rhs = self._get_golden_tensor(in1)
+        lhs_shape = self.get_shape(in0)
+        rhs_shape = self.get_shape(in1)
+        output_shape = [lhs_shape[i] for i in batch_dims_lhs]
+        for d in range(len(lhs_shape)):
+            if d not in batch_dims_lhs and d not in contract_dims_lhs:
+                output_shape.append(lhs_shape[d])
+        for d in range(len(rhs_shape)):
+            if d not in batch_dims_rhs and d not in contract_dims_rhs:
+                output_shape.append(rhs_shape[d])
+        return self.op_proxy(
+            torch.tensordot,
+            ttir.DotGeneralOp,
+            [in0, in1],
+            golden_kwargs={"dims": (lhs_dims, rhs_dims)},
+            ttir_kwargs={
+                "batch_dims_lhs": batch_dims_lhs,
+                "contract_dims_lhs": contract_dims_lhs,
+                "batch_dims_rhs": batch_dims_rhs,
+                "contract_dims_rhs": contract_dims_rhs,
+            },
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            output_shape=output_shape,
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(in0).dtype
+            ),
+        )
+
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp
 
-    # NOTE torch.where doesn't take the same inputs as ttir.WhereOp, needs more extensive configuration
     def where(
         self, in0: Operand, in1: Operand, in2: Operand, operandSegmentSizes=List[int]
     ) -> OpView:
-        return self.eltwise_proxy(torch.where, ttir.WhereOp, [in0, in1, in2])
+        return self.op_proxy(
+            torch.where,
+            ttir.WhereOp,
+            [in0, in1, in2],
+            organize_golden_args=lambda i: (
+                self._get_golden_tensor(i[0]).to(dtype=torch.bool),
+                self._get_golden_tensor(i[1]),
+                self._get_golden_tensor(i[2]),
+            ),
+        )
 
     # class TTIR_ElementwiseUnaryOp
 
@@ -772,9 +823,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def prod(
-        self, in0: Operand, in1: Operand, dim_arg: List[int], keep_dim: bool = False
-    ) -> OpView:
+    def prod(self, in0: Operand, dim_arg: List[int], keep_dim: bool = False) -> OpView:
         g_kwargs = {}
         if len(dim_arg) == 1:
             g_kwargs["dim"] = dim_arg[0]
@@ -789,9 +838,6 @@ class TTIRBuilder:
             golden_kwargs=g_kwargs,
             ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
-            output_type=self.get_type_from_torch_dtype(
-                self._get_golden_tensor(in1).dtype
-            ),
         )
 
     def embedding(self, in0: Operand, in1: Operand) -> OpView:
@@ -1197,7 +1243,7 @@ class TTIRBuilder:
         kwargs = {"min": min_arg, "max": max_arg}
         return self.op_proxy(
             torch.clamp,
-            ttir.ClampOp,
+            ttir.ClampScalarOp,
             [in0],
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
@@ -1282,6 +1328,39 @@ class TTIRBuilder:
             ttir_kwargs={"scale_factor": scale_factor, "mode": mode},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
+        )
+
+    def arange(
+        self, result=Operand, start=int, end=int, step=int, arange_dimension=int
+    ) -> OpView:
+        single_dim_tensor = torch.arange(
+            start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
+        )
+        shape = self.get_shape(result)
+        repeat_dims = []
+        for i in range(len(shape)):
+            if i == arange_dimension:
+                repeat_dims.append(int(shape[i] / ((end - start) / step)))
+            else:
+                repeat_dims.append(shape[i])
+
+        return self.op_proxy(
+            torch.Tensor.repeat,
+            ttir.ArangeOp,
+            [result, single_dim_tensor],
+            golden_kwargs={"repeats": tuple(repeat_dims)},
+            ttir_kwargs={
+                "start": start,
+                "end": end,
+                "step": step,
+                "arange_dimension": arange_dimension,
+            },
+            organize_ttir_args=lambda i, o, _: (self._get_type(o),),
+            organize_golden_args=lambda i: [i[1]],
+            output_shape=shape,
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(result).dtype
+            ),
         )
 
     # TTIR top level generic ops

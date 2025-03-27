@@ -524,7 +524,7 @@ class Flatbuffer:
         # temporary state value to check if test failed
         self.test_result = "pass"
 
-    def check_version(self):
+    def check_version(self, ignore: bool = False):
         package_name = "ttrt"
 
         try:
@@ -532,7 +532,7 @@ class Flatbuffer:
         except Exception as e:
             raise Exception(f"error retrieving version: {e} for {package_name}")
 
-        if package_version != self.version:
+        if package_version != self.version and not ignore:
             raise Exception(
                 f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
             )

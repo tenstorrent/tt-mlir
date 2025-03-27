@@ -1027,25 +1027,36 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
 }
 
 def TTNN_PadOp: TTNN_Op<"pad"> {
-    let summary = "Pad op.";
-    let description = [{
-      Pad input tensor by padding the input_shape to output_shape using the provided value.
+  let summary = "Pad op.";
+  let description = [{
+    Pad input tensor by padding the input_shape to output_shape using the provided value.
 
-      The `padding` attribute must be a sequence of integers that is twice the size as the rank of the input.
-      Each pair of integers in the padding attribute represents the amount of padding to add to the low and high of that dimension.
-      I.e: an input tensor of shape <1x30x30x64xf32> with padding attribute <0, 0, 1, 1, 1, 1, 0, 0> will return a tensor of shape <1x32x32x64xf32>,
-      and so will a padding attribute of <0, 0, 0, 2, 0, 2, 0, 0>.
-    }];
+    The `padding` attribute must be a sequence of integers that is twice the size as the rank of the input.
+    Each pair of integers in the padding attribute represents the amount of padding to add to the low and high of that dimension.
+    I.e: an input tensor of shape <1x30x30x64xf32> with padding attribute <0, 0, 1, 1, 1, 1, 0, 0> will return a tensor of shape <1x32x32x64xf32>,
+    and so will a padding attribute of <0, 0, 0, 2, 0, 2, 0, 0>.
+  }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         DenseI32ArrayAttr:$padding,
-                         F32Attr:$value,
-                         BoolAttr:$use_multicore,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+  let arguments = (ins AnyRankedTensor:$input,
+                        DenseI32ArrayAttr:$padding,
+                        F32Attr:$value,
+                        BoolAttr:$use_multicore,
+                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs AnyRankedTensor:$result);
+  let results = (outs AnyRankedTensor:$result);
 
-    let hasVerifier = 1;
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      mlir::TypedValue<mlir::RankedTensorType> input = getInput();
+      ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+            getResult().getType().getEncoding());
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
+                                                             input, layoutAttr);
+    }
+  }];
 }
 
 def TTNN_SliceOp: TTNN_Op<"slice"> {
@@ -1305,7 +1316,7 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
     let hasVerifier = 1;
 }
 
-def TTNN_ClampOp : TTNN_Op<"clamp"> {
+def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar"> {
     let summary = "Clamp op.";
     let description = [{
       Clamp tensor values to a specified range.
@@ -1315,7 +1326,7 @@ def TTNN_ClampOp : TTNN_Op<"clamp"> {
         input: [[0, 1, 2, 3, 4, 5, 6, 7]]
         max: 5.000000+00
 
-        "ttnn.clamp"(%arg0) <{max = 2.000000e+00 : f32, min = 5.000000e+00 : f32}>
+        "ttnn.clamp_scalar"(%arg0) <{max = 2.000000e+00 : f32, min = 5.000000e+00 : f32}>
         -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
     }];
 
@@ -1326,6 +1337,27 @@ def TTNN_ClampOp : TTNN_Op<"clamp"> {
     let results = (outs Variadic<AnyRankedTensor>:$result);
 
     let hasVerifier = 1;
+}
+
+def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
+  let summary = "Clamp op.";
+  let description = [{
+    Clamp tensor values to a specified range using min/max as tensor.
+
+    Example:
+      min:   [[2, 2, 2, 3, 3, 3, 0, 0]]
+      input: [[0, 1, 2, 3, 4, 5, 6, 7]]
+      max:   [[5, 5, 5, 9, 9, 9, 6, 6]]
+
+      "ttnn.clamp_tensor"(%input, %min, %max)
+      %out:  [[2, 2, 2, 3, 4, 5, 6, 6]]
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       AnyRankedTensor:$min,
+                       AnyRankedTensor:$max);
+
+  let results = (outs Variadic<AnyRankedTensor>:$result);
 }
 
 def TTNN_EmptyOp : TTNN_Op<"empty"> {

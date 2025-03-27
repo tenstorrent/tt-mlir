@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -32,6 +33,14 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
   // bufferDeallocationOptions;
   // mlir::bufferization::buildBufferDeallocationPipeline(
   //    pm, bufferDeallocationOptions);
+}
+
+void createOptimizationPasses(OpPassManager &pm) {
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  pm.addPass(mlir::createSCCPPass());
+  pm.addPass(mlir::createCSEPass());
+  pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
 }
 
 void createTTIRToTTMetalBackendPipeline(
@@ -61,8 +70,10 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
+  pm.addPass(mlir::tt::ttir::createTTIRGenericLowerAffineDMAs());
   pm.addPass(mlir::tt::ttir::createTTIRGenericHWThreadSelection());
   pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateLoops());
+  createOptimizationPasses(pm);
 }
 
 //===----------------------------------------------------------------------===//
