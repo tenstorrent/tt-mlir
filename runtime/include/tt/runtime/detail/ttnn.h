@@ -44,6 +44,7 @@
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
@@ -168,6 +169,7 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
+<<<<<<< HEAD
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle);
 
@@ -177,6 +179,15 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        
 // Forward declare TensorCache to avoid circular dependencies
 class TensorCache;
+=======
+Tensor getOpOutputTensor(OpContext opContextHandle,
+                         CallbackContext programContextHandle);
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputs,
+                           std::shared_ptr<TensorCache> tensorCache);
+>>>>>>> c3b323320 (building, but ttrt won't run anymore?)
 
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
