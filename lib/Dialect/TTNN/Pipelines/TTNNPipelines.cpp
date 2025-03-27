@@ -22,6 +22,14 @@ namespace mlir::tt::ttnn {
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
 
+void createTTIRPipelineAutomaticDataParallelizationPass(OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  ttir::TTIRAutomaticDataParallelizationOptions automaticDataParallelizationOptions;
+  {
+    automaticDataParallelizationOptions.meshShape = llvm::to_vector(options.meshShape);
+  }
+  pm.addPass(ttir::createTTIRAutomaticDataParallelization(automaticDataParallelizationOptions));
+}
+
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
 
@@ -151,6 +159,10 @@ void createTTIRToTTNNBackendPipeline(
   OpPassManager &devicePm =
       pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
+
+  // Run automatic data parallelization pass
+  createTTIRPipelineAutomaticDataParallelizationPass(devicePm, options);
+  
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
   createTTNNPipelineLoweringPasses(devicePm, options);
   createTTNNPipelineWorkaroundPass(devicePm, options);

@@ -367,7 +367,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([FourOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([FourOperands, InferTypeOpInterface], traits)> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -380,6 +380,31 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {out.getType()}, {first, second, third}, out);
       }]>
     ];
+
+    let extraClassDeclaration = [{
+       MutableOperandRange getDpsInitsMutable() {
+         return ttir::getDpsOutputs(this);
+       }
+
+       static ::mlir::LogicalResult inferReturnTypes(::mlir::MLIRContext *context,
+         ::std::optional<::mlir::Location> location,
+         ::mlir::ValueRange operands,
+         ::mlir::DictionaryAttr attributes,
+         ::mlir::OpaqueProperties properties,
+         ::mlir::RegionRange regions,
+         ::llvm::SmallVectorImpl<::mlir::Type>& inferredReturnTypes) {
+           auto first = mlir::dyn_cast<mlir::RankedTensorType>(operands[0].getType());
+           auto second = mlir::dyn_cast<mlir::RankedTensorType>(operands[1].getType());
+           auto third = mlir::dyn_cast<mlir::RankedTensorType>(operands[2].getType());
+
+           if(!first || !second || !third || first != second || second != third) {
+             return mlir::failure();
+           }
+
+           inferredReturnTypes.push_back(first);
+           return mlir::success();
+         }
+     }];
 }
 
 def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastable]> {
@@ -390,7 +415,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastabl
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands, InferTypeOpInterface], traits)> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -403,6 +428,29 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {out.getType()}, in, out);
       }]>
     ];
+
+    let extraClassDeclaration = [{
+       MutableOperandRange getDpsInitsMutable() {
+         return ttir::getDpsOutputs(this);
+       }
+
+       static ::mlir::LogicalResult inferReturnTypes(::mlir::MLIRContext *context,
+         ::std::optional<::mlir::Location> location,
+         ::mlir::ValueRange operands,
+         ::mlir::DictionaryAttr attributes,
+         ::mlir::OpaqueProperties properties,
+         ::mlir::RegionRange regions,
+         ::llvm::SmallVectorImpl<::mlir::Type>& inferredReturnTypes) {
+           auto first = mlir::dyn_cast<mlir::RankedTensorType>(operands[0].getType());
+
+           if(!first) {
+             return mlir::failure();
+           }
+
+           inferredReturnTypes.push_back(first);
+           return mlir::success();
+         }
+     }];
 }
 
 def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
@@ -655,7 +703,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands, InferTypeOpInterface], traits)> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -672,6 +720,30 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {outputType}, {lhs, rhs}, out);
       }]>
     ];
+
+    let extraClassDeclaration = [{
+       MutableOperandRange getDpsInitsMutable() {
+         return ttir::getDpsOutputs(this);
+       }
+
+       static ::mlir::LogicalResult inferReturnTypes(::mlir::MLIRContext *context,
+         ::std::optional<::mlir::Location> location,
+         ::mlir::ValueRange operands,
+         ::mlir::DictionaryAttr attributes,
+         ::mlir::OpaqueProperties properties,
+         ::mlir::RegionRange regions,
+         ::llvm::SmallVectorImpl<::mlir::Type>& inferredReturnTypes) {
+           auto first = mlir::dyn_cast<mlir::RankedTensorType>(operands[0].getType());
+           auto second = mlir::dyn_cast<mlir::RankedTensorType>(operands[1].getType());
+
+           if(!first || !second || first != second) {
+             return mlir::failure();
+           }
+
+           inferredReturnTypes.push_back(first);
+           return mlir::success();
+         }
+     }];
 }
 
 // TODO (azecevic): NaN != NaN, otherwise eq(x, x) == 1.
@@ -1857,7 +1929,7 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_NamedOp<"matmul", [DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.

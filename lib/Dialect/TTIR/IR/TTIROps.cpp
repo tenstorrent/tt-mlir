@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -2045,6 +2046,107 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 // MatmulOp
 //===----------------------------------------------------------------------===//
 
+::mlir::LogicalResult mlir::tt::ttir::MatmulOp::inferReturnTypes(
+    ::mlir::MLIRContext *context, ::std::optional<::mlir::Location> location,
+    ::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes,
+    ::mlir::OpaqueProperties properties, ::mlir::RegionRange regions,
+    ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes) {
+  // Acquire values needed to perform computation
+  ::mlir::RankedTensorType inputAType =
+      mlir::dyn_cast<mlir::RankedTensorType>(operands[0].getType());
+  ::mlir::RankedTensorType inputBType =
+      mlir::dyn_cast<mlir::RankedTensorType>(operands[1].getType());
+  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
+  mlir::OperationName operationName(ttir::MatmulOp::getOperationName(),
+                                    context);
+  // todo: taps fix this
+  bool transposeA = false;
+      //mlir::dyn_cast<mlir::BoolAttr>(
+      //    attributes.get(ttir::MatmulOp::getTransposeAAttrName(operationName)))
+      //    .getValue();
+  bool transposeB = false;
+      //mlir::dyn_cast<mlir::BoolAttr>(
+      //    attributes.get(ttir::MatmulOp::getTransposeBAttrName(operationName)))
+      //    .getValue();
+
+  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
+  // the purpose of the matrix multiplication. After the matrix multiplication,
+  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
+  // transposed.
+  if (inputAType.getRank() == 1) {
+    inputAShape.insert(inputAShape.begin(), 1);
+  } else if (transposeA) {
+    std::swap(inputAShape[inputAShape.size() - 1],
+              inputAShape[inputAShape.size() - 2]);
+  }
+
+  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
+  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
+  // check if the RHS needs to be transposed.
+  if (inputBType.getRank() == 1) {
+    inputBShape.push_back(1);
+  } else if (transposeB) {
+    std::swap(inputBShape[inputBShape.size() - 1],
+              inputBShape[inputBShape.size() - 2]);
+  }
+
+  // Verify that the input A and input B has matching inner dimensions.
+  if (inputAShape[inputAShape.size() - 1] !=
+      inputBShape[inputBShape.size() - 2]) {
+    llvm::errs() << ("Input A[-1](") << inputAShape[inputAShape.size() - 1]
+                 << ") and B[-2](" << inputBShape[inputBShape.size() - 2]
+                 << ") must have matching inner dimensions";
+    return mlir::failure();
+  }
+
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  // Verify that the batch dimensions are broadcast compatible and construct the
+  // expected output shape. If either of input A or input B is at most 2D
+  // tensors, the batch dimensions are trivially broadcast compatible.
+  if (inputAShape.size() > 2 || inputBShape.size() > 2) {
+    llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
+                                               inputAShape.end() - 2);
+    llvm::SmallVector<int64_t> inputBBatchDims(inputBShape.begin(),
+                                               inputBShape.end() - 2);
+
+    // Verify that the batch dimensions of input A and B are broadcast
+    // compatible.
+    llvm::SmallVector<int64_t, 4> broadcastedShape;
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            inputABatchDims, inputBBatchDims, broadcastedShape)) {
+
+      llvm::errs() << "Batch dimensions of input A(" +
+                          ttmlir::utils::join(inputABatchDims, ",") +
+                          ") and B(" +
+                          ttmlir::utils::join(inputBBatchDims, ",") +
+                          ") are not broadcast compatible";
+      return mlir::failure();
+    }
+
+    // Insert the broadcasted batch dimensions in the expected output shape.
+    expectedOutputShape = std::move(broadcastedShape);
+  }
+
+  // Insert the input A and B inner dimensions in expected output shape
+  // Consider the case where input A and B are vectors. In that case,
+  // the dimension 1 is ommited from the output shape.
+  if (inputAType.getRank() > 1) {
+    expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
+  }
+
+  if (inputBType.getRank() > 1) {
+    expectedOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
+  }
+
+  // Construct expected return type tensors
+  mlir::RankedTensorType outputType = mlir::RankedTensorType::get(
+      expectedOutputShape, inputAType.getElementType());
+  inferredReturnTypes.push_back(outputType);
+
+  return mlir::success();
+}
+
 // ANCHOR: adding_an_op_matmul_ttir_verify
 // MatmulOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MatmulOp::verify() {
@@ -2066,74 +2168,22 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
-  // the purpose of the matrix multiplication. After the matrix multiplication,
-  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
-  // transposed.
-  if (inputAType.getRank() == 1) {
-    inputAShape.insert(inputAShape.begin(), 1);
-  } else if (getTransposeA()) {
-    std::swap(inputAShape[inputAShape.size() - 1],
-              inputAShape[inputAShape.size() - 2]);
+  // Determine the output type of the operation based on the input state
+  llvm::SmallVector<::mlir::Type> inferredReturnTypes;
+  mlir::NamedAttribute transposeA(getTransposeAAttrName(), getTransposeAAttr());
+  mlir::NamedAttribute transposeB(getTransposeBAttrName(), getTransposeBAttr());
+  mlir::DictionaryAttr dictionaryAttr =
+      mlir::DictionaryAttr::get(getContext(), {transposeA, transposeB});
+  if (failed(inferReturnTypes(getContext(), getLoc(), getOperands(),
+                              dictionaryAttr, mlir::OpaqueProperties(nullptr),
+                              ::mlir::RegionRange(), inferredReturnTypes))) {
+    return emitOpError(
+        "Could not infer output types for the provided configuration.");
   }
 
-  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
-  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
-  // check if the RHS needs to be transposed.
-  if (inputBType.getRank() == 1) {
-    inputBShape.push_back(1);
-  } else if (getTransposeB()) {
-    std::swap(inputBShape[inputBShape.size() - 1],
-              inputBShape[inputBShape.size() - 2]);
-  }
-
-  // Verify that the input A and input B has matching inner dimensions.
-  if (inputAShape[inputAShape.size() - 1] !=
-      inputBShape[inputBShape.size() - 2]) {
-    return emitOpError("Input A[-1](")
-           << inputAShape[inputAShape.size() - 1] << ") and B[-2]("
-           << inputBShape[inputBShape.size() - 2]
-           << ") must have matching inner dimensions";
-  }
-
-  llvm::SmallVector<int64_t> expectedOutputShape;
-  // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape. If either of input A or input B is at most 2D
-  // tensors, the batch dimensions are trivially broadcast compatible.
-  if (inputAShape.size() > 2 || inputBShape.size() > 2) {
-    llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
-                                               inputAShape.end() - 2);
-    llvm::SmallVector<int64_t> inputBBatchDims(inputBShape.begin(),
-                                               inputBShape.end() - 2);
-
-    // Verify that the batch dimensions of input A and B are broadcast
-    // compatible.
-    llvm::SmallVector<int64_t, 4> broadcastedShape;
-    if (!mlir::OpTrait::util::getBroadcastedShape(
-            inputABatchDims, inputBBatchDims, broadcastedShape)) {
-
-      return emitOpError("Batch dimensions of input A(" +
-                         ttmlir::utils::join(inputABatchDims, ",") +
-                         ") and B(" +
-                         ttmlir::utils::join(inputBBatchDims, ",") +
-                         ") are not broadcast compatible");
-    }
-
-    // Insert the broadcasted batch dimensions in the expected output shape.
-    expectedOutputShape = std::move(broadcastedShape);
-  }
-
-  // Insert the input A and B inner dimensions in expected output shape
-  // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
-  if (inputAType.getRank() > 1) {
-    expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
-  }
-
-  if (inputBType.getRank() > 1) {
-    expectedOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
-  }
-
+  mlir::RankedTensorType expectedOutputType =
+      mlir::dyn_cast<mlir::RankedTensorType>(inferredReturnTypes[0]);
+  llvm::ArrayRef<int64_t> expectedOutputShape = expectedOutputType.getShape();
   // Check the case of a vector-vector product. At this moment we don't support
   // scalars in IR, hence check that the output is at least 1D tensor of size 1.
   if (expectedOutputShape.size() == 0) {
