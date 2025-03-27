@@ -4,7 +4,6 @@
 
 import os
 import inspect
-import subprocess
 import torch
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -17,11 +16,9 @@ from ttmlir.passes import (
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
     MLIRModuleLogger,
-    ModuleLog,
 )
 
-from .ttir_builder import Golden, Operand, Shape, TTIRBuilder, DataType, TypeInfo
-from ttrt.common.api import API as ttrt
+from .ttir_builder import Shape, TTIRBuilder, DataType
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
@@ -64,6 +61,7 @@ def compile_as_mlir_module(
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = False,
+    base: Optional[str] = None,
 ):
     """
     Define a MLIR module specified as a python function.
@@ -169,8 +167,13 @@ def compile_as_mlir_module(
 
         print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
+        base = test_fn.__name__ if base is None else base
+
         if module_dump:
-            _dump_module(module)
+            with open(base + "_ttir.mlir", "w") as f:
+                f.write(str(module))
+                _dump_module(module)
+
         return module, builder
 
 
@@ -330,22 +333,6 @@ def ttmetal_to_flatbuffer(
     print("`ttmetal_to_flatbuffer_file` passed successfully.")
 
 
-def ttrt_run_fb(binary_path: str):
-    """Runs a flatbuffer at `binary_path` through `ttrt`. Should be equivalent to `ttrt run {binary_path}`"""
-    print(f"running {binary_path}")
-    result_code = subprocess.run(
-        f"ttrt run {binary_path}", shell=True, capture_output=True
-    )
-    result_code = result_code.returncode
-
-    if result_code == 42:
-        assert False, "PCC failure"
-    elif result_code == 1:
-        assert False, "Test run failure"
-    else:
-        assert result_code == 0
-
-
 def compile_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
@@ -423,10 +410,6 @@ def compile_to_flatbuffer(
     module, builder = compile_as_mlir_module(
         fn, inputs_shapes, inputs_types, mesh_shape=mesh_shape
     )
-
-    if module_dump:
-        with open(test_base + "_ttir.mlir", "w") as f:
-            f.write(str(module))
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     module = from_ttir(module, 
