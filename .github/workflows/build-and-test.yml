@@ -390,7 +390,7 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- FBS_GENERATION mlir-headers mlir-generic-headers
-        python3 tools/scripts/filter-compile-commands.py --diff ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
+        python3 tools/scripts/filter-compile-commands.py ${{ steps.strings.outputs.build-output-dir }}/compile_commands.json
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
 
     - name: Unique-ify clang-tidy fixes
