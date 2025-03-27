@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
@@ -137,23 +138,13 @@ std::string getOpLocName(Operation *op) {
   return "";
 }
 
-std::string firstNLines(std::string str, int n) {
-  std::istringstream ss(str);
-  std::string line;
-  std::string result;
-  for (int i = 0; i < n && std::getline(ss, line); i++) {
-    result += line + "\n";
-  }
-  return result;
-}
-
-llvm::SmallVector<int64_t, 4> getTiledShape(llvm::ArrayRef<int64_t> shape) {
-  llvm::SmallVector<int64_t, 4> tiledShape(shape.begin(), shape.end());
+llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
+  llvm::SmallVector<int64_t, 4> tiledShape(shape);
   tiledShape[shape.size() - 1] =
-      (shape[shape.size() - 1] + TILE_WIDTH - 1) / TILE_WIDTH * TILE_WIDTH;
+      ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 1], TILE_WIDTH);
   if (shape.size() > 1) {
     tiledShape[shape.size() - 2] =
-        (shape[shape.size() - 2] + TILE_HEIGHT - 1) / TILE_HEIGHT * TILE_HEIGHT;
+        ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 2], TILE_HEIGHT);
   }
   return tiledShape;
 }

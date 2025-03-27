@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
@@ -30,15 +31,8 @@ ttnn::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
       newShape, inputType.getElementType(), outputLayoutAttr);
 
   // Add suffix to keep the location name unique.
-  Location oldLoc = input.getLoc();
-  Location newLoc = oldLoc;
-  if (!locSuffix.empty() && llvm::isa<NameLoc>(oldLoc)) {
-    newLoc = NameLoc::get(
-        StringAttr::get(input.getContext(),
-                        llvm::cast<NameLoc>(oldLoc).getName().str() +
-                            locSuffix),
-        oldLoc);
-  }
+  Location newLoc =
+      ttmlir::utils::appendLocationSuffix(input.getLoc(), locSuffix);
 
   llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
   return rewriter.create<ttnn::ReshapeOp>(newLoc, outputType, input,

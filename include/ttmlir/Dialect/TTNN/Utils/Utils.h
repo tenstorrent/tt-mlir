@@ -64,12 +64,9 @@ std::string getOpLocName(Operation *op);
 // Save the IR to a file for debugging.
 void irToFile(mlir::Operation *op, std::string filename);
 
-// Extract the first n lines from a string.
-std::string firstNLines(std::string str, int n);
-
 // Convert a logical tensor shape to a tiled shape by rounding up the last two
 // dims to tile size (32). E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
-llvm::SmallVector<int64_t, 4> getTiledShape(llvm::ArrayRef<int64_t> shape);
+llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
 
 } // namespace mlir::tt::ttnn::utils
 

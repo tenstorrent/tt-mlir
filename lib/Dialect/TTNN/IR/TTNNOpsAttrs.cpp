@@ -236,14 +236,13 @@ llvm::SmallVector<int64_t> TTNNLayoutAttr::getScalarShardShape() const {
 // Get size of tensor in tiles
 //
 // This function returns the size of the tensor in tiles.
-// Size is calculate by rounding up the last two dims of the tensor to tile size
-// and then pluging the tensor shape into the linear map. This result is then
-// divided by the tile shape. Example: tensor shape (6, 15, 10), linear map (d0,
-// d1, d2) -> (d0 * 32 + d1, d2) and tile shape (32, 32).
+// Size is calculated by rounding up the last two dims of the tensor to tile
+// size and then plugging the tensor shape into the linear map. This result is
+// then divided by the tile shape. Example: tensor shape (6, 15, 10), linear map
+// (d0, d1, d2) -> (d0 * 32 + d1, d2) and tile shape (32, 32).
 //
 // The result is calculated: (6, 15, 10) -> (6, 32, 32) -> (6 * 32, 32) -> (192,
-// 32) which is then divided by tile shape (32, 32)
-// -> (6, 1)
+// 32) which is then divided by tile shape (32, 32) -> (6, 1)
 //
 // param tensorShape The shape of the tensor
 // return The size of the tensor in tiles.
@@ -271,7 +270,8 @@ TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
           {y, y.floorDiv(tileH)}, {x, x.floorDiv(tileW)}});
 
   // Get tiled shape by evaluating the affine map with tensor shape.
-  return ttmlir::utils::evalShape(tiled, utils::getTiledShape(tensorShape));
+  return ttmlir::utils::evalShape(tiled,
+                                  utils::getTilePaddedShape(tensorShape));
 }
 
 // Get the size of shard in bytes
@@ -481,7 +481,7 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   // If the tensor is tiled the last two dims need to be rounded up to tile size
   // before creating the affine map. E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
   if (llvm::isa<TileType>(elementType)) {
-    physicalShape = utils::getTiledShape(tensorShape);
+    physicalShape = utils::getTilePaddedShape(tensorShape);
   }
 
   // Construct a new affine map which will be used to map from logical

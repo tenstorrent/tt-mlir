@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
@@ -86,8 +87,10 @@ bool ShardSolver::resolveStep() {
   }
 
   for (const auto shardSpec : *shardSpecs) {
-    llvm::outs() << "Resolving constraints for:\n";
-    shardSpec.op->print(llvm::outs());
+    if (DEBUG) {
+      llvm::outs() << "Resolving constraints for:\n";
+      shardSpec.op->print(llvm::outs());
+    }
 
     Operation *consumerOp = shardSpec.op;
     Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
@@ -348,8 +351,8 @@ bool ShardSolver::insertReshard(const Edge &edge) {
       }
 
       if (DEBUG) {
-        std::string errorMsg =
-            utils::firstNLines(llvm::toString(shardCompatible.takeError()), 4);
+        std::string errorMsg = ttmlir::utils::firstNLines(
+            llvm::toString(shardCompatible.takeError()), 4);
         errorCount[errorMsg].push_back(
             {producerConfig.outputLayout, outputConfig.outputLayout});
       } else {
@@ -739,8 +742,8 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
 
       // early exit
       if (DEBUG) {
-        std::string errorMsg =
-            utils::firstNLines(llvm::toStringWithoutConsuming(error), 4);
+        std::string errorMsg = ttmlir::utils::firstNLines(
+            llvm::toStringWithoutConsuming(error), 4);
 
         llvm::errs() << "OpModel constraints failed: ";
         llvm::errs() << producerOperand.getLoc() << "->"

@@ -17,6 +17,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
+#include "llvm/Support/LineIterator.h"
+#include "llvm/Support/MemoryBuffer.h"
 
 #include <cstdint>
 #include <tuple>
@@ -547,6 +549,33 @@ broadcastValue(mlir::PatternRewriter &rewriter, mlir::Value input,
                                                     input, broadcastDims);
   return mlir::success();
 }
+// Append a suffix to a location name if it's a NameLoc.
+// If the location is not a NameLoc or suffix is empty, returns the original
+// location.
+inline mlir::Location appendLocationSuffix(mlir::Location loc,
+                                           llvm::StringRef suffix) {
+  if (suffix.empty() || !mlir::isa<mlir::NameLoc>(loc))
+    return loc;
+
+  auto nameLoc = mlir::cast<mlir::NameLoc>(loc);
+  return mlir::NameLoc::get(
+      mlir::StringAttr::get(loc.getContext(), nameLoc.getName().str() + suffix),
+      loc);
+}
+
+// Extract the first n lines from a string.
+inline std::string firstNLines(std::string str, int n) {
+  std::unique_ptr<llvm::MemoryBuffer> memBuf =
+      llvm::MemoryBuffer::getMemBuffer(str);
+  llvm::line_iterator lineIt(*memBuf);
+  std::string result;
+  for (int i = 0; i < n && !lineIt.is_at_end(); ++i, ++lineIt) {
+    result += *lineIt;
+    result += "\n";
+  }
+  return result;
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H
