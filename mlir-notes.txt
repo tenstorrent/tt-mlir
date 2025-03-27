@@ -1,3 +1,99 @@
+Operation/Region/Block
+
+1. Operations (Ops):
+The core unit of computation in MLIR.
+Each operation can represent a simple instruction (e.g., addition) or a complex construct (e.g., loops or function calls).
+Operations have a name, operands, results, attributes, and can contain nested regions.
+
+2. Regions:
+A region is a container for a sequence of basic blocks.
+Some operations (like functions, loops, or conditionals) may have one or more regions inside them.
+A region does not have arguments, only the blocks inside it do.
+
+3. Blocks:
+A block is a sequence of operations with a single-entry point.
+Blocks contain operations and define control flow within a region.
+A block has:
+A list of operations.
+A list of arguments (used for control flow, similar to SSA phi nodes).
+A single successor per entry.
+
+Value/Type/Attribute
+
+1. Values
+A value represents a runtime entity produced and consumed by operations.
+It can be:
+An SSA (Static Single Assignment) value, which is the output of an operation.
+A block argument, which represents an input to a block.
+Each value is typed, meaning it has an associated type.
+
+2. Types
+A type in MLIR describes what kind of data a value holds.
+Types in MLIR are extensible and can be scalars, tensors, vectors, etc.
+Examples of types:
+Primitive types: i32, f64
+Composite types: tensor<4xf32>, memref<10xi8>, vector<8xi16>
+
+3. Attributes
+An attribute is constant metadata attached to an operation.
+Unlike values, attributes are immutable and do not represent runtime data.
+Attributes are used for things like:
+Literal constants (DenseElementsAttr, IntegerAttr, FloatAttr)
+Compiler hints (StringAttr, ArrayAttr)
+
+Attributes/Properties/Traits of Operations
+
+1. Attributes
+Immutable, constant metadata attached to an operation.
+Used to store compile-time known values, such as:
+Integer/floating-point literals (IntegerAttr, FloatAttr)
+String metadata (StringAttr)
+Lists (ArrayAttr, DenseElementsAttr)
+Attributes must be explicitly specified in the operation definition.
+
+2. Properties
+Structured, strongly-typed metadata stored inside operations.
+More flexible than attributes, as they allow richer types and can support dynamic behaviors.
+Unlike attributes, properties are not stored in the operation dictionary but are defined in operation C++ classes.
+
+3. Traits
+Code-gen helpers that specify generic properties of an operation.
+Unlike attributes and properties, traits do not store values but enforce constraints and behaviors.
+MLIR provides built-in traits, such as:
+ZeroOperands → Ensures the operation has no operands.
+IsTerminator → Marks the operation as a terminator (like return).
+SameOperandsAndResultType → Ensures all operands and results have the same type.
+
+Builder
+
+1. mlir::Builder
+Purpose: mlir::Builder is a utility class designed to help with constructing MLIR operations and types. It provides a simpler, higher-level interface to create operations (ops), attributes, and types. It also ensures that the generated operations are properly inserted into the correct locations in the IR.
+Use Case: Use this when you're writing code that directly generates MLIR operations and you need a straightforward way to build and insert ops into a block.
+Typical use:
+mlir::Builder builder(context);
+builder.create<mlir::AddOp>(loc, operand1, operand2);
+
+2. mlir::OpBuilder
+Purpose: mlir::OpBuilder is a specialized version of mlir::Builder that focuses on building and inserting MLIR operations into a function or region. It also keeps track of the current insertion point in the IR, so you can control where new operations will be inserted.
+Use Case: Use mlir::OpBuilder when working with specific regions or functions in the IR, and you need to manage the insertion point dynamically as you generate code.
+Typical use:
+mlir::OpBuilder builder(context);
+builder.setInsertionPointToStart(&block);
+builder.create<mlir::AddOp>(loc, operand1, operand2);
+
+
+
+{
+mlir::Identifier
+- static Identifier 	get (StringRef str, MLIRContext *context)
+- StringRef 	strref () const
+- std::string 	str () const
+- const char * 	c_str () const
+- const char * 	data () const
+- unsigned 	size () const
+- bool 	is (StringRef string) const
+}
+
 /*
 Types
 */
@@ -101,6 +197,12 @@ mlir::Attribute
   - DenseI64ArrayAttr
   - DenseF32ArrayAttr
   - DenseF64ArrayAttr
+- LocationAttr
+  - mlir::CallSiteLoc
+  - mlir::FileLineColLoc
+  - mlir::FusedLoc
+  - mlir::NameLoc
+  - mlir::UnknownLoc
 
 {
 mlir::Attribute
@@ -120,6 +222,43 @@ template<typename U >
 
 template<typename U >
 - U 	cast () const
+}
+
+{
+mlir::CallSiteLoc
+- static Location 	get (Location callee, Location caller)
+- Location 	getCallee () const
+- Location 	getCaller () const
+}
+
+{
+mlir::FileLineColLoc
+- static Location 	get (Identifier filename, unsigned line, unsigned column, MLIRContext *context)
+- static Location 	get (StringRef filename, unsigned line, unsigned column, MLIRContext *context)
+- StringRef 	getFilename () const
+- unsigned 	getLine () const
+- unsigned 	getColumn () const
+}
+
+{
+mlir::FusedLoc
+- static Location 	get (ArrayRef< Location > locs, Attribute metadata, MLIRContext *context)
+- static Location 	get (ArrayRef< Location > locs, MLIRContext *context)
+- ArrayRef< Location > 	getLocations () const
+- Attribute 	getMetadata () const
+}
+
+{
+mlir::NameLoc
+- static Location 	get (Identifier name, Location child)
+- static Location 	get (Identifier name, MLIRContext *context)
+- Identifier 	getName () const
+Location 	getChildLoc () const
+}
+
+{
+mlir::UnknownLoc
+- static Location 	get (MLIRContext *context)
 }
 
 {
@@ -152,6 +291,59 @@ template<typename T , typename = typename std::enable_if< std::numeric_limits<T>
 
 template<typename T , typename = typename std::enable_if< std::numeric_limits<T>::is_integer || llvm::is_one_of<T, float, double>::value>::type>
 - static DenseElementsAttr get(const ShapedType &type, T value)
+}
+
+/*
+Value
+*/
+
+mlir::Value
+- mlir::BlockArgument
+- mlir::OpResult
+- mlir::detail::TypedValue<Ty>
+
+{
+mlir::Value
+- Type 	getType () const
+- MLIRContext * 	getContext () const
+- void 	setType (Type newType)
+- Operation * 	getDefiningOp () const
+- Location 	getLoc () const
+- void 	setLoc (Location loc)
+- void 	replaceAllUsesWith (Value newValue)
+- bool 	use_empty () const
+- bool 	hasOneUse () const
+- user_range 	getUsers () const
+}
+
+{
+mlir::BlockArgument
+- unsigned 	getArgNumber () const
+- Location 	getLoc () const
+- void 	setLoc (Location loc)
+}
+
+{
+mlir::OpResult
+- Operation * 	getOwner () const
+- unsigned 	getResultNumber () const
+}
+
+{
+mlir::detail::TypedValue<Ty>
+- Ty 	getType () const
+- void 	setType (Ty ty)
+}
+
+/*
+mlir::Location
+*/
+
+{
+mlir::Location
+- Location (LocationAttr loc)
+- MLIRContext * 	getContext () const
+- LocationAttr * 	operator-> () const
 }
 
 /*
@@ -249,3 +441,192 @@ mlir::OpBuilder
 template<typename OpTy , typename... Args>
 - OpTy 	create (Location location, Args &&...args)
 }
+
+/*
+mlir::Operation
+*/
+
+{
+mlir::OperationState
+- OperationState (Location location, StringRef name)
+- OperationState (Location location, OperationName name)
+- OperationState (Location location, OperationName name, ValueRange operands, TypeRange types, ArrayRef< NamedAttribute > attributes={}, BlockRange successors={}, MutableArrayRef< std::unique_ptr< Region >> regions={})
+- OperationState (Location location, StringRef name, ValueRange operands, TypeRange types, ArrayRef< NamedAttribute > attributes={}, BlockRange successors={}, MutableArrayRef< std::unique_ptr< Region >> regions={})
+- void 	addOperands (ValueRange newOperands)
+- void 	addTypes (ArrayRef< Type > newTypes)
+- void 	addAttribute (StringRef name, Attribute attr)
+- void 	addAttribute (StringAttr name, Attribute attr)
+- void 	addAttributes (ArrayRef< NamedAttribute > newAttributes)
+- MLIRContext * 	getContext () const
+}
+
+{
+mlir::OperationName
+- OperationName (StringRef name, MLIRContext *context)
+- StringRef 	getStringRef () const
+- StringAttr 	getIdentifier () const
+- MLIRContext * 	getContext ()
+}
+
+{
+mlir::OpOperand
+- unsigned 	getOperandNumber ()
+- void 	assign (Value value)
+}
+
+{
+mlir::OpResult
+- Operation * 	getOwner () const
+- unsigned 	getResultNumber () const
+}
+
+{
+mlir::Operation
+- static Operation * 	create (Location location, OperationName name, TypeRange resultTypes, ValueRange operands, NamedAttrList &&attributes, OpaqueProperties properties, BlockRange successors, unsigned numRegions)
+- static Operation * 	create (Location location, OperationName name, TypeRange resultTypes, ValueRange operands, DictionaryAttr attributes, OpaqueProperties properties, BlockRange successors, unsigned numRegions)
+- static Operation * 	create (const OperationState &state)
+- static Operation * 	create (Location location, OperationName name, TypeRange resultTypes, ValueRange operands, NamedAttrList &&attributes, OpaqueProperties properties, BlockRange successors={}, RegionRange regions={})
+
+OperationName 	getName ()
+void 	erase ()
+void 	remove ()
+Operation * 	clone (IRMapping &mapper, CloneOptions options=CloneOptions::all())
+Operation * 	clone (CloneOptions options=CloneOptions::all())
+Block * 	getBlock ()
+MLIRContext * 	getContext ()
+Dialect * 	getDialect ()
+Location 	getLoc ()
+void 	setLoc (Location loc)
+Region * 	getParentRegion ()
+bool 	isProperAncestor (Operation *other)
+bool 	isAncestor (Operation *other)
+void 	replaceUsesOfWith (Value from, Value to)
+void 	replaceAllUsesWith (ValuesT &&values)
+void 	dropAllReferences ()
+void 	moveBefore (Operation *existingOp)
+void 	moveAfter (Operation *existingOp)
+
+void 	setOperands (ValueRange operands)
+unsigned 	getNumOperands ()
+Value 	getOperand (unsigned idx)
+void 	setOperand (unsigned idx, Value value)
+void 	eraseOperand (unsigned idx)
+operand_iterator 	operand_begin ()
+operand_iterator 	operand_end ()
+operand_range 	getOperands ()
+MutableArrayRef< OpOperand > 	getOpOperands ()
+OpOperand & 	getOpOperand (unsigned idx)
+operand_type_range 	getOperandTypes ()
+
+unsigned 	getNumResults ()
+OpResult 	getResult (unsigned idx)
+result_range 	getResults ()
+result_range 	getOpResults ()
+OpResult 	getOpResult (unsigned idx)
+
+ArrayRef< NamedAttribute > 	getAttrs ()
+DictionaryAttr 	getAttrDictionary ()
+void 	setAttrs (DictionaryAttr newAttrs)
+void 	setAttrs (ArrayRef< NamedAttribute > newAttrs)
+Attribute 	getAttr (StringAttr name)
+bool 	hasAttr (StringAttr name)
+void 	setAttr (StringAttr name, Attribute value)
+void 	setAttr (StringRef name, Attribute value)
+Attribute 	removeAttr (StringAttr name)
+Attribute 	removeAttr (StringRef name)
+
+LogicalResult 	fold (ArrayRef< Attribute > operands, SmallVectorImpl< OpFoldResult > &results)
+LogicalResult 	fold (SmallVectorImpl< OpFoldResult > &results)
+
+void 	dropAllUses ()
+use_range 	getUses ()
+bool 	hasOneUse ()
+bool 	use_empty ()
+user_range 	getUsers ()
+}
+
+{
+mlir::ModuleOp (has a single region and a single block)
+- static ModuleOp 	create (Location loc, Optional< StringRef > name=llvm::None)
+- Region & 	getBodyRegion ()
+- Block * 	getBody ()
+- Optional< StringRef > 	getName ()
+- void 	push_back (Operation *op)
+}
+
+{
+mlir::FunctionType
+- static FunctionType 	get (ArrayRef< Type > inputs, ArrayRef< Type > results, MLIRContext *context)
+- unsigned 	getNumInputs () const
+- Type 	getInput (unsigned i) const
+- ArrayRef< Type > 	getInputs () const
+- unsigned 	getNumResults () const
+- Type 	getResult (unsigned i) const
+- ArrayRef< Type > 	getResults () const
+}
+
+{
+func::FuncOp
+- static FuncOp create(Location location, StringRef name, FunctionType type, ArrayRef< NamedAttribute > attrs={})
+- static FuncOp 	create (Location location, StringRef name, FunctionType type, ArrayRef< NamedAttribute > attrs, ArrayRef< NamedAttributeList > argAttrs)
+- void 	eraseArgument (unsigned argIndex)
+- void 	eraseArguments (ArrayRef< unsigned > argIndices)
+- FunctionType 	getType ()
+- void 	setType (FunctionType newType)
+- FuncOp 	clone (BlockAndValueMapping &mapper)
+- FuncOp 	clone ()
+- Block * 	addEntryBlock ()
+- Block * 	addBlock ()
+}
+
+/*
+mlir::Block
+*/
+
+{
+mlir::Block
+- void 	clear ()
+- Region * 	getParent () const
+- Operation * 	getParentOp ()
+- void 	insertBefore (Block *block)
+- void 	insertAfter (Block *block)
+- void 	erase ()
+- BlockArgListType 	getArguments ()
+- ValueTypeRange< BlockArgListType > 	getArgumentTypes ()
+- args_iterator 	args_begin ()
+- args_iterator 	args_end ()
+- bool 	args_empty ()
+- BlockArgument 	addArgument (Type type, Location loc)
+- BlockArgument 	insertArgument (unsigned index, Type type, Location loc)
+- void 	eraseArgument (unsigned index)
+- unsigned 	getNumArguments ()
+- BlockArgument 	getArgument (unsigned i)
+- OpListType & 	getOperations ()
+- void 	push_back (Operation *op)
+- void 	push_front (Operation *op)
+- bool 	hasNoPredecessors ()
+- bool 	hasNoSuccessors ()
+- unsigned 	getNumSuccessors ()
+- Block * 	getSuccessor (unsigned i)
+- SuccessorRange 	getSuccessors ()
+- Block * 	splitBlock (Operation *splitBeforeOp)
+
+template<typename OpT >
+- iterator_range< op_iterator< OpT > > 	getOps ()
+}
+
+/*
+mlir::Region
+- Region (Operation *container)
+- MLIRContext * 	getContext ()
+- Location 	getLoc ()
+- BlockListType & 	getBlocks ()
+- void 	push_back (Block *block)
+- void 	push_front (Block *block)
+- Region * 	getParentRegion ()
+- Operation * 	getParentOp ()
+*/
+
+
+MLIRContext
+DialectRegistry
