@@ -10,8 +10,10 @@
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
@@ -489,6 +491,62 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
   return newOp;
 }
 
+// [TODO] Refactor and move non-templated code to
+// <include|lib>/ttmlir/Dialect/TTIR/Utils/TransformUtils.<h|cpp>
+// https://github.com/tenstorrent/tt-mlir/issues/2669
+// Helper function to unsqueeze a value either on front or back dimension.
+inline llvm::SmallVector<int64_t>
+unsqueezeValue(mlir::PatternRewriter &rewriter, mlir::Location loc,
+               mlir::Value &input, mlir::RankedTensorType desiredType,
+               bool frontUnsqueeze) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  llvm::SmallVector<int64_t> unsqueezeShape(desiredType.getRank(), 1);
+  for (int64_t i = 0; i < inputType.getRank(); ++i) {
+    int64_t idx =
+        frontUnsqueeze ? (desiredType.getRank() - inputType.getRank()) + i : i;
+    unsqueezeShape[idx] = inputType.getDimSize(i);
+  }
+
+  llvm::SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
+                                        unsqueezeShape.end());
+
+  auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
+  input = createDPSOp<::mlir::tt::ttir::ReshapeOp>(
+      rewriter, loc, unsqueezeShape, desiredType.getElementType(),
+      desiredType.getEncoding(), input, reshapeDimAttr);
+  return unsqueezeShape;
+}
+
+// Helper function to broadcast a value to desired shape.
+inline mlir::LogicalResult
+broadcastValue(mlir::PatternRewriter &rewriter, mlir::Value input,
+               mlir::RankedTensorType desiredType, mlir::Value &output,
+               mlir::Location loc, bool frontUnsqueeze) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  auto inputShape = inputType.getShape();
+  llvm::SmallVector<int64_t, 4> broadcastedShape;
+  if (!mlir::OpTrait::util::getBroadcastedShape(
+          inputShape, desiredType.getShape(), broadcastedShape)) {
+    return mlir::failure();
+  }
+
+  if (inputShape == desiredType.getShape()) {
+    output = input;
+    return mlir::success();
+  }
+
+  if (inputType.getRank() != desiredType.getRank()) {
+    inputShape =
+        unsqueezeValue(rewriter, loc, input, desiredType, frontUnsqueeze);
+  }
+
+  llvm::SmallVector<int64_t> broadcastDims =
+      getBroadcastDimensions<int64_t>(inputShape, desiredType.getShape());
+
+  output = createDPSOp<mlir::tt::ttir::BroadcastOp>(rewriter, loc, desiredType,
+                                                    input, broadcastDims);
+  return mlir::success();
+}
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

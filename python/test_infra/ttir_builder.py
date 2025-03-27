@@ -1200,7 +1200,7 @@ class TTIRBuilder:
         kwargs = {"min": min_arg, "max": max_arg}
         return self.op_proxy(
             torch.clamp,
-            ttir.ClampOp,
+            ttir.ClampScalarOp,
             [in0],
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,

@@ -259,19 +259,32 @@ public:
 // modelled in the dialect (memcfg).
 //
 namespace {
+template <typename SourceOp>
 class ClampOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ClampOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    if constexpr (std::is_same_v<SourceOp, tt::ttnn::ClampScalarOp>) {
+      return "ttnn.clamp_scalar";
+    } else if constexpr (std::is_same_v<SourceOp, tt::ttnn::ClampTensorOp>) {
+      return "ttnn.clamp_tensor";
+    }
+
+    llvm_unreachable("Operation not supported.");
+  }
+
+  std::string getPrefixSwapPattern() const override { return "ttnn::clamp"; }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::ClampOp>::TTNNToEmitCBaseOpConversionPattern;
-  using Adaptor = typename tt::ttnn::ClampOp::Adaptor;
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::ClampOp srcOp, Adaptor adaptor,
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ClampOp> emitter(srcOp, adaptor,
-                                                               rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputs()[0]),
         emitter.emit(srcOp.getMin()),
@@ -1710,7 +1723,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<EltwiseUnaryOpConversionPattern<tt::ttnn::AbsOp>,
                EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::CbrtOp>,
-               ClampOpConversionPattern,
+               ClampOpConversionPattern<tt::ttnn::ClampScalarOp>,
+               ClampOpConversionPattern<tt::ttnn::ClampTensorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::FloorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::IsFiniteOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::LogicalNotOp>,
