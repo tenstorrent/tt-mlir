@@ -509,6 +509,8 @@ class Run:
                                 f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
                             )
 
+                            # Implement optional pre_callback functionality here
+
                             program = bin.get_program(program_index)
                             golden_inputs = []
 
