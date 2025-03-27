@@ -10,18 +10,18 @@ Since our compiler is built on the LLVM MLIR framework, we strive to align close
 
 Clear and descriptive names are crucial for code readability and preventing bugs. It’s important to choose names that accurately reflect the semantics and purpose of the underlying entities, within reason. Avoid abbreviations unless they are widely recognized. Once you settle on a name, ensure consistent capitalization throughout the codebase to avoid confusion.
 
-The general naming rule is to use camel case for most names (e.g., WorkaroundPass, isRankedTensor())
+The general naming rule is to use camel case for most names (for example, WorkaroundPass, isRankedTensor())
 
 * Type Names
     * Applies to classes, structs, enums, and typedefs.
     * Should be nouns that describe the entity's purpose.
-    * Use upper camel case (e.g. TTNNOptimizerOptions, DecompositionPass).
+    * Use upper camel case (for example, TTNNOptimizerOptions, DecompositionPass).
 * Variable Names
     * Should be nouns, as they represent state.
-    * Use lower camel case (e.g. inputLayout).
+    * Use lower camel case (for example, inputLayout).
 * Function Names
     * Represent actions and should be verb phrases
-    * Use lower camel case (e.g. createTTNNOptimizer(), emitTTNNAsCpp()).
+    * Use lower camel case (for example, createTTNNOptimizer(), emitTTNNAsCpp()).
 
 ## Includes
 
@@ -138,8 +138,8 @@ void A(){
 ```
 
 Group related functions together:
-* If functions are only relevant to a specific “parent” function (e.g., A1 and A2 are only called by A), place them directly before the “parent” function.
-* If a function (like A2) is also called by other functions (e.g., B), place it where it fits the overall bottom-up order.
+* If functions are only relevant to a specific “parent” function (for example, A1 and A2 are only called by A), place them directly before the “parent” function.
+* If a function (like A2) is also called by other functions (for example, B), place it where it fits the overall bottom-up order.
 
 Avoid mixed ordering:
 * Mixing top-down and bottom-up call orders within the same file can make the code hard to read and maintain.
@@ -170,13 +170,13 @@ This coding guideline addresses visibility and linkage of simple helper function
 If a helper function needs to be defined in a .cpp file, it should be declared static or wrapped inside an anonymous namespace. 
 
 > [!NOTE]
-> A significant concern with declaring functions as non-public (e.g., static functions 
+> A significant concern with declaring functions as non-public (for example, static functions 
 > or functions in unnamed namespaces) is that they cannot be unit tested in isolation. 
 > This limitation hinders our ability to write focused, granular tests that verify the 
 > correctness of individual components and it also reduces test coverage.
 
 
-If a helper function needs to be defined in a header file (e.g., for templated or performance-critical code), it should be marked as inline.
+If a helper function needs to be defined in a header file (for example, for templated or performance-critical code), it should be marked as inline.
 
 ## Using Namespaces
 
@@ -184,7 +184,7 @@ Namespaces are an important part of C++ programming, providing a way to organize
 
 Follow these guidelines when defining namespaces:
 
-* Use lower-case letters for short, single-word names or those with a clear acronym (e.g., ttnn, mlir).
+* Use lower-case letters for short, single-word names or those with a clear acronym (for example, ttnn, mlir).
 * Use nested namespaces to group logically related code, avoiding too deep or unnecessarily complex hierarchy
 
 Follow these guidelines when using namespaces:
