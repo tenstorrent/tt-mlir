@@ -145,8 +145,39 @@ def test_compare_expr():
     return
 
 
+@ttkernel_compile()
+def test_unary_ops():
+    # CHECK: module {
+    # CHECK: func.func @
+
+    a = 1
+
+    # CHECK: %{{.*}} = emitc.expression : i1 {{.*}}
+    # CHECK: %{{.*}} = logical_not {{.*}}
+    # CHECK: yield %{{.*}}
+    not a
+
+    # CHECK: %{{.*}} = emitc.expression {{.*}}
+    # CHECK: %{{.*}} = bitwise_not {{.*}}
+    # CHECK: yield %{{.*}}
+    ~a
+
+    # CHECK: %{{.*}} = emitc.expression {{.*}}
+    # CHECK: %{{.*}} = unary_minus {{.*}}
+    # CHECK: yield %{{.*}}
+    -a
+
+    # CHECK: %{{.*}} = emitc.expression {{.*}}
+    # CHECK: %{{.*}} = unary_plus {{.*}}
+    # CHECK: yield %{{.*}}
+    +a
+
+    return
+
+
 test_assign()
 test_ifstmt()
 test_for()
 test_binops()
 test_compare_expr()
+test_unary_ops()
