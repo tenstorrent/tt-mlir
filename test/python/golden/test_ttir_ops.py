@@ -2,8 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# RUN: SYSTEM_DESC_PATH=%system_desc_path% %python %s
-
 import pytest
 import torch
 from typing import Callable, List
