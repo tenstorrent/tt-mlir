@@ -17,7 +17,6 @@ from ttmlir.ttir_builder import Operand, TTIRBuilder, Shape
 def test_arbitrary_model(
     shapes: List[Shape], dtypes: List[torch.dtype], artifact_path: str, request
 ):
-
     def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         add = builder.add(in0, in1)
         exp = builder.exp(in2)
@@ -54,7 +53,6 @@ def test_mnist(
     artifact_path: str,
     request,
 ):
-
     def model(
         in0: Operand,  # Input 28x28 image
         in1: Operand,  # Weight 1
@@ -114,7 +112,6 @@ def test_llama_attention(
     artifact_path: str,
     request,
 ):
-
     def model(
         arg0: Operand,
         arg1: Operand,
