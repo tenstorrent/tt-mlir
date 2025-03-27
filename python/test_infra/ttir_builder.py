@@ -947,7 +947,7 @@ class TTIRBuilder:
             golden_kwargs={"tensors": (a, b), "dim": 2},
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
-            organize_golden_args=lambda i: 0,  # (i[0], i[1]),
+            organize_golden_args=lambda i: 0,
         )
 
     def broadcast(
