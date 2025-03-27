@@ -169,6 +169,11 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-remove-dead-values",
       llvm::cl::desc("Enable --remove-dead-values optimization pass."),
       llvm::cl::init(false)};
+
+  Option<bool> enableConstEval{
+      *this, "enable-const-eval",
+      llvm::cl::desc("Enable const-eval optimization pass."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

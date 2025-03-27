@@ -1593,7 +1593,7 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_ArangeOp : TTIR_Op<"arange"> {
+def TTIR_ArangeOp : TTIR_Op<"arange", [TT_CreationOpTrait]> {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
@@ -1635,7 +1635,7 @@ def TTIR_ArangeOp : TTIR_Op<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTIR_ZerosOp : TTIR_Op<"zeros"> {
+def TTIR_ZerosOp : TTIR_Op<"zeros", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.
@@ -1652,7 +1652,7 @@ def TTIR_ZerosOp : TTIR_Op<"zeros"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_OnesOp : TTIR_Op<"ones"> {
+def TTIR_OnesOp : TTIR_Op<"ones", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     Tensor operation to create a tensor filled with ones.
@@ -1701,7 +1701,7 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasCanonicalizer = 1;
 }
 
-def TTIR_EmptyOp : TTIR_Op<"empty", [Pure]> {
+def TTIR_EmptyOp : TTIR_Op<"empty", [Pure, TT_CreationOpTrait]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1725,7 +1725,7 @@ def TTIR_EmptyOp : TTIR_Op<"empty", [Pure]> {
 }
 
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
-                                           AllShapesMatch<["value", "result"]>]> {
+                                           AllShapesMatch<["value", "result"]>, TT_CreationOpTrait]> {
     let summary = "Constant op.";
     let description = [{
       Produces tensor filled with given constant value.
