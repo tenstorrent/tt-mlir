@@ -553,7 +553,7 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
 def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request):
     def arange(in0: Operand, builder: TTIRBuilder):
         return builder.arange(in0, start, end, step, dim)
-    _compile_to_flatbuffer(arange, [shape], test_name=request.node.name)
+    compile_to_flatbuffer(arange, [shape], test_base=request.node.name)
 
 
 @pytest.mark.parametrize("shape", [(32, 32)])
