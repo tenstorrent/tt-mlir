@@ -291,11 +291,11 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        pytest ${{ steps.strings.outputs.build-output-dir }}/test/python/golden/test_ttir_ops.py --junit-xml="builder-op-tests.xml"
+        pytest test/python/golden/test_ttir_ops.py --junit-xml="builder-op-tests.xml"
         cp builder-op-tests.xml ${{ steps.strings.outputs.op_test_report_path }}
-        pytest ${{ steps.strings.outputs.build-output-dir }}/test/python/golden/test_ttir_models.py --junit-xml="builder-model-tests.xml"
+        pytest test/python/golden/test_ttir_models.py --junit-xml="builder-model-tests.xml"
         cp builder-model-tests.xml ${{ steps.strings.outputs.model_test_report_path }}
-        pytest ${{ steps.strings.outputs.build-output-dir }}/test/python/golden/test_flatbuffers.py
+        pytest test/python/golden/test_flatbuffers.py
         cp run_results.json ${{ steps.strings.outputs.ttrt_run_test_report_path }}
 
 
