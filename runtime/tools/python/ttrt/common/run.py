@@ -7,8 +7,8 @@ import os
 from ttrt.common.util import *
 from ttrt.common.query import Query
 from ttrt.common.callback import (
-    pre_get_callback_fn,
-    post_get_callback_fn,
+    pre_op_get_callback_fn,
+    post_op_get_callback_fn,
     CallbackRuntimeConfig,
 )
 
@@ -440,7 +440,7 @@ class Run:
                 enable_async_ttnn=self["--enable-async-ttnn"],
             )
 
-            pre_callback_runtime_config = CallbackRuntimeConfig(
+            pre_op_callback_runtime_config = CallbackRuntimeConfig(
                 device,
                 "",
                 self["--pcc"],
@@ -452,7 +452,7 @@ class Run:
                 self["--memory"],
                 self["--debugger"],
             )
-            post_callback_runtime_config = CallbackRuntimeConfig(
+            post_op_callback_runtime_config = CallbackRuntimeConfig(
                 device,
                 "",
                 self["--pcc"],
@@ -465,12 +465,12 @@ class Run:
                 self["--debugger"],
             )
 
-            pre_callback_env = ttrt.runtime.DebugPreHooks.get(
-                pre_get_callback_fn(pre_callback_runtime_config)
+            pre_op_callback_env = ttrt.runtime.DebugPreOperationHooks.get(
+                pre_op_get_callback_fn(pre_op_callback_runtime_config)
             )
 
-            post_callback_env = ttrt.runtime.DebugPostHooks.get(
-                post_get_callback_fn(post_callback_runtime_config)
+            post_op_callback_env = ttrt.runtime.DebugPostOperationHooks.get(
+                post_op_get_callback_fn(post_op_callback_runtime_config)
             )
 
             try:
@@ -502,14 +502,14 @@ class Run:
                                 f"evaluating program={program_index} for binary={bin.file_path}"
                             )
 
-                            pre_callback_runtime_config.start_new_callback(
+                            pre_op_callback_runtime_config.start_new_callback(
                                 f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
                             )
-                            post_callback_runtime_config.start_new_callback(
+                            post_op_callback_runtime_config.start_new_callback(
                                 f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
                             )
 
-                            # Implement optional pre_callback functionality here
+                            # Implement optional pre_op_callback functionality here
 
                             program = bin.get_program(program_index)
                             golden_inputs = []
@@ -710,20 +710,20 @@ class Run:
                             # if golden comparison is enabled, check golden results json file to see if test passed
                             if not self["--disable-golden"]:
                                 if self["--save-artifacts"]:
-                                    post_callback_runtime_config.save_golden_report(
+                                    post_op_callback_runtime_config.save_golden_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
                                     )
 
-                                post_callback_runtime_config.check_pcc()
+                                post_op_callback_runtime_config.check_pcc()
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:
-                                    post_callback_runtime_config.save_memory_report(
+                                    post_op_callback_runtime_config.save_memory_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/memory_results.json"
                                     )
 
                                 if self["--check-memory-leak"]:
-                                    post_callback_runtime_config.check_memory_leak()
+                                    post_op_callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
                         result = "error"

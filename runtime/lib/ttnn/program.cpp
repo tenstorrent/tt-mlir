@@ -146,7 +146,7 @@ private:
 void ProgramExecutor::runPreCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
-  if (auto pre_callback = debug::PreHooks::get().getOperatorCallback();
+  if (auto pre_callback = debug::PreOperationHooks::get().getOperatorCallback();
       pre_callback) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);
@@ -162,7 +162,8 @@ void ProgramExecutor::runPreCallback(
 void ProgramExecutor::runPostCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
-  if (auto post_callback = debug::PostHooks::get().getOperatorCallback();
+  if (auto post_callback =
+          debug::PostOperationHooks::get().getOperatorCallback();
       post_callback) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);

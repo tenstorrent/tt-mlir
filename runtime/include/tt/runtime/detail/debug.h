@@ -42,13 +42,13 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   return os;
 }
 
-struct PreHooks {
+struct PreOperationHooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static PreHooks const &
+  static PreOperationHooks const &
   get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
-  constexpr static PreHooks get() { return PreHooks(); }
+  constexpr static PreOperationHooks get() { return PreOperationHooks(); }
 #endif
 
   std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
@@ -68,7 +68,7 @@ struct PreHooks {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  PreHooks(
+  PreOperationHooks(
       std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback)
       : operatorCallback(operatorCallback) {}
@@ -77,17 +77,17 @@ private:
       operatorCallback;
 
 #else
-  constexpr PreHooks() = default;
+  constexpr PreOperationHooks() = default;
 #endif
 };
 
-struct PostHooks {
+struct PostOperationHooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static PostHooks const &
+  static PostOperationHooks const &
   get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
-  constexpr static PostHooks get() { return PostHooks(); }
+  constexpr static PostOperationHooks get() { return PostOperationHooks(); }
 #endif
 
   std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
@@ -107,7 +107,7 @@ struct PostHooks {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  PostHooks(
+  PostOperationHooks(
       std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback)
       : operatorCallback(operatorCallback) {}
@@ -116,24 +116,26 @@ private:
       operatorCallback;
 
 #else
-  constexpr PostHooks() = default;
+  constexpr PostOperationHooks() = default;
 #endif
 };
 
-inline std::ostream &operator<<(std::ostream &os, PreHooks const &pre_hooks) {
-  os << "debug::PreHooks{\n"
+inline std::ostream &operator<<(std::ostream &os,
+                                PreOperationHooks const &pre_operation_hooks) {
+  os << "debug::PreOperationHooks{\n"
      << "\t"
      << "operatorCallback: "
-     << static_cast<bool>(pre_hooks.getOperatorCallback()) << ",\n"
+     << static_cast<bool>(pre_operation_hooks.getOperatorCallback()) << ",\n"
      << "}";
   return os;
 }
 
-inline std::ostream &operator<<(std::ostream &os, PostHooks const &post_hooks) {
-  os << "debug::PostHooks{\n"
+inline std::ostream &
+operator<<(std::ostream &os, PostOperationHooks const &post_operation_hooks) {
+  os << "debug::PostOperationHooks{\n"
      << "\t"
      << "operatorCallback: "
-     << static_cast<bool>(post_hooks.getOperatorCallback()) << ",\n"
+     << static_cast<bool>(post_operation_hooks.getOperatorCallback()) << ",\n"
      << "}";
   return os;
 }

@@ -14,21 +14,21 @@ Env const &Env::get(bool loadKernelsFromDisk) {
 }
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-PreHooks const &PreHooks::get(
+PreOperationHooks const &PreOperationHooks::get(
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
         operatorCallback) {
-  static PreHooks config(operatorCallback);
+  static PreOperationHooks config(operatorCallback);
   return config;
 }
-PostHooks const &PostHooks::get(
+PostOperationHooks const &PostOperationHooks::get(
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
         operatorCallback) {
-  static PostHooks config(operatorCallback);
+  static PostOperationHooks config(operatorCallback);
   return config;
 }
 #else
-PreHooks get() { return PreHooks(); }
-PostHooks get() { return PostHooks(); }
+PreOperationHooks get() { return PreOperationHooks(); }
+PostOperationHooks get() { return PostOperationHooks(); }
 #endif
 
 } // namespace tt::runtime::debug
