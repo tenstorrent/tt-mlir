@@ -10,6 +10,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         GenericRegionsToFuncs.cpp
         AttachMetalLayout.cpp
         OptimizeTensorLayout.cpp
+        AutomaticDataParallelization.cpp
         HoistCPUOps.cpp
         Bufferization.cpp
         Layout.cpp

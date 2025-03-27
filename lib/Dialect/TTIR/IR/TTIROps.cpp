@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
