@@ -3,7 +3,7 @@ module attributes {} {
   func.func @backward(%arg0: tensor<1x32xbf16>, %arg1: tensor<512x128xbf16>, %arg2: tensor<1x32x128xbf16>) -> tensor<512x128xbf16> {
     // Capture reshape output layout for validation
     // CHECK: [[RESHAPE_OUTPUT_LAYOUT:.*]] = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x4x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
-    %0 = tensor.empty() : tensor<512x128xbf16>
+    %0 = ttir.empty() : tensor<512x128xbf16>
     // Verify inserted reshape op
     // CHECK: "ttnn.reshape"
     // CHECK-SAME: <{shape = [1 : i32, 1 : i32, 32 : i32, 128 : i32]}>

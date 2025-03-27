@@ -208,6 +208,13 @@ class Run:
             help="disable putting dispatch on ethernet cores - place it on worker cores instead",
         )
         Run.register_arg(
+            name="--ignore-version",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -278,7 +285,7 @@ class Run:
         for path in ttnn_binary_paths:
             bin = Binary(self.logger, self.file_manager, path)
             try:
-                bin.check_version()
+                bin.check_version(ignore=self["--ignore-version"])
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -334,7 +341,7 @@ class Run:
         for path in ttmetal_binary_paths:
             bin = Binary(self.logger, self.file_manager, path)
             try:
-                bin.check_version()
+                bin.check_version(ignore=self["--ignore-version"])
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -434,11 +441,12 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
-            device = ttrt.runtime.open_device(
-                self.query.device_ids,
-                dispatch_core_type=dispatch_core_type,
-                enable_async_ttnn=self["--enable-async-ttnn"],
-            )
+            mesh_shape = [1, len(self.query.device_ids)]
+            mesh_options = ttrt.runtime.MeshDeviceOptions()
+            mesh_options.device_ids = self.query.device_ids
+            mesh_options.dispatch_core_type = dispatch_core_type
+            mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
+            device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             pre_op_callback_runtime_config = CallbackRuntimeConfig(
                 device,
@@ -745,7 +753,7 @@ class Run:
                         bin.test_result = result
                         continue
             finally:
-                ttrt.runtime.close_device(device)
+                ttrt.runtime.close_mesh_device(device)
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

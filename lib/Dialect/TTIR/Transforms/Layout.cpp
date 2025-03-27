@@ -80,11 +80,11 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   auto desiredLayout = rewriter.getAttr<MetalLayoutAttr>(
       ty, desiredMemorySpace, currLayout.getGrid(), desiredElementType);
 
-  tensor::EmptyOp existingEmpty = input.getDefiningOp<tensor::EmptyOp>();
+  ttir::EmptyOp existingEmpty = input.getDefiningOp<ttir::EmptyOp>();
   if (existingEmpty) {
     return rewriter
-        .replaceOpWithNewOp<tensor::EmptyOp>(existingEmpty, ty.getShape(),
-                                             ty.getElementType(), desiredLayout)
+        .replaceOpWithNewOp<ttir::EmptyOp>(existingEmpty, ty.getShape(),
+                                           ty.getElementType(), desiredLayout)
         .getResult();
   }
 

@@ -17,11 +17,7 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
     Option<"initMemorySpace", "init-memory-space",
           "::mlir::tt::MemorySpace",
           /*default=*/"::mlir::tt::MemorySpace::DeviceL1",
-           "set the initial memory space for tensors to start in">,
-    Option<"useStreamLayout", "use-stream-layout",
-          "bool",
-          /*default=*/"false",
-           "turn on #tt.stream layout decoration">
+           "set the initial memory space for tensors to start in">
   ];
 }
 
@@ -225,6 +221,46 @@ def TTIRGenericHWThreadSelection : Pass<"ttir-generic-hw-thread-selection", "::m
   }];
 }
 
+def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::ModuleOp"> {
+  let summary = "Generate generic loops.";
+  let description = [{
+    One of the final lowering forms of ttir generic op. This pass converts the affine declarative
+    loops into imperative loops and the affine maps are erased. For example a generic region
+    might transform as follows:
+
+    ```mlir
+    #lhs = affine_map<(d0, d1, d2) -> (d0, d2)>
+    #rhs = affine_map<(d0, d1, d2) -> (d2, d1)>
+    #out = affine_map<(d0, d1, d2) -> (d0, d1)>
+
+    grid = #tt.grid<2x4>
+    operands : (memref<2x4x4x6x!tt.tile<32x32, f32>>, memref<4x4x6x8x!tt.tile<32x32, f32>>, memref<2x4x4x8x!tt.tile<32x32, f32>>)
+
+    ^compute(%cb0: memref<4x6x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!tt.tile<32x32, f32>, #l1_>):
+      ttir.await %cb0, %cb1
+      "ttir.tile_matmul_block"(%cb0, %cb1, %cb2)
+      ttir.yield %cb2
+    ```
+
+    Into:
+    ```mlir
+    ^compute(%cb0: memref<4x6x!tt.tile<32x32, f32>, #l1_>, %cb1: memref<6x8x!tt.tile<32x32, f32>, #l1_>, %cb2: memref<4x8x!tt.tile<32x32, f32>, #l1_>):
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c4 = arith.constant 4 : index
+      scf.for %arg2 = %c0 to %c1 step %c1 {
+        scf.for %arg3 = %c0 to %c1 step %c1 {
+          scf.for %arg4 = %c0 to %c4 step %c1 {
+            ttir.await %cb0, %cb1
+            "ttir.tile_matmul_block"(%cb0, %cb1, %cb2)
+            ttir.yield %cb2
+          }
+        }
+      }
+    ```
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
@@ -322,13 +358,13 @@ def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::Mod
     This pass walks through the graph and folds broadcasts operations when it is implicitly supported by the operation.
 
     Example:
-    %0 = tensor.empty() : tensor<1x16x32xf32>
+    %0 = ttir.empty() : tensor<1x16x32xf32>
     %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
-    %2 = tensor.empty() : tensor<1x16x32xf32>
+    %2 = ttir.empty() : tensor<1x16x32xf32>
     %3 = "ttir.multiply"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
 
     Since MultiplyOp supports implicit broadcasting, above broadcast is folded as:
-    %0 = tensor.empty() : tensor<1x16x32xf32>
+    %0 = ttir.empty() : tensor<1x16x32xf32>
     %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32
   }];
 }
@@ -344,7 +380,7 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
       tt.device_module {
         builtin.module {
           func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
-            %0 = tensor.empty() : tensor<32x32xbf16>
+            %0 = ttir.empty() : tensor<32x32xbf16>
             %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16> loc("add_op1")
             return %1 : tensor<32x32xbf16>
           }
@@ -354,7 +390,7 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
       tt.device_module {
         builtin.module {
           func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
-            %0 = tensor.empty() : tensor<32x32xbf16>
+            %0 = ttir.empty() : tensor<32x32xbf16>
             %1 = call @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func_decl(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
             return %1 : tensor<32x32xbf16>
           }

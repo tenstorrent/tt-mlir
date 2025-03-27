@@ -35,13 +35,12 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-class TensorEmptyConversionPattern
-    : public OpConversionPattern<tensor::EmptyOp> {
+class TensorEmptyConversionPattern : public OpConversionPattern<ttir::EmptyOp> {
 public:
-  using OpConversionPattern<tensor::EmptyOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     // Get ttnn::TTNNLayoutAttr of the result type
@@ -243,7 +242,7 @@ public:
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Get the DPS operand and delete it's creator op, if it's tensor::emptyOp
+    // Get the DPS operand and delete it's creator op, if it's ttir::EmptyOp
     //
     Value dpsOperand = adaptor.getOperands().back();
     ttnn::EmptyOp emptyOp = dpsOperand.getDefiningOp<ttnn::EmptyOp>();
@@ -543,14 +542,16 @@ public:
 } // namespace
 
 namespace {
-class ClampOpConversionPattern : public OpConversionPattern<ttir::ClampOp> {
+template <typename TTIROpTy, typename TTNNOpTy>
+class ClampOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
-  using OpConversionPattern<ttir::ClampOp>::OpConversionPattern;
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+  using OpAdaptor = typename TTIROpTy::Adaptor;
 
   LogicalResult
-  matchAndRewrite(ttir::ClampOp op, OpAdaptor adaptor,
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::ClampOp>(
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getMin(), adaptor.getMax());
     return success();
@@ -1624,7 +1625,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,
-           ClampOpConversionPattern,
+           ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
+           ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
            SliceOpConversionPattern,

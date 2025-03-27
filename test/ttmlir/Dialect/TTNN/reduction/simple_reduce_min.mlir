@@ -3,7 +3,7 @@
 module attributes {} {
   func.func public @test_reduce_min_4to3dim(%arg0: tensor<128x10x32x4xf32>) -> tensor<128x32x4xf32> {
     // CHECK-LABEL: func.func public @test_reduce_min_4to3dim
-    %0 = tensor.empty() : tensor<128x32x4xf32>
+    %0 = ttir.empty() : tensor<128x32x4xf32>
     // CHECK: %[[MIN:[0-9]+]] = "ttnn.min"
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = false
@@ -15,7 +15,7 @@ module attributes {} {
 
   func.func public @test_reduce_min_4to0dim(%arg0: tensor<128x10x32x4xbf16>) -> tensor<1xbf16> {
     // CHECK-LABEL: func.func public @test_reduce_min_4to0dim
-    %0 = tensor.empty() : tensor<1xbf16>
+    %0 = ttir.empty() : tensor<1xbf16>
     // CHECK-NOT: dim_arg = [1 : i32]
     // CHECK: %[[MIN:[0-9]+]] = "ttnn.min"
     // CHECK-SAME: keep_dim = true
@@ -31,7 +31,7 @@ module attributes {} {
 
   func.func public @test_reduce_min_3to2dim(%arg0: tensor<128x10x4xf32>) -> tensor<128x4xf32> {
     // CHECK-LABEL: func.func public @test_reduce_min_3to2dim
-    %0 = tensor.empty() : tensor<128x4xf32>
+    %0 = ttir.empty() : tensor<128x4xf32>
     // CHECK: %[[MIN:[0-9]+]] = "ttnn.min"
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = false
@@ -43,7 +43,7 @@ module attributes {} {
 
   func.func public @test_reduce_min_3to0dim(%arg0: tensor<128x10x4xbf16>) -> tensor<1xbf16> {
     // CHECK-LABEL: func.func public @test_reduce_min_3to0dim
-    %0 = tensor.empty() : tensor<1xbf16>
+    %0 = ttir.empty() : tensor<1xbf16>
     // CHECK-NOT: dim_arg = [1 : i32]
     // CHECK: %[[MIN:[0-9]+]] = "ttnn.min"
     // CHECK-SAME: keep_dim = true
@@ -59,7 +59,7 @@ module attributes {} {
 
   func.func public @test_reduce_min_1to0dim(%arg0: tensor<128xbf16>) -> tensor<1xbf16> {
     // CHECK-LABEL: func.func public @test_reduce_min_1to0dim
-    %0 = tensor.empty() : tensor<1xbf16>
+    %0 = ttir.empty() : tensor<1xbf16>
     // CHECK-NOT: dim_arg = [0 : i32]
     // CHECK-NOT: ttnn.reshape
     // CHECK: %[[MIN:[0-9]+]] = "ttnn.min"

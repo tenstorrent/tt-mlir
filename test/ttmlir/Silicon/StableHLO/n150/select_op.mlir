@@ -8,7 +8,7 @@
 module @jit_eltwise_select attributes {} {
   func.func public @test_select(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK-LABEL: func.func public @test_select
-    // CHECK: tensor.empty
+    // CHECK: ttir.empty
     // CHECK: [[EQ:{{0-9}}+]] = "ttnn.eq"
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<64x128xbf16
