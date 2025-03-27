@@ -1,0 +1,251 @@
+/*
+Types
+*/
+
+mlir::Type
+- mlir::BFloat16Type
+- mlir::Float16Type
+- mlir::Float32Type
+- mlir::Float64Type
+- mlir::Float80Type
+- mlir::Float128Type
+- mlir::FloatTF32Type
+- mlir::IntegerType
+- mlir::RankedTensorType
+- mlir::ShapedType
+
+{
+mlir::Type
+- TypeID 	getTypeID ()
+- MLIRContext * 	getContext () const
+- Dialect & 	getDialect () const
+- bool 	isBF16 () const
+- bool 	isF16 () const
+- bool 	isTF32 () const
+- bool 	isF32 () const
+- bool 	isF64 () const
+- bool 	isF80 () const
+- bool 	isF128 () const
+- bool 	isFloat () const
+- bool 	isInteger () const
+- bool 	isSignlessInteger () const
+- bool 	isSignedInteger () const
+- bool 	isUnsignedInteger () const
+- void 	print (raw_ostream &os) const
+
+template<typename... Tys>
+- bool 	isa () const
+
+template<typename U >
+- U 	dyn_cast () const
+
+template<typename U >
+- U 	dyn_cast_or_null () const
+
+template<typename U >
+- U 	cast () const
+}
+
+{
+mlir::BFloat16Type
+mlir::Float16Type
+mlir::Float16Type
+mlir::Float32Type
+mlir::Float64Type
+mlir::Float80Type
+mlir::Float128Type
+mlir::FloatTF32Type
+- BFloat16Type BFloat16Type::get(MLIRContext *)
+}
+
+{
+mlir::IntegerType
+- IntegerType IntegerType::get(MLIRContext *, unsigned, IntegerType::SignednessSemantics)
+- unsigned getWidth()
+- SignednessSemantics getSignedness()
+}
+
+{
+mlir::ShapedType
+class ShapedType : public Type
+- Type getElementType() const;
+- int64_t getNumElements() const;
+- int64_t getRank() const;
+- bool hasRank() const;
+- ArrayRef<int64_t> getShape() const;
+
+class TensorType : public ShapedType
+class RankedTensorType : public Type::TypeBase<RankedTensorType, TensorType, detail::RankedTensorTypeStorage>
+class UnrankedTensorType : public Type::TypeBase<UnrankedTensorType, TensorType, detail::UnrankedTensorTypeStorage>
+}
+
+{
+mlir::RankedTensorType
+- RankedTensorType RankedTensorType::get(MLIRContext *, ::llvm::ArrayRef<int64_t>, Type)
+- RankedTensorType RankedTensorType::get(MLIRContext *, ::llvm::ArrayRef<int64_t>, Type, Attribute)
+}
+
+/*
+Attributes
+*/
+
+mlir::Attribute
+- StringAttr
+- DictionaryAttr
+- DenseElementsAttr
+- ArrayAttr
+- DenseArrayAttr
+  - DenseI8ArrayAttr
+  - DenseI16ArrayAttr
+  - DenseI32ArrayAttr
+  - DenseI64ArrayAttr
+  - DenseF32ArrayAttr
+  - DenseF64ArrayAttr
+
+{
+mlir::Attribute
+- TypeID 	getTypeID ()
+- MLIRContext * 	getContext () const
+- Dialect & 	getDialect () const
+- void 	print (raw_ostream &os) const
+
+template<typename... Tys>
+- bool 	isa () const
+
+template<typename U >
+- U 	dyn_cast () const
+
+template<typename U >
+- U 	dyn_cast_or_null () const
+
+template<typename U >
+- U 	cast () const
+}
+
+{
+mlir::NamedAttribute
+NamedAttribute (StringAttr name, Attribute value)
+- StringAttr 	getName () const
+- Attribute 	getValue () const
+- void 	setName (StringAttr newName)
+- void 	setValue (Attribute newValue)
+}
+
+{
+DictionaryAttr
+- static DictionaryAttr::get(MLIRContext *context, ArrayRef<NamedAttribute> value)
+- ArrayRef< NamedAttribute > 	getValue () const
+- Attribute get(StringRef name) const
+- bool empty() const
+- size_t size () const
+- iterator 	begin () const
+- iterator 	end () const
+}
+
+{
+DenseElementsAttr
+- static DenseElementsAttr get(ShapedType type, ArrayRef< Attribute > values)
+- static DenseElementsAttr 	get(ShapedType type, ArrayRef< bool > values)
+
+template<typename T , typename = typename std::enable_if< std::numeric_limits<T>::is_integer || llvm::is_one_of<T, float, double>::value>::type>
+- static DenseElementsAttr get(const ShapedType &type, ArrayRef< T > values)
+
+template<typename T , typename = typename std::enable_if< std::numeric_limits<T>::is_integer || llvm::is_one_of<T, float, double>::value>::type>
+- static DenseElementsAttr get(const ShapedType &type, T value)
+}
+
+/*
+Builder
+*/
+
+mlir::Builder
+- mlir::OpBuilder
+  - mlir::RewriterBase
+    - mlir::IRRewriter
+    - mlir::PatternRewriter
+      - mlir::ConversionPatternRewriter
+    - mlir::transform::TransformRewriter
+
+{
+mlir::Builder
+- mlir::Builder (MLIRContext *context)
+- MLIRContext * getContext () const
+- Location 	getUnknownLoc ()
+- FloatType 	getBF16Type ()
+- FloatType 	getF16Type ()
+- FloatType 	getTF32Type ()
+- FloatType 	getF32Type ()
+- FloatType 	getF64Type ()
+- FloatType 	getF80Type ()
+- FloatType 	getF128Type ()
+- IntegerType 	getI1Type ()
+- IntegerType 	getI2Type ()
+- IntegerType 	getI4Type ()
+- IntegerType 	getI8Type ()
+- IntegerType 	getI16Type ()
+- IntegerType 	getI32Type ()
+- IntegerType 	getI64Type ()
+
+- BoolAttr 	getBoolAttr (bool value)
+- DictionaryAttr 	getDictionaryAttr (ArrayRef< NamedAttribute > value)
+- IntegerAttr 	getIntegerAttr (Type type, int64_t value)
+- IntegerAttr 	getIntegerAttr (Type type, const APInt &value)
+- FloatAttr 	getFloatAttr (Type type, double value)
+- FloatAttr 	getFloatAttr (Type type, const APFloat &value)
+- StringAttr 	getStringAttr (const Twine &bytes)
+- ArrayAttr 	getArrayAttr (ArrayRef< Attribute > value)
+- TypedAttr 	getZeroAttr (Type type)
+- TypedAttr 	getOneAttr (Type type)
+- FloatAttr 	getF16FloatAttr (float value)
+- FloatAttr 	getF32FloatAttr (float value)
+- FloatAttr 	getF64FloatAttr (double value)
+- IntegerAttr 	getI8IntegerAttr (int8_t value)
+- IntegerAttr 	getI16IntegerAttr (int16_t value)
+- IntegerAttr 	getI32IntegerAttr (int32_t value)
+- IntegerAttr 	getI64IntegerAttr (int64_t value)
+- IntegerAttr 	getSI32IntegerAttr (int32_t value)
+- IntegerAttr 	getUI32IntegerAttr (uint32_t value)
+- DenseIntElementsAttr 	getBoolVectorAttr (ArrayRef< bool > values)
+- DenseIntElementsAttr 	getI32VectorAttr (ArrayRef< int32_t > values)
+- DenseIntElementsAttr 	getI64VectorAttr (ArrayRef< int64_t > values)
+- DenseFPElementsAttr 	getF32VectorAttr (ArrayRef< float > values)
+- DenseFPElementsAttr 	getF64VectorAttr (ArrayRef< double > values)
+- DenseIntElementsAttr 	getI32TensorAttr (ArrayRef< int32_t > values)
+- DenseIntElementsAttr 	getI64TensorAttr (ArrayRef< int64_t > values)
+- DenseBoolArrayAttr 	getDenseBoolArrayAttr (ArrayRef< bool > values)
+- DenseI8ArrayAttr 	getDenseI8ArrayAttr (ArrayRef< int8_t > values)
+- DenseI16ArrayAttr 	getDenseI16ArrayAttr (ArrayRef< int16_t > values)
+- DenseI32ArrayAttr 	getDenseI32ArrayAttr (ArrayRef< int32_t > values)
+- DenseI64ArrayAttr 	getDenseI64ArrayAttr (ArrayRef< int64_t > values)
+- DenseF32ArrayAttr 	getDenseF32ArrayAttr (ArrayRef< float > values)
+- DenseF64ArrayAttr 	getDenseF64ArrayAttr (ArrayRef< double > values)
+- ArrayAttr 	getAffineMapArrayAttr (ArrayRef< AffineMap > values)
+- ArrayAttr 	getBoolArrayAttr (ArrayRef< bool > values)
+- ArrayAttr 	getI32ArrayAttr (ArrayRef< int32_t > values)
+- ArrayAttr 	getI64ArrayAttr (ArrayRef< int64_t > values)
+- ArrayAttr 	getIndexArrayAttr (ArrayRef< int64_t > values)
+- ArrayAttr 	getF32ArrayAttr (ArrayRef< float > values)
+- ArrayAttr 	getF64ArrayAttr (ArrayRef< double > values)
+- ArrayAttr 	getStrArrayAttr (ArrayRef< StringRef > values)
+- ArrayAttr 	getTypeArrayAttr (TypeRange values)
+- NamedAttribute 	getNamedAttr (StringRef name, Attribute val)
+
+template<typename Ty , typename... Args>
+- Ty 	getType (Args &&...args)
+
+template<typename Attr , typename... Args>
+- Attr 	getAttr (Args &&...args)
+}
+
+{
+mlir::OpBuilder
+- OpBuilder (MLIRContext *ctx)
+- void 	clearInsertionPoint ()
+- void 	setInsertionPoint (Block *block, Block::iterator insertPoint)
+- void 	setInsertionPoint (Operation *op)
+- Operation * 	clone (Operation &op, IRMapping &mapper)
+- Operation * 	clone (Operation &op)
+
+template<typename OpTy , typename... Args>
+- OpTy 	create (Location location, Args &&...args)
+}
