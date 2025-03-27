@@ -294,7 +294,7 @@ jobs:
         pytest test/python/golden/test_ttir_ops.py --junit-xml="builder-op-tests.xml"
         cp builder-op-tests.xml ${{ steps.strings.outputs.op_test_report_path }}
         pytest test/python/golden/test_ttir_models.py --junit-xml="builder-model-tests.xml"
-        cp builder-op-tests.xml ${{ steps.strings.outputs.model_test_report_path }}
+        cp builder-model-tests.xml ${{ steps.strings.outputs.model_test_report_path }}
         pytest test/python/golden/test_flatbuffers.py
         cp run_results.json ${{ steps.strings.outputs.ttrt_run_test_report_path }}
 
