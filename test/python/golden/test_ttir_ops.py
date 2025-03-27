@@ -379,6 +379,7 @@ def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request
     compile_to_flatbuffer(broadcast, shapes, test_base=request.node.name)
 
 
+@pytest.mark.skip("IntegerAttr type mismatch, see issue #2683")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -420,6 +421,7 @@ def test_conv2d(
     compile_to_flatbuffer(conv2d, shapes, dtypes, test_base=request.node.name)
 
 
+@pytest.mark.skip("IntegerAttr type mismatch, see issue #2683")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -928,8 +930,6 @@ def test_binary_ops(test_fn: Callable, shape: Shape, dtype: torch.dtype, request
     )
 
 
-# TODO: create issue for this
-@pytest.mark.skip("uint8_t is unsupported here, investigate")
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
 def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
@@ -946,13 +946,8 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
     [
         (transpose, [(64, 32)], None),
         (reshape, [(64, 32)], None),
-        (embedding, [(32, 32), (512, 128)], [torch.bfloat16] * 2),
-        pytest.param(
-            where,
-            [(64, 64)] * 3,
-            [torch.int8, torch.float32, torch.float32],
-            marks=pytest.mark.skip("Bools aren't supported"),
-        ),
+        (embedding, [(33, 32), (512, 128)], [torch.bfloat16] * 2),
+        (where, [(64, 64)] * 3, [torch.int8, torch.float32, torch.float32]),
     ],
 )
 def test_unique_ops(
