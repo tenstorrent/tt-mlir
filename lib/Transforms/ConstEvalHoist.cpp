@@ -231,8 +231,7 @@ private:
   // tensor).
   bool isCreationOp(mlir::Operation *op) {
     assert(op != nullptr);
-    return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>() ||
-           isa<mlir::tensor::EmptyOp>(op);
+    return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>();
   }
 
   // Check if an operation cannot be hoisted.

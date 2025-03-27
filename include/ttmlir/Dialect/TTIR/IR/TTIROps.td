@@ -1705,7 +1705,7 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasCanonicalizer = 1;
 }
 
-def TTIR_EmptyOp : TTIR_Op<"empty", [Pure]> {
+def TTIR_EmptyOp : TTIR_Op<"empty", [Pure, TT_CreationOpTrait]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
