@@ -15,34 +15,46 @@ from ttmlir.ttir_builder import Operand, TTIRBuilder, Shape
 @pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
 def test_arbitrary_model(
-        shapes: List[Shape],
-        dtypes: List[torch.dtype],
-        artifact_path: str,
-        request):
+    shapes: List[Shape], dtypes: List[torch.dtype], artifact_path: str, request
+):
 
-    def model(
-        in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
-    ):
+    def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         add = builder.add(in0, in1)
         exp = builder.exp(in2)
         return builder.multiply(add, exp)
 
-    compile_to_flatbuffer(model, shapes, dtypes, test_base=request.node.name, output_root=artifact_path)
+    compile_to_flatbuffer(
+        model, shapes, dtypes, test_base=request.node.name, output_root=artifact_path
+    )
 
 
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5], ids=["f32"])
-@pytest.mark.parametrize("shapes", [[(1, 784), (784, 256), (1, 256), (256, 10), (1, 10)],
-                                    [(1, 1024), (1024, 256), (1, 256), (256, 10), (1, 10)],
-                                    [(1, 1024), (1024, 256), (1, 256), (256, 26), (1, 26),]],
-                         ids=["28x28_digits", "32x32_digits", "32x32_letters"])
-@pytest.mark.parametrize("target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)])
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(1, 784), (784, 256), (1, 256), (256, 10), (1, 10)],
+        [(1, 1024), (1024, 256), (1, 256), (256, 10), (1, 10)],
+        [
+            (1, 1024),
+            (1024, 256),
+            (1, 256),
+            (256, 26),
+            (1, 26),
+        ],
+    ],
+    ids=["28x28_digits", "32x32_digits", "32x32_letters"],
+)
+@pytest.mark.parametrize(
+    "target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)]
+)
 def test_mnist(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     target: str,
     artifact_path: str,
-    request):
-    
+    request,
+):
+
     def model(
         in0: Operand,  # Input 28x28 image
         in1: Operand,  # Weight 1
@@ -57,38 +69,51 @@ def test_mnist(
         matmul_5 = builder.matmul(relu_3, in3)
         add_6 = builder.add(matmul_5, in4)
         return builder.softmax(add_6, dimension=1)
+
     # TODO: figure out a better way to name these tests for filename purposes
-    compile_to_flatbuffer(model, shapes, dtypes, test_base=request.node.name, target=target, output_root=artifact_path)
-    
+    compile_to_flatbuffer(
+        model,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        target=target,
+        output_root=artifact_path,
+    )
 
 
-@pytest.mark.parametrize("shapes",
-    [[
-        (1, 12, 3200),      # arg0
-        (1, 1, 12, 12),     # arg1
-        (1, 12),            # arg2
-        (1, 50, 1),         # arg3
-        (1, 32, 50, 100),   # arg4
-        (1, 1),             # arg5
-        (1, 32, 50, 100),   # arg6
-        (1, 32, 50, 100),   # arg7
-        (1, 1),             # arg8
-        (1, 32, 50, 100),   # arg9
-        (1, 1),             # arg10
-        (3200, 3200),       # arg11
-        (3200, 3200),       # arg12
-        (3200, 3200),       # arg13
-        (3200, 3200),       # arg14
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 12, 3200),  # arg0
+            (1, 1, 12, 12),  # arg1
+            (1, 12),  # arg2
+            (1, 50, 1),  # arg3
+            (1, 32, 50, 100),  # arg4
+            (1, 1),  # arg5
+            (1, 32, 50, 100),  # arg6
+            (1, 32, 50, 100),  # arg7
+            (1, 1),  # arg8
+            (1, 32, 50, 100),  # arg9
+            (1, 1),  # arg10
+            (3200, 3200),  # arg11
+            (3200, 3200),  # arg12
+            (3200, 3200),  # arg13
+            (3200, 3200),  # arg14
         ],
-    ])
+    ],
+)
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 15], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)])
+@pytest.mark.parametrize(
+    "target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)]
+)
 def test_llama_attention(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     target: str,
     artifact_path: str,
-    request):
+    request,
+):
 
     def model(
         arg0: Operand,
@@ -168,4 +193,12 @@ def test_llama_attention(
         output115 = builder.unsqueeze(output113, 0)
 
         return output115
-    compile_to_flatbuffer(model, shapes, dtypes, target=target, test_base=request.node.name, output_root=artifact_path)
+
+    compile_to_flatbuffer(
+        model,
+        shapes,
+        dtypes,
+        target=target,
+        test_base=request.node.name,
+        output_root=artifact_path,
+    )
