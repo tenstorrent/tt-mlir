@@ -1232,17 +1232,13 @@ class TTIRBuilder:
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
         stride = list(stride) if not isinstance(stride, int) else int(stride)
-        padding = (
-            list(padding) if not isinstance(padding, int) else int(padding)
-        )
+        padding = list(padding) if not isinstance(padding, int) else int(padding)
         output_padding = (
             list(output_padding)
             if not isinstance(output_padding, int)
             else int(output_padding)
         )
-        dilation = (
-            list(dilation) if not isinstance(dilation, int) else int(dilation)
-        )
+        dilation = list(dilation) if not isinstance(dilation, int) else int(dilation)
         golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
@@ -1580,7 +1576,7 @@ class TTIRBuilder:
         )
 
     def arange(
-        self, result:Operand, start:int, end:int, step:int, arange_dimension:int
+        self, result: Operand, start: int, end: int, step: int, arange_dimension: int
     ) -> OpView:
         single_dim_tensor = torch.arange(
             start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype

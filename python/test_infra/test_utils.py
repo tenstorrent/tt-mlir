@@ -281,7 +281,11 @@ def ttir_to_ttmetal(
 
 
 def ttnn_to_flatbuffer(
-        module, builder, output_path: str = "", output_file_name: str = "ttnn_fb.ttnn", module_log=None
+    module,
+    builder,
+    output_path: str = "",
+    output_file_name: str = "ttnn_fb.ttnn",
+    module_log=None,
 ):
     """
     Converts TTNN module to flatbuffer and saves to file. Wrapper around
@@ -306,7 +310,7 @@ def ttmetal_to_flatbuffer(
     builder,
     output_path: str = "",
     output_file_name: str = "ttmetal_fb.ttm",
-    module_log=None
+    module_log=None,
 ):
     """
     Converts TTMetal module to flatbuffer and saves to file. Wrapper around
@@ -317,18 +321,21 @@ def ttmetal_to_flatbuffer(
     # Take the output_file_name and prefix with ttm directory
     output_file_name = get_ttmetal_path(output_path, output_file_name)
     if module_log is not None:
-        ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map(), module_log)
+        ttmetal_to_flatbuffer_file(
+            module, output_file_name, builder.get_golden_map(), module_log
+        )
     else:
         ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
 
     print("`ttmetal_to_flatbuffer_file` passed successfully.")
 
 
-def ttrt_run_fb( binary_path: str):
-    """ Runs a flatbuffer at `binary_path` through `ttrt`. Should be equivalent to `ttrt run {binary_path}`
-    """
+def ttrt_run_fb(binary_path: str):
+    """Runs a flatbuffer at `binary_path` through `ttrt`. Should be equivalent to `ttrt run {binary_path}`"""
     print(f"running {binary_path}")
-    result_code = subprocess.run(f"ttrt run {binary_path}", shell=True, capture_output=True)
+    result_code = subprocess.run(
+        f"ttrt run {binary_path}", shell=True, capture_output=True
+    )
     result_code = result_code.returncode
 
     if result_code == 42:
@@ -351,7 +358,7 @@ def compile_to_flatbuffer(
     argument_types_string: Optional[str] = None,
 ):
     """
-    Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer 
+    Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer
 
     This decorator is mainly a wrapper around the following functions, with
     each next function called on the output of the last:
@@ -397,7 +404,7 @@ def compile_to_flatbuffer(
     """
 
     if inputs_types is not None:
-        assert(len(inputs_shapes) == len(inputs_types))
+        assert len(inputs_shapes) == len(inputs_types)
 
     from_ttir: Callable
     to_flatbuffer: Callable
@@ -405,12 +412,12 @@ def compile_to_flatbuffer(
 
     if target == "ttnn":
         from_ttir = ttir_to_ttnn
-        to_flatbuffer = ttnn_to_flatbuffer 
-        mlir_suffix =  "_ttnn.mlir"
+        to_flatbuffer = ttnn_to_flatbuffer
+        mlir_suffix = "_ttnn.mlir"
     else:
         from_ttir = ttir_to_ttmetal
-        to_flatbuffer = ttmetal_to_flatbuffer 
-        mlir_suffix =  "_ttm.mlir"
+        to_flatbuffer = ttmetal_to_flatbuffer
+        mlir_suffix = "_ttm.mlir"
 
     # Compile model to TTIR MLIR
     module, builder = compile_as_mlir_module(
@@ -433,4 +440,10 @@ def compile_to_flatbuffer(
     module_logger.attach_context(module.context)
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
-    to_flatbuffer(module, builder, output_root, test_base + "." + target, module_log=module_logger.module_log)
+    to_flatbuffer(
+        module,
+        builder,
+        output_root,
+        test_base + "." + target,
+        module_log=module_logger.module_log,
+    )
