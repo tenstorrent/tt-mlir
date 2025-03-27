@@ -8,7 +8,7 @@
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/tensor_cache.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 
 #include <cstdint>

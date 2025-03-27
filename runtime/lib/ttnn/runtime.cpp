@@ -2,13 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/runtime.h"
 #include "Constants.h"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/ttnn/program.h"
-#include "tt/runtime/ttnn/tensor_cache.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"

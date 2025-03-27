@@ -5,8 +5,8 @@
 #include "operations/cache/load_cached.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/ttnn/program.h"
-#include "tt/runtime/ttnn/tensor_cache.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/types.h"
 #include <vector>
@@ -23,7 +23,7 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 using LogType = ::tt::runtime::logger::LogType;
 
 void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
-  // TODO: think this through before PR
+  // TODO(vwells): think this through before PR
 
   // Get the appropriate cache for this device
   TensorCache &cache = context.getCache();
@@ -53,8 +53,9 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     // Insert the cached tensor into the tensor pool for the output
     assert(outputs.size() == op->outputs()->size());
     for (size_t i = 0; i < outputs.size(); ++i) {
+      auto output = outputs[i].as<::ttnn::Tensor>(DeviceRuntime::TTNN);
       context.getTensorPool().insertAndValidate(
-          op->outputs()->Get(i)->global_id(), *outputs[i].getTensor());
+          op->outputs()->Get(i)->global_id(), output);
     }
 
     return;
@@ -77,13 +78,14 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
                                  inputs, &context.getParentMesh());
   exec.execute();
   LOG_INFO("executed sub-func: ", functionName);
-  std::vector<::ttnn::Tensor *> outputs = exec.gatherTTNNOutputTensors();
+  std::vector<Tensor> outputs = exec.gatherOutputTensors();
   LOG_ASSERT(outputs.size() == outputIds.size());
   for (size_t i = 0; i < outputs.size(); ++i) {
-    ::ttnn::Tensor *output = outputs[i];
-    TensorPtrWrapper wrappedTensor(output);
-    cache.add(cacheKey, output);
-    context.getTensorPool().insertAndValidate(outputIds[i], *output);
+    Tensor runtimeOutput = outputs[i];
+    cache.add(cacheKey, runtimeOutput);
+    ::ttnn::Tensor output =
+        runtimeOutput.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    context.getTensorPool().insertAndValidate(outputIds[i], output);
   }
 }
 } // namespace tt::runtime::ttnn::operations::cache
