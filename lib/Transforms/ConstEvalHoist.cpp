@@ -32,16 +32,6 @@ struct ConstEvalSubgraph {
   llvm::SmallPtrSet<mlir::BlockArgument, 4> inputParameters;
   // Ops from the original function that this subgraph contains.
   llvm::SmallVector<mlir::Operation *, 4> ops;
-
-  void insert(SmallPtrSet<BlockArgument, 4> inputParameters,
-              SmallVector<Operation *, 4> ops) {
-    ConstEvalSubgraph::inputParameters.insert(inputParameters.begin(),
-                                              inputParameters.end());
-    ConstEvalSubgraph::ops.append(ops.begin(), ops.end());
-  }
-  void insert(ConstEvalSubgraph const &other) {
-    insert(other.inputParameters, other.ops);
-  }
 };
 } // namespace
 
@@ -53,35 +43,75 @@ struct ConstEvalAnalysisResults {
 } // namespace
 
 namespace {
-// Analyzer class to detect const-eval subgraphs in a given FuncOp.
-// Template argument allows user to specify set of ops to not consider hoisting.
+// Analyzer class to detect const-eval subgraphs in a given FuncOp using
+// union-find.
 class ConstEvalAnalyze {
 public:
-  ConstEvalAnalyze(func::FuncOp funcOp) {
-    populateConstParams(funcOp);
-    buildConstEvalSubgraphs(funcOp);
+  ConstEvalAnalyze(func::FuncOp *funcOp) : funcOp(funcOp) {
+    llvm::outs() << "analyzing: " << funcOp->getSymName() << "\n";
+    populateConstParams();
+    buildConstEvalSubgraphs();
   }
 
   ConstEvalAnalysisResults getAnalysisResults() {
-    llvm::SmallVector<ConstEvalSubgraph, 4> subgraphVector;
-    subgraphVector.reserve(subgraphMap.size());
-    for (const auto &[_, subgraph] : subgraphMap) {
-      subgraphVector.emplace_back(subgraph);
+    llvm::SmallVector<ConstEvalSubgraph, 4> finalSubgraphs;
+
+    // Create a map of root ID to input parameters
+    llvm::DenseMap<size_t, llvm::SmallPtrSet<mlir::BlockArgument, 4>>
+        rootToParamsMap;
+
+    // Collect all operations in the original order
+    llvm::DenseMap<size_t, llvm::SmallVector<Operation *, 4>> rootToOpsMap;
+
+    // Process all operations and collect them by root
+    for (auto &block : funcOp->getBlocks()) {
+      for (auto &op : block.getOperations()) {
+        auto opIt = opToSubgraphMap.find(&op);
+        if (opIt != opToSubgraphMap.end()) {
+          size_t subgraphId = opIt->second;
+          size_t root = findRoot(subgraphId);
+          rootToOpsMap[root].push_back(&op);
+          // Also collect params for this root
+          auto paramsIt = subgraphParams.find(subgraphId);
+          if (paramsIt != subgraphParams.end()) {
+            rootToParamsMap[root].insert(paramsIt->second.begin(),
+                                         paramsIt->second.end());
+          }
+        }
+      }
     }
-    return ConstEvalAnalysisResults{subgraphVector, sharedOps};
+
+    // Convert the maps to final subgraphs
+    for (auto [root, ops] : rootToOpsMap) {
+      ConstEvalSubgraph subgraph;
+
+      // Add input parameters
+      auto paramsIt = rootToParamsMap.find(root);
+      if (paramsIt != rootToParamsMap.end()) {
+        subgraph.inputParameters.insert(paramsIt->second.begin(),
+                                        paramsIt->second.end());
+      }
+
+      // Add operations
+      subgraph.ops = ops;
+
+      finalSubgraphs.push_back(subgraph);
+    }
+
+    return ConstEvalAnalysisResults{finalSubgraphs, sharedOps};
   }
 
 private:
-  void populateConstParams(func::FuncOp funcOp) {
-    if (funcOp.isDeclaration()) {
+  void populateConstParams() {
+    if (funcOp->isDeclaration()) {
       return;
     }
 
-    auto args = funcOp.getArguments();
+    auto args = funcOp->getArguments();
 
     // Iterate through arguments and check their tt.argument_type attributes
     for (auto arg : args) {
-      auto argAttrs = funcOp.getArgAttrDict(arg.getArgNumber());
+      auto argAttrs = funcOp->getArgAttrDict(arg.getArgNumber());
       if (!argAttrs) {
         continue;
       }
@@ -105,19 +135,44 @@ private:
     }
   }
 
-  // Main algorithm to build const-eval subgraphs:
-  // 1. We have a map of sets of ops, each representing 1 subgraph
-  // 2. For every op in the original graph, select one of 3 cases
-  //   a. If an op depends on any non-const ops, it cannot be const-eval'ed
-  //   b. If an op depends on only const input params (to the func) or creation
-  // ops, it becomes a new const-eval subgraph (along with its creation ops)
-  //   c. If an op depends on output from an op in any existing subgraphs, it
-  //   must be merged into these subgraphs (if there are multiple such
-  //   subgraphs, they must be merged).
-  // 3. Result is map of all disjoint const-eval subgraphs (as sets of ops)
-  void buildConstEvalSubgraphs(func::FuncOp funcOp) {
+  // ======  Union-find operations  ====== //
+  size_t findRoot(size_t id) {
+    auto [it, inserted] = parent.insert({id, id});
+    if (inserted) {
+      // Initialize if this is first access
+      rank[id] = 0;
+      return id;
+    }
+
+    if (it->second != id) {
+      it->second = findRoot(it->second); // Path compression
+    }
+    return it->second;
+  }
+
+  void unionSubgraphs(size_t x, size_t y) {
+    llvm::outs() << "merging " << x << " and " << y << "\n";
+    size_t rootX = findRoot(x);
+    size_t rootY = findRoot(y);
+
+    if (rootX == rootY)
+      return;
+
+    // Union by rank
+    if (rank[rootX] < rank[rootY]) {
+      parent[rootX] = rootY;
+    } else {
+      parent[rootY] = rootX;
+      if (rank[rootX] == rank[rootY]) {
+        rank[rootX]++;
+      }
+    }
+  }
+  // ======  ---------------  ====== //
+
+  void buildConstEvalSubgraphs() {
     // Iterate over all blocks in the function
-    for (auto &block : funcOp.getBlocks()) {
+    for (auto &block : funcOp->getBlocks()) {
       // Iterate over all operations in the block
       for (auto &opRef : block.getOperations()) {
         processOp(&opRef);
@@ -126,59 +181,86 @@ private:
   }
 
   void processOp(Operation *op) {
-    // Creation type ops are only hoisted to subgraphs if a user is found
-    // which depends on them, to prevent spuriously hoisting all creation
-    // ops. We also completely ignore certain ops.
+    llvm::outs() << "processing " << op->getName() << "\n";
+    // Skip unhoistable and creation ops
     if (isUnhoistableOp(op) || isCreationOp(op)) {
       return;
     }
 
-    // Some specific ops need to be duplicated
+    // Handle shared ops separately
     if (isSharedOp(op)) {
       sharedOps.push_back(op);
       return;
     }
 
-    // Set of idxs of any existing const-eval subgraphs this op may depend on.
-    llvm::SmallSet<size_t, 2> subgraphIdxs;
-    // Set of any input params this op may depend on.
+    // Track which existing subgraphs this op depends on
+    llvm::SmallSet<size_t, 2> dependentSubgraphIds;
+    // Track input parameters this op depends on
     llvm::SmallPtrSet<mlir::BlockArgument, 4> inputParams;
-    // Set of creation ops this op may depend on.
+    // Track creation ops this op depends on
     llvm::SmallPtrSet<mlir::Operation *, 2> creationOps;
 
+    // Check if all operands are const-eval
     for (auto operand : op->getOperands()) {
       if (!operandIsConstEval(operand, inputParams, creationOps,
-                              subgraphIdxs)) {
-        return;
+                              dependentSubgraphIds)) {
+        return; // Not a const-eval op
       }
     }
 
-    // Ensure any needed creation ops are inserted before the user op.
-    llvm::SmallVector<mlir::Operation *, 4> opsToInsert(creationOps.begin(),
-                                                        creationOps.end());
-    opsToInsert.push_back(op);
+    // Determine which subgraph this op belongs to
+    size_t targetSubgraphId{};
 
-    size_t targetIdx{};
-    if (subgraphIdxs.empty()) {
-      // This op does not depend on any existing subgraphs, create a new
-      // one.
-      targetIdx = nextSubgraphId++;
-      subgraphMap[targetIdx] = {};
-    } else if (subgraphIdxs.size() == 1) {
-      // This op can be added to a single existing subgraph.
-      targetIdx = *subgraphIdxs.begin();
+    if (dependentSubgraphIds.empty()) {
+      // Create a new subgraph
+      targetSubgraphId = nextSubgraphId++;
+
+      // Initialize union-find entry
+      parent[targetSubgraphId] = targetSubgraphId;
+      rank[targetSubgraphId] = 0;
+    } else if (dependentSubgraphIds.size() == 1) {
+      // Join existing subgraph
+      targetSubgraphId = *dependentSubgraphIds.begin();
     } else {
-      // This op is connected to multiple subgraphs, must merge them all.
-      targetIdx = mergeSetOfSubgraphs(subgraphIdxs);
-    }
-    auto it = subgraphMap.find(targetIdx);
-    assert(it != subgraphMap.end());
-    ConstEvalSubgraph &targetSubgraph = it->second;
-    targetSubgraph.insert(inputParams, opsToInsert);
-    for (auto *opToMove : opsToInsert) {
-      for (auto result : opToMove->getResults()) {
-        valueToSubgraphMap[result] = targetIdx;
+      // Need to merge multiple subgraphs
+      // Convert to vector for easier handling
+      llvm::SmallVector<size_t, 2> subgraphIdVector(
+          dependentSubgraphIds.begin(), dependentSubgraphIds.end());
+      // std::sort(subgraphIdVector.begin(), subgraphIdVector.end());
+
+      // Choose first as target
+      targetSubgraphId = subgraphIdVector[0];
+
+      // Union all others with the target
+      for (size_t i = 1; i < subgraphIdVector.size(); ++i) {
+        unionSubgraphs(targetSubgraphId, subgraphIdVector[i]);
       }
+
+      // Get the actual root after unions
+      targetSubgraphId = findRoot(targetSubgraphId);
+    }
+
+    // Track this op in the subgraph
+    opToSubgraphMap[op] = targetSubgraphId;
+    llvm::outs() << "mapping op to subgraph: " << targetSubgraphId << "\n";
+
+    // Add creation ops to the subgraph as well
+    for (Operation *creationOp : creationOps) {
+      llvm::outs() << "mapping creationOp " << creationOp->getName()
+                   << " to subgraph: " << targetSubgraphId << "\n";
+      opToSubgraphMap[creationOp] = targetSubgraphId;
+    }
+
+    // Store input parameters for this subgraph
+    if (!inputParams.empty()) {
+      llvm::SmallPtrSet<mlir::BlockArgument, 4> &paramSet =
+          subgraphParams[targetSubgraphId];
+      paramSet.insert(inputParams.begin(), inputParams.end());
+    }
+
+    // Update value to subgraph mapping for results
+    for (auto result : op->getResults()) {
+      valueToSubgraphMap[result] = targetSubgraphId;
     }
   }
 
@@ -189,52 +271,49 @@ private:
   operandIsConstEval(mlir::Value operand,
                      llvm::SmallPtrSet<mlir::BlockArgument, 4> &inputParams,
                      llvm::SmallPtrSet<mlir::Operation *, 2> &creationOps,
-                     llvm::SmallSet<size_t, 2> &subgraphIdxs) {
-    // Case 1: this operand is an const-eval param.
+                     llvm::SmallSet<size_t, 2> &dependentSubgraphIds) {
+
+    // Case 1: this operand is a const-eval param.
     if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
       if (constParams.contains(blockArg)) {
         inputParams.insert(blockArg);
         return true;
       }
-      // If operand is a BlockArgument but not a const one, this op cannot be
-      // const-eval.
+      // Not a const param, can't be const-eval
       return false;
     }
 
-    // Case 2: this operand is result of an existing op in a const-eval
-    // subgraph.
+    // Case 2: this operand is from an op in an existing const-eval subgraph
     if (auto it = valueToSubgraphMap.find(operand);
         it != valueToSubgraphMap.end()) {
-      subgraphIdxs.insert(it->second);
+      dependentSubgraphIds.insert(it->second);
       return true;
     }
 
-    // Case 3: this operand is an intermediate tensor from a neutral
-    // creation op.
+    // Case 3: operand from creation op
     if (mlir::Operation *defOp = operand.getDefiningOp(); defOp != nullptr) {
-      // Shared ops will always be available in all subgraphs (but not in
-      // valueToSubgraphMap).
+      // Shared ops always available
       if (isSharedOp(defOp)) {
         return true;
       }
+
+      // Check if it's a valid creation op
       if (!isUnhoistableOp(defOp) && isCreationOp(defOp)) {
         creationOps.insert(defOp);
         return true;
       }
     }
-    // If all 3 cases fail, this operand is not const-eval, so this
-    // operation cannot be const-eval'ed.
+
+    // Not const-eval
     return false;
   }
 
-  // Check if an operation is a tensor creation op (no inputs, output is a
-  // tensor).
+  // Helper functions
   bool isCreationOp(mlir::Operation *op) {
     assert(op != nullptr);
     return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>();
   }
 
-  // Check if an operation cannot be hoisted.
   bool isUnhoistableOp(mlir::Operation *op) {
     assert(op != nullptr);
     return op->hasTrait<mlir::tt::Trait::TTIgnoreConstEvalTrait>();
@@ -245,64 +324,30 @@ private:
     return op->hasTrait<mlir::tt::Trait::TTDuplicateConstEvalTrait>();
   }
 
-  // Merge content of all subgraphs in subgraphIdxs into the subgraph at the
-  // lowest index, and return index of that subgraph.
-  size_t mergeSetOfSubgraphs(const llvm::SmallSet<size_t, 2> &subgraphIdxs) {
-
-    // Convert set to vector for sorting
-    llvm::SmallVector<size_t, 2> allIndices(subgraphIdxs.begin(),
-                                            subgraphIdxs.end());
-
-    // Sort indices to find the lowest index.
-    std::sort(allIndices.begin(), allIndices.end());
-
-    // Get the lowest index as the target.
-    size_t targetIdx = allIndices[0];
-
-    // Merge all other subgraphs into the target one, starting from the
-    // highest index to avoid invalidating indices during removal.
-    for (int i = allIndices.size() - 1; i > 0; --i) {
-      mergeSubgraphs(targetIdx, allIndices[i]);
-    }
-
-    return targetIdx;
-  }
-
-  // Merge all contents of subgraph at sourceIdx into subgraph at targetIdx +
-  // erase source subgraph.
-  void mergeSubgraphs(size_t targetIdx, size_t sourceIdx) {
-    auto targetIt = subgraphMap.find(targetIdx);
-    auto sourceIt = subgraphMap.find(sourceIdx);
-    assert(targetIt != subgraphMap.end() && sourceIt != subgraphMap.end());
-
-    ConstEvalSubgraph &target = targetIt->second;
-    ConstEvalSubgraph &source = sourceIt->second;
-
-    // Update mapping for all values produced by operations in the source
-    // subgraph
-    for (Operation *op : subgraphMap[sourceIdx].ops) {
-      for (Value result : op->getResults()) {
-        valueToSubgraphMap[result] = targetIdx;
-      }
-    }
-
-    target.insert(source);
-
-    subgraphMap.erase(sourceIdx);
-  }
-
 private:
-  // Internal representation of subgraphs
-  // This is a map so that we can efficiently erase elements in the middle
-  // without invalidating indices.
-  llvm::DenseMap<size_t, ConstEvalSubgraph> subgraphMap;
-  // Index counter we use to ensure each subgraph has a unique id.
-  size_t nextSubgraphId = 0;
-
-  // Map to determine which subgraph a value belongs to (if any).
+  // ======  Union-find data structures  ======
+  //
+  // Map of child to parent relationships, represents basic union-find tree.
+  llvm::DenseMap<size_t, size_t> parent;
+  // Rank map, for union-by-rank optimization to keep tree balanced.
+  llvm::DenseMap<size_t, size_t> rank;
+  // Maps value to its subgraph ID, to store dependencies.
   llvm::DenseMap<mlir::Value, size_t> valueToSubgraphMap;
+  // Maps operation to its subgraph ID, for final gathering.
+  llvm::DenseMap<mlir::Operation *, size_t> opToSubgraphMap;
+  // Maps subgraph ID to its input parameters, for final gathering.
+  llvm::DenseMap<size_t, llvm::SmallPtrSet<mlir::BlockArgument, 4>>
+      subgraphParams;
+  // Unique id per graph.
+  size_t nextSubgraphId = 0;
+  //
+  // ======  -------------------------  ======
+
+  func::FuncOp *funcOp;
+
   // Set of params to original func which can be const-eval'ed.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
+
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
 };
@@ -332,7 +377,7 @@ private:
       return;
     }
     // Run the analysis to identify const-eval subgraphs
-    ConstEvalAnalyze analyzer(funcOp);
+    ConstEvalAnalyze analyzer(&funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
         analysisResults.subgraphs;
@@ -360,9 +405,17 @@ private:
     mlir::MLIRContext *context = &this->getContext();
     mlir::OpBuilder builder(context);
 
+    llvm::outs() << subgraph.inputParameters.size() << " params mapped to "
+                 << originalFunc.getSymName() << "\n";
+
     // Identify all outputs of the subgraph.
-    llvm::SmallVector<mlir::Value, 4> inputs(subgraph.inputParameters.begin(),
-                                             subgraph.inputParameters.end());
+    llvm::SmallVector<mlir::BlockArgument, 4> inputs(
+        subgraph.inputParameters.begin(), subgraph.inputParameters.end());
+    // Sort by argument number to keep order consistent
+    std::sort(inputs.begin(), inputs.end(),
+              [](BlockArgument a, BlockArgument b) {
+                return a.getArgNumber() < b.getArgNumber();
+              });
     llvm::SmallVector<mlir::Type, 4> inputTypes;
     llvm::SmallVector<mlir::Value, 4> outputs;
     llvm::SmallVector<mlir::Type, 4> outputTypes;
@@ -433,12 +486,8 @@ private:
         mlir::SymbolRefAttr::get(builder.getContext(), newFuncName);
 
     // Create the LoadCachedOp with the correct argument order
-    auto callOp =
-        builder.create<tt::LoadCachedOp>(originalFunc.getLoc(), // Location
-                                         outputTypes,           // Result types
-                                         calleeAttr, // Callee symbol reference
-                                         inputs      // Input values
-        );
+    auto callOp = builder.create<tt::LoadCachedOp>(
+        originalFunc.getLoc(), outputTypes, calleeAttr, ValueRange(inputs));
 
     // Replace uses of original outputs with call results.
     for (size_t i = 0; i < outputs.size(); ++i) {
@@ -460,8 +509,10 @@ private:
     assert(!op->hasTrait<mlir::OpTrait::IsTerminator>());
 
     llvm::SmallVector<mlir::Value, 4> remappedOperands;
+    llvm::outs() << "processing operands for " << op->getName() << "\n";
     for (auto operand : op->getOperands()) {
       auto it = valueMap.find(operand);
+      operand.dump();
       assert(it != valueMap.end() && "Subgraph depends on out-of-scope value!");
       remappedOperands.push_back(it->second);
     }
