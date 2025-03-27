@@ -554,10 +554,11 @@ broadcastValue(mlir::PatternRewriter &rewriter, mlir::Value input,
 // location.
 inline mlir::Location appendLocationSuffix(mlir::Location loc,
                                            llvm::StringRef suffix) {
-  if (suffix.empty() || !mlir::isa<mlir::NameLoc>(loc))
+  if (suffix.empty() || !mlir::isa<mlir::NameLoc>(loc)) {
     return loc;
+  }
 
-  auto nameLoc = mlir::cast<mlir::NameLoc>(loc);
+  mlir::NameLoc nameLoc = mlir::cast<mlir::NameLoc>(loc);
   return mlir::NameLoc::get(
       mlir::StringAttr::get(loc.getContext(), nameLoc.getName().str() + suffix),
       loc);
