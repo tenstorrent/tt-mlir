@@ -466,11 +466,11 @@ class Run:
             )
 
             pre_callback_env = ttrt.runtime.DebugPreHooks.get(
-                pre_get_callback_fn(callback_runtime_config)
+                pre_get_callback_fn(pre_callback_runtime_config)
             )
 
             post_callback_env = ttrt.runtime.DebugPostHooks.get(
-                post_get_callback_fn(callback_runtime_config)
+                post_get_callback_fn(post_callback_runtime_config)
             )
 
             try:
