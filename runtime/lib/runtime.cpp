@@ -8,6 +8,8 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
+#include "tt/runtime/tensor_cache.h"
+
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
 #endif
@@ -509,11 +511,12 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputHandles) {
+                           std::vector<Tensor> const &inputHandles,
+                           std::shared_ptr<TensorCache> tensorCache) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
-                                       programIndex, inputHandles);
+                                       programIndex, inputHandles, tensorCache);
   }
 #endif
 
@@ -523,6 +526,13 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   }
 #endif
   LOG_FATAL("runtime is not enabled");
+}
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputHandles) {
+  return submit(deviceHandle, executableHandle, programIndex, inputHandles,
+                nullptr);
 }
 
 Event submit(Device deviceHandle, Binary executableHandle,

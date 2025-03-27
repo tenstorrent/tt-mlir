@@ -6,7 +6,7 @@
 
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/runtime.h"
-#include "tt/runtime/ttnn/tensor_cache.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
@@ -116,18 +116,18 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
 
-  py::class_<tt::runtime::ttnn::CacheKey>(m, "CacheKey")
+  py::class_<tt::runtime::CacheKey>(m, "CacheKey")
       .def(py::init<const std::string &, const std::vector<uint32_t> &>())
-      .def("get_function_name", &tt::runtime::ttnn::CacheKey::getFunctionName)
-      .def("get_input_ids", &tt::runtime::ttnn::CacheKey::getInputIds);
+      .def("get_function_name", &tt::runtime::CacheKey::getFunctionName)
+      .def("get_input_ids", &tt::runtime::CacheKey::getInputIds);
 
-  py::class_<tt::runtime::ttnn::TensorCache,
-             std::shared_ptr<tt::runtime::ttnn::TensorCache>>(m, "TensorCache")
+  py::class_<tt::runtime::TensorCache,
+             std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
       .def(py::init<>())
-      .def("contains", &tt::runtime::ttnn::TensorCache::contains)
-      .def("clear", &tt::runtime::ttnn::TensorCache::clear)
-      .def("size", &tt::runtime::ttnn::TensorCache::size)
-      .def("get_stats", &tt::runtime::ttnn::TensorCache::getStats);
+      .def("contains", &tt::runtime::TensorCache::contains)
+      .def("clear", &tt::runtime::TensorCache::clear)
+      .def("size", &tt::runtime::TensorCache::size)
+      .def("get_stats", &tt::runtime::TensorCache::getStats);
 
   py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
       .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
@@ -240,7 +240,7 @@ PYBIND11_MODULE(_C, m) {
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
          std::uint32_t programIndex,
          const std::vector<::tt::runtime::Tensor> &inputs,
-         std::shared_ptr<tt::runtime::ttnn::TensorCache> tensorCache)
+         std::shared_ptr<tt::runtime::TensorCache> tensorCache)
           -> std::vector<::tt::runtime::Tensor> {
         return ::tt::runtime::submit(device, executable, programIndex, inputs,
                                      tensorCache);
