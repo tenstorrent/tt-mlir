@@ -42,13 +42,13 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   return os;
 }
 
-struct Hooks {
+struct PreHooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Hooks const &
+  static PreHooks const &
   get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
-  constexpr static Hooks get() { return Hooks(); }
+  constexpr static PreHooks get() { return PreHooks(); }
 #endif
 
   std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
@@ -68,23 +68,72 @@ struct Hooks {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  Hooks(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-            operatorCallback)
+  PreHooks(
+      std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback)
       : operatorCallback(operatorCallback) {}
 
   mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
       operatorCallback;
 
 #else
-  constexpr Hooks() = default;
+  constexpr PreHooks() = default;
 #endif
 };
 
-inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
-  os << "debug::Hooks{\n"
+struct PostHooks {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  static PostHooks const &
+  get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback = std::nullopt);
+#else
+  constexpr static PostHooks get() { return PostHooks(); }
+#endif
+
+  std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+  getOperatorCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return operatorCallback;
+#else
+    return std::nullopt;
+#endif
+  }
+
+  void unregisterHooks() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    operatorCallback = std::nullopt;
+#endif
+  }
+
+private:
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  PostHooks(
+      std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback)
+      : operatorCallback(operatorCallback) {}
+
+  mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+      operatorCallback;
+
+#else
+  constexpr PostHooks() = default;
+#endif
+};
+
+inline std::ostream &operator<<(std::ostream &os, PreHooks const &pre_hooks) {
+  os << "debug::PreHooks{\n"
      << "\t"
-     << "operatorCallback: " << static_cast<bool>(hooks.getOperatorCallback())
-     << ",\n"
+     << "operatorCallback: "
+     << static_cast<bool>(pre_hooks.getOperatorCallback()) << ",\n"
+     << "}";
+  return os;
+}
+
+inline std::ostream &operator<<(std::ostream &os, PostHooks const &post_hooks) {
+  os << "debug::PostHooks{\n"
+     << "\t"
+     << "operatorCallback: "
+     << static_cast<bool>(post_hooks.getOperatorCallback()) << ",\n"
      << "}";
   return os;
 }

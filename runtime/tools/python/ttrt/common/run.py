@@ -6,7 +6,11 @@ import os
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.callback import get_callback_fn, CallbackRuntimeConfig
+from ttrt.common.callback import (
+    pre_get_callback_fn,
+    post_get_callback_fn,
+    CallbackRuntimeConfig,
+)
 
 
 class Run:
@@ -436,7 +440,19 @@ class Run:
                 enable_async_ttnn=self["--enable-async-ttnn"],
             )
 
-            callback_runtime_config = CallbackRuntimeConfig(
+            pre_callback_runtime_config = CallbackRuntimeConfig(
+                device,
+                "",
+                self["--pcc"],
+                self["--atol"],
+                self["--rtol"],
+                self["--save-golden-tensors"],
+                self.logging,
+                not self["--disable-golden"],
+                self["--memory"],
+                self["--debugger"],
+            )
+            post_callback_runtime_config = CallbackRuntimeConfig(
                 device,
                 "",
                 self["--pcc"],
@@ -449,8 +465,12 @@ class Run:
                 self["--debugger"],
             )
 
-            callback_env = ttrt.runtime.DebugHooks.get(
-                get_callback_fn(callback_runtime_config)
+            pre_callback_env = ttrt.runtime.DebugPreHooks.get(
+                pre_get_callback_fn(callback_runtime_config)
+            )
+
+            post_callback_env = ttrt.runtime.DebugPostHooks.get(
+                post_get_callback_fn(callback_runtime_config)
             )
 
             try:
@@ -482,7 +502,10 @@ class Run:
                                 f"evaluating program={program_index} for binary={bin.file_path}"
                             )
 
-                            callback_runtime_config.start_new_callback(
+                            pre_callback_runtime_config.start_new_callback(
+                                f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+                            )
+                            post_callback_runtime_config.start_new_callback(
                                 f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
                             )
 
@@ -685,20 +708,20 @@ class Run:
                             # if golden comparison is enabled, check golden results json file to see if test passed
                             if not self["--disable-golden"]:
                                 if self["--save-artifacts"]:
-                                    callback_runtime_config.save_golden_report(
+                                    post_callback_runtime_config.save_golden_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
                                     )
 
-                                callback_runtime_config.check_pcc()
+                                post_callback_runtime_config.check_pcc()
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:
-                                    callback_runtime_config.save_memory_report(
+                                    post_callback_runtime_config.save_memory_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/memory_results.json"
                                     )
 
                                 if self["--check-memory-leak"]:
-                                    callback_runtime_config.check_memory_leak()
+                                    post_callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
                         result = "error"

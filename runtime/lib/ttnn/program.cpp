@@ -109,17 +109,22 @@ public:
         common::DylibManager(program->dylibs()), meshDevice);
   }
 
-  void runCallback(Binary &executableHandle,
-                   const ::tt::target::ttnn::Operation *opContext,
-                   ProgramContext *programContext);
+  void runPreCallback(Binary &executableHandle,
+                      const ::tt::target::ttnn::Operation *opContext,
+                      ProgramContext *programContext);
+
+  void runPostCallback(Binary &executableHandle,
+                       const ::tt::target::ttnn::Operation *opContext,
+                       ProgramContext *programContext);
 
   void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
+      runPreCallback(executableHandle, op, context.get());
       runOperation(op);
-      runCallback(executableHandle, op, context.get());
+      runPostCallback(executableHandle, op, context.get());
     }
   }
 
@@ -138,18 +143,35 @@ private:
 };
 } // namespace
 
-void ProgramExecutor::runCallback(
+void ProgramExecutor::runPreCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
-  if (auto callback = debug::Hooks::get().getOperatorCallback(); callback) {
+  if (auto pre_callback = debug::PreHooks::get().getOperatorCallback();
+      pre_callback) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);
     std::shared_ptr<void> opContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(
             const_cast<::tt::target::ttnn::Operation *>(opContext));
-    (*callback)(executableHandle,
-                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
-                OpContext(opContextPtr, DeviceRuntime::TTNN));
+    (*pre_callback)(executableHandle,
+                    CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                    OpContext(opContextPtr, DeviceRuntime::TTNN));
+  }
+}
+
+void ProgramExecutor::runPostCallback(
+    Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
+    ProgramContext *programContext) {
+  if (auto post_callback = debug::PostHooks::get().getOperatorCallback();
+      post_callback) {
+    std::shared_ptr<void> programContextPtr =
+        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+    std::shared_ptr<void> opContextPtr =
+        ::tt::runtime::utils::unsafe_borrow_shared(
+            const_cast<::tt::target::ttnn::Operation *>(opContext));
+    (*post_callback)(executableHandle,
+                     CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                     OpContext(opContextPtr, DeviceRuntime::TTNN));
   }
 }
 

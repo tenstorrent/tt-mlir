@@ -249,23 +249,43 @@ PYBIND11_MODULE(_C, m) {
         return os.str();
       });
 
-  py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
+  py::class_<tt::runtime::debug::PreHooks>(m, "DebugPreHooks")
       .def_static("get",
                   [](py::function func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-                    tt::runtime::debug::Hooks::get(
+                    tt::runtime::debug::PreHooks::get(
                         [func](tt::runtime::Binary binary,
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
                           func(binary, programContext, opContext);
                         });
 #else
-            tt::runtime::debug::Hooks::get();
+            tt::runtime::debug::PreHooks::get();
 #endif
                   })
-      .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
+      .def("__str__", [](const tt::runtime::debug::PreHooks &pre_hooks) {
         std::stringstream os;
-        os << hooks;
+        os << pre_hooks;
+        return os.str();
+      });
+
+  py::class_<tt::runtime::debug::PostHooks>(m, "DebugPostHooks")
+      .def_static("get",
+                  [](py::function func) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+                    tt::runtime::debug::PostHooks::get(
+                        [func](tt::runtime::Binary binary,
+                               tt::runtime::CallbackContext programContext,
+                               tt::runtime::OpContext opContext) {
+                          func(binary, programContext, opContext);
+                        });
+#else
+            tt::runtime::debug::PostHooks::get();
+#endif
+                  })
+      .def("__str__", [](const tt::runtime::debug::PostHooks &post_hooks) {
+        std::stringstream os;
+        os << post_hooks;
         return os.str();
       });
 
@@ -304,9 +324,12 @@ PYBIND11_MODULE(_C, m) {
    * Cleanup code to force a well ordered destruction w.r.t. the GIL
    */
   auto cleanup_callback = []() {
-    ::tt::runtime::debug::Hooks::get().unregisterHooks();
+    ::tt::runtime::debug::PreHooks::get().unregisterHooks();
+    ::tt::runtime::debug::PostHooks::get().unregisterHooks();
   };
   m.add_object("_cleanup", py::capsule(cleanup_callback));
-  m.def("unregister_hooks",
-        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+  m.def("unregister_hooks", []() {
+    ::tt::runtime::debug::PreHooks::get().unregisterHooks();
+    ::tt::runtime::debug::PostHooks::get().unregisterHooks();
+  });
 }
