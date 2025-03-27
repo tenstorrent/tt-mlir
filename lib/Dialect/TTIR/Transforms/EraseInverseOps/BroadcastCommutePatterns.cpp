@@ -191,9 +191,7 @@ private:
   LogicalResult isCommuteFavorable(ttir::BroadcastOp op,
                                    ttir::TransposeOp) const override {
     // We should always commute a transpose above a broadcast if it is the only
-    // user of the broadcast. For now this is the only case we will handle.
-    // isCommuteViable will have already confirmed that this user is a
-    // transpose and it can be commuted above the broadcast.
+    // user of the broadcast OR if all users are an identical transpose.
     SmallVector<Operation *> users(op->getUsers());
     return success(users.size() > 0 && checkAllUsersAreIdenticalTms(users));
   }
@@ -307,9 +305,7 @@ private:
   LogicalResult isCommuteFavorable(ttir::BroadcastOp op,
                                    ttir::ReshapeOp) const override {
     // We should always commute a reshape above a broadcast if it is the only
-    // user of the broadcast. For now we only handle this case.
-    // isCommuteViable will have already confirmed that this user is a
-    // reshape and it can be commuted above the broadcast.
+    // user of the broadcast OR if all users are an identical reshape.
     SmallVector<Operation *> users(op->getUsers());
     return success(users.size() > 0 && checkAllUsersAreIdenticalTms(users));
   }
@@ -366,9 +362,7 @@ private:
   LogicalResult isCommuteFavorable(ttir::BroadcastOp op,
                                    ttir::PermuteOp) const override {
     // We should always commute a permute above a broadcast if it is the only
-    // user of the broadcast. For now this is the only case we will handle.
-    // isCommuteViable will have already confirmed that this user is a
-    // permute and it can be commuted above the broadcast.
+    // user of the broadcast OR if all users are an identical permutation.
     SmallVector<Operation *> users(op->getUsers());
     return success(users.size() > 0 && checkAllUsersAreIdenticalTms(users));
   }

@@ -127,17 +127,15 @@ public:
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
-    conversionPatterns.add<ConvertToFlattenedConv2dPattern>(typeConverter,
-                                                            &getContext());
     conversionPatterns
-        .add<ConvertToMaxPool2dFlattenedCompatOpConversionPattern>(
+        .add<ConvertToFlattenedConv2dPattern,
+             ConvertToMaxPool2dFlattenedCompatOpConversionPattern>(
             typeConverter, &getContext());
     FrozenRewritePatternSet conversionPatternSet(std::move(conversionPatterns));
 
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<mlir::func::FuncDialect>();
-    target.addLegalOp<tensor::EmptyOp>(); // DPS operands are create with
 
     target.addDynamicallyLegalOp<ttir::Conv2dOp>([&](ttir::Conv2dOp op) {
       return op.getFlattenedCompatInfo().has_value();
