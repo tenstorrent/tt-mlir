@@ -1440,9 +1440,9 @@ determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
   */
   auto replicaGroupsShape = replicaGroups.getType().getShape();
 
-  if (replicaGroupsShape.size() == 0) {
-    // Cannot have replicas of size 0, this means we are not performing the
-    // collective communication operation across any device.
+  if (replicaGroupsShape.size() != 2) {
+    // Can only have replica groups of size 2. Otherwise, this is an ill formed
+    // graph and needs to be asserted.
     return failure();
   }
 
@@ -1458,7 +1458,7 @@ determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
     return success();
   }
 
-  // Default to cluster axis 0
+  // If replicaGroupsShape[1] == 1, then the cluster axis should be set to 0.
   clusterAxis = 0;
   return success();
 }
