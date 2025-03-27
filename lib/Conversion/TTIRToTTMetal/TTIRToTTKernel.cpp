@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Dialect/Index/IR/IndexOps.h"
+#include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
@@ -19,6 +20,7 @@
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/DialectConversion.h>
+#include <numeric>
 
 namespace mlir::tt::ttkernel {
 
@@ -37,6 +39,15 @@ static Value index(int64_t value, OpBuilder &builder) {
       .getResult();
 }
 
+static size_t getElementSizeBytes(MemRefType memref) {
+  mlir::Type elementType = memref.getElementType();
+  if (mlir::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    return tileType.getSizeBytes();
+  }
+  return elementType.getIntOrFloatBitWidth() / 8;
+}
+
 static int32_t getMemrefSizeBytes(MemRefType memref) {
   if (auto elementType = mlir::dyn_cast<TileType>(memref.getElementType())) {
     return elementType.getSizeBytes() * memref.getNumElements();
@@ -52,14 +63,14 @@ public:
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     auto coreRanges = llvm::SmallVector<Attribute>();
-    coreRanges.reserve(op.getKernelSymbols()->size());
-    for (size_t i = 0; i < op.getKernelSymbols()->size(); i++) {
+    coreRanges.reserve(op.getThreads().size());
+    for (size_t i = 0; i < op.getThreads().size(); i++) {
       coreRanges.push_back(
           rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
     }
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, op->getResultTypes(), op.getInputs(), op.getOutputs(),
-        rewriter.getArrayAttr(op.getKernelSymbols()->getValue()),
+        rewriter.getArrayAttr(op.getThreads().getValue()),
         rewriter.getArrayAttr(coreRanges), rewriter.getArrayAttr({}));
     return success();
   };
@@ -99,10 +110,12 @@ public:
 namespace {
 
 class TTIRTileOpsRewriter
-    : public OpTraitRewritePattern<ttir::OpTrait::TTIRGenericRegionOpTrait> {
+    : public OpTraitRewritePattern<
+          mlir::OpTrait::tt::ttir::TTIRGenericRegionComputeOpTrait> {
 public:
   using OpTraitRewritePattern<
-      ttir::OpTrait::TTIRGenericRegionOpTrait>::OpTraitRewritePattern;
+      mlir::OpTrait::tt::ttir::TTIRGenericRegionComputeOpTrait>::
+      OpTraitRewritePattern;
 
   static Value index(Value tile) {
     Operation *loadOp = tile.getDefiningOp();
@@ -238,7 +251,7 @@ public:
       } else if (mlir::isa<ttir::YieldOp>(op)) {
         auto reserveBack = rewriter.create<ttkernel::CBReserveBackOp>(
             op.getLoc(), cbId, numPages);
-        rewriter.moveOpAfter(reserveBack, block, block->begin());
+        rewriter.moveOpBefore(reserveBack, &block->front());
         rewriter.create<ttkernel::CBPushBackOp>(op.getLoc(), cbId, numPages);
         rewriter.moveOpBefore(cbId.getDefiningOp(), reserveBack);
         rewriter.moveOpBefore(numPages.getDefiningOp(), reserveBack);
@@ -298,32 +311,21 @@ public:
   using OpRewritePattern<ttir::DMAOp>::OpRewritePattern;
 
   static std::pair<Value, Value>
-  getNocCoordsFromCoreIndex(PatternRewriter &rewriter,
-                            PhysicalCoreCoordMapping &mapping,
-                            OperandRange dstCoreIndex) {
+  getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter,
+                                    ChipDescAttr chipDesc,
+                                    ValueRange dstCoreIndex) {
     std::pair<Value, Value> nocCoords;
-    for (size_t i = 0; i < dstCoreIndex.size(); i++) {
-      if (auto op = mlir::dyn_cast<arith::ConstantOp>(
-              dstCoreIndex[i].getDefiningOp())) {
-        PhysicalCoreCoord logicalCoord =
-            i ? PhysicalCoreCoord(
-                    0, 0, mlir::cast<IntegerAttr>(op.getValue()).getInt())
-              : PhysicalCoreCoord(
-                    0, mlir::cast<IntegerAttr>(op.getValue()).getInt(), 0);
-        auto [virtY, virtX] = mapping[logicalCoord];
-        if (i) {
-          nocCoords.second = index(virtX, rewriter);
-        } else {
-          nocCoords.first = index(virtY, rewriter);
-        }
-      } else if (auto op = mlir::dyn_cast<ttir::CoreIndexOp>(
-                     dstCoreIndex[i].getDefiningOp())) {
-        auto nocCoord = i ? nocCoords.second : nocCoords.first;
-        nocCoord = op.getResult();
-      } else {
-        assert(false && "Expected constant op or core index op, failing.");
-      }
-    }
+    auto offset = chipDesc.getChipPhysicalCores().getWorker().front();
+    nocCoords.first =
+        rewriter
+            .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
+                                   index(offset.getY(), rewriter))
+            .getResult();
+    nocCoords.second =
+        rewriter
+            .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
+                                   index(offset.getX(), rewriter))
+            .getResult();
     return nocCoords;
   }
 
@@ -339,87 +341,169 @@ public:
     return nocEndCoords;
   }
 
+  static size_t getMemRefShardSizeBytes(MemRefType memref) {
+    ArrayRef<int64_t> memrefShardShape =
+        memref.getShape().drop_front(memref.getRank() / 2);
+    return std::accumulate(memrefShardShape.begin(), memrefShardShape.end(),
+                           getElementSizeBytes(memref),
+                           std::multiplies<int64_t>());
+  }
+
+  static size_t getMemRefShardNumElems(MemRefType memref) {
+    ArrayRef<int64_t> memrefShardShape =
+        memref.getShape().drop_front(memref.getRank() / 2);
+    return std::accumulate(memrefShardShape.begin(), memrefShardShape.end(), 1,
+                           std::multiplies<int64_t>());
+  }
+
+  static std::tuple<AffineMap, AffineMap, AffineMap>
+  getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
+                          OpBuilder &builder) {
+    size_t pageSize = getMemRefShardSizeBytes(memref);
+    AffineMap memoryMap = device.getMemoryMap(memref, pageSize, 0)
+                              .dropResult(0); // drop the device index
+    assert(memoryMap.getNumResults() == 3);
+    auto gridY = memoryMap.dropResults({1, 2});
+    auto gridX = memoryMap.dropResults({0, 2});
+    auto offset = memoryMap.dropResults({0, 1});
+    return std::make_tuple(gridY, gridX, offset);
+  }
+
   static int64_t getAddressFromMemref(Value memref) {
-    for (auto &use : memref.getUses()) {
-      if (auto alloc = mlir::dyn_cast<memref::AllocOp>(use.getOwner())) {
-        return alloc->getAttrOfType<IntegerAttr>("address").getInt();
-      }
-    }
-    assert("Unallocated tensor found, failing.");
-    return -1;
+    // Use get_read_ptr/get_write_ptr for local block args
+    // Maps from TT dialect for block args / streams?
+
+    // for (auto &use : memref.getUses()) {
+    //   if (auto alloc = mlir::dyn_cast<memref::AllocOp>(use.getOwner())) {
+    //     return alloc->getAttrOfType<IntegerAttr>("address").getInt();
+    //   }
+    // }
+    // assert("Unallocated tensor found, failing.");
+    return 0;
   }
 
   LogicalResult matchAndRewrite(ttir::DMAOp op,
                                 PatternRewriter &rewriter) const final {
-    auto device = op->getParentOfType<ttir::GenericOp>().getDevice();
+    auto device = lookupDevice(op);
     auto chipIds = device.getChipIds();
     auto chipDescs =
-        op->getParentOfType<ttir::GenericOp>().getSystemDesc().getChipDescs();
-
-    PhysicalCoreCoordMapping workerMapping =
-        PhysicalCoreCoordMapping::getWorkerMapping(chipIds, chipDescs);
-    PhysicalCoreCoordMapping dramMapping =
-        PhysicalCoreCoordMapping::getDramMapping(chipIds, chipDescs);
+        op->getParentOfType<ModuleOp>()
+            ->getAttrOfType<SystemDescAttr>(tt::SystemDescAttr::name)
+            .getChipDescs();
+    assert(chipIds.size() == chipDescs.size() == 1 &&
+           "Chip ids and chip descs size must equal 1, failing.");
+    assert(isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
+                               op.getSrc().getType().getMemorySpace())
+                               .getValue()) &&
+           isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
+                               op.getDst().getType().getMemorySpace())
+                               .getValue()) &&
+           "Expected src and dst memory spaces to be L1, failing.");
 
     Value srcL1Addr = i32(getAddressFromMemref(op.getSrc()), rewriter);
     Value dstL1Addr = i32(getAddressFromMemref(op.getDst()), rewriter);
-    Value transferSize =
-        i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
+    if (op.isSrcLocal() && op.isDstLocal() && !op.getDstCoreIndex().size()) {
+      // local movement
+      Value transferSize =
+          i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
+      auto myY = rewriter.create<ttir::CoreIndexOp>(
+          op.getLoc(), rewriter.getIndexType(), rewriter.getI64IntegerAttr(0));
+      auto myX = rewriter.create<ttir::CoreIndexOp>(
+          op.getLoc(), rewriter.getIndexType(), rewriter.getI64IntegerAttr(1));
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, chipDescs.front(), ValueRange{myY, myX});
+      auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+          op.getLoc(), virtX, virtY, dstL1Addr);
+      rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
+                                                 nocAddr, transferSize);
+    } else if (op.isSrcLocal() && op.isDstLocal()) {
+      // mcast & l1 to l1 single core remote
+      Value transferSize =
+          i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
+      // mcast or l1 to l1 (local)
+      assert(op.getDstCoreIndex().size() == 2 &&
+             "Expected 2 core indices for dst core index, failing.");
 
-    if (op.isSrcLocal()) {
-      // writes
-      if (op.isDstLocal()) {
-        // local write - 1
-      } else {
-        // remote write
-        if (op.getDstCoreIndex().empty()) {
-          // dram write - 2 TBD re: ADDRESSING
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, chipDescs.front(), op.getDstCoreIndex());
+
+      if (op.isMcast()) {
+        // mcast
+        auto [mcastEndY, mcastEndX] =
+            getMcastEndCoords(rewriter, virtY, virtX, op.getMcastShape());
+        auto numDestsIdx = rewriter.create<arith::MulIOp>(
+            op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
+        auto numDests = rewriter.create<arith::IndexCastOp>(
+            op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+        auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
+            op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Addr,
+            nullptr);
+        if (op.getSrc() == op.getDst()) {
+          // no loopback
+          auto numDestsLessOne = rewriter.create<arith::SubIOp>(
+              op.getLoc(), numDests, i32(1, rewriter));
+          rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
+              op.getLoc(), srcL1Addr, mcastAddr, transferSize, numDestsLessOne,
+              nullptr, nullptr, nullptr);
         } else {
-          // l1 write
-          assert(op.getDstCoreIndex().size() == 2 &&
-                 "Expected single dst core index (2 dims) "
-                 "for now, failing.");
-
-          auto [dstNocY, dstNocX] = getNocCoordsFromCoreIndex(
-              rewriter, workerMapping, op.getDstCoreIndex());
-
-          if (op.isMcast()) {
-            // mcast writes
-            assert(op.getMcastShape().size() == 2 &&
-                   "Expected mcast shape to have 2 dims, failing.");
-
-            auto [mcastEndY, mcastEndX] = getMcastEndCoords(
-                rewriter, dstNocY, dstNocX, op.getMcastShape());
-            auto numDests = rewriter.create<arith::MulIOp>(
-                op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
-            auto dstNocMcastAddr =
-                rewriter.create<ttkernel::GetNocMulticastAddrOp>(
-                    op.getLoc(), dstNocX, dstNocY, mcastEndX, mcastEndY,
-                    dstL1Addr, nullptr);
-            if (op.getSrc() == op.getDst()) {
-              // mcast write - 5
-              auto numDestsNoLoopback = rewriter.create<arith::SubIOp>(
-                  op.getLoc(), numDests, index(1, rewriter));
-              rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-                  op.getLoc(), srcL1Addr, dstNocMcastAddr, transferSize,
-                  numDestsNoLoopback, nullptr, nullptr, nullptr);
-            } else {
-              // mcast write loopback src - 6
-              rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
-                  op.getLoc(), srcL1Addr, dstNocMcastAddr, transferSize,
-                  numDests, nullptr, nullptr, nullptr);
-            }
-          } else {
-            // single core write - 4
-            auto dstNocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
-                op.getLoc(), dstNocX, dstNocY, dstL1Addr);
-            rewriter.create<ttkernel::NocAsyncWriteOp>(
-                op.getLoc(), srcL1Addr, dstNocAddr, transferSize);
-          }
+          // loopback
+          rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
+              op.getLoc(), srcL1Addr, mcastAddr, transferSize, numDests,
+              nullptr, nullptr, nullptr);
         }
+      } else {
+        // l1 to l1 single core "remote"
+        auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+            op.getLoc(), virtX, virtY, dstL1Addr);
+        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
+                                                   nocAddr, transferSize);
       }
+    } else if (!op.isSrcLocal() && op.isDstLocal()) {
+      // read l1 from l1 or l1 from dram
+
+      // Fully Index the Operands
+      while (op.getSrcIndices().size() !=
+             static_cast<size_t>(op.getSrc().getType().getRank())) {
+        op.getSrcIndicesMutable().append(index(0, rewriter));
+      }
+      while (op.getDstIndices().size() !=
+             static_cast<size_t>(op.getDst().getType().getRank())) {
+        op.getDstIndicesMutable().append(index(0, rewriter));
+      }
+      if (!op.getOptNumElems()) {
+        op.setOptNumElems(getMemRefShardNumElems(op.getSrc().getType()));
+      }
+
+      AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
+      std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
+          getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
+
+      auto applyMap = [](OpBuilder &builder, Location loc, AffineMap map,
+                         ValueRange index) {
+        auto apply = builder.create<affine::AffineApplyOp>(loc, map, index);
+        return apply;
+      };
+
+      auto loc = op.getLoc();
+      auto srcGridY = applyMap(rewriter, loc, srcGridYMap, op.getSrcIndices());
+      auto srcGridX = applyMap(rewriter, loc, srcGridXMap, op.getSrcIndices());
+      auto srcOffset =
+          applyMap(rewriter, loc, srcOffsetMap, op.getSrcIndices());
+      auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), srcOffset);
+      auto size =
+          i32(op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()),
+              rewriter);
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, chipDescs.front(), ValueRange{srcGridY, srcGridX});
+      auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+          loc, virtX, virtY, srcOffsetInt);
+      rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
+                                                size);
+    } else if (op.isSrcLocal() && !op.isDstLocal()) {
+      // write l1 to l1 or l1 to dram
     } else {
-      // dram reads - 3
+      assert(false && "Illegal DMA op configuration.");
     }
 
     rewriter.eraseOp(op);
@@ -441,16 +525,42 @@ public:
 
   LogicalResult matchAndRewrite(ttir::CoreIndexOp op,
                                 PatternRewriter &rewriter) const final {
+    auto device = lookupDevice(op);
+    auto chipIds = device.getChipIds();
+    auto chipDescs =
+        op->getParentOfType<ModuleOp>()
+            ->getAttrOfType<SystemDescAttr>(tt::SystemDescAttr::name)
+            .getChipDescs();
+    assert(chipIds.size() == chipDescs.size() == 1 &&
+           "Chip ids and chip descs size must equal 1, failing.");
+
     assert(op.getDim() == 0 ||
            op.getDim() == 1 &&
                "Expected core index dim to be in range 0-1, failing.");
     if (op.getDim()) {
-      auto coreIndex = rewriter.create<ttkernel::MyYOp>(op.getLoc(), nullptr);
-      rewriter.replaceOp(op, coreIndex);
-    } else {
       auto coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
-      rewriter.replaceOp(op, coreIndex);
+      auto normalizedCoreIndex =
+          rewriter.create<arith::SubIOp>(op.getLoc(), coreIndex,
+                                         index(chipDescs.front()
+                                                   .getChipPhysicalCores()
+                                                   .getWorker()
+                                                   .front()
+                                                   .getX(),
+                                               rewriter));
+      rewriter.replaceAllUsesWith(op.getResult(), normalizedCoreIndex);
+    } else {
+      auto coreIndex = rewriter.create<ttkernel::MyYOp>(op.getLoc(), nullptr);
+      auto normalizedCoreIndex =
+          rewriter.create<arith::SubIOp>(op.getLoc(), coreIndex,
+                                         index(chipDescs.front()
+                                                   .getChipPhysicalCores()
+                                                   .getWorker()
+                                                   .front()
+                                                   .getY(),
+                                               rewriter));
+      rewriter.replaceAllUsesWith(op.getResult(), normalizedCoreIndex);
     }
+    rewriter.eraseOp(op);
     return success();
   }
 };

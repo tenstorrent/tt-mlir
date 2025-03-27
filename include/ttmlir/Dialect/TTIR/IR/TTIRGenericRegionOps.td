@@ -134,7 +134,7 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul">{
     let results = (outs TT_Tile:$result);
 }
 
-def TTIR_TileMatmulBlockOp : TTIR_GenericRegionOp<"tile_matmul_block",
+def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
   [DestinationStyleOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
@@ -205,6 +205,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       - Local to local // noc_async_write 1
       ```mlir
       %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %src[0, 0], %dst[0,0], 24 : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       - Local to remote dram // noc_async_write 2
