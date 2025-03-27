@@ -13,14 +13,14 @@ using namespace mlir::tt;
 
 namespace {
 class EmptyOpTypeConversionPattern
-    : public OpConversionPattern<mlir::tt::ttir::EmptyOp> {
+    : public OpConversionPattern<mlir::tensor::EmptyOp> {
 
-  using OpConversionPattern<mlir::tt::ttir::EmptyOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::tensor::EmptyOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(mlir::tt::ttir::EmptyOp srcOp,
-                  mlir::tt::ttir::EmptyOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tensor::EmptyOp srcOp,
+                  mlir::tensor::EmptyOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType inputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getType()));
