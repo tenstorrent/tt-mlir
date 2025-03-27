@@ -134,13 +134,13 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 //===----------------------------------------------------------------------===//
 
 bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryRead(
-    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   // If the operand is an input, it is a bufferized to a memory read.
   return false;
 }
 
 bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryWrite(
-    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   // If the operand is an output, it is a bufferized to a memory write.
   return false;
 }
