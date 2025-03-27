@@ -19,5 +19,3 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         LINK_LIBS PUBLIC
         MLIRScheduler
         )
-
-target_link_libraries(MLIRTTNNAnalysis PUBLIC coverage_config)

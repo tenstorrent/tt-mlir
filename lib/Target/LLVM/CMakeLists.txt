@@ -13,5 +13,3 @@ add_mlir_translation_library(TTLLVMToDynamicLib
     LLVMX86AsmParser
     LLVMX86CodeGen
 )
-
-target_link_libraries(TTLLVMToDynamicLib PUBLIC coverage_config)

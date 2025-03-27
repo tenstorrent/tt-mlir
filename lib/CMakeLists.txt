@@ -1,3 +1,8 @@
+if (CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+endif()
+
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
 
@@ -30,6 +35,7 @@ add_mlir_library(TTMLIRCompilerStatic
 
   LINK_LIBS PUBLIC
   ${TTMLIR_LIBS}
+  coverage_config
 )
 
 #
@@ -55,3 +61,12 @@ target_link_libraries(TTMLIRCompiler PUBLIC coverage_config)
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 
 install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
+
+# Add coverage_config to all targets in lib
+if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  foreach(target IN ITEMS TTMLIRCompilerStatic TTMLIRCompiler)
+    if (TARGET ${target})
+      target_link_libraries(${target} INTERFACE coverage_config)
+    endif()
+  endforeach()
+endif()

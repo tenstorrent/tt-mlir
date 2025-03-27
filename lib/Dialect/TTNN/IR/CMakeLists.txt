@@ -23,5 +23,3 @@ add_mlir_dialect_library(MLIRTTNNDialect
         MLIRBufferizationDialect
         MLIRMLProgramDialect
         )
-
-target_link_libraries(MLIRTTNNDialect PUBLIC coverage_config)
