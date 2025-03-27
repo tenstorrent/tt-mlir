@@ -129,7 +129,6 @@ def TT_CPUModuleOp : TT_Op<"cpu_module", [
   let hasVerifier = 1;
 }
 
-<<<<<<< HEAD
 def TT_DeviceOp : TT_Op<"device", [Symbol]> {
   let summary = "Named device";
   let description = [{
@@ -140,12 +139,7 @@ def TT_DeviceOp : TT_Op<"device", [Symbol]> {
   let assemblyFormat = "$sym_name `=` $device_attr attr-dict";
 }
 
-def TT_LoadCachedOp : TT_Op<"load_cached", [
-    DeclareOpInterfaceMethods<CallOpInterface>
-]> {
-=======
 def TT_LoadCachedOp : TT_Op<"load_cached", []> {
->>>>>>> 13dc77d1e (buildable)
   let summary = "Load cached results from a previously computed function";
   let description = [{
     The load_cached operation calls a precomputed function with given arguments

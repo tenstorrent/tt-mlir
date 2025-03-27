@@ -1571,7 +1571,6 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar"> {
     let hasVerifier = 1;
 }
 
-<<<<<<< HEAD
 def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
   let summary = "Clamp op.";
   let description = [{
@@ -1594,10 +1593,7 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_ArangeOp : TTIR_Op<"arange"> {
-=======
 def TTIR_ArangeOp : TTIR_Op<"arange", [TT_CreationOpTrait]> {
->>>>>>> 1dd1cab3b (switch to traits, address most feedback)
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
