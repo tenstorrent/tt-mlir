@@ -48,37 +48,6 @@ static OpType findOpAtTopLevel(mlir::ModuleOp module) {
   return nullptr;
 }
 
-::tt::target::ttnn::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &,
-             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
-  switch (memLayoutAttr.getValue()) {
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
-  case ttnn::TensorMemoryLayout::Interleaved:
-    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
-  case ttnn::TensorMemoryLayout::HeightSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
-  case ttnn::TensorMemoryLayout::WidthSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
-  case ttnn::TensorMemoryLayout::BlockSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
-  }
-}
-
-::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
-                                       ttnn::BufferType bufferType) {
-  switch (bufferType) {
-  case ttnn::BufferType::SystemMemory:
-    return ::tt::target::MemorySpace::System;
-  case ttnn::BufferType::DRAM:
-    return ::tt::target::MemorySpace::DeviceDRAM;
-  case ttnn::BufferType::L1:
-    return ::tt::target::MemorySpace::DeviceL1;
-  default:
-    llvm_unreachable("unhandled buffer type");
-  }
-}
-
 } // namespace mlir::tt
 
 namespace mlir::tt::ttnn {
