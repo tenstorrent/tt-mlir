@@ -15,17 +15,6 @@ def pytest_addoption(parser):
     parser.addoption(
         "--sys-desc",
         action="store",
-        default="",
+        default="ttrt-artifacts/system_desc.ttsys",
         help="Path to system descriptor",
     )
-
-
-# TODO: figure out how to neatly pass this to all tests
-@pytest.fixture(autouse=True)
-def sys_desc():
-    """
-    Before any tests are run, query the system so the descriptor is always up to date
-    """
-    ttrt.initialize_apis()
-    args = {"--save-artifacts": True}
-    ttrt.Query(args=args)()

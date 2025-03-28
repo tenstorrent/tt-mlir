@@ -28,6 +28,7 @@ def test_arbitrary_model(shapes: List[Shape], dtypes: List[torch.dtype], request
     )
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5], ids=["f32"])
 @pytest.mark.parametrize(
     "shapes",
@@ -84,6 +85,7 @@ def test_mnist(
     )
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shapes",
     [

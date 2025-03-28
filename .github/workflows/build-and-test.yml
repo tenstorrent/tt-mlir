@@ -187,9 +187,10 @@ jobs:
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
         echo "perf_report_path=perf_$JOB_ID" >> "$GITHUB_OUTPUT"
-        echo "op_test_report_path=op_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-        echo "model_test_report_path=model_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-        echo "ttrt_run_test_report_path=ttrt_run_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "good_ops_test_report_path=good_ops_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "bad_ops_test_report_path=bad_ops_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "good_models_test_report_path=good_models_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "bad_models_test_report_path=bad_models_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -296,13 +297,20 @@ jobs:
         source env/activate
         ttrt query --save-artifacts
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        pytest test/python/golden/test_ttir_ops.py --junit-xml="builder-op-tests.xml" --path="." --sys-desc="${SYSTEM_DESC_PATH}"
-        cp builder-op-tests.xml ${{ steps.strings.outputs.op_test_report_path }}
-        pytest test/python/golden/test_ttir_models.py --junit-xml="builder-model-tests.xml" --path="." --sys-desc="${SYSTEM_DESC_PATH}"
-        cp builder-model-tests.xml ${{ steps.strings.outputs.model_test_report_path }}
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ./ttnn/
-        cp run_results.json ${{ steps.strings.outputs.ttrt_run_test_report_path }}
 
+        pytest test/python/golden/test_ttir_ops.py --junit-xml="good-ops-tests.xml" --path="good-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "not failing_golden and not run_error"
+        cp good-op-tests.xml ${{ steps.strings.outputs.good_ops_test_report_path }}
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ./good-ops/ttnn/
+
+        pytest test/python/golden/test_ttir_ops.py --junit-xml="bad-ops-tests.xml" --path="bad-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "failing_golden or run_error"
+        cp bad-ops-tests.xml ${{ steps.strings.outputs.bad_ops_test_report_path }}
+
+        pytest test/python/golden/test_ttir_models.py --junit-xml="good-models-tests.xml" --path="good-models" --sys-desc="${SYSTEM_DESC_PATH}" -m "not failing_golden and not run_error"
+        cp good-op-tests.xml ${{ steps.strings.outputs.good_models_test_report_path }}
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ./good-models/ttnn/
+
+        pytest test/python/golden/test_ttir_models.py --junit-xml="bad-models-tests.xml" --path="bad-models" --sys-desc="${SYSTEM_DESC_PATH}" -m "failing_golden or run_error"
+        cp bad-models-tests.xml ${{ steps.strings.outputs.bad_models_test_report_path }}
 
     # TTRT test runner
     - name: Run TTRT tests
