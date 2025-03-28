@@ -42,13 +42,13 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   return os;
 }
 
-struct Hooks {
+struct PreOperationHooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Hooks const &
+  static PreOperationHooks const &
   get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
-  constexpr static Hooks get() { return Hooks(); }
+  constexpr static PreOperationHooks get() { return PreOperationHooks(); }
 #endif
 
   std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
@@ -68,23 +68,74 @@ struct Hooks {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  Hooks(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-            operatorCallback)
+  PreOperationHooks(
+      std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback)
       : operatorCallback(operatorCallback) {}
 
   mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
       operatorCallback;
 
 #else
-  constexpr Hooks() = default;
+  constexpr PreOperationHooks() = default;
 #endif
 };
 
-inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
-  os << "debug::Hooks{\n"
+struct PostOperationHooks {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  static PostOperationHooks const &
+  get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback = std::nullopt);
+#else
+  constexpr static PostOperationHooks get() { return PostOperationHooks(); }
+#endif
+
+  std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+  getOperatorCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return operatorCallback;
+#else
+    return std::nullopt;
+#endif
+  }
+
+  void unregisterHooks() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    operatorCallback = std::nullopt;
+#endif
+  }
+
+private:
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  PostOperationHooks(
+      std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback)
+      : operatorCallback(operatorCallback) {}
+
+  mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+      operatorCallback;
+
+#else
+  constexpr PostOperationHooks() = default;
+#endif
+};
+
+inline std::ostream &operator<<(std::ostream &os,
+                                PreOperationHooks const &pre_operation_hooks) {
+  os << "debug::PreOperationHooks{\n"
      << "\t"
-     << "operatorCallback: " << static_cast<bool>(hooks.getOperatorCallback())
-     << ",\n"
+     << "operatorCallback: "
+     << static_cast<bool>(pre_operation_hooks.getOperatorCallback()) << ",\n"
+     << "}";
+  return os;
+}
+
+inline std::ostream &
+operator<<(std::ostream &os, PostOperationHooks const &post_operation_hooks) {
+  os << "debug::PostOperationHooks{\n"
+     << "\t"
+     << "operatorCallback: "
+     << static_cast<bool>(post_operation_hooks.getOperatorCallback()) << ",\n"
      << "}";
   return os;
 }

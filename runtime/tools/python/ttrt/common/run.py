@@ -6,7 +6,11 @@ import os
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.callback import get_callback_fn, CallbackRuntimeConfig
+from ttrt.common.callback import (
+    pre_op_get_callback_fn,
+    post_op_get_callback_fn,
+    CallbackRuntimeConfig,
+)
 
 
 class Run:
@@ -444,7 +448,19 @@ class Run:
             mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
-            callback_runtime_config = CallbackRuntimeConfig(
+            pre_op_callback_runtime_config = CallbackRuntimeConfig(
+                device,
+                "",
+                self["--pcc"],
+                self["--atol"],
+                self["--rtol"],
+                self["--save-golden-tensors"],
+                self.logging,
+                not self["--disable-golden"],
+                self["--memory"],
+                self["--debugger"],
+            )
+            post_op_callback_runtime_config = CallbackRuntimeConfig(
                 device,
                 "",
                 self["--pcc"],
@@ -457,8 +473,12 @@ class Run:
                 self["--debugger"],
             )
 
-            callback_env = ttrt.runtime.DebugHooks.get(
-                get_callback_fn(callback_runtime_config)
+            pre_op_callback_env = ttrt.runtime.DebugPreOperationHooks.get(
+                pre_op_get_callback_fn(pre_op_callback_runtime_config)
+            )
+
+            post_op_callback_env = ttrt.runtime.DebugPostOperationHooks.get(
+                post_op_get_callback_fn(post_op_callback_runtime_config)
             )
 
             try:
@@ -490,9 +510,14 @@ class Run:
                                 f"evaluating program={program_index} for binary={bin.file_path}"
                             )
 
-                            callback_runtime_config.start_new_callback(
+                            pre_op_callback_runtime_config.start_new_callback(
                                 f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
                             )
+                            post_op_callback_runtime_config.start_new_callback(
+                                f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+                            )
+
+                            # Implement optional pre_op_callback functionality here
 
                             program = bin.get_program(program_index)
                             golden_inputs = []
@@ -693,20 +718,20 @@ class Run:
                             # if golden comparison is enabled, check golden results json file to see if test passed
                             if not self["--disable-golden"]:
                                 if self["--save-artifacts"]:
-                                    callback_runtime_config.save_golden_report(
+                                    post_op_callback_runtime_config.save_golden_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
                                     )
 
-                                callback_runtime_config.check_pcc()
+                                post_op_callback_runtime_config.check_pcc()
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:
-                                    callback_runtime_config.save_memory_report(
+                                    post_op_callback_runtime_config.save_memory_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/memory_results.json"
                                     )
 
                                 if self["--check-memory-leak"]:
-                                    callback_runtime_config.check_memory_leak()
+                                    post_op_callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
                         result = "error"
