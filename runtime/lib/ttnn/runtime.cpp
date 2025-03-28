@@ -669,6 +669,14 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConstantOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    tensorRef = opContext.type_as_FillCacheOp()->cache();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
+    tensorRef = opContext.type_as_UpdateCacheOp()->cache();
+    break;
+  }
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     LOG_WARNING("getting output tensor is not supported for ",
