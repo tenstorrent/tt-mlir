@@ -21,12 +21,12 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
-#include <cstddef>
 #include <llvm/ADT/APInt.h>
 #include <llvm/Support/Casting.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/MLIRContext.h>
+#include <mlir/Support/LLVM.h>
 
 namespace mlir::tt::ttnn {
 
@@ -349,7 +349,10 @@ public:
         }
         // Set Conv2d Config
         //
-        StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+        StringRef opLocName = "";
+        if(isa<NameLoc>(op->getLoc())) {
+          opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+        }
         if(isa<ttnn::Conv2dOp>(op)) {
           if(overrideConv2dConfig.contains(opLocName)) {
             Conv2dConfigOverrideParams conv2dConfigOverrideParams = overrideConv2dConfig[opLocName];
@@ -368,13 +371,11 @@ public:
             ttnn::TensorMemoryLayoutAttr newShardLayout;
             Attribute newCoreGrid;
             BoolAttr newTransposeShards;  
-            // TODO: Change to 'Layout'
             LayoutAttr newOutputLayout;
             BoolAttr newEnableActDoubleBuffer;
             BoolAttr newEnableWeightsDoubleBuffer;
             BoolAttr newEnableSplitReader;
             BoolAttr newEnableSubblockPadding;
-            //TODO: Keep Conv2dConfig values if present
             if(conv2dConfigOverrideParams.dtype.has_value()) {
               newDtype = conv2dConfigOverrideParams.dtype.value();
             } else {
@@ -430,15 +431,13 @@ public:
             if(conv2dConfigOverrideParams.shardLayout.has_value()) {
               newShardLayout = TensorMemoryLayoutAttr::get(context, conv2dConfigOverrideParams.shardLayout.value());
             } else {
-              // TODO: see default value
-              newShardLayout = TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::Interleaved);
+              //newShardLayout = TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::Interleaved);
+              newShardLayout = TensorMemoryLayoutAttr();
             }
             if(conv2dConfigOverrideParams.coreGrid.has_value()) {
               newCoreGrid = conv2dConfigOverrideParams.coreGrid.value();
             } else {
-              // TODO: see default value
-              // Why can't I access ::tt::tt_metal::CoreRangeSet?
-              newCoreGrid = 0;
+              newCoreGrid = Attribute();
             } 
             if(conv2dConfigOverrideParams.transposeShards.has_value()) {
               newTransposeShards = BoolAttr::get(context, conv2dConfigOverrideParams.transposeShards.value());
