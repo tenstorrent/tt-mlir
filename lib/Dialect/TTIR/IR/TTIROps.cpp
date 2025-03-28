@@ -99,6 +99,92 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   return success();
 }
 
+// ClampTensorOp canonicalization
+static std::optional<float> getConstantValue(mlir::Value value) {
+  mlir::Operation *op = value.getDefiningOp();
+  while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
+                               mlir::tt::ttir::ReshapeOp,
+                               mlir::tt::ttir::TypecastOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
+  }
+  if (!op) {
+    return std::nullopt;
+  }
+
+  auto constantOp = mlir::dyn_cast<mlir::tt::ttir::ConstantOp>(op);
+
+  if (!constantOp) {
+    return std::nullopt;
+  }
+
+  mlir::ElementsAttr attr = constantOp.getValueAttr();
+  if (!attr.isSplat()) {
+    return std::nullopt;
+  }
+
+  mlir::Type elementType = attr.getElementType();
+  mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
+  if (mlir::isa<mlir::IntegerType>(elementType)) {
+    fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
+                               attr.getElementType().isSignedInteger(),
+                               llvm::RoundingMode::TowardZero);
+    return fillValue.convertToFloat();
+  }
+  if (mlir::isa<mlir::FloatType>(elementType)) {
+    return static_cast<float>(
+        attr.getSplatValue<mlir::APFloat>().convertToDouble());
+  }
+
+  return std::nullopt;
+}
+
+void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](mlir::tt::ttir::ClampTensorOp op,
+                   mlir::PatternRewriter &rewriter) {
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    std::optional<float> minValue = getConstantValue(op.getMin());
+    std::optional<float> maxValue = getConstantValue(op.getMax());
+    if (minValue && maxValue) {
+      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
+          rewriter, op, outputType, op.getInput(), mlir::APFloat(*minValue),
+          mlir::APFloat(*maxValue));
+
+      return success();
+    }
+
+    if (outputType.getShape() == op.getMin().getType().getShape() &&
+        outputType.getShape() == op.getMax().getType().getShape()) {
+      return failure();
+    }
+
+    Location loc = op->getLoc();
+    mlir::Value minTensor;
+    LogicalResult legalityResult = ttmlir::utils::broadcastValue(
+        rewriter, op.getMin(), outputType, minTensor, loc,
+        /*frontUnsqueeze=*/false);
+    if (!legalityResult.succeeded()) {
+      return rewriter.notifyMatchFailure(
+          op, "Min attribute cannot be broadcasted to provided dimensions.");
+    }
+
+    mlir::Value maxTensor;
+    legalityResult = ttmlir::utils::broadcastValue(rewriter, op.getMax(),
+                                                   outputType, maxTensor, loc,
+                                                   /*frontUnsqueeze=*/false);
+    if (!legalityResult.succeeded()) {
+      return rewriter.notifyMatchFailure(
+          op, "Max attribute cannot be broadcasted to provided dimensions.");
+    }
+
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+        rewriter, op, outputType, op.getInput(), minTensor, maxTensor);
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // ArangeOp
 //===----------------------------------------------------------------------===//
