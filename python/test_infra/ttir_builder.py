@@ -209,6 +209,24 @@ class TTIRBuilder:
     def set_mesh_shape(self, mesh_shape: Tuple[int, int]):
         self.mesh_shape = mesh_shape
 
+    def set_graph_input_output(
+        self, inputs: List[torch.Tensor], outputs: Optional[List[torch.Tensor]] = None
+    ) -> None:
+        """
+        Records the input and output tensors for the graph.
+        """
+        for index, tensor in enumerate(inputs):
+            input_key = f"input_{index}"
+            if input_key in self.id_golden_map:
+                assert self.id_golden_map[input_key].tensor.shape == tensor.shape
+                assert self.id_golden_map[input_key].tensor.dtype == tensor.dtype
+            self.id_golden_map[input_key] = Golden(tensor)
+
+        if outputs is not None:
+            for index, tensor in enumerate(outputs):
+                output_key = f"output_{index}"
+                self.id_golden_map[output_key] = Golden(tensor)
+
     # ----- Private helpers -----
 
     @staticmethod
