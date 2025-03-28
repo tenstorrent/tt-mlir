@@ -42,7 +42,11 @@ def test_arbitrary_model(
     ids=["28x28_digits", "32x32_digits", "32x32_letters"],
 )
 @pytest.mark.parametrize(
-    "target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)]
+    "target",
+    [
+        "ttnn",
+        pytest.param("ttmetal", marks=pytest.mark.skip("TTMetal not supported yet")),
+    ],
 )
 def test_mnist(
     shapes: List[Shape],
@@ -101,7 +105,11 @@ def test_mnist(
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 15], ids=["f32"])
 @pytest.mark.parametrize(
-    "target", ["ttnn", pytest.param("ttmetal", marks=pytest.mark.xfail)]
+    "target",
+    [
+        "ttnn",
+        pytest.param("ttmetal", marks=pytest.mark.skip("TTMetal not supported yet")),
+    ],
 )
 def test_llama_attention(
     shapes: List[Shape],
