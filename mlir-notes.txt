@@ -627,6 +627,60 @@ mlir::Region
 - Operation * 	getParentOp ()
 */
 
-
+/*
 MLIRContext
+- MLIRContext ()
+- std::vector< Dialect * > 	getRegisteredDialects ()
+- Dialect * 	getRegisteredDialect (StringRef name)
+*/
+
+/*
+mlir::Dialect
+*/
+
+/*
 DialectRegistry
+*/
+
+/*
+mlir::LogicalResult
+- LogicalResult (ResultEnum v)
+- enum  	ResultEnum { Success, Failure }
+*/
+
+/*
+mlir::ConversionTarget
+- ConversionTarget (MLIRContext &ctx)
+- void 	setOpAction (OperationName op, mlir::ConversionTarget::LegalizationAction action)
+- Optional< LegalizationAction > 	getOpAction (OperationName op) const
+- Optional< LegalOpDetails > 	isLegal (Operation *op) const
+
+template<typename OpT >
+void 	addLegalOp ()
+
+template<typename OpT >
+void 	setOpAction (LegalizationAction action)
+
+template<typename OpT >
+void 	addDynamicallyLegalOp ()
+
+template<typename OpT >
+void 	addIllegalOp ()
+
+template<typename... Args>
+void 	addLegalDialect ()
+
+template<typename... Args>
+void 	addIllegalDialect ()
+*/
+
+mlir::TypeConverter
+- StablehloTypeConverter
+- mlir::SPIRVTypeConverter
+- mlir::LLVMTypeConverter
+- mlir::LinalgTypeConverter
+
+mlir::TypeConverter
+mlir::RewritePatternSet
+mlir::ConversionPatternRewriter
+mlir::Adaptor

@@ -159,8 +159,6 @@ public:
       mlir::Operation *returnOp = mlir::Operation::create(returnState);
       module_1_func_1_block->push_back(returnOp);
       module_1.push_back(module_1_func_1);
-      
-
     }
 
     {
