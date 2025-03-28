@@ -159,6 +159,11 @@ void populateTTNNModule(nb::module_ &m) {
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
       .def_prop_ro("grid_attr", &tt::ttnn::TTNNLayoutAttr::getGrid)
+      .def_prop_ro("grid_shape",
+                   [](tt::ttnn::TTNNLayoutAttr self) {
+                     auto shape = self.getGrid().getShape();
+                     return std::vector<int64_t>(shape.begin(), shape.end());
+                   })
       .def_prop_ro(
           "memref",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getMemref()); })
@@ -175,9 +180,14 @@ void populateTTNNModule(nb::module_ &m) {
                    [](tt::ttnn::TTNNLayoutAttr self) {
                      return static_cast<uint32_t>(self.getLayout());
                    })
+      .def_prop_ro("memory_space",
+                   [](tt::ttnn::TTNNLayoutAttr self) {
+                     return wrap(self.getMemref().getMemorySpace());
+                   })
       .def_prop_ro("data_type_as_int", [](tt::ttnn::TTNNLayoutAttr self) {
         return static_cast<uint32_t>(self.getDataType());
       });
+
   tt_attribute_class<tt::ttnn::Conv2dConfigAttr>(m, "Conv2dConfigAttr")
       .def_static(
           "get",
