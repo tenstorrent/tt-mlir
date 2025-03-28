@@ -290,7 +290,7 @@ jobs:
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
 
     - name: Run Builder Op & Model Tests
-      if: matrix.build.type == 'ttrt'
+      if: matrix.build.type == 'ttrt' && matrix.build.runs-on == 'n150'
       shell: bash
       run: |
         source env/activate
@@ -300,7 +300,7 @@ jobs:
         cp builder-op-tests.xml ${{ steps.strings.outputs.op_test_report_path }}
         pytest test/python/golden/test_ttir_models.py --junit-xml="builder-model-tests.xml" --path="." --sys-desc="${SYSTEM_DESC_PATH}"
         cp builder-model-tests.xml ${{ steps.strings.outputs.model_test_report_path }}
-        ttrt run ./ttnn/ 2>&1 > run_output.txt
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ./ttnn/
         cp run_results.json ${{ steps.strings.outputs.ttrt_run_test_report_path }}
 
 
