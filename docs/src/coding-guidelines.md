@@ -1,6 +1,6 @@
-# MLIR Coding Guidelines
+# TT-MLIR Coding Guidelines
 
-These guidelines are designed to enhance the readability and maintainability of our shared codebase. While these guidelines are not strict rules for every situation, they are essential for maintaining consistency across the repository.
+This document outlines the coding standards used in the tt-mlir project. These guidelines are designed to enhance the readability and maintainability of our shared codebase. While these guidelines are not strict rules for every situation, they are essential for maintaining consistency across the repository.
 
 Our long-term aim is to have the entire codebase adhere to these conventions.
 
@@ -36,17 +36,21 @@ Each category should:
 * Be sorted lexicographically by the full path.
 * Be separated by a single blank line for clarity.
 
-Only the [standard lib header](https://en.cppreference.com/w/cpp/header) includes should use <> whereas all the others should use quotes "". Additionally, all project headers must use absolute paths (rooted at ttmlir) to prevent preprocessor and namespacing issues. For example, prefer:
+Only the [standard lib header](https://en.cppreference.com/w/cpp/header) includes should use <> whereas all the others should use quotes "". Additionally, all project headers must use absolute paths (rooted at ttmlir) to prevent preprocessor and namespacing issues. For example, the following is preferred:
 
-``` #include "ttmlir/module/something.h" ```
+``` 
+#include "ttmlir/module/something.h" 
+```
 
 over:
 
-``` #include "something.h" ```
+``` 
+#include "something.h" 
+```
 
 Using TTIRToTTNN.cpp as an example, this is what includes would look like for us:
 
-``` 
+``` c++
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"  # main header
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"  # these are local/private headers
@@ -56,7 +60,7 @@ Using TTIRToTTNN.cpp as an example, this is what includes would look like for us
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdio>  # system includes
-#include <algorithm> 
+#include <algorithm>
 ```
 
 ## Comments
@@ -65,15 +69,19 @@ Write comments as full sentences, starting with a capital letter and ending with
 
 Example of a comment:
 
-``` // Initialize the buffer to store incoming data from the network. ```
+``` 
+// Initialize the buffer to store incoming data from the network. 
+```
 
 In general, C++ style comments (//) should be used. Use C-style comments (/**/) only for when documenting the significance of constants used as actual parameters in a call:
 
-``` object.callFunction(/*arg0=*/nullptr); ```
+``` 
+object.callFunction(/*arg0=*/nullptr); 
+```
 
 Every function, class, or non-trivial piece of logic should have a comment. Avoid redundant comments for self-explanatory code, but never leave complex code unexplained. Example of redundant comment:
 
-``` 
+``` c++
 // Increment the counter by 1.  // Redundant, avoid. 
 counter++; 
 ```
@@ -86,7 +94,7 @@ Strive to minimize unnecessary indentation without compromising code clarity. On
 
 Consider following example:
 
-```
+```c++
 void doSomething(Operation *op)
 {
     if (op->getNumOperands() > 0
@@ -100,7 +108,7 @@ void doSomething(Operation *op)
 
 It is strongly recommended to format the code as follows:
 
-```
+```c++
 void doSomething(Operation *op)
 {
     // ...
@@ -128,7 +136,7 @@ Follow a bottom-up call order:
 * This allows each function to be defined after its dependencies, making it clear which functions rely on which.
 * For example, if function A calls A1 and A2, then the preferred order is:
 
-```
+```c++
 void A1();
 void A2();
 void A(){
@@ -146,7 +154,7 @@ Avoid mixed ordering:
 
 Example of a preferred order:
 
-```
+```c++
 void A1() {
   /*...*/
 }
@@ -165,18 +173,17 @@ void A() {
 
 ## Helper Functions
 
-This coding guideline addresses visibility and linkage of simple helper functions to ensure clarity, prevent linking errors, and improve maintainability:
+These coding guidelines address visibility and linkage of simple helper functions to ensure clarity, prevent linking errors, and improve maintainability:
 
-If a helper function needs to be defined in a .cpp file, it should be declared static or wrapped inside an anonymous namespace. 
+* If a helper function needs to be defined in a .cpp file, it should be declared static or wrapped inside an anonymous namespace. 
+
+* If a helper function needs to be defined in a header file (for example, for templated or performance-critical code), it should be marked as inline.
 
 > [!NOTE]
 > A significant concern with declaring functions as non-public (for example, static functions 
 > or functions in unnamed namespaces) is that they cannot be unit tested in isolation. 
 > This limitation hinders our ability to write focused, granular tests that verify the 
 > correctness of individual components and it also reduces test coverage.
-
-
-If a helper function needs to be defined in a header file (for example, for templated or performance-critical code), it should be marked as inline.
 
 ## Using Namespaces
 
@@ -191,10 +198,12 @@ Follow these guidelines when using namespaces:
 
 * Do not use a using-directive to make all names from a namespace available because it pollutes the namespace.
 
-``` 
+```c++ 
 // Forbidden -- This pollutes the namespace.
 using namespace std;
 ```
+
+## Using Alternative Tokens (and, or, xor, etc.)
 
 * Avoid placing code in the global namespace to reduce the potential for name conflicts and ambiguity. Always use specific namespaces. If necessary to use something from the global namespace (such as std), use an explicit std:: prefix rather than importing everything using using namespace std;.
 * Do not use namespace aliases at namespace scope in header files except in explicitly marked internal-only namespaces, because anything imported into a namespace in a header file becomes part of the public API exported by that file.
@@ -206,42 +215,42 @@ Although they are standard, we should avoid their use. They are very rarely used
 
 ## Type Aliasing
 
-When declaring type aliases in C++ prefer using over typedef. using provides better readability, especially for complex types, and supports alias templates. Here is example:
+When declaring type aliases in C++ prefer using over typedef. using provides better readability, especially for complex types, and supports alias templates. Here is an example:
 
-```
+```c++
 // Preferred
 using Callback = void(*)(int, double);
 
 // Avoid
 typedef void (*Callback)(int, double);
-Choose alias names that clarify their role in the code. Avoid overly generic names that might obscure the type’s purpose, hence do not create a type alias unless it significantly improves clarity or simplifies complex types.
 ```
 
-## Using Auto to Deduce Type
+Choose alias names that clarify their role in the code. Avoid overly generic names that might obscure the type’s purpose. Do not create a type alias unless it significantly improves clarity or simplifies complex types.
 
-Use auto only when it enhances code readability or maintainability. Avoid defaulting to “always use auto.” Instead, apply it thoughtfully in the following scenarios: - When the type is immediately clear from the initializer, such as in cast<Foo>(...). - When the type is obvious from the context, making the code cleaner and more concise. - When the type is already abstracted, such as with container typedefs like std::vector<T>::iterator.
+## Using `auto` to Deduce Type
+
+* Use auto only when it enhances code readability or maintainability. Avoid defaulting to “always use auto.” Instead, apply it thoughtfully in the following scenarios: 
+  * When the type is immediately clear from the initializer, such as in cast<Foo>(...). 
+  * When the type is obvious from the context, making the code cleaner and more concise. 
+  * When the type is already abstracted, such as with container typedefs like std::vector<T>::iterator.
 
 In all other cases, prefer explicit type declarations to maintain clarity and ensure the code remains easy to understand.
 
 ## Python Coding Guidelines
 
 ### Python Version and Source Code Formatting
-The current minimum version of Python required is 3.8 or higher. Python code in the LLVM repository should only use language features available in this version of Python.
+The current minimum version of Python required is 3.10 or higher. Python code in the tt-mlir repository should only use language features available in this version of Python.
 
-The Python code within the LLVM repository should adhere to the formatting guidelines outlined in PEP 8.
+The Python code within the tt-mlir repository should adhere to the formatting guidelines outlined in PEP 8.
 
-For consistency and to limit churn, code should be automatically formatted with the black utility, which is PEP 8 compliant. Use its default rules. For example, avoid specifying --line-length even though it does not default to 80. The default rules can change between major versions of black. In order to avoid unnecessary churn in the formatting rules, we currently use black version 23.x in LLVM.
+For consistency and to limit churn, code should be automatically formatted with the black utility, which is PEP 8 compliant. Use its default rules. For example, avoid specifying --line-length even though it does not default to 80. The default rules can change between major versions of black. In order to avoid unnecessary churn in the formatting rules, we currently use black version 23.x.
 
-When contributing a patch unrelated to formatting, you should format only the Python code that the patch modifies. For this purpose, use the darker utility, which runs default black rules over only the modified Python code. Doing so should ensure the patch will pass the Python format checks in LLVM’s pre-commit CI, which also uses darker. When contributing a patch specifically for reformatting Python files, use black, which currently only supports formatting entire files.
+When contributing a patch unrelated to formatting, you should format only the Python code that the patch modifies. When contributing a patch specifically for reformatting Python files, use black, which currently only supports formatting entire files.
 
-Here are some quick examples, but see the black and darker documentation for details:
+Here is a quick example, but see the black documentation for details:
 
-```
-$ darker test.py                   # format uncommitted changes
-$ darker -r HEAD^ test.py          # also format changes from last commit
+```bash
 $ black test.py                    # format entire file
 ```
 
-Instead of individual file names, you can specify directories to darker, and it will find the changed files. However, if a directory is large, like a clone of the LLVM repository, darker can be painfully slow. In that case, you might wish to use git to list changed files. For example:
 
-``` $ darker -r HEAD^ $(git diff --name-only --diff-filter=d HEAD^) ```
