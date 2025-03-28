@@ -71,6 +71,8 @@ Tensor createTensor(Device device, Layout layout,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize);
 
+void dirtyTensor(Tensor &tensor);
+
 inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
   return ::tt::runtime::createTensor(data, desc.shape, desc.stride,
                                      desc.itemsize, desc.dataType);

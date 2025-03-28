@@ -182,6 +182,11 @@ Tensor createTensor(std::shared_ptr<void> data,
   LOG_FATAL("runtime is not enabled");
 }
 
+void dirtyTensor(Tensor &tensor) {
+  static std::atomic<uint64_t> version(0);
+  tensor.version.store(version++);
+}
+
 Tensor
 createTensor(std::vector<std::shared_ptr<void>> &data,
              std::vector<std::uint32_t> const &shape,
