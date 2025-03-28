@@ -423,8 +423,8 @@ def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     ],
     targets=["ttnn"],
 )
-def test_power(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.power(in0, in1)
+def test_pow(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.pow(in0, in1)
 
 
 @compile_to_flatbuffer(
