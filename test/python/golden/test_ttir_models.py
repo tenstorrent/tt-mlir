@@ -24,6 +24,7 @@ def test_arbitrary_model(shapes: List[Shape], dtypes: List[torch.dtype], request
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -79,6 +80,7 @@ def test_mnist(
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -204,4 +206,5 @@ def test_llama_attention(
         target=target,
         test_base=request.node.name,
         output_root=request.config.getoption("path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )

@@ -150,6 +150,7 @@ def test_dot_general(
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -273,6 +274,7 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -286,6 +288,7 @@ def test_lt(shape: Shape, request):
         [shape, shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -328,6 +331,7 @@ def test_concat(shapes: List[Shape], dim: int, request):
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -345,6 +349,7 @@ def test_squeeze(shape: Shape, dim: int, request):
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -362,6 +367,7 @@ def test_unsqueeze(shape: Shape, dim: int, request):
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -376,6 +382,7 @@ def test_repeat(shape: Shape, dims: List[int], request):
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -396,6 +403,7 @@ def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request)
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -410,6 +418,7 @@ def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -458,6 +467,7 @@ def test_conv2d(
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -508,6 +518,7 @@ def test_conv_transpose2d(
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -556,6 +567,7 @@ def test_max_pool2d(
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -571,6 +583,7 @@ def test_pad(shape: Shape, padding: List[int], value, request):
         inputs_shapes=[shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -585,6 +598,7 @@ def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request)
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -600,6 +614,7 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, request):
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -614,6 +629,7 @@ def test_zeros(shape: Shape, request):
         inputs_shapes=[],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -627,6 +643,7 @@ def test_ones(shape: Shape, request):
         inputs_shapes=[],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -640,6 +657,7 @@ def test_empty(shape: Shape, request):
         inputs_shapes=[],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -654,6 +672,7 @@ def test_argmax(shapes, dim, request):
         inputs_shapes=shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -669,6 +688,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -682,7 +702,11 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
         return builder.reduce_and(in0, dim_args=dim_args)
 
     compile_to_flatbuffer(
-        reduce_and, [shape], [torch.bool], test_base=request.node.name
+        reduce_and,
+        [shape],
+        [torch.bool],
+        test_base=request.node.name,
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -701,6 +725,7 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
         [torch.bool],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -715,6 +740,7 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -731,6 +757,7 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -744,6 +771,7 @@ def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request
         [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -754,7 +782,11 @@ def test_typecast(shape: Shape, from_type: torch.dtype, to_type: torch.dtype, re
         return builder.typecast(in0, in1)
 
     compile_to_flatbuffer(
-        typecast, [shape, shape], [from_type, to_type], test_base=request.node.name
+        typecast,
+        [shape, shape],
+        [from_type, to_type],
+        test_base=request.node.name,
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -769,6 +801,7 @@ def test_cumsum(shapes: List[Shape], dim: int, request):
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -818,6 +851,7 @@ def test_unary_ops(
         inputs_types=[dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -855,6 +889,7 @@ def test_binary_ops(test_fn: Callable, shape: Shape, dtype: torch.dtype, request
         [dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -867,6 +902,7 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         inputs_types=[torch.int8] * 2,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -891,4 +927,5 @@ def test_unique_ops(
         inputs_types=inputs_dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
