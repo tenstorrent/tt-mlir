@@ -280,12 +280,12 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                std::uint32_t programIndex,
                                std::vector<::ttnn::Tensor *> const &inputs,
                                std::shared_ptr<TensorCache> externalCache,
-                               const std::vector<uint64_t> &inputVersions) {
+                               std::vector<uint64_t> &&inputVersions) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
   ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
-                           externalCache, inputVersions);
+                           externalCache, std::move(inputVersions));
   executor.execute();
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;
@@ -295,36 +295,15 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs,
-                               std::shared_ptr<TensorCache> externalCache) {
-  // Create an empty vector of versions
-  std::vector<uint64_t> emptyVersions;
-  return runProgram(meshDevice, executableHandle, programIndex, inputs,
-                    externalCache, emptyVersions);
-}
-
-// Version that accepts no external TensorCache
-std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
-                               Binary executableHandle,
-                               std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs,
-                               const std::vector<uint64_t> &inputVersions) {
-  // Create a null external cache
-  std::shared_ptr<TensorCache> nullExternalCache;
-  return runProgram(meshDevice, executableHandle, programIndex, inputs,
-                    nullExternalCache, inputVersions);
-}
-
-// Version that accepts no external TensorCache and no input versions
-std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
-                               Binary executableHandle,
-                               std::uint32_t programIndex,
                                std::vector<::ttnn::Tensor *> const &inputs) {
-  // Create an empty vector of versions and a null external cache
-  std::vector<uint64_t> emptyVersions;
-  std::shared_ptr<TensorCache> nullExternalCache;
-  return runProgram(meshDevice, executableHandle, programIndex, inputs,
-                    nullExternalCache, emptyVersions);
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
+  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
+                           nullptr, {});
+  executor.execute();
+  std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
+  return outputTensors;
 }
 
 } // namespace tt::runtime::ttnn

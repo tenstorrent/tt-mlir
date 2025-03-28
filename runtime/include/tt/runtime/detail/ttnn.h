@@ -155,7 +155,8 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
                                std::vector<::ttnn::Tensor *> const &inputs,
-                               std::shared_ptr<TensorCache> tensorCache);
+                               std::shared_ptr<TensorCache> tensorCache,
+                               std::vector<uint64_t> &&versionIds);
 
 } // namespace tt::runtime::ttnn
 

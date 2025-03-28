@@ -15,7 +15,6 @@ try:
         DebugEnv,
         DebugHooks,
         MeshDeviceOptions,
-        CacheKey,
         TensorCache,
         get_current_runtime,
         set_current_runtime,

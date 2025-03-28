@@ -218,6 +218,20 @@ class Run:
             help="enable tensor caching between program runs for const-eval",
         )
         Run.register_arg(
+            name="--dirty-input-index",
+            type=int,
+            default=-1,
+            choices=None,
+            help="index of input tensor to dirty after specified iterations (negative means disabled)",
+        )
+        Run.register_arg(
+            name="--dirty-after-iterations",
+            type=int,
+            default=1,
+            choices=None,
+            help="number of iterations after which to dirty the specified input tensor",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -577,6 +591,25 @@ class Run:
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
+                                # Check if we need to dirty an input tensor for testing const-eval cache
+                                if (
+                                    self["--dirty-input-index"] >= 0
+                                    and loop == self["--dirty-after-iterations"]
+                                ):
+                                    input_idx = self["--dirty-input-index"]
+                                    if input_idx < len(total_inputs[loop]):
+                                        # Get the tensor to dirty
+                                        tensor_to_dirty = total_inputs[loop][input_idx]
+                                        # Call the dirtyTensor function to increment the version counter
+                                        ttrt.runtime.dirty_tensor(tensor_to_dirty)
+                                        self.logging.info(
+                                            f"Marked input tensor {input_idx} as dirty after {loop} iterations"
+                                        )
+                                    else:
+                                        self.logging.warning(
+                                            f"Cannot dirty input tensor {input_idx}, only {len(total_inputs[loop])} inputs available"
+                                        )
+
                                 if (
                                     current_runtime
                                     == ttrt.runtime.DeviceRuntime.TTMetal

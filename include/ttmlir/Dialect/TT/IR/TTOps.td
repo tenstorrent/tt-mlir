@@ -139,9 +139,7 @@ def TT_DeviceOp : TT_Op<"device", [Symbol]> {
   let assemblyFormat = "$sym_name `=` $device_attr attr-dict";
 }
 
-def TT_LoadCachedOp : TT_Op<"load_cached", [
-    DeclareOpInterfaceMethods<CallOpInterface>
-]> {
+def TT_LoadCachedOp : TT_Op<"load_cached", []> {
   let summary = "Load cached results from a previously computed function";
   let description = [{
     The load_cached operation calls a precomputed function and returns its results,

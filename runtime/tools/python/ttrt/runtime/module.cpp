@@ -116,11 +116,6 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
 
-  py::class_<tt::runtime::CacheKey>(m, "CacheKey")
-      .def(py::init<const std::string &, const std::vector<uint32_t> &>())
-      .def("get_function_name", &tt::runtime::CacheKey::getFunctionName)
-      .def("get_input_ids", &tt::runtime::CacheKey::getInputIds);
-
   py::class_<tt::runtime::TensorCache,
              std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
       .def(py::init<>())
