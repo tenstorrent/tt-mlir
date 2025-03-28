@@ -15,14 +15,16 @@ namespace mlir::tt::ttir_to_ttnn::utils {
 mlir::tt::ttnn::ReshapeOp
 generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
                 llvm::ArrayRef<int64_t> newShape,
-                mlir::PatternRewriter &rewriter);
+                mlir::PatternRewriter &rewriter,
+                llvm::StringRef locSuffix = "");
 
 // Generates a reshape operation for the given input tensor that returns 4D
 // tensor. Assumes that the input tensor is 4D. First 3 dimensions are flattened
 // into 3rd dimension and 4th dimension is kept as is.
 mlir::tt::ttnn::ReshapeOp
 generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
-                   mlir::PatternRewriter &rewriter);
+                   mlir::PatternRewriter &rewriter,
+                   llvm::StringRef locSuffix = "");
 
 } // namespace mlir::tt::ttir_to_ttnn::utils
 

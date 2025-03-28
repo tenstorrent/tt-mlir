@@ -381,7 +381,7 @@ public:
 
     auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
         mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getInGradient()),
-        reshapedGradShape, rewriter);
+        reshapedGradShape, rewriter, "_reshaped_grad");
 
     // Get TTNNLayoutAttr of the result type.
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
@@ -968,7 +968,7 @@ public:
 
     Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter);
+        rewriter, "_flatten");
 
     // Convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C)
@@ -988,8 +988,8 @@ public:
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
         *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
 
-    Value output =
-        ttir_to_ttnn::utils::generateReshape(newConv, outputShape, rewriter);
+    Value output = ttir_to_ttnn::utils::generateReshape(newConv, outputShape,
+                                                        rewriter, "_unflatten");
 
     rewriter.replaceOp(op, output);
     return success();
@@ -1174,7 +1174,7 @@ public:
 
     Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
-        rewriter);
+        rewriter, "_flatten");
 
     auto outputType = op.getResult().getType();
     llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
@@ -1208,8 +1208,8 @@ public:
         kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
         adaptor.getCeilMode());
 
-    Value output =
-        ttir_to_ttnn::utils::generateReshape(newPool, outputShape, rewriter);
+    Value output = ttir_to_ttnn::utils::generateReshape(newPool, outputShape,
+                                                        rewriter, "_unflatten");
 
     rewriter.replaceOp(op, output);
 
