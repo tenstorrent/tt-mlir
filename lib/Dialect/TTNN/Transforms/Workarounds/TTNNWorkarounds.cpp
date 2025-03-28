@@ -351,7 +351,7 @@ public:
     uint32_t clusterAxis = op.getClusterAxis();
     Value deviceValue = op.getDevice();
     auto deviceDesc = lookupDevice(op);
-    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
+    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMesh().getShape();
 
     // TODO(hongseok): Restore dynamic dimension selection once the issue
     // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
