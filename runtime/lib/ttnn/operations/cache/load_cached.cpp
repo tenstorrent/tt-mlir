@@ -9,6 +9,7 @@
 #include "tt/runtime/ttnn/program.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/types.h"
+
 #include <vector>
 
 namespace tt::runtime::ttnn::operations::cache {
@@ -31,16 +32,41 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   // Extract function name
   const std::string functionName = op->callee_name()->str();
 
-  // Collect input tensor IDs for execution
-  std::vector<uint32_t> inputIds;
-  for (const auto *input : *op->inputs()) {
-    inputIds.push_back(input->global_id());
+  std::vector<uint64_t> inputVersions(op->inputs_indexes()->size());
+  const std::vector<uint64_t> allArgVersions = context.getInputVersions();
+  for (size_t i = 0; i < inputVersions.size(); ++i) {
+    const size_t argIdx = op->inputs_indexes()->Get(i);
+    inputVersions[i] = allArgVersions[argIdx];
   }
 
-  // Collect output tensor IDs
-  std::vector<uint32_t> outputIds;
-  for (const auto *output : *op->outputs()) {
-    outputIds.push_back(output->global_id());
+  // Get the cached tensors, which will be empty if cache is invalid
+  const std::vector<Tensor> *cachedOutputs =
+      cache.getAll(functionName, inputVersions);
+
+  if (cachedOutputs) {
+    LOG_INFO("Cache hit for function: ", functionName);
+
+    assert(cachedOutputs->size() == op->outputs()->size());
+    for (size_t i = 0; i < cachedOutputs->size(); ++i) {
+      auto output = (*cachedOutputs)[i].as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+      context.getTensorPool().insertAndValidate(
+          op->outputs()->Get(i)->global_id(), output);
+    }
+
+    return;
+  }
+
+  LOG_INFO("Cache miss or invalid cache for function: ", functionName);
+
+  // Collect input tensor IDs for execution
+  std::vector<uint32_t> funcInputIds =
+      context.getTensorPool().getProgramInputIds();
+  std::vector<uint32_t> inputIds(funcInputIds.size());
+  for (size_t i = 0; i < inputIds.size(); ++i) {
+    const size_t input = op->inputs_indexes()->Get(i);
+    LOG_ASSERT(input < funcInputIds.size(),
+               "Invalid arg index in load_cached op.");
+    inputIds[i] = funcInputIds[input];
   }
 
   // Get the input runtime tensors for version checking
@@ -52,41 +78,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   for (size_t i = 0; i < inputIds.size(); ++i) {
     LOG_INFO("Looking for tensor with id: ", inputIds[i]);
     inputs[i] = &context.getTensorPool().getAndValidate(inputIds[i]);
-
-    // Get the original runtime::Tensor to track versions
-    const Tensor *runtimeTensor =
-        context.getTensorPool().getRuntimeTensor(inputIds[i]);
-    if (runtimeTensor) {
-      inputTensors.push_back(*runtimeTensor);
-    } else {
-      // If we don't have the runtime tensor, we can't check versions
-      // Consider this a cache miss
-      LOG_INFO("No runtime tensor found for input id: ", inputIds[i]);
-      break;
-    }
+    inputTensors.emplace_back(utils::createRuntimeTensorFromTTNN(*inputs[i]));
   }
-
-  // Check if we have all input runtime tensors and the result is in cache and
-  // valid
-  if (inputTensors.size() == inputIds.size()) {
-    // Get the cached tensors, which will be empty if cache is invalid
-    auto outputs = cache.getAll(functionName, inputTensors);
-
-    if (!outputs.empty()) {
-      LOG_INFO("Cache hit for function: ", functionName);
-
-      assert(outputs.size() == op->outputs()->size());
-      for (size_t i = 0; i < outputs.size(); ++i) {
-        auto output = outputs[i].as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-        context.getTensorPool().insertAndValidate(
-            op->outputs()->Get(i)->global_id(), output);
-      }
-
-      return;
-    }
-  }
-
-  LOG_INFO("Cache miss or invalid cache for function: ", functionName);
 
   // Execute the function
   const size_t programIndex = op->program_idx();
@@ -99,6 +92,11 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   exec.execute();
   LOG_INFO("executed sub-func: ", functionName);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();
+  // Collect output tensor IDs
+  std::vector<uint32_t> outputIds;
+  for (const auto *output : *op->outputs()) {
+    outputIds.push_back(output->global_id());
+  }
   LOG_ASSERT(outputs.size() == outputIds.size());
 
   // Store the results in the cache with input versions
@@ -108,10 +106,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   }
 
   for (size_t i = 0; i < outputs.size(); ++i) {
-    Tensor runtimeOutput = outputs[i];
-    // Store the runtime tensor for future version tracking
-    context.getTensorPool().storeRuntimeTensor(outputIds[i], runtimeOutput);
-
+    Tensor &runtimeOutput = outputs[i];
     ::ttnn::Tensor output =
         runtimeOutput.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
     context.getTensorPool().insertAndValidate(outputIds[i], output);

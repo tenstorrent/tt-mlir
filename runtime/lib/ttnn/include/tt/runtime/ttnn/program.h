@@ -51,12 +51,13 @@ public:
         common::DylibManager(program->dylibs()), meshDevice, executableHandle);
   }
 
-  // Constructor that accepts an external cache
+  // Constructor that accepts an external cache and input versions
   ProgramExecutor(const ::tt::target::ttnn::Program *program,
                   const Binary &executableHandle,
                   const std::vector<::ttnn::Tensor *> &programInputs,
                   ::ttnn::MeshDevice *meshDevice,
-                  std::shared_ptr<TensorCache> externalCache)
+                  std::shared_ptr<TensorCache> externalCache,
+                  std::vector<uint64_t> &&inputVersions)
       : program(program) {
     LOG_ASSERT(program, "Program must be provided for execution");
 
@@ -81,7 +82,7 @@ public:
     context = std::make_unique<ProgramContext>(
         programInputIds, programOutputIds, std::move(liveTensors),
         common::DylibManager(program->dylibs()), meshDevice, executableHandle,
-        externalCache);
+        externalCache, std::move(inputVersions));
   }
 
   void runCallback(const ::tt::target::ttnn::Operation *opContext,

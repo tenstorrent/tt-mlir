@@ -351,7 +351,8 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)>;
+    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)> {
+}
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
@@ -1717,6 +1718,10 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
       %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
   }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [TT_CreationOpTrait]> {
@@ -1730,6 +1735,10 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [TT_CreationOpTrait]> {
       %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
   }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
