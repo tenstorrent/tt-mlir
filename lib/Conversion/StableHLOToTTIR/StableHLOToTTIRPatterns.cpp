@@ -2266,7 +2266,7 @@ addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::PowOp, mlir::tt::ttir::PowerOp>>(typeConverter, ctx);
+      mlir::stablehlo::PowOp, mlir::tt::ttir::PowOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::Atan2Op, mlir::tt::ttir::Atan2Op>>(typeConverter, ctx);
 }
