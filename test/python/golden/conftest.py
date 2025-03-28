@@ -12,13 +12,15 @@ def pytest_addoption(parser):
         default=".",
         help="Path to store test artifacts (e.g. flatbuffers and .mlir files)",
     )
+    parser.addoption(
+        "--sys-desc",
+        action="store",
+        default="",
+        help="Path to system descriptor",
+    )
 
 
-@pytest.fixture
-def artifact_path(request):
-    return request.config.getoption("--path")
-
-
+# TODO: figure out how to neatly pass this to all tests
 @pytest.fixture(autouse=True)
 def sys_desc():
     """
