@@ -229,7 +229,7 @@ Choose alias names that clarify their role in the code. Avoid overly generic nam
 
 ## Using `auto` to Deduce Type
 
-* Use auto only when it enhances code readability or maintainability. Avoid defaulting to “always use auto.” Instead, apply it thoughtfully in the following scenarios: 
+Use auto only when it enhances code readability or maintainability. Avoid defaulting to “always use auto.” Instead, apply it thoughtfully in the following scenarios: 
   * When the type is immediately clear from the initializer, such as in cast<Foo>(...). 
   * When the type is obvious from the context, making the code cleaner and more concise. 
   * When the type is already abstracted, such as with container typedefs like std::vector<T>::iterator.
