@@ -49,22 +49,6 @@ struct Conv2dConfigOverrideParams {
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> enableSplitReader = std::nullopt;
   std::optional<bool> enableSubblockPadding = std::nullopt;
-
-  bool fullConv2dConfigOverride() const {
-    return dtype.has_value() && weightsDtype.has_value() &&
-           activation.has_value() && inputChannelsAlignment.has_value() &&
-           deallocateActivation.has_value() && reallocateHaloOutput.has_value() &&
-           actBlockHOverride.has_value() && actBlockWDiv.has_value() &&
-           reshardIfNotOptimal.has_value() && overrideShardingConfig.has_value() &&
-           shardLayout.has_value() && coreGrid.has_value() &&
-           transposeShards.has_value() && outputLayout.has_value() &&
-           enableActDoubleBuffer.has_value() && enableWeightsDoubleBuffer.has_value() &&
-           enableSplitReader.has_value() && enableSubblockPadding.has_value();
-  }
-
-  //TODO: Implement for testing.
-  bool operator==(const Conv2dConfigOverrideParams &rhs) const;
-  bool operator!=(const Conv2dConfigOverrideParams &rhs) const;
 };
 
 struct OutputLayoutOverrideParams {

@@ -76,7 +76,7 @@ struct TTIRToTTNNBackendPipelineOptions
           llvm::cl::desc("Override output tensor layout for specific ops."),
           llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
 
-  //Conv2dConfig Overrides
+  // Conv2dConfig Overrides
   Option<llvm::StringMap<Conv2dConfigOverrideParams>,
          Conv2dConfigOverrideParser>
       overrideConv2dConfig{
