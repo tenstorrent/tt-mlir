@@ -18,7 +18,7 @@ from ttmlir.passes import (
     MLIRModuleLogger,
 )
 
-from .ttir_builder import Shape, TTIRBuilder, DataType
+from .ttir_builder import Shape, TTIRBuilder, DataType, TypeInfo
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
