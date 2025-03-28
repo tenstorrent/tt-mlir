@@ -298,11 +298,19 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
   std::transform(
       shapeInt64.begin(), shapeInt64.end(), std::back_inserter(shape),
       [](int64_t val) -> int32_t { return static_cast<int32_t>(val); });
+  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  // Set meshShape to {1, 1} for single device tensor.
+  std::vector<int32_t> meshShape = {1, 1};
+  if (layoutAttr.getTensorMeshSharding()) {
+    meshShape.clear();
+    // Set meshShape to {x, y} for multi device tensor.
+    auto meshShapeInt64 = deviceAttr.getMeshShape();
+    meshShape =
+        std::vector<int32_t>(meshShapeInt64.begin(), meshShapeInt64.end());
+  }
   return ::tt::target::ttnn::CreateTensorDescDirect(
-      *cache.fbb, &shape,
-      cache.getOrCreate(
-          mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
-          ttnnLayoutAttrToFlatbuffer, deviceAttr));
+      *cache.fbb, &shape, &meshShape,
+      cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer, deviceAttr));
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
