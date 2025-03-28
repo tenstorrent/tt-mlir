@@ -12,10 +12,9 @@
 namespace tt::runtime::ttnn::operations::creation {
 static void runFullWithOp(const ::tt::target::ttnn::NamedFullOp *op,
                           ProgramContext &context, auto &&ttnnOp) {
-  using TTNNOpTy = decltype(ttnnOp);
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Shape shape = ::ttnn::Shape(utils::toTTNNShape(*op->shape()));
+  const ::ttnn::Shape shape(utils::toTTNNShape(*op->shape()));
 
   std::optional<::ttnn::DataType> dtype;
   std::optional<::ttnn::Layout> layout;
@@ -40,13 +39,11 @@ static void runFullWithOp(const ::tt::target::ttnn::NamedFullOp *op,
         context.getTargetDevice(op->device()->global_id());
     LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::IDevice>>(
                    targetDevice),
-               "ttnn::", std::forward<TTNNOpTy>(ttnnOp).base_name(),
-               " does not support MeshDevice.");
+               "ttnn::", ttnnOp.base_name(), " does not support MeshDevice.");
     device = std::get<std::reference_wrapper<::ttnn::IDevice>>(targetDevice);
   }
 
-  ::ttnn::Tensor out = std::forward<TTNNOpTy>(ttnnOp)(shape, dtype, layout,
-                                                      device, memoryConfig);
+  ::ttnn::Tensor out = ttnnOp(shape, dtype, layout, device, memoryConfig);
 
   tensorPool.insertAndValidate(op->out(), out);
 }

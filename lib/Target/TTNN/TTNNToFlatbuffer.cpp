@@ -618,7 +618,7 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
   } else if constexpr (std::is_same_v<OpTy, ttnn::OnesOp>) {
     type = ::tt::target::ttnn::NamedFullOpType::Ones;
   } else {
-    llvm_unreachable("Unsupported NamedFullOp type");
+    static_assert(false, "Unsupported NamedFullOp type");
   }
 
   ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape =
