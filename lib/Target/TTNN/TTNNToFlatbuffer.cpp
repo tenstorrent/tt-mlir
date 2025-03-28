@@ -626,7 +626,7 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
   } else if constexpr (std::is_same_v<OpTy, ttnn::OnesOp>) {
     type = ::tt::target::ttnn::NamedFullOpType::Ones;
   } else {
-    static_assert(ttmlir::utils::False<OpTy>::value,
+    static_assert(ttmlir::utils::always_false<OpTy>(),
                   "Unsupported NamedFullOp type");
   }
 

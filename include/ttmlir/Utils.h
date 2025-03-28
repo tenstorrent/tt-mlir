@@ -578,7 +578,9 @@ inline std::string firstNLines(std::string str, int n) {
 }
 
 template <typename...>
-struct False : std::bool_constant<false> {};
+constexpr bool always_false() {
+  return false;
+}
 
 } // namespace ttmlir::utils
 
