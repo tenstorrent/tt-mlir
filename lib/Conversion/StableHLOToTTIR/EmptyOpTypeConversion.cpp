@@ -4,7 +4,9 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/EmptyOpTypeConversion.h"
 
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -22,7 +24,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType inputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getType()));
-    rewriter.replaceOpWithNewOp<mlir::tensor::EmptyOp>(
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::EmptyOp>(
         srcOp, inputType.getShape(), inputType.getElementType(),
         inputType.getEncoding());
 

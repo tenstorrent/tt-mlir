@@ -8,6 +8,11 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(TT_RUNTIME_DEBUG ON)
 endif()
 
+if (CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+endif()
+
 set(TT_RUNTIME_OPTIONS
   TT_RUNTIME_DEBUG
   TT_RUNTIME_ENABLE_PERF_TRACE
@@ -22,8 +27,19 @@ endforeach()
 
 add_subdirectory(lib)
 add_subdirectory(tools)
+
+# Ensure coverage_config is applied to runtime tests if enabled
 if (TTMLIR_ENABLE_RUNTIME_TESTS)
   add_subdirectory(test)
 else()
   add_library(TTRuntimeTTNNTestLib INTERFACE)
+endif()
+
+# Add coverage_config to all targets in runtime
+if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  foreach(target IN ITEMS TTRuntimeTTNNTestLib)
+    if (TARGET ${target})
+      target_link_libraries(${target} INTERFACE coverage_config)
+    endif()
+  endforeach()
 endif()

@@ -158,7 +158,8 @@ void populateTTModule(nb::module_ &m) {
              unsigned l1UnreservedBase, unsigned eriscL1UnreservedBase,
              unsigned dramUnreservedBase, unsigned dramUnreservedEnd,
              MlirAttribute chipPhysicalCores, MlirAttribute supportedDataTypes,
-             MlirAttribute supportedTileSizes, unsigned numCBs) {
+             MlirAttribute supportedTileSizes, unsigned numCBs,
+             unsigned numComputeThreads, unsigned numDatamovementThreads) {
             return wrap(tt::ChipDescAttr::get(
                 unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid,
                 l1Size, numDramChannels, dramChannelSize,
@@ -169,7 +170,7 @@ void populateTTModule(nb::module_ &m) {
                     unwrap(chipPhysicalCores)),
                 mlir::cast<tt::DataTypeAttr>(unwrap(supportedDataTypes)),
                 mlir::cast<tt::TileSizeAttr>(unwrap(supportedTileSizes)),
-                numCBs));
+                numCBs, numComputeThreads, numDatamovementThreads));
           })
       .def_prop_ro("usable_l1_size", &tt::ChipDescAttr::getUsableL1Size)
       .def_prop_ro("usable_dram_channel_size",
@@ -367,16 +368,6 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("iterator_type_as_int", [](tt::IteratorTypeAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
-
-  tt_type_class<tt::DeviceType>(m, "DeviceType")
-      .def_static(
-          "get",
-          [](MlirContext ctx, MlirAttribute deviceAttr) {
-            return wrap(tt::DeviceType::get(
-                unwrap(ctx), mlir::cast<tt::DeviceAttr>(unwrap(deviceAttr))));
-          })
-      .def_prop_ro("device_attr",
-                   [](tt::DeviceType const &self) { return self.getDesc(); });
 
   tt_attribute_class<tt::DeviceAttr>(m, "DeviceAttr")
       .def_static("from_system_desc",

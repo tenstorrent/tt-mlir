@@ -34,11 +34,11 @@ public:
     return device.getWorkerGrid().getShape().size() == grid.getShape().size();
   }
 
-  static BlockArgument createSemaphore(PatternRewriter &builder, Location loc) {
+  static BlockArgument createSemaphore(PatternRewriter &builder, Location loc,
+                                       MutableArrayRef<Region> regions) {
     Block *thisBlock = builder.getBlock();
-    Operation *op = thisBlock->getParentOp();
     BlockArgument semaphore = nullptr;
-    for (Region &region : op->getRegions()) {
+    for (Region &region : regions) {
       for (Block &block : region) {
         BlockArgument blockSemaphore =
             block.addArgument(builder.getType<SemaphoreType>(), loc);
@@ -142,7 +142,8 @@ public:
   static void createGatherMcastDMA(PatternRewriter &builder, Location loc,
                                    Value src, Value dst,
                                    AffineMap operandIndexingMap, GridAttr grid,
-                                   ArrayRef<IteratorType> mcastIterators) {
+                                   ArrayRef<IteratorType> mcastIterators,
+                                   MutableArrayRef<Region> regions) {
     SmallVector<Value> coreIndex, mcastShape, conditions;
     unsigned mcastVolume;
     std::tie(coreIndex, mcastShape, mcastVolume, conditions) =
@@ -154,8 +155,8 @@ public:
     assert(mcastVolume > 0);
     Value mcastVolumeMinusOne = builder.create<arith::ConstantOp>(
         loc, builder.getIndexType(), builder.getIndexAttr(mcastVolume - 1));
-    Value receiversReadySemaphore = createSemaphore(builder, loc);
-    Value senderFinishedSemaphore = createSemaphore(builder, loc);
+    Value receiversReadySemaphore = createSemaphore(builder, loc, regions);
+    Value senderFinishedSemaphore = createSemaphore(builder, loc, regions);
     assert(coreIndex.size() == mcastShape.size());
     assert(conditions.size() == 1 && "Exactly one condition supported");
     builder.create<scf::IfOp>(
@@ -182,11 +183,12 @@ public:
         });
   }
 
-  static LogicalResult buildDatamovementBlock(
-      PatternRewriter &builder, Location loc, Value genericOperand,
-      Value blockOperand, GridAttr grid, DeviceAttr device,
-      AffineMap operandIndexingMap, AffineMap gridIndexingMap,
-      ArrayAttr iteratorTypes, bool isOutput) {
+  static LogicalResult
+  buildDatamovementBlock(PatternRewriter &builder, Location loc,
+                         Value genericOperand, Value blockOperand,
+                         GridAttr grid, DeviceAttr device,
+                         AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
+                         bool isOutput, MutableArrayRef<Region> regions) {
     if (isOutput) {
       // Wait for compute.
       builder.create<ttir::AwaitOp>(loc, blockOperand);
@@ -201,7 +203,7 @@ public:
       bool isMcast = !mcastIterators.empty();
       if (isMcast) {
         createGatherMcastDMA(builder, loc, src, dst, operandIndexingMap, grid,
-                             mcastIterators);
+                             mcastIterators, regions);
       } else {
         Value memTx = createDMA(builder, loc, src, dst, operandIndexingMap);
         builder.create<ttir::DMAWaitOp>(loc, memTx);
@@ -225,29 +227,31 @@ public:
 
     // One per operand.
     auto numDataMovementRegions = generic.getNumOperands();
+    auto numTotalRegions = generic.getNumRegions() + numDataMovementRegions;
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(), generic.getIndexingMaps(),
-        generic.getIteratorTypes(),
-        generic.getNumRegions() + numDataMovementRegions);
+        generic.getIteratorTypes(), numTotalRegions);
+
+    // Preinitialize all regions so that we can modify their signatures on the
+    // fly. i.e. adding semaphore arguments.
+    for (unsigned regionIdx = 0; regionIdx < numTotalRegions; ++regionIdx) {
+      Block &block = newGeneric.getRegion(regionIdx).emplaceBlock();
+      rewriter.modifyOpInPlace(newGeneric, [&] {
+        block.addArguments(generic.getRegion(0).getArgumentTypes(),
+                           SmallVector<mlir::Location>(
+                               generic.getRegion(0).getArgumentTypes().size(),
+                               generic.getLoc()));
+      });
+    }
 
     // Insert the new data movement regions.
     unsigned outputOperandsIndex = generic.getOutputs().getBeginOperandIndex();
     unsigned outputOperandsLength = generic.getOutputs().size();
-    // The output and the grid indexing must always be aligned.
-    AffineMap gridIndexingMap =
-        mlir::cast<AffineMapAttr>(
-            generic.getIndexingMaps()[outputOperandsIndex])
-            .getValue();
-    auto device = getCurrentScopeDevice(generic);
+    auto device = lookupDevice(generic);
     for (OpOperand &operand : generic->getOpOperands()) {
       Block *datamovementBlock =
-          &newGeneric.getRegion(operand.getOperandNumber()).emplaceBlock();
-      datamovementBlock->addArguments(
-          generic.getRegion(0).getArgumentTypes(),
-          SmallVector<mlir::Location>(
-              generic.getRegion(0).getArgumentTypes().size(),
-              generic.getLoc()));
+          &newGeneric.getRegion(operand.getOperandNumber()).front();
 
       rewriter.setInsertionPointToEnd(datamovementBlock);
       bool isOutput = operand.getOperandNumber() >= outputOperandsIndex;
@@ -259,8 +263,8 @@ public:
           rewriter, generic->getLoc(),
           generic->getOperand(operand.getOperandNumber()),
           datamovementBlock->getArgument(operand.getOperandNumber()),
-          generic.getGrid(), device, operandIndexingMap, gridIndexingMap,
-          generic.getIteratorTypes(), isOutput);
+          generic.getGrid(), device, operandIndexingMap,
+          generic.getIteratorTypes(), isOutput, newGeneric.getRegions());
       if (failed(result)) {
         return result;
       }
@@ -270,7 +274,9 @@ public:
     unsigned computeRegionIndex = numDataMovementRegions;
     auto &newRegion = newGeneric.getRegion(computeRegionIndex);
     auto &oldRegion = generic.getRegion(0);
-    newRegion.takeBody(oldRegion);
+    rewriter.mergeBlocks(&oldRegion.front(), &newRegion.front(),
+                         newRegion.front().getArguments().take_front(
+                             generic.getOperands().size()));
 
     // Await / Yield insertion to compute region.
     {
@@ -286,8 +292,8 @@ public:
 
       // Yield the outputs.
       rewriter.create<ttir::YieldOp>(
-          generic->getLoc(),
-          computeBlock->getArguments().take_back(outputOperandsLength));
+          generic->getLoc(), computeBlock->getArguments().slice(
+                                 outputOperandsIndex, outputOperandsLength));
     }
 
     rewriter.replaceOp(generic, newGeneric);

@@ -9,10 +9,15 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/Error.h"
 
 #include <tuple>
 
 namespace mlir::tt::op_model::ttnn {
+
+// Checks if the tensor layout is legal for the given tensor shape.
+bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr layout);
 
 //===----------------------------------------------------------------------===//
 // Device
@@ -262,6 +267,30 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 
 }; // namespace Conv2dOpInterface
+
+//===----------------------------------------------------------------------===//
+// MaxPool2D
+//===----------------------------------------------------------------------===//
+namespace MaxPool2DInterface {
+llvm::Expected<std::tuple<size_t, size_t, size_t>> getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
+    int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
+    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    bool ceilMode, llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
+             int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
+             llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+             llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+             bool ceilMode, llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace MaxPool2DInterface
 
 } // namespace mlir::tt::op_model::ttnn
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

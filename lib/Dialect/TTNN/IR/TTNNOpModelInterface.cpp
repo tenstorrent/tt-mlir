@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -20,7 +21,7 @@ namespace mlir::tt::ttnn {
 
 namespace detail {
 llvm::Expected<bool> checkDeviceWorkerGrid(mlir::Operation *op) {
-  auto deviceAttr = mlir::tt::getCurrentScopeDevice(op);
+  auto deviceAttr = mlir::tt::lookupDevice(op);
   assert(deviceAttr);
   return op_model::ttnn::Device::getDeviceConstraints(
       deviceAttr.getWorkerGrid());
@@ -472,6 +473,46 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(),
       getDilation(), getGroups(), getConv2dConfig(), outputShape, output);
+}
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  return op_model::ttnn::MaxPool2DInterface::getOpConstraints(
+      inputShape, inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
+      getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
+      getCeilMode(), outputShape, output);
+}
+
+llvm::Expected<size_t>
+MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResult().getType()).getShape();
+
+  return op_model::ttnn::MaxPool2DInterface::getOpRuntime(
+      inputShape, inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
+      getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
+      getCeilMode(), outputShape, output);
 }
 
 } // namespace mlir::tt::ttnn

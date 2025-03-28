@@ -38,6 +38,7 @@
 // BitwiseXorOp canonicalization
 void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // x ^ x == 0
   patterns.add(
       +[](mlir::tt::ttir::BitwiseXorOp op, mlir::PatternRewriter &rewriter) {
@@ -62,6 +63,7 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
             op, op->getOperand(0).getType(), resultType);
         return mlir::success();
       });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -82,7 +84,7 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 // ClampOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::ClampOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::ClampScalarOp::verify() {
   const RankedTensorType inputTensorType =
       mlir::cast<RankedTensorType>(getInput().getType());
 
@@ -125,6 +127,53 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// EmptyOp
+//===----------------------------------------------------------------------===//
+
+bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is a bufferized to a memory read.
+  return false;
+}
+
+bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is a bufferized to a memory write.
+  return false;
+}
+
+mlir::LogicalResult mlir::tt::ttir::EmptyOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  if (getOperation()->getUses().empty()) {
+    rewriter.eraseOp(*this);
+    return success();
+  }
+
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
+      rewriter, *this,
+      mlir::cast<MemRefType>(
+          *getBufferType(getResult(), options, invocationStack)));
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::EmptyOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+      .getBufferType();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1237,6 +1286,7 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 // TransposeOp canonicalization
 void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
   patterns.add(
       +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
@@ -1301,6 +1351,7 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
         rewriter.replaceAllOpUsesWith(op, producerOp.getInput());
         return mlir::success();
       });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -1444,10 +1495,6 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return op->emitOpError("Input and output types must be the same");
     }
 
-    if (inputTy.getShape() != outputTy.getShape()) {
-      return op->emitOpError("Input and output shapes must be the same");
-    }
-
     if (!inputTy.getEncoding() ||
         !mlir::isa<mlir::tt::MetalLayoutAttr>(inputTy.getEncoding())) {
       // If the input tensor does not have a layout, we can early exit.
@@ -1570,16 +1617,12 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   return components;
 }
 
-::mlir::LogicalResult
-mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
-                                         mlir::PatternRewriter &rewriter) {
-  // Check if input is an empty tensor.
-  if (auto emptyOp = op.getInput().getDefiningOp<tensor::EmptyOp>()) {
-    // Since the input is empty, we can just return the output tensor.
-    rewriter.replaceOp(op, {op.getOutput()});
+mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
+    FoldAdaptor, llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  if (auto emptyOp = getInput().getDefiningOp<ttir::EmptyOp>()) {
+    results.push_back(getOutput());
     return mlir::success();
   }
-
   return mlir::failure();
 }
 
@@ -1618,6 +1661,32 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
 //===----------------------------------------------------------------------===//
 // StreamLayoutOp
 //===----------------------------------------------------------------------===//
+
+void mlir::tt::ttir::StreamLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  patterns.add(+[](StreamLayoutOp op, mlir::PatternRewriter &rewriter) {
+    ViewLayoutOp viewOp = op.getInput().getDefiningOp<ViewLayoutOp>();
+    if (!viewOp) {
+      return failure();
+    }
+
+    auto viewMemref = mlir::dyn_cast<MemRefType>(viewOp.getResult().getType());
+    if (!viewMemref) {
+      return failure();
+    }
+
+    auto currentResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
+    auto streamAttr = rewriter.getAttr<StreamLayoutAttr>(
+        viewMemref.getLayout().getAffineMap().compose(
+            currentResultMemref.getLayout().getAffineMap()));
+    auto newMemref = MemRefType::get(
+        currentResultMemref.getShape(), currentResultMemref.getElementType(),
+        streamAttr, currentResultMemref.getMemorySpace());
+    rewriter.replaceOpWithNewOp<StreamLayoutOp>(
+        op, newMemref, viewOp.getInput(), op.getStorage());
+    return success();
+  });
+}
 
 void mlir::tt::ttir::StreamLayoutOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
@@ -1927,6 +1996,7 @@ getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
 // LinearOp canonicalization
 void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // If bias is not provided, linear operation is equivalent to matmul.
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
     if (!op.getBias()) {
@@ -1967,6 +2037,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 
     return mlir::success();
   });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -2103,6 +2174,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 // MatmulOp canonicalization
 void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // matmul(transpose(a), b, transpose_a, transpose_b) ->
   //   matmul(a, b, !transpose_a, transpose_b)
   patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
@@ -2132,6 +2204,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 
     return mlir::success();
   });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -2490,36 +2563,6 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 // ScatterOp
 //===----------------------------------------------------------------------===//
 
-bool matchSimpleBlock(mlir::Region &region) {
-  if (!region.hasOneBlock()) {
-    return false;
-  }
-  mlir::Block &block = region.front();
-  if (block.getNumArguments() != 2) {
-    return false;
-  }
-  auto argType1 =
-      mlir::cast<mlir::RankedTensorType>(block.getArgument(0).getType());
-  auto argType2 =
-      mlir::cast<mlir::RankedTensorType>(block.getArgument(1).getType());
-  if (!argType1 || !argType2) {
-    return false;
-  }
-  if (block.getOperations().size() != 1) {
-    return false;
-  }
-  mlir::tt::ttir::YieldOp returnOp =
-      mlir::cast<mlir::tt::ttir::YieldOp>(&block.front());
-  if (!returnOp) {
-    return false;
-  }
-  if (returnOp.getNumOperands() != 1 ||
-      returnOp.getOperand(0) != block.getArgument(1)) {
-    return false;
-  }
-  return true;
-}
-
 ::mlir::LogicalResult mlir::tt::ttir::ScatterOp::verify() {
 
   ArrayRef<int64_t> inputShape =
@@ -2534,15 +2577,6 @@ bool matchSimpleBlock(mlir::Region &region) {
     if (inputShape[insertedWindowDims] != 1) {
       return emitOpError("Dimension size to slice into must be 1");
     }
-  }
-
-  // We currently do not support custom functions in the scatter function,
-  // which is a possbility in StableHLO dialect. See issue:
-  // https://github.com/tenstorrent/tt-mlir/issues/1278
-  if (!matchSimpleBlock(getUpdateComputation())) {
-    return emitOpError(
-        "Currently not supporting custom scatter function in TTNN "
-        "dialect and TT-metal.");
   }
 
   return success();
@@ -2707,6 +2741,7 @@ bool matchSimpleBlock(mlir::Region &region) {
 // ReverseOp canonicalization
 void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // Reverse dimensions of two consecutive ReverseOps can be folded into a
   // single ReverseOp where the dimensions are the symmetric difference of the
   // two sets of dimensions.
@@ -2745,6 +2780,7 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
         rewriter.replaceAllOpUsesWith(op, op.getInput());
         return mlir::success();
       });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -2786,6 +2822,7 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
 // PermuteOp canonicalization
 void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // Permute dimensions of two consecutive PermuteOps can be folded into a
   // single PermuteOp where the permutation is the composition of the two
   // permutations.
@@ -2805,7 +2842,6 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         llvm::SmallVector<int64_t> composedPermutation =
             ttmlir::utils::applyPermutation(producerOp.getPermutation(),
                                             op.getPermutation());
-
         rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
             op, op.getType(), producerOp.getInput(), op.getOutput(),
             composedPermutation);
@@ -2821,11 +2857,56 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         }
         return mlir::failure();
       });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
+
+static mlir::LogicalResult
+verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
+                   mlir::ArrayRef<mlir::AffineMap> indexingMaps,
+                   mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes,
+                   char const *shapeName) {
+  assert(indexingMaps.size() == shapes.size());
+
+  auto compareCompatibleDims =
+      +[](mlir::ArrayRef<int64_t> as,
+          mlir::ArrayRef<int64_t> bs) -> std::optional<int64_t> {
+    for (auto [dim, a, b] : llvm::enumerate(as, bs)) {
+      if (a != b && a != 0 && b != 0) {
+        return dim;
+      }
+    }
+    return std::nullopt;
+  };
+
+  for (size_t operandA = 0; operandA < indexingMaps.size(); ++operandA) {
+    for (size_t operandB = 0; operandB < indexingMaps.size(); ++operandB) {
+      if (operandA == operandB) {
+        continue;
+      }
+
+      auto shapeMapA =
+          inverseAndBroadcastProjectedPermutation(indexingMaps[operandA]);
+      auto shapeMapB =
+          inverseAndBroadcastProjectedPermutation(indexingMaps[operandB]);
+      auto shapeA = shapeMapA.compose(shapes[operandA]);
+      auto shapeB = shapeMapB.compose(shapes[operandB]);
+
+      if (auto dim = compareCompatibleDims(shapeA, shapeB)) {
+        return diagFn() << shapeName << " shape mismatch between operand["
+                        << operandA << "] " << shapeName << "_shape=["
+                        << shapes[operandA] << "] and operand[" << operandB
+                        << "] " << shapeName << "_shape=[" << shapes[operandB]
+                        << "] at affine dim d" << *dim;
+      }
+    }
+  }
+
+  return mlir::success();
+}
 
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
@@ -2866,7 +2947,30 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
     }
   }
 
+  if (!llvm::all_equal(llvm::map_range(getIndexingMapsValue(), [](AffineMap m) {
+        return m.getNumDims();
+      }))) {
+    return emitOpError(
+        "all indexing maps must have the same number of dimensions");
+  }
+
+  auto rankedTensorType =
+      mlir::dyn_cast<RankedTensorType>(getOutputs().front().getType());
+  bool hasGrid = mlir::isa<MemRefType>(getOutputs().front().getType()) ||
+                 (rankedTensorType && rankedTensorType.getEncoding());
+  SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
+  if (hasGrid && !indexingMaps.empty()) {
+    SmallVector<SmallVector<int64_t>> gridShapes = getOperandGridShapes();
+    LogicalResult gridResult = verifyAffineShapes(
+        [&]() -> InFlightDiagnostic { return this->emitOpError(); },
+        indexingMaps, gridShapes, "grid");
+    if (failed(gridResult)) {
+      return gridResult;
+    }
+  }
+
   ValueTypeRange<OperandRange> operandTypes = getOperation()->getOperandTypes();
+  auto *firstRegion = getRegions().begin();
   for (Region &region : getRegions()) {
     if (!region.hasOneBlock()) {
       return emitOpError("GenericOp region must have a single block");
@@ -2875,6 +2979,18 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
     if (region.getNumArguments() < this->getNumOperands()) {
       return emitOpError("GenericOp region must have at least as many "
                          "arguments as the number of top-level operands");
+    }
+
+    // All regions must have the same number of arguments and signature.
+    if (region.getNumArguments() != firstRegion->getNumArguments()) {
+      return emitOpError("all regions must have the same number of arguments");
+    }
+
+    for (BlockArgument arg : region.getArguments()) {
+      if (arg.getType() !=
+          firstRegion->getArgument(arg.getArgNumber()).getType()) {
+        return emitOpError("all regions must have the same argument types");
+      }
     }
 
     auto memrefArguments =
@@ -2933,6 +3049,94 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+unsigned mlir::tt::ttir::GenericOp::getNumLoops() { return getNumDims(); }
+
+unsigned mlir::tt::ttir::GenericOp::getNumDims() {
+  assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
+                                       "with indexing maps to use this method");
+  return mlir::cast<mlir::AffineMapAttr>(getIndexingMapsAttr()[0])
+      .getAffineMap()
+      .getNumDims();
+}
+
+mlir::SmallVector<mlir::AffineMap>
+mlir::tt::ttir::GenericOp::getIndexingMapsValue() {
+  return llvm::to_vector(llvm::map_range(getIndexingMaps(), [](Attribute a) {
+    return mlir::cast<AffineMapAttr>(a).getValue();
+  }));
+}
+
+mlir::SmallVector<mlir::tt::IteratorType>
+mlir::tt::ttir::GenericOp::getIteratorTypesValue() {
+  return llvm::to_vector<4>(
+      llvm::map_range(getIteratorTypes(), [](Attribute a) {
+        return mlir::cast<IteratorTypeAttr>(a).getValue();
+      }));
+}
+
+mlir::SmallVector<mlir::SmallVector<int64_t>>
+mlir::tt::ttir::GenericOp::getOperandGridShapes() {
+  SmallVector<SmallVector<int64_t>> gridShapes;
+  gridShapes.reserve(getOperands().size());
+  for (auto operand : this->getOperands()) {
+    auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
+    if (memrefType) {
+      assert(memrefType.getRank() % 2 == 0);
+      gridShapes.emplace_back(
+          memrefType.getShape().take_front(memrefType.getRank() / 2));
+    } else {
+      auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
+      MetalLayoutAttr layout =
+          mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+      gridShapes.emplace_back(layout.getGrid().getShape());
+    }
+  }
+  return gridShapes;
+}
+
+mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getLoopBounds() {
+  assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
+                                       "with indexing maps to use this method");
+  assert(getOutputs().size() == 1);
+  // Concat all of the indexing maps together, matmul example:
+  // (d0, d1, d2) -> (d0, d2)
+  // (d0, d1, d2) -> (d2, d1)
+  // (d0, d1, d2) -> (d0, d1)
+  // Becomes:
+  // (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
+  //
+  // We reverse it so that output dimensions get priority for the inverse
+  // permutation.
+  SmallVector<AffineMap> affineMaps = getIndexingMapsValue();
+  SmallVector<AffineMap> affineMapsReversed =
+      llvm::to_vector(llvm::reverse(affineMaps));
+  AffineMap concat = concatAffineMaps(affineMapsReversed, getContext());
+  // Invert the permutation to get a map that we can use to get the loop bounds.
+  // Above example becomes:
+  // (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
+  AffineMap inverse = inversePermutation(concat);
+
+  // Eval the affine map to get the loop bounds.
+  SmallVector<SmallVector<int64_t>> operandGridShapes = getOperandGridShapes();
+  SmallVector<SmallVector<int64_t>> operandGridShapesReversed =
+      llvm::to_vector(llvm::reverse(operandGridShapes));
+
+  SmallVector<int64_t> flattenedGridShapes;
+  for (auto &shape : operandGridShapesReversed) {
+    flattenedGridShapes.append(shape);
+  }
+
+  // Divide out the compute grid dims and re-eval
+  ArrayRef<int64_t> computeGrid = getGrid().getShape();
+  for (size_t i = 0; i < computeGrid.size(); ++i) {
+    assert(flattenedGridShapes[i] % computeGrid[i] == 0 &&
+           "Output grid shape must be divisible by compute grid shape");
+    flattenedGridShapes[i] /= computeGrid[i];
+  }
+
+  return inverse.compose(flattenedGridShapes);
 }
 
 void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(
@@ -3007,87 +3211,9 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   return success();
 }
 
-// GenericOp builders
-
-// Build a generic region for a binary elementwise operation.
-template <typename OpTy>
-static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
-                                            ::mlir::OpBuilder &opBuilder,
-                                            ::mlir::Block *block) {
-  assert(block->getNumArguments() == 3 &&
-         "Binary op block expects two input and one output argument.");
-
-  auto lhs = block->getArgument(0);
-  auto rhs = block->getArgument(1);
-  auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
-}
-
-// Build a generic region for a unary elementwise operation.
-template <typename OpTy>
-static void buildGenericEltwiseUnaryRegion(::mlir::Location loc,
-                                           ::mlir::OpBuilder &opBuilder,
-                                           ::mlir::Block *block) {
-  assert(block->getNumArguments() == 2 &&
-         "Unary op block expects one input and one output argument.");
-
-  auto arg = block->getArgument(0);
-  auto result = opBuilder.create<OpTy>(loc, arg);
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
-}
-
-// AddOp generic region builder.
-void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder, block);
-}
-
-// MultiplyOp generic region builder.
-void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
-    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder, block);
-}
-
-// ExpOp generic region builder.
-void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  buildGenericEltwiseUnaryRegion<math::ExpOp>(getLoc(), opBuilder, block);
-}
-
-// DivOp generic region builder.
-void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
-                                                        block);
-}
-
-// MaximumOp generic region builder.
-void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                   ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::MaximumFOp>(getLoc(), opBuilder,
-                                                     block);
-}
-
 //===----------------------------------------------------------------------===//
 // KernelOp
 //===----------------------------------------------------------------------===//
-
-// KernelOp builders.
-static mlir::tt::ttir::KernelOp
-buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
-              ::mlir::StringRef kernelName, ::mlir::StringRef kernelKind,
-              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs) {
-  return opBuilder.create<mlir::tt::ttir::KernelOp>(
-      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs);
-}
-
-// Reduce op kernel builder.
-static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
-                           mlir::Location loc, ::mlir::StringRef kernelKind) {
-  auto kernelOp = buildKernelOp(opBuilder, loc, "reduce", kernelKind,
-                                block->getArgument(0), block->getArgument(1));
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
-}
 
 // Common verifier for all Reduce ops.
 static mlir::LogicalResult
@@ -3150,13 +3276,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 // MaxOp
 //===----------------------------------------------------------------------===//
 
-// MaxOp kernel builder.
-void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "max");
-}
-
 // MaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MaxOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
@@ -3166,13 +3285,6 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 //===----------------------------------------------------------------------===//
 // MeanOp
 //===----------------------------------------------------------------------===//
-
-// MeanOp kernel builder.
-void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "mean");
-}
 
 // MeanOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MeanOp::verify() {
@@ -3184,13 +3296,6 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // SumOp
 //===----------------------------------------------------------------------===//
 
-// SumOp kernel builder.
-void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "sum");
-}
-
 // SumOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
@@ -3200,13 +3305,6 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 //===----------------------------------------------------------------------===//
 // Reduce MinOp
 //===----------------------------------------------------------------------===//
-
-// MinOp kernel builder.
-void mlir::tt::ttir::MinOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "min");
-}
 
 // MinOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MinOp::verify() {
@@ -3218,13 +3316,6 @@ void mlir::tt::ttir::MinOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // Reduce ProdOp
 //===----------------------------------------------------------------------===//
 
-// ProdOp kernel builder.
-void mlir::tt::ttir::ProdOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "prod");
-}
-
 // ProdOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ProdOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
@@ -3234,13 +3325,6 @@ void mlir::tt::ttir::ProdOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 //===----------------------------------------------------------------------===//
 // ReduceAndOp
 //===----------------------------------------------------------------------===//
-
-// ReduceAndOp kernel builder.
-void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
-    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "and");
-}
 
 // ReduceAndOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ReduceAndOp::verify() {
@@ -3252,13 +3336,6 @@ void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
 // ReduceOrOp
 //===----------------------------------------------------------------------===//
 
-// ReduceOrOp kernel builder.
-void mlir::tt::ttir::ReduceOrOp::buildGenericRegion(
-    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "or");
-}
-
 // ReduceOrOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ReduceOrOp::verify() {
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
@@ -3268,13 +3345,6 @@ void mlir::tt::ttir::ReduceOrOp::buildGenericRegion(
 //===----------------------------------------------------------------------===//
 // Reduce ArgMaxOp
 //===----------------------------------------------------------------------===//
-
-// ArgMaxOp kernel builder.
-void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                  ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "argmax");
-}
 
 // ArgMaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
@@ -3308,8 +3378,8 @@ void mlir::tt::ttir::ArgMaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // YieldOp / AwaitOp
 //===----------------------------------------------------------------------===//
 
-static bool valueInBlockArguments(mlir::Value value, mlir::Block *block) {
-  return llvm::is_contained(block->getArguments(), value);
+static bool valueInRegionArguments(mlir::Value value, mlir::Region *region) {
+  return llvm::is_contained(region->getArguments(), value);
 }
 
 static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
@@ -3320,22 +3390,35 @@ static mlir::Value recurseThroughMemrefCollapse(mlir::Value value) {
   return value;
 }
 
-static ::mlir::LogicalResult operandsInBlockArguments(mlir::Operation *op,
-                                                      mlir::Block *block) {
+static ::mlir::LogicalResult operandsInRegionArguments(mlir::Operation *op,
+                                                       mlir::Region *region) {
   for (mlir::OpOperand &operand : op->getOpOperands()) {
     mlir::Value value = recurseThroughMemrefCollapse(operand.get());
-    if (!valueInBlockArguments(value, block)) {
+    if (!valueInRegionArguments(value, region)) {
       return op->emitOpError() << "operand[" << operand.getOperandNumber()
-                               << "] not in block arguments";
+                               << "] not in region arguments";
     }
   }
   return ::mlir::success();
 }
 
+template <typename... Args>
+static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
+  mlir::Region *region = op->getParentRegion();
+  mlir::Operation *parentOp = region->getParentOp();
+  while (!mlir::isa<Args...>(parentOp)) {
+    region = parentOp->getParentRegion();
+    parentOp = region->getParentOp();
+  }
+  return region;
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
-  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
+  return operandsInRegionArguments(
+      getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
-  return operandsInBlockArguments(getOperation(), getOperation()->getBlock());
+  return operandsInRegionArguments(
+      getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
 }

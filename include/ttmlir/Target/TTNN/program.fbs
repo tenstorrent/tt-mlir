@@ -73,6 +73,13 @@ table EmptyOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table ConstructTensorOp {
+  shape: [int64];
+  dtype: DataType;
+  layout: TensorLayout;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table ZerosOp {
   shape: [int64];
   dtype: DataType = null;
@@ -152,7 +159,8 @@ enum EltwiseOpType: uint32 {
   Floor,
   Where,
   Gelu,
-  Clamp,
+  ClampScalar,
+  ClampTensor,
   LeakyRelu,
   Scatter,
   Tan,
@@ -161,9 +169,14 @@ enum EltwiseOpType: uint32 {
   Atan
 }
 
-table ClampOpParams {
+table ClampScalarOpParams {
   min: float;
   max: float;
+}
+
+table ClampTensorOpParams {
+  min: tt.target.ttnn.TensorRef;
+  max: tt.target.ttnn.TensorRef;
 }
 
 table EltwiseOpWithFloatParams {
@@ -171,7 +184,8 @@ table EltwiseOpWithFloatParams {
 }
 
 union EltwiseOpParams {
-  ClampOpParams,
+  ClampScalarOpParams,
+  ClampTensorOpParams,
   EltwiseOpWithFloatParams,
 }
 
@@ -354,7 +368,6 @@ table ConvTranspose2dOp {
 table MaxPool2dOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
   batch_size: uint32;
   input_height: uint32;
   input_width: uint32;
@@ -457,6 +470,7 @@ union OpType {
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
+  ConstructTensorOp,
   ZerosOp,
   OnesOp,
   FullOp,

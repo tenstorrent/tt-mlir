@@ -30,5 +30,8 @@ test/lit.site.cfg.py
 # Root level mlir files (often used for testing, none should be at root)
 /*.mlir
 
+# Root level log files (various tools generate logs)
+/*.log
+
 # Obsidian editor files
 .obsidian/

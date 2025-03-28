@@ -291,11 +291,11 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
   // If the input tensor is a constant or empty tensor, we can replace it with a
   // new tensor with the desired layout
-  tensor::EmptyOp existingEmpty = input.getDefiningOp<tensor::EmptyOp>();
+  ttir::EmptyOp existingEmpty = input.getDefiningOp<ttir::EmptyOp>();
   if (existingEmpty) {
     return rewriter
-        .replaceOpWithNewOp<tensor::EmptyOp>(existingEmpty, ty.getShape(),
-                                             ty.getElementType(), desiredLayout)
+        .replaceOpWithNewOp<ttir::EmptyOp>(existingEmpty, ty.getShape(),
+                                           ty.getElementType(), desiredLayout)
         .getResult();
   }
 
@@ -710,7 +710,7 @@ public:
     // we construct a ttnn layout attribute with default values:
     // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
     {
-      DeviceAttr device = getCurrentScopeDevice(getOperation());
+      DeviceAttr device = lookupDevice(getOperation());
       assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeDefaultConverter(
           &getContext(), device.getWorkerGrid());

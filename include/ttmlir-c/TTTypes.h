@@ -15,9 +15,6 @@ MLIR_CAPI_EXPORTED MlirType ttmlirTTTileTypeGet(MlirContext ctx,
                                                 unsigned height, unsigned width,
                                                 uint32_t dataType);
 
-MLIR_CAPI_EXPORTED MlirType ttmlirTTDeviceTypeGet(MlirContext ctx,
-                                                  MlirAttribute deviceAttr);
-
 #ifdef __cplusplus
 }
 #endif

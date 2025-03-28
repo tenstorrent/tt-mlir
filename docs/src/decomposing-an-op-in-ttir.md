@@ -49,5 +49,5 @@ To register the new pattern, go to the `populateTTIRToTTIRDecompositionPatterns`
 
 You should also add a silicon test like described here: [Add a silicon unit test for the Op](./adding-an-op.md##8-add-a-silicon-unit-test-for-the-op). This is how the silicon test for the `Index` operation looks like:
 ```mlir
-{{#include ../../../test/ttmlir/Silicon/TTNN/simple_index.mlir}}
+{{#include ../../../test/ttmlir/Silicon/TTNN/n150/simple_index.mlir}}
 ```

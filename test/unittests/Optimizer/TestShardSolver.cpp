@@ -13,6 +13,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 
+#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -36,6 +37,7 @@ public:
     context.loadDialect<TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
+    mlir::tt::registerDevice(module.get());
     createFuncOp();
   }
 
@@ -71,11 +73,6 @@ public:
         mlir::TypeRange(input), mlir::TypeRange(output));
     func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), "test",
                                               funcType);
-    func->setAttr(
-        mlir::tt::DeviceAttr::name,
-        mlir::tt::DeviceAttr::get(
-            &context, mlir::tt::SystemDescAttr::getDefault(&context)));
-
     mlir::Block *block = func.addEntryBlock();
     block->addArgument(getTensorRankedType(), builder.getUnknownLoc());
     block->addArgument(getTensorRankedType(), builder.getUnknownLoc());

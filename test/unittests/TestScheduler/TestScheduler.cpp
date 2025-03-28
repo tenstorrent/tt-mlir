@@ -22,6 +22,7 @@
 #include "mlir/IR/Verifier.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 
@@ -60,6 +61,7 @@ public:
     context.loadDialect<ttir::TTIRDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
+    mlir::tt::registerDevice(module.get());
     createFuncOp();
   }
 
@@ -72,7 +74,7 @@ public:
   }
 
   mlir::Value createEmptyTensor() {
-    return builder.create<mlir::tensor::EmptyOp>(
+    return builder.create<mlir::tt::ttir::EmptyOp>(
         builder.getUnknownLoc(), getTensorShape(), builder.getF32Type());
   }
 

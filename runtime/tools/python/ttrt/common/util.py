@@ -524,7 +524,7 @@ class Flatbuffer:
         # temporary state value to check if test failed
         self.test_result = "pass"
 
-    def check_version(self):
+    def check_version(self, ignore: bool = False):
         package_name = "ttrt"
 
         try:
@@ -532,7 +532,7 @@ class Flatbuffer:
         except Exception as e:
             raise Exception(f"error retrieving version: {e} for {package_name}")
 
-        if package_version != self.version:
+        if package_version != self.version and not ignore:
             raise Exception(
                 f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
             )
@@ -575,13 +575,40 @@ class Binary(Flatbuffer):
         import ttrt.binary
 
         try:
-            if (
-                self.fbb_dict["system_desc"]
-                != query.get_system_desc_as_dict()["system_desc"]
-            ):
-                raise Exception(
-                    f"system desc for device did not match flatbuffer: {self.file_path} - skipping this test"
+            fbb_system_desc = self.fbb_dict["system_desc"]
+            device_system_desc = query.get_system_desc_as_dict()["system_desc"]
+
+            if fbb_system_desc != device_system_desc:
+                # Serialize to JSON with pretty printing and split into lines
+                import json
+                import difflib
+
+                fbb_json = json.dumps(
+                    fbb_system_desc, indent=2, sort_keys=True
+                ).splitlines()
+                device_json = json.dumps(
+                    device_system_desc, indent=2, sort_keys=True
+                ).splitlines()
+
+                # Generate a unified diff
+                diff = list(
+                    difflib.unified_diff(
+                        fbb_json,
+                        device_json,
+                        fromfile="flatbuffer_system_desc",
+                        tofile="device_system_desc",
+                        lineterm="",
+                    )
                 )
+
+                # Log the detailed diff
+                diff_text = "\n".join(diff)
+                error_msg = f"system desc for device did not match flatbuffer: {self.file_path} - skipping this test\nDiff details:\n{diff_text}"
+
+                # You might want to log this before raising the exception
+                # logger.error(error_msg)  # Uncomment and add proper logger if available
+
+                raise Exception(error_msg)
                 return False
 
         except Exception as e:

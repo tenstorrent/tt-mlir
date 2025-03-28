@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -39,7 +40,7 @@ namespace mlir::tt::ttnn {
 // ClampOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttnn::ClampOp::verify() {
+::mlir::LogicalResult mlir::tt::ttnn::ClampScalarOp::verify() {
   ::mlir::Operation::operand_range inputs = getInputs();
   ::mlir::Operation::result_range outputs = getResults();
 
@@ -525,28 +526,74 @@ namespace mlir::tt::ttnn {
   // Check that the attributes of the op match the attributes of the output
   // tensor type.
   //
-  assert(::llvm::isa<RankedTensorType>(getResult().getType()));
-  RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
+  RankedTensorType output = getResult().getType();
 
-  assert(::llvm::isa<TTNNLayoutAttr>(output.getEncoding()));
   TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
 
   // Shape
   //
-  assert(output.getShape() == getShape().getShape());
+  if (output.getShape() != getShape().getShape()) {
+    return emitOpError() << "Output tensor shape must be "
+                         << getShape().getShape() << ", but got "
+                         << output.getShape();
+  }
 
   // DataType and Layout
   //
-  assert(getLayout() == layoutAttr.getLayout());
-  assert(getDtype() == layoutAttr.getDataType());
+  if (getLayout() != layoutAttr.getLayout()) {
+    return emitOpError("Layout mismatch between op and layoutAttr.");
+  }
+  if (getDtype() != layoutAttr.getDataType()) {
+    return emitOpError("Data type mismatch between op and layoutAttr.");
+  }
 
   // MemoryConfig
   // Compare internal attrs with output tensor attrs.
   //
-  assert(getMemoryConfig().getBufferType().getValue() ==
-         layoutAttr.getBufferType());
-  assert(getMemoryConfig().getTensorMemoryLayout() ==
-         layoutAttr.getMemLayout());
+  if (getMemoryConfig().getBufferType().getValue() !=
+      layoutAttr.getBufferType()) {
+    return emitOpError("Buffer type mismatch between op and layoutAttr.");
+  }
+  if (getMemoryConfig().getTensorMemoryLayout() != layoutAttr.getMemLayout()) {
+    return emitOpError(
+        "Tensor memory layout mismatch between op and layoutAttr.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ConstructTensorOp
+//===----------------------------------------------------------------------===//
+
+// ConstructTensorOp verification
+::mlir::LogicalResult mlir::tt::ttnn::ConstructTensorOp::verify() {
+  // Check that the attributes of the op match the attributes of the output
+  // tensor type.
+  //
+  RankedTensorType output = getResult().getType();
+
+  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
+
+  // Shape
+  //
+  if (output.getShape() != getShape().getShape()) {
+    return emitOpError() << "Output tensor shape must be "
+                         << getShape().getShape() << ", but got "
+                         << output.getShape();
+  }
+  // DataType and Layout
+  //
+  if (getLayout() != layoutAttr.getLayout()) {
+    return emitOpError("Layout mismatch between op and layoutAttr.");
+  }
+  // CPU tensors must be RowMajor currently.
+  if (getLayout() != mlir::tt::ttnn::Layout::RowMajor) {
+    return emitOpError("ConstructTensorOp must have row-major layout.");
+  }
+  if (getDtype() != layoutAttr.getDataType()) {
+    return emitOpError("Data type mismatch between op and layoutAttr.");
+  }
 
   return success();
 }
@@ -1550,8 +1597,8 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllGatherOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllGather Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
@@ -1600,8 +1647,8 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 ::mlir::OpFoldResult
 mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // ReduceScatter Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
@@ -1637,8 +1684,8 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllReduceOp::fold(FoldAdaptor adaptor) {
-  llvm::SmallVector<int64_t> meshShape{
-      getDevice().getType().getDesc().getMeshShape()};
+  tt::DeviceAttr device = lookupDevice(*this);
+  llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllReduce Op is semantically meaningless when gathering across a single
   // mesh device.
   if (meshShape.empty() || meshShape[getClusterAxis()] != 1) {
@@ -1700,6 +1747,40 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+::mlir::OpFoldResult
+mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
+  ::mlir::DenseIntElementsAttr srcTargetPairs = getSourceTargetPairs();
+
+  // Filter out self-mapping src-target pairs.
+  auto elements = srcTargetPairs.getValues<APInt>();
+  SmallVector<APInt> filteredPairs;
+  for (size_t idx = 0; idx < elements.size(); idx += 2) {
+    auto src = elements[idx];
+    auto target = elements[idx + 1];
+    if (src == target) {
+      continue;
+    }
+    filteredPairs.push_back(src);
+    filteredPairs.push_back(target);
+  }
+
+  if (filteredPairs.empty()) {
+    // No permutations left. Exclude this op.
+    return getInput();
+  }
+
+  // There are effective permutations left.
+  if (srcTargetPairs.getNumElements() !=
+      static_cast<int64_t>(filteredPairs.size())) {
+    // Update source_target_pairs if changed.
+    std::array<int64_t, 2> shape = {
+        static_cast<int64_t>(filteredPairs.size() / 2), 2};
+    auto newType =
+        RankedTensorType::get(shape, srcTargetPairs.getType().getElementType());
+    setSourceTargetPairsAttr(DenseIntElementsAttr::get(newType, filteredPairs));
+  }
+  return {};
+}
 //===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//

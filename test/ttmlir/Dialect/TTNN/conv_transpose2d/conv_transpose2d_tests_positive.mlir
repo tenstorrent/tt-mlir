@@ -2,7 +2,7 @@
 
 module {
   func.func @forward(%arg0: tensor<20x50x100x16xf32>, %arg1: tensor<16x32x3x3xf32>) -> tensor<20x197x395x32xf32> {
-    %0 = tensor.empty() : tensor<20x197x395x32xf32>
+    %0 = ttir.empty() : tensor<20x197x395x32xf32>
     // CHECK: = "ttnn.conv_transpose2d"
     // CHECK-SAME: batch_size = 20 : i32
     // CHECK-SAME: dilation = array<i32: 1, 1>

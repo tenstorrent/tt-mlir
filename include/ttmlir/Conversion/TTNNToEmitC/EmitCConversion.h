@@ -33,9 +33,16 @@ struct SmallVector {
   using value_type = T;
 };
 
+struct AnyDevice;
 struct IDevice;
 
 struct Tensor;
+
+namespace operations::creation::detail {
+
+struct OptionalAnyDevice;
+
+} // namespace operations::creation::detail
 } // namespace ttnn
 
 namespace mlir {
@@ -131,8 +138,19 @@ struct TypeName<std::tuple<Types...>> {
 };
 
 template <>
+struct TypeName<::ttnn::AnyDevice> {
+  inline static const std::string value = "::ttnn::AnyDevice";
+};
+
+template <>
 struct TypeName<::ttnn::IDevice> {
   inline static const std::string value = "::ttnn::IDevice";
+};
+
+template <>
+struct TypeName<::ttnn::operations::creation::detail::OptionalAnyDevice> {
+  inline static const std::string value =
+      "::ttnn::operations::creation::detail::OptionalAnyDevice";
 };
 
 template <>
@@ -599,12 +617,8 @@ inline std::string convert(ttnn::LayoutAttr attr) {
   return convert(attr.getValue());
 }
 
-inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
-  if (!attr) {
-    return TypeNameV<std::nullopt_t>;
-  }
-
-  switch (attr.getValue()) {
+inline std::string convert(ttnn::TensorMemoryLayout attr) {
+  switch (attr) {
   case ttnn::TensorMemoryLayout::BlockSharded:
     return "::ttnn::TensorMemoryLayout::BLOCK_SHARDED";
   case ttnn::TensorMemoryLayout::HeightSharded:
@@ -618,6 +632,18 @@ inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
   }
 
   llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
+}
+
+inline std::string convert(ttnn::TensorMemoryLayoutAttr attr) {
+  // TODO (azecevic): There is a dissonance between the way we model
+  // TensorMemoryLayout in TTNN dialect and TTNN library. This should be fixed
+  // with https://github.com/tenstorrent/tt-mlir/issues/2521. For now, we
+  // default to Interleaved, which is default value in TTNN library.
+  if (!attr) {
+    return convert(ttnn::TensorMemoryLayout::Interleaved);
+  }
+
+  return convert(attr.getValue());
 }
 
 inline std::string convert(ttnn::BufferType attr) {
@@ -653,10 +679,10 @@ inline std::string convert(ttnn::MemoryConfigAttr attr) {
   // TODO (azecevic): Add ShardSpec once it's modeled in the `MemoryConfigAttr`.
   std::string buf;
   llvm::raw_string_ostream rso(buf);
-  rso << "::ttnn::MemoryConfig(";
-  rso << convert(attr.getTensorMemoryLayout()) << ", ";
-  rso << convert(attr.getBufferType());
-  rso << ")";
+  rso << "::ttnn::MemoryConfig {";
+  rso << ".memory_layout = " << convert(attr.getTensorMemoryLayout()) << ", ";
+  rso << ".buffer_type = " << convert(attr.getBufferType());
+  rso << "}";
   return buf;
 }
 
@@ -728,11 +754,7 @@ public:
       return emit(std::nullopt);
     }
 
-    mlir::OpOperand *opOperand =
-        std::find_if(op->getOpOperands().begin(), op->getOpOperands().end(),
-                     [&](OpOperand &operand) { return operand.get() == val; });
-
-    unsigned index = opOperand->getOperandNumber();
+    unsigned index = getOperandIndex(val);
     operands.push_back(adaptor.getOperands()[index]);
     return rewriter.getIndexAttr(index);
   }
@@ -803,6 +825,52 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(result);
   }
 
+  // Handles conversion of DeviceType objects to:
+  // - ::ttnn::IDevice*
+  // - ::ttnn::IDevice
+  // - ::ttnn::AnyDevice
+  // - ::ttnn::operations::creation::detail::OptionalAnyDevice
+  //    - converts to ::ttnn::AnyDevice, see comment below
+  //
+  // Will return `std::nullopt` if DeviceType is null
+  //
+  template <typename TargetTy = ::ttnn::IDevice *>
+  mlir::Attribute
+  emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
+    if (!device) {
+      return emit(std::nullopt);
+    }
+
+    if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *> ||
+                  std::is_same_v<TargetTy, ::ttnn::IDevice>) {
+      unsigned index = getOperandIndex(device);
+      operands.push_back(adaptor.getOperands()[index]);
+
+      return rewriter.getIndexAttr(index);
+    } else if constexpr (std::is_same_v<TargetTy,
+                                        ::ttnn::operations::creation::detail::
+                                            OptionalAnyDevice> ||
+                         std::is_same_v<TargetTy, ::ttnn::AnyDevice>) {
+      // Whether the desired target type is OptionalAnyDevice or AnyDevice, we
+      // can convert to AnyDevice in both scenarios, as there's an implicit
+      // constructor OptionalAnyDevice(AnyDevice).
+
+      unsigned index = getOperandIndex(device);
+      mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
+
+      emitc::CallOpaqueOp anyDeviceOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(),
+                                 TypeNameV<::ttnn::AnyDevice>),
+          TypeNameV<::ttnn::AnyDevice>, deviceValueFromOperandsList);
+
+      operands.push_back(anyDeviceOp->getResult(0));
+      return rewriter.getIndexAttr(operands.size() - 1);
+    } else {
+      llvm_unreachable("Unknown TargetTy");
+    }
+  }
+
   template <typename OpConversionPatternTy>
   emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
                                 llvm::ArrayRef<mlir::Attribute> args) {
@@ -839,6 +907,25 @@ public:
         rewriter.getArrayAttr(args), nullptr, operands);
   }
 
+  // TODO (azecevic): This is a temporary solution for handling the case when
+  // the value of the MemoryConfigAttr is nullptr. This should be removed once
+  // https://github.com/tenstorrent/tt-mlir/issues/2415 lands.
+  mlir::Attribute getMemoryConfig(mlir::Value val) {
+    auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
+        layoutAttr.getContext(), layoutAttr.getBufferType());
+    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
+    // TODO (azecevic): Currently we don't model ShardSpec properly so we are
+    // ingoring it for now.
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(layoutAttr.getContext(), bufferTypeAttr,
+                                    /*shardSpec=*/nullptr, tensorMemoryLayout);
+
+    return emit(memoryConfigAttr);
+  }
+
 private:
   mlir::Value createVector(ValueRange operands) {
     tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, op);
@@ -851,6 +938,14 @@ private:
             tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
             nullptr, operands)
         ->getResult(0);
+  }
+
+  unsigned getOperandIndex(mlir::Value value) {
+    mlir::OpOperand *opOperand = std::find_if(
+        op->getOpOperands().begin(), op->getOpOperands().end(),
+        [&](OpOperand &operand) { return operand.get() == value; });
+
+    return opOperand->getOperandNumber();
   }
 
   TTNNOp op;

@@ -5,7 +5,10 @@
 #ifndef UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H
 #define UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
+#include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
@@ -25,9 +28,17 @@
 class OpModelFixture : public ::testing::Test {
 public:
   mlir::MLIRContext context;
+  mlir::OwningOpRef<mlir::ModuleOp> module;
   mlir::OpBuilder builder = mlir::OpBuilder(&context);
 
-  void SetUp() override { context.loadDialect<mlir::tt::ttnn::TTNNDialect>(); }
+  void SetUp() override {
+    // Initialize context and module
+    context.loadDialect<mlir::tt::TTDialect>();
+    context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
+    module = mlir::ModuleOp::create(builder.getUnknownLoc());
+    builder.setInsertionPointToStart(&module->getBodyRegion().front());
+    mlir::tt::registerDevice(module.get());
+  }
 
   // helper function
   llvm::SmallVector<int64_t>
@@ -51,8 +62,18 @@ public:
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
       const llvm::ArrayRef<int64_t> &gridPhyCores = GetPhysicalGridSize()) {
 
+    // Usually tensors are of rank 2, but in case of MaxPool2D or Conv2D ops, it
+    // is 4. Anyway this tensor will be flattened to {1, 1, Y, X} shape.
+    assert(tensorShape.size() >= 2);
+    for (size_t i = 0; i < tensorShape.size() - 2; i++) {
+      assert(tensorShape[i] == 1);
+    }
+    int32_t tensorRank = tensorShape.size();
+    int64_t tensorSizeX = tensorShape[tensorRank - 1];
+    int64_t tensorSizeY = tensorShape[tensorRank - 2];
+
     llvm::SmallVector<int64_t> tensorShapeTiles =
-        GetTensorShapeInTiles(tensorShape);
+        GetTensorShapeInTiles({tensorSizeY, tensorSizeX});
 
     int64_t tensorTiles = 1;
     for (const auto &dim : tensorShapeTiles) {
