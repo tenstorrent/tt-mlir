@@ -154,22 +154,25 @@ void populateTTNNModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, tt::DataType dtype, tt::DataType weightsDtype,
-             StringAttr activation, IntegerAttr inputChannelsAlignment,
-             BoolAttr deallocateActivation, BoolAttr reallocateHaloOutput,
-             IntegerAttr actBlockHOverride, IntegerAttr actBlockWDiv,
-             BoolAttr reshardIfNotOptimal, BoolAttr overrideShardingConfig,
-             tt::ttnn::TensorMemoryLayoutAttr shardLayout, Attribute coreGrid,
-             BoolAttr transposeShards, tt::ttnn::Layout outputLayout,
-             BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr enableSplitReader, BoolAttr enableSubblockPadding) {
+             StringAttr activation, uint32_t inputChannelsAlignment,
+             bool deallocateActivation, bool reallocateHaloOutput,
+             uint32_t actBlockHOverride, uint32_t actBlockWDiv,
+             bool reshardIfNotOptimal, bool overrideShardingConfig,
+             tt::ttnn::TensorMemoryLayoutAttr shardLayout,
+             tt::ttnn::CoreRangeSetAttr coreGrid, bool transposeShards,
+             tt::ttnn::Layout outputLayout, bool preprocessWeightsOnDevice,
+             bool alwaysPreprocessWeights, bool enableActDoubleBuffer,
+             bool enableWeightsDoubleBuffer, bool enableSplitReader,
+             bool enableSubblockPadding) {
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
                 unwrap(ctx), dtype, weightsDtype, activation,
                 inputChannelsAlignment, deallocateActivation,
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
-                coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
-                enableWeightsDoubleBuffer, enableSplitReader,
-                enableSubblockPadding));
+                coreGrid, transposeShards, outputLayout,
+                preprocessWeightsOnDevice, alwaysPreprocessWeights,
+                enableActDoubleBuffer, enableWeightsDoubleBuffer,
+                enableSplitReader, enableSubblockPadding));
           })
       .def_prop_ro("dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
@@ -185,31 +188,31 @@ void populateTTNNModule(nb::module_ &m) {
                    })
       .def_prop_ro("input_channels_alignment",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getInputChannelsAlignment().getInt();
+                     return self.getInputChannelsAlignment();
                    })
       .def_prop_ro("deallocate_activation",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getDeallocateActivation().getValue();
+                     return self.getDeallocateActivation();
                    })
       .def_prop_ro("reallocate_halo_output",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getReallocateHaloOutput().getValue();
+                     return self.getReallocateHaloOutput();
                    })
       .def_prop_ro("act_block_h_override",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getActBlockHOverride().getInt();
+                     return self.getActBlockHOverride();
                    })
       .def_prop_ro("act_block_w_div",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getActBlockWDiv().getInt();
+                     return self.getActBlockWDiv();
                    })
       .def_prop_ro("reshard_if_not_optimal",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getReshardIfNotOptimal().getValue();
+                     return self.getReshardIfNotOptimal();
                    })
       .def_prop_ro("override_sharding_config",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getOverrideShardingConfig().getValue();
+                     return self.getOverrideShardingConfig();
                    })
       .def_prop_ro("shard_layout_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
@@ -218,33 +221,38 @@ void populateTTNNModule(nb::module_ &m) {
                    })
       // TODO(vkovacevic): parse core_grid
       .def_prop_ro("core_grid",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     assert(!self.getCoreGrid());
-                     return nb::none();
-                   })
+                   [](tt::ttnn::Conv2dConfigAttr self) { return nb::none(); })
       .def_prop_ro("transpose_shards",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getTransposeShards().getValue();
+                     return self.getTransposeShards();
                    })
       .def_prop_ro("output_layout_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return static_cast<uint32_t>(self.getOutputLayout());
                    })
+      .def_prop_ro("preprocess_weights_on_device",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getPreprocessWeightsOnDevice();
+                   })
+      .def_prop_ro("always_preprocess_weights",
+                   [](tt::ttnn::Conv2dConfigAttr self) {
+                     return self.getAlwaysPreprocessWeights();
+                   })
       .def_prop_ro("enable_act_double_buffer",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getEnableActDoubleBuffer().getValue();
+                     return self.getEnableActDoubleBuffer();
                    })
       .def_prop_ro("enable_weights_double_buffer",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getEnableWeightsDoubleBuffer().getValue();
+                     return self.getEnableWeightsDoubleBuffer();
                    })
       .def_prop_ro("enable_split_reader",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getEnableSplitReader().getValue();
+                     return self.getEnableSplitReader();
                    })
       .def_prop_ro("enable_subblock_padding",
                    [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getEnableSubblockPadding().getValue();
+                     return self.getEnableSubblockPadding();
                    });
 }
 } // namespace mlir::ttmlir::python

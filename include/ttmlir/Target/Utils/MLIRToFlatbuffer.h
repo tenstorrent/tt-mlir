@@ -108,6 +108,42 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
+inline ::tt::target::ttnn::TensorMemoryLayout
+toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
+  switch (memLayout) {
+  case ttnn::TensorMemoryLayout::SingleBank:
+    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
+  case ttnn::TensorMemoryLayout::Interleaved:
+    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
+  case ttnn::TensorMemoryLayout::HeightSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
+  case ttnn::TensorMemoryLayout::WidthSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
+  case ttnn::TensorMemoryLayout::BlockSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+  }
+}
+
+inline ::tt::target::ttnn::TensorMemoryLayout
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  return toFlatbuffer(cache, memLayoutAttr.getValue());
+}
+
+inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
+                                              ttnn::BufferType bufferType) {
+  switch (bufferType) {
+  case ttnn::BufferType::SystemMemory:
+    return ::tt::target::MemorySpace::System;
+  case ttnn::BufferType::DRAM:
+    return ::tt::target::MemorySpace::DeviceDRAM;
+  case ttnn::BufferType::L1:
+    return ::tt::target::MemorySpace::DeviceL1;
+  default:
+    llvm_unreachable("unhandled buffer type");
+  }
+}
+
 inline ::flatbuffers::Optional<::tt::target::DataType>
 toFlatbufferOptional(FlatbufferObjectCache &cache,
                      ::std::optional<::mlir::tt::DataType> dataType) {
@@ -625,6 +661,39 @@ toFlatbuffer(FlatbufferObjectCache &cache,
           *cache.fbb, matmulConfigAttr.getIn0BlockW(),
           matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
           fusedActivation);
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::Conv2dConfigAttr conv2dConfigAttr) {
+  ::flatbuffers::Optional<::tt::target::ttnn::TensorMemoryLayout> shardLayout;
+  if (conv2dConfigAttr.getShardLayout()) {
+    shardLayout = toFlatbuffer(cache, conv2dConfigAttr.getShardLayout());
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig> conv2dConfigDesc =
+      ::tt::target::ttnn::CreateConv2dConfig(
+          *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
+          toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
+          toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
+          conv2dConfigAttr.getInputChannelsAlignment(),
+          conv2dConfigAttr.getDeallocateActivation(),
+          conv2dConfigAttr.getReallocateHaloOutput(),
+          conv2dConfigAttr.getActBlockHOverride(),
+          conv2dConfigAttr.getActBlockWDiv(),
+          conv2dConfigAttr.getReshardIfNotOptimal(),
+          conv2dConfigAttr.getOverrideShardingConfig(), shardLayout,
+          toFlatbuffer(cache, conv2dConfigAttr.getCoreGrid()),
+          conv2dConfigAttr.getTransposeShards(),
+          toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
+          conv2dConfigAttr.getPreprocessWeightsOnDevice(),
+          conv2dConfigAttr.getAlwaysPreprocessWeights(),
+          conv2dConfigAttr.getEnableActDoubleBuffer(),
+          conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
+          conv2dConfigAttr.getEnableSplitReader(),
+          conv2dConfigAttr.getEnableSubblockPadding());
+
+  return conv2dConfigDesc;
 }
 
 } // namespace mlir::tt

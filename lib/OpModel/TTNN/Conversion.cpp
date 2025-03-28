@@ -182,32 +182,28 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
   config.dtype = getDataType(conv2dConfig->getDtype());
   config.weights_dtype = getDataType(conv2dConfig->getWeightsDtype());
   config.activation = conv2dConfig->getActivation().str();
-  config.input_channels_alignment =
-      conv2dConfig->getInputChannelsAlignment().getInt();
-  config.deallocate_activation =
-      conv2dConfig->getDeallocateActivation().getValue();
-  config.reallocate_halo_output =
-      conv2dConfig->getReallocateHaloOutput().getValue();
-  config.act_block_h_override = conv2dConfig->getActBlockHOverride().getInt();
-  config.act_block_w_div = conv2dConfig->getActBlockWDiv().getInt();
-  config.reshard_if_not_optimal =
-      conv2dConfig->getReshardIfNotOptimal().getValue();
-  config.override_sharding_config =
-      conv2dConfig->getOverrideShardingConfig().getValue();
+  config.input_channels_alignment = conv2dConfig->getInputChannelsAlignment();
+  config.deallocate_activation = conv2dConfig->getDeallocateActivation();
+  config.reallocate_halo_output = conv2dConfig->getReallocateHaloOutput();
+  config.act_block_h_override = conv2dConfig->getActBlockHOverride();
+  config.act_block_w_div = conv2dConfig->getActBlockWDiv();
+  config.reshard_if_not_optimal = conv2dConfig->getReshardIfNotOptimal();
+  config.override_sharding_config = conv2dConfig->getOverrideShardingConfig();
   config.shard_layout = conv2dConfig->getShardLayout()
                             ? std::make_optional(getTensorMemoryLayout(
                                   conv2dConfig->getShardLayout()))
                             : std::nullopt;
   config.core_grid = std::nullopt;
-  config.transpose_shards = conv2dConfig->getTransposeShards().getValue();
+  config.transpose_shards = conv2dConfig->getTransposeShards();
   config.output_layout = getPageLayout(conv2dConfig->getOutputLayout());
-  config.enable_act_double_buffer =
-      conv2dConfig->getEnableActDoubleBuffer().getValue();
+  config.preprocess_weights_on_device =
+      conv2dConfig->getPreprocessWeightsOnDevice();
+  config.always_preprocess_weights = conv2dConfig->getAlwaysPreprocessWeights();
+  config.enable_act_double_buffer = conv2dConfig->getEnableActDoubleBuffer();
   config.enable_weights_double_buffer =
-      conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
-  config.enable_split_reader = conv2dConfig->getEnableSplitReader().getValue();
-  config.enable_subblock_padding =
-      conv2dConfig->getEnableSubblockPadding().getValue();
+      conv2dConfig->getEnableWeightsDoubleBuffer();
+  config.enable_split_reader = conv2dConfig->getEnableSplitReader();
+  config.enable_subblock_padding = conv2dConfig->getEnableSubblockPadding();
 
   return config;
 }
