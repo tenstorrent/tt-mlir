@@ -294,6 +294,8 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        ttrt query --save-artifacts
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         pytest test/python/golden/test_ttir_ops.py --junit-xml="builder-op-tests.xml" --path="." --sys-desc="${SYSTEM_DESC_PATH}"
         cp builder-op-tests.xml ${{ steps.strings.outputs.op_test_report_path }}
         pytest test/python/golden/test_ttir_models.py --junit-xml="builder-model-tests.xml" --path="." --sys-desc="${SYSTEM_DESC_PATH}"
