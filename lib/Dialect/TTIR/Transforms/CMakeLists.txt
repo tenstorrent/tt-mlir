@@ -1,8 +1,10 @@
+add_subdirectory(EraseInverseOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
         Constant.cpp
         GeneralizeNamedOps.cpp
+        FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp
         GenericGenerateLoops.cpp
@@ -22,4 +24,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
         MLIRTTOpsIncGen
+
+        LINK_LIBS PUBLIC
+        MLIRTTIREraseInverseOps
         )
