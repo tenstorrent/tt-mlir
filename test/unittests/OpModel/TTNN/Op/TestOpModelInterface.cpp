@@ -447,6 +447,9 @@ TEST_F(OpModelBase, typecastOp) {
 }
 
 TEST_F(OpModelBase, Conv2dInterface) {
+  // Enable test once #2588 is fixed.
+  GTEST_SKIP();
+
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};

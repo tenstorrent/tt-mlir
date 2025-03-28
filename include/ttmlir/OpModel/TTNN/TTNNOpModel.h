@@ -15,6 +15,10 @@
 
 namespace mlir::tt::op_model::ttnn {
 
+// Checks if the tensor layout is legal for the given tensor shape.
+bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr layout);
+
 //===----------------------------------------------------------------------===//
 // Device
 //===----------------------------------------------------------------------===//
