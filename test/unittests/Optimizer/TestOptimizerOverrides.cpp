@@ -36,20 +36,20 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
                     "weights_dtype#bf16:"
                     "activation#relu:"
                     "input_channels_alignment#32:"
-                    "deallocate_activation#0:"
-                    "reallocate_halo_output#1:"
-                    "act_block_h_override#0:"
+                    "deallocate_activation#false:"
+                    "reallocate_halo_output#true:"
+                    "act_block_h_override#32:"
                     "act_block_w_div#1:"
-                    "reshard_if_not_optimal#0:"
-                    "override_sharding_config#0:"
+                    "reshard_if_not_optimal#false:"
+                    "override_sharding_config#false:"
                     "shard_layout#block_sharded:"
                     "core_grid#0:"
-                    "transpose_shards#1:"
+                    "transpose_shards#true:"
                     "output_layout#row_major:"
-                    "enable_act_double_buffer#0:"
-                    "enable_weights_double_buffer#0:"
-                    "enable_split_reader#0:"
-                    "enable_subblock_padding#0";
+                    "enable_act_double_buffer#false:"
+                    "enable_weights_double_buffer#false:"
+                    "enable_split_reader#false:"
+                    "enable_subblock_padding#false";
 
   bool result = parser.parse(OverrideConv2dConfigOption,
                              "override-conv2d-config", arg, parsedOverride);
@@ -71,7 +71,7 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_TRUE(params.reallocateHaloOutput.has_value());
   ASSERT_TRUE(params.reallocateHaloOutput.value());
   ASSERT_TRUE(params.actBlockHOverride.has_value());
-  ASSERT_EQ(params.actBlockHOverride.value(), 0);
+  ASSERT_EQ(params.actBlockHOverride.value(), 32);
   ASSERT_TRUE(params.actBlockWDiv.has_value());
   ASSERT_EQ(params.actBlockWDiv.value(), 1);
   ASSERT_TRUE(params.reshardIfNotOptimal.has_value());
