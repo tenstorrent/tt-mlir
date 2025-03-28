@@ -628,13 +628,11 @@ def test_max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
-    [
-        (32, 32),
-    ],
+    [(32, 32), (34, 33)],
     targets=["ttnn"],
 )
-def test_pad(in0: Operand, builder: TTIRBuilder):
-    return builder.pad(in0, padding=[0, 2, 1, 0], value=0)
+def test_pad(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.pad(in0, in1, padding=[0, 2, 1, 0], value=0)
 
 
 @compile_to_flatbuffer([(32, 64)], targets=["ttnn"])

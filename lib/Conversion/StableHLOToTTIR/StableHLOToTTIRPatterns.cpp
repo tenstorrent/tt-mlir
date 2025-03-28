@@ -2195,8 +2195,8 @@ public:
             ? static_cast<float>(paddingValueAttr.getSplatValue<int>())
             : paddingValueAttr.getSplatValue<float>();
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
-        srcOp,
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
+        rewriter, srcOp,
         outputType,                            // result type
         adaptor.getOperand(),                  // input
         rewriter.getDenseI32ArrayAttr(padDim), // padding dimensions
