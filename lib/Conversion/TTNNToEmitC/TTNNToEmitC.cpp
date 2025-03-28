@@ -1684,6 +1684,36 @@ public:
 };
 } // namespace
 
+// PermuteOp conversion pattern
+//
+namespace {
+class PermuteOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::PermuteOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::PermuteOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::PermuteOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::PermuteOp> emitter(srcOp, adaptor,
+                                                                 rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<::ttnn::SmallVector<int64_t>>(srcOp.getPermutation()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getPadValue()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -1790,7 +1820,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
                RepeatInterleaveOpConversionPattern, SliceOpConversionPattern,
-               DefaultOpConversionPattern<tt::ttnn::PermuteOp>,
+               PermuteOpConversionPattern,
                DefaultOpConversionPattern<tt::ttnn::PadOp>>(typeConverter, ctx);
 
   // Matmul ops

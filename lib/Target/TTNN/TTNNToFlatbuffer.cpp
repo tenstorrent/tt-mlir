@@ -298,11 +298,19 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
   std::transform(
       shapeInt64.begin(), shapeInt64.end(), std::back_inserter(shape),
       [](int64_t val) -> int32_t { return static_cast<int32_t>(val); });
+  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  // Set meshShape to {1, 1} for single device tensor.
+  std::vector<int32_t> meshShape = {1, 1};
+  if (layoutAttr.getTensorMeshSharding()) {
+    meshShape.clear();
+    // Set meshShape to {x, y} for multi device tensor.
+    auto meshShapeInt64 = deviceAttr.getMeshShape();
+    meshShape =
+        std::vector<int32_t>(meshShapeInt64.begin(), meshShapeInt64.end());
+  }
   return ::tt::target::ttnn::CreateTensorDescDirect(
-      *cache.fbb, &shape,
-      cache.getOrCreate(
-          mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
-          ttnnLayoutAttrToFlatbuffer, deviceAttr));
+      *cache.fbb, &shape, &meshShape,
+      cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer, deviceAttr));
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
@@ -609,8 +617,18 @@ createOp(FlatbufferObjectCache &cache, ArangeOp op) {
       output);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::ZerosOp>
-createOp(FlatbufferObjectCache &cache, ZerosOp op) {
+template <typename OpTy>
+::flatbuffers::Offset<::tt::target::ttnn::NamedFullOp>
+createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
+  ::tt::target::ttnn::NamedFullOpType type;
+  if constexpr (std::is_same_v<OpTy, ttnn::ZerosOp>) {
+    type = ::tt::target::ttnn::NamedFullOpType::Zeros;
+  } else if constexpr (std::is_same_v<OpTy, ttnn::OnesOp>) {
+    type = ::tt::target::ttnn::NamedFullOpType::Ones;
+  } else {
+    static_assert(false, "Unsupported NamedFullOp type");
+  }
+
   ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape =
       cache.fbb->CreateVector<int64_t>(op.getShape().getShape());
 
@@ -634,37 +652,8 @@ createOp(FlatbufferObjectCache &cache, ZerosOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
-  return ::tt::target::ttnn::CreateZerosOp(*cache.fbb, shape, dtype, layout,
-                                           device, memoryConfig, output);
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::OnesOp>
-createOp(FlatbufferObjectCache &cache, OnesOp op) {
-  ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape =
-      cache.fbb->CreateVector<int64_t>(op.getShape().getShape());
-
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbufferOptional(cache, op.getDtype());
-
-  ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbufferOptional(cache, op.getLayout());
-
-  flatbuffers::Offset<::tt::target::DeviceRef> device =
-      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
-
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
-  auto memoryConfig =
-      op.getMemoryConfig().has_value()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
-          : 0;
-
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedSize);
-
-  return ::tt::target::ttnn::CreateOnesOp(*cache.fbb, shape, dtype, layout,
-                                          device, memoryConfig, output);
+  return ::tt::target::ttnn::CreateNamedFullOp(
+      *cache.fbb, type, shape, dtype, layout, device, memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
@@ -1494,11 +1483,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto zerosOp = dyn_cast<ZerosOp>(op); zerosOp) {
-    return createOperation(cache, createOp(cache, zerosOp), debugString,
-                           locInfo);
+    return createOperation(cache, createNamedFullOp(cache, zerosOp),
+                           debugString, locInfo);
   }
   if (auto onesOp = dyn_cast<OnesOp>(op); onesOp) {
-    return createOperation(cache, createOp(cache, onesOp), debugString,
+    return createOperation(cache, createNamedFullOp(cache, onesOp), debugString,
                            locInfo);
   }
   if (auto absOp = dyn_cast<AbsOp>(op); absOp) {

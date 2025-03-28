@@ -16,6 +16,7 @@
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"
+#include "operations/data_movement/permute/permute.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
 #include "operations/data_movement/repeat_interleave/repeat_interleave.hpp"
 #include "operations/data_movement/slice/slice.hpp"

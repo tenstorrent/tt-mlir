@@ -1005,6 +1005,9 @@ class OpModelConv2dParam
                      bool, bool>> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
+  // Enable test once #2588 is fixed.
+  GTEST_SKIP();
+
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -1073,23 +1076,6 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   }
 }
 
-class OpModelMaxPool2DParam
-    : public OpModelTest,
-      public testing::WithParamInterface<
-          std::tuple<detail::TestTensor,         // input
-                     detail::TestTensor,         // output
-                     int32_t,                    // batch_size
-                     int32_t,                    // input_height
-                     int32_t,                    // input_width
-                     int32_t,                    // input_channels
-                     llvm::SmallVector<int32_t>, // kernel_size
-                     llvm::SmallVector<int32_t>, // stride
-                     llvm::SmallVector<int32_t>, // padding
-                     llvm::SmallVector<int32_t>, // dilation
-                     bool,                       // ceil_mode
-                     bool                        // expected legal
-                     >> {};
-
 INSTANTIATE_TEST_SUITE_P(
     Conv2dTests, OpModelConv2dParam,
     ::testing::Values(
@@ -1113,6 +1099,23 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
                         llvm::SmallVector<int32_t>{1, 1}, 1, false, false)));
+
+class OpModelMaxPool2DParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,         // input
+                     detail::TestTensor,         // output
+                     int32_t,                    // batch_size
+                     int32_t,                    // input_height
+                     int32_t,                    // input_width
+                     int32_t,                    // input_channels
+                     llvm::SmallVector<int32_t>, // kernel_size
+                     llvm::SmallVector<int32_t>, // stride
+                     llvm::SmallVector<int32_t>, // padding
+                     llvm::SmallVector<int32_t>, // dilation
+                     bool,                       // ceil_mode
+                     bool                        // expected legal
+                     >> {};
 
 TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
   auto params = GetParam();

@@ -55,6 +55,8 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
         return torch.uint8
     elif dtype == DataType.BFloat16:
         return torch.bfloat16
+    elif dtype == DataType.Int32:
+        return torch.int32
     else:
         raise ValueError(
             "Only F32, BF16, and unsigned integers are supported in the runtime"
