@@ -889,26 +889,21 @@ class TTIRBuilder:
     def update_cache(
         self, in0: Operand, in1: Operand, in2: Operand, batch_offset: int = 0
     ) -> OpView:
+        cache = self._get_golden_tensor(in0)
+        input_tensor = self._get_golden_tensor(in1)
+        index = torch.clamp(self._get_golden_tensor(in2), 0, cache.size()[2])
+        a = cache[:, :, : index[0], :]
+        b = cache[:, :, : (cache.size()[2] - index[0] - 1), :]
+
         return self.op_proxy(
-            self.update_cache_golden_function,
+            torch.cat,
             ttir.UpdateCacheOp,
             [in0, in1, in2],
-            golden_kwargs={"batch_offset": batch_offset},
+            golden_kwargs={"tensors": (a, input_tensor, b), "dim": 2},
             ttir_kwargs={"batch_offset": batch_offset},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
+            organize_golden_args=lambda i: 0,
         )
-
-    def update_cache_golden_function(
-        self,
-        in0: Operand,
-        in1: Operand,
-        in2: Optional[Operand] = None,
-        batch_offset: int = 0,
-    ) -> Operand:
-        index = torch.clamp(in2, 0, in0.size()[2])
-        a = in0[:, :, : index[0], :]
-        b = in0[:, :, : (in0.size()[2] - index[0] - 1), :]
-        return torch.cat((a, in1, b), 2)
 
     def broadcast(
         self, in0: Operand, in1: Operand, broadcast_dimensions: List[int]
