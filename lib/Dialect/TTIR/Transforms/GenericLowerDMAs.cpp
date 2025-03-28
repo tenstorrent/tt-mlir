@@ -256,7 +256,7 @@ public:
     SmallVector<Value> dstIndices(dma.getDstIndices());
     Value zero = rewriter.create<arith::ConstantOp>(
         dma.getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(0));
-    while (srcIndices.size() < (size_t)dma.getSrcMemRefType().getRank()) {
+    while (srcIndices.size() < static_cast<size_t>(dma.getSrcMemRefType().getRank())) {
       srcIndices.push_back(zero);
     }
     while (dstIndices.size() < static_cast<size_t>(dma.getDstMemRefType().getRank())) {
