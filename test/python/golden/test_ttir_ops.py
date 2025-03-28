@@ -262,6 +262,7 @@ def transpose(in0: Operand, builder: TTIRBuilder):
     return builder.transpose(in0)
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
@@ -272,20 +273,6 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
     compile_to_flatbuffer(
         prod,
         [shape],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)])
-def test_lt(shape: Shape, request):
-    def lt(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        return builder.lt(in0, in1)
-
-    compile_to_flatbuffer(
-        lt,
-        [shape, shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -371,6 +358,7 @@ def test_unsqueeze(shape: Shape, dim: int, request):
     )
 
 
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(2, 3)])
 @pytest.mark.parametrize("dims", [[2, 2]])
 def test_repeat(shape: Shape, dims: List[int], request):
@@ -522,6 +510,7 @@ def test_conv_transpose2d(
     )
 
 
+@pytest.mark.run_error
 @pytest.mark.parametrize(
     "kernel_height,kernel_width,stride_height,stride_width,dilation_height,dilation_width,ceil_mode,padding_left,padding_right,padding_top, padding_bottom",
     [(2, 2, 2, 2, 1, 1, False, 0, 0, 0, 0)],
@@ -571,6 +560,7 @@ def test_max_pool2d(
     )
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(32, 32)])
 @pytest.mark.parametrize("padding", [[0, 2, 1, 0]])
 @pytest.mark.parametrize("value", [0])
@@ -587,6 +577,7 @@ def test_pad(shape: Shape, padding: List[int], value, request):
     )
 
 
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(32, 64)])
 @pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
 def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request):
@@ -661,6 +652,7 @@ def test_empty(shape: Shape, request):
     )
 
 
+@pytest.mark.run_error
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
 @pytest.mark.parametrize("dim", [0, 1])
 def test_argmax(shapes, dim, request):
@@ -706,6 +698,7 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
         [shape],
         [torch.bool],
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
@@ -744,6 +737,7 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
     )
 
 
+@pytest.mark.run_error
 @pytest.mark.parametrize("shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]])
 @pytest.mark.parametrize("scale_factor", [[2, 4]])
 def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
@@ -775,6 +769,7 @@ def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request
     )
 
 
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(32, 32)])
 @pytest.mark.parametrize("from_type,to_type", [(torch.uint32, torch.uint16)])
 def test_typecast(shape: Shape, from_type: torch.dtype, to_type: torch.dtype, request):
@@ -811,22 +806,22 @@ unary_ops = [
     expm1,
     floor,
     abs,
-    logical_not,
+    pytest.param(logical_not, marks=pytest.mark.fails_golden),
     neg,
     sign,
     cos,
     sin,
-    tan,
+    pytest.param(tan, marks=pytest.mark.fails_golden),
     atan,
     tanh,
-    log,
-    log1p,
+    pytest.param(log, marks=pytest.mark.fails_golden),
+    pytest.param(log1p, marks=pytest.mark.fails_golden),
     relu,
     gelu,
     clamp,
     leaky_relu,
     sqrt,
-    cbrt,
+    pytest.param(cbrt, marks=pytest.mark.fails_golden),
     rsqrt,
     sigmoid,
     reciprocal,
@@ -834,9 +829,9 @@ unary_ops = [
     ceil,
     sum,
     mean,
-    max,
-    min,
-    get_dimension_size,
+    pytest.param(max, marks=pytest.mark.fails_golden),
+    pytest.param(min, marks=pytest.mark.fails_golden),
+    pytest.param(get_dimension_size, marks=pytest.mark.run_error),
 ]
 
 
@@ -863,12 +858,12 @@ def test_unary_ops(
         add,
         multiply,
         subtract,
-        eq,
-        ne,
-        le,
-        lt,
-        ge,
-        gt,
+        pytest.param(eq, marks=pytest.mark.fails_golden),
+        pytest.param(ne, marks=pytest.mark.fails_golden),
+        pytest.param(le, marks=pytest.mark.fails_golden),
+        pytest.param(lt, marks=pytest.mark.fails_golden),
+        pytest.param(ge, marks=pytest.mark.fails_golden),
+        pytest.param(gt, marks=pytest.mark.fails_golden),
         div,
         remainder,
         maximum,
@@ -878,7 +873,7 @@ def test_unary_ops(
         hoisted_add,
         logical_and,
         logical_or,
-        logical_xor,
+        pytest.param(logical_xor, marks=pytest.mark.fails_golden),
     ],
 )
 def test_binary_ops(test_fn: Callable, shape: Shape, dtype: torch.dtype, request):
@@ -893,6 +888,7 @@ def test_binary_ops(test_fn: Callable, shape: Shape, dtype: torch.dtype, request
     )
 
 
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
 def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
@@ -911,8 +907,18 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
     [
         (transpose, [(64, 32)], None),
         (reshape, [(64, 32)], None),
-        (embedding, [(33, 32), (512, 128)], [torch.bfloat16] * 2),
-        (where, [(64, 64)] * 3, [torch.int8, torch.float32, torch.float32]),
+        pytest.param(
+            embedding,
+            [(33, 32), (512, 128)],
+            [torch.bfloat16] * 2,
+            marks=pytest.mark.run_error,
+        ),
+        pytest.param(
+            where,
+            [(64, 64)] * 3,
+            [torch.int8, torch.float32, torch.float32],
+            marks=pytest.mark.run_error,
+        ),
     ],
 )
 def test_unique_ops(
