@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -495,21 +496,63 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 // Common verifier for all Quantize ops.
-::mlir::LogicalResult
-verifyQuantizeOpCommon(::mlir::Operation *op,
-                       ::mlir::RankedTensorType inputType,
-                       ::mlir::RankedTensorType outputType) {
+static ::mlir::LogicalResult verifyQuantizeOpCommon(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+    ::mlir::RankedTensorType inputType, ::mlir::RankedTensorType outputType,
+    bool isQuantize) {
   // Sanity check to make sure that input rank matches the rank of the output
   // tensor.
   if (inputType.getRank() != outputType.getRank()) {
-    return op->emitOpError() << "Input tensor rank of " << inputType.getRank()
-                             << " does not match the output tensor rank of "
-                             << outputType.getRank();
+    return emitOpError() << "Input tensor rank of " << inputType.getRank()
+                         << " does not match the output tensor rank of "
+                         << outputType.getRank();
   }
 
   // Shapes of input and output of a quantize operation must be the same.
   if (inputType.getShape() != outputType.getShape()) {
-    return op->emitOpError("Input and output shapes must be the same.");
+    return emitOpError() << "Output tensor shape ("
+                         << ttmlir::utils::join(outputType.getShape(), ",") +
+                                ") must match the inferred shape: (" +
+                                ttmlir::utils::join(inputType.getShape(), ",") +
+                                ")";
+  }
+
+  // For QuantizeOp: input must be float, output must be UniformQuantizedType.
+  // For DequantizeOp: input must be UniformQuantizedType, output must be float.
+  // For RequantizeOp: both input and output must be UniformQuantizedType.
+  auto inputElemType = inputType.getElementType();
+  auto outputElemType = outputType.getElementType();
+
+  if (isQuantize) {
+    if (!mlir::isa<mlir::FloatType>(inputElemType)) {
+      return emitOpError() << "Input element type must be float, but got "
+                           << inputElemType;
+    }
+    if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                   mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+      return emitOpError()
+             << "Output element type must be UniformQuantizedType or "
+                "UniformQuantizedPerAxisType, but got "
+             << outputElemType;
+    }
+  } else {
+    if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                   mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
+      return emitOpError() << "Input element type must be UniformQuantizedType "
+                              "or UniformQuantizedPerAxisType, but got "
+                           << inputElemType;
+    }
+    // Dequantize op.
+    if (mlir::isa<mlir::FloatType>(outputElemType)) {
+      return ::mlir::success();
+    }
+    // Requantize op.
+    if (mlir::isa<mlir::quant::UniformQuantizedType,
+                  mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+      return ::mlir::success();
+    }
+    return emitOpError() << "Unsupported output element type: "
+                         << outputElemType;
   }
 
   return ::mlir::success();
@@ -517,20 +560,23 @@ verifyQuantizeOpCommon(::mlir::Operation *op,
 
 // QuantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::QuantizeOp::verify() {
-  return verifyQuantizeOpCommon(*this, getInput().getType(),
-                                getOutput().getType());
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getOutput().getType(),
+                                /*isQuantize=*/true);
 }
 
 // DequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::DequantizeOp::verify() {
-  return verifyQuantizeOpCommon(*this, getInput().getType(),
-                                getOutput().getType());
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getOutput().getType(),
+                                /*isQuantize=*/false);
 }
 
 // RequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::RequantizeOp::verify() {
-  return verifyQuantizeOpCommon(*this, getInput().getType(),
-                                getOutput().getType());
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getOutput().getType(),
+                                /*isQuantize=*/false);
 }
 
 //===----------------------------------------------------------------------===//

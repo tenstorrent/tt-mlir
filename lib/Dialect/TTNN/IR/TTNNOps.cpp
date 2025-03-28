@@ -261,14 +261,24 @@ namespace mlir::tt::ttnn {
 }
 
 static ::mlir::LogicalResult verifyQuantizeOpCommon(
-    ::mlir::Operation *op, ::mlir::RankedTensorType inputType,
-    ::mlir::RankedTensorType outputType, std::optional<uint32_t> axis) {
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+    ::mlir::RankedTensorType inputType, ::mlir::RankedTensorType outputType,
+    std::optional<uint32_t> axis) {
   // Sanity check to make sure that input rank matches the rank of the output
   // tensor.
   if (inputType.getRank() != outputType.getRank()) {
-    return op->emitOpError()
-           << "Input tensor rank of " << inputType.getRank()
-           << " does not match output tensor rank of " << outputType.getRank();
+    return emitOpError() << "Input tensor rank of " << inputType.getRank()
+                         << " does not match output tensor rank of "
+                         << outputType.getRank();
+  }
+
+  // Shapes of input and output of a quantize operation must be the same.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError() << "Output tensor shape ("
+                         << ttmlir::utils::join(outputType.getShape(), ",") +
+                                ") must match the inferred shape: (" +
+                                ttmlir::utils::join(inputType.getShape(), ",") +
+                                ")";
   }
 
   // Verify that the axis, if provided, is within the bounds of the input tensor
@@ -276,8 +286,9 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   if (axis.has_value()) {
     uint32_t axisValue = axis.value();
     if (axisValue < 0 || axisValue >= inputType.getRank()) {
-      return op->emitOpError(
-          "Axis must be within the bounds of the input tensor rank");
+      return emitOpError() << "Axis value " << axisValue
+                           << " is out of range for tensor of rank "
+                           << inputType.getRank();
     }
   }
 
@@ -290,8 +301,9 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 
 // QuantizeOp verification.
 ::mlir::LogicalResult QuantizeOp::verify() {
-  return verifyQuantizeOpCommon(getOperation(), getInput().getType(),
-                                getResult().getType(), getAxis());
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getResult().getType(),
+                                getAxis());
 }
 
 //===----------------------------------------------------------------------===//
@@ -300,8 +312,9 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 
 // DequantizeOp verification.
 ::mlir::LogicalResult DequantizeOp::verify() {
-  return verifyQuantizeOpCommon(getOperation(), getInput().getType(),
-                                getResult().getType(), getAxis());
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getResult().getType(),
+                                getAxis());
 }
 
 //===----------------------------------------------------------------------===//
@@ -310,8 +323,9 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 
 // RequantizeOp verification.
 ::mlir::LogicalResult RequantizeOp::verify() {
-  return verifyQuantizeOpCommon(getOperation(), getInput().getType(),
-                                getResult().getType(), getAxis());
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getResult().getType(),
+                                getAxis());
 }
 
 //===----------------------------------------------------------------------===//

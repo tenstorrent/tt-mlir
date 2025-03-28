@@ -551,9 +551,8 @@ public:
 // Quantization ops conversion pattern
 
 template <typename OpType>
-class QuantizationOpConversionPattern
+class UniformQuantizationOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<OpType> {
-
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       OpType>::TTNNToEmitCBaseOpConversionPattern;
@@ -561,41 +560,51 @@ public:
   LogicalResult
   matchAndRewrite(OpType op, typename OpType::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     ttnn_to_emitc::EmitCTTNNEmitter<OpType> emitter(op, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args;
-
     args.push_back(emitter.emit(op.getInput()));
-
-    if constexpr (std::is_same_v<OpType, tt::ttnn::RequantizeOp>) {
-      // Requantize ops require both the input and output scale/zero point.
-      args.push_back(emitter.emit(op.getInScale().convertToFloat()));
-      args.push_back(emitter.emit(op.getInZeroPoint()));
-      args.push_back(emitter.emit(op.getOutScale().convertToFloat()));
-      args.push_back(emitter.emit(op.getOutZeroPoint()));
-    } else if constexpr (std::is_same_v<OpType, tt::ttnn::QuantizeOp> ||
-                         std::is_same_v<OpType, tt::ttnn::DequantizeOp>) {
-      // Quantize and Dequantize ops only require the output scale/zero point.
-      args.push_back(emitter.emit(op.getScale().convertToFloat()));
-      args.push_back(emitter.emit(op.getZeroPoint()));
-    } else {
-      emitter.emitError()
-          << "Unexpected op type. Expected Quantize, Dequantize or Requantize.";
-      return failure();
-    }
-
-    if (op.getAxis()) {
-      args.push_back(emitter.emit(*op.getAxis()));
+    args.push_back(emitter.emit(op.getScale()));
+    args.push_back(emitter.emit(op.getZeroPoint()));
+    args.push_back(emitter.emit(op.getOutputDtype()));
+    if (op.getMemoryConfig()) {
+      args.push_back(emitter.emit(op.getMemoryConfig()));
     } else {
       args.push_back(emitter.emit(std::nullopt));
     }
 
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+
+class RequantizeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::RequantizeOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::RequantizeOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::RequantizeOp op,
+                  tt::ttnn::RequantizeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::RequantizeOp> emitter(op, adaptor,
+                                                                    rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args;
+    args.push_back(emitter.emit(op.getInput()));
+    args.push_back(emitter.emit(op.getInScale()));
+    args.push_back(emitter.emit(op.getInZeroPoint()));
+    args.push_back(emitter.emit(op.getOutScale()));
+    args.push_back(emitter.emit(op.getOutZeroPoint()));
     args.push_back(emitter.emit(op.getOutputDtype()));
-    args.push_back(emitter.emit(op.getMemoryConfig()));
+    if (op.getMemoryConfig()) {
+      args.push_back(emitter.emit(op.getMemoryConfig()));
+    } else {
+      args.push_back(emitter.emit(std::nullopt));
+    }
 
     emitter.replaceOp(*this, args);
-
     return success();
   }
 };
@@ -1847,10 +1856,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Quantization ops.
   //
-  patterns.add<QuantizationOpConversionPattern<tt::ttnn::QuantizeOp>,
-               QuantizationOpConversionPattern<tt::ttnn::DequantizeOp>,
-               QuantizationOpConversionPattern<tt::ttnn::RequantizeOp>>(
-      typeConverter, ctx);
+  patterns.add<UniformQuantizationOpConversionPattern<tt::ttnn::QuantizeOp>,
+               UniformQuantizationOpConversionPattern<tt::ttnn::DequantizeOp>,
+               RequantizeOpConversionPattern>(typeConverter, ctx);
 
   // Matmul ops
   //

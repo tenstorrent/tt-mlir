@@ -1738,7 +1738,19 @@ def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]>
     let hasVerifier = 1;
 }
 
-def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
+class TTNN_QuantizationOps<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic, traits> {
+    let arguments = (ins AnyRankedTensor:$input,
+                        F32Attr:$scale,
+                        I32Attr:$zero_point,
+                        OptionalAttr<I32Attr>:$axis,
+                        OptionalAttr<TT_DataTypeAttr>:$output_dtype,
+                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
+def TTNN_QuantizeOp : TTNN_QuantizationOps<"quantize"> {
     let summary = "Quantize operation.";
     let description = [{
       Applies quantization to the input tensor.
@@ -1752,19 +1764,10 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$scale,
-                         I32Attr:$zero_point,
-                         OptionalAttr<I32Attr>:$axis,
-                         OptionalAttr<TT_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
-
-    let results = (outs AnyRankedTensor:$result);
-
     let hasVerifier = 1;
 }
 
-def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
+def TTNN_DequantizeOp : TTNN_QuantizationOps<"dequantize"> {
     let summary = "Dequantize operation.";
     let description = [{
       Applies dequantization to the input tensor.
@@ -1777,15 +1780,6 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
         - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
     }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         F32Attr:$scale,
-                         I32Attr:$zero_point,
-                         OptionalAttr<I32Attr>:$axis,
-                         OptionalAttr<TT_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
-
-    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }

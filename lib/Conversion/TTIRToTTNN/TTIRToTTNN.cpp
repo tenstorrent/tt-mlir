@@ -1493,135 +1493,152 @@ public:
 };
 } // namespace
 
+// Utility function to get scale and zero point for quantized types.
+static std::pair<mlir::FloatAttr, mlir::IntegerAttr>
+getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
+                     ConversionPatternRewriter &rewriter) {
+  auto quantPerTensorType =
+      mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elementType);
+  if (!quantPerTensorType) {
+    return {nullptr, nullptr};
+  }
+  auto scaleAttr = rewriter.getF32FloatAttr(quantPerTensorType.getScale());
+  auto zeroPointAttr = rewriter.getI32IntegerAttr(
+      static_cast<int32_t>(quantPerTensorType.getZeroPoint()));
+  return {scaleAttr, zeroPointAttr};
+}
+
+// Utility function to get axis and data type for quantized types.
+static std::pair<mlir::IntegerAttr, DataTypeAttr>
+getAxisAndDataType(mlir::Operation *op, mlir::quant::QuantizedType elementType,
+                   ConversionPatternRewriter &rewriter,
+                   const TypeConverter *typeConverter) {
+  IntegerAttr axis;
+  if (auto perChannelType =
+          mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+              elementType)) {
+    axis = rewriter.getI32IntegerAttr(perChannelType.getQuantizedDimension());
+  }
+
+  ttnn::TTNNLayoutAttr outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+      mlir::cast<RankedTensorType>(
+          typeConverter->convertType(op->getResult(0).getType()))
+          .getEncoding());
+  DataType dtype = outputLayoutAttr.getDataType();
+  DataTypeAttr outputDataType = DataTypeAttr::get(rewriter.getContext(), dtype);
+
+  return {axis, outputDataType};
+};
+
 namespace {
-template <typename TTIROpTy>
-class QuantizeOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+
+template <typename OpTy, typename TTNNOpTy>
+class QuantizationOpConversionPatternBase : public OpConversionPattern<OpTy> {
 public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+  using OpConversionPattern<OpTy>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(TTIROpTy srcOp, typename TTIROpTy::Adaptor adaptor,
+  matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType inputType = srcOp.getInput().getType();
-    RankedTensorType outputType = srcOp.getOutput().getType();
+    auto elementType = getQuantizedElementType(op);
+    if (!elementType) {
+      return failure();
+    }
+
+    auto [scale, zeroPoint] = getScaleAndZeroPoint(elementType, rewriter);
+    if (!scale) {
+      return rewriter.notifyMatchFailure(
+          op, "Only per tensor quantization is supported right now.");
+    }
+
+    auto [axisAttr, outputDataType] =
+        getAxisAndDataType(op, elementType, rewriter, this->getTypeConverter());
+
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), scale, zeroPoint, axisAttr, outputDataType,
+        ttnn::MemoryConfigAttr());
+    return success();
+  }
+
+protected:
+  virtual mlir::quant::QuantizedType getQuantizedElementType(OpTy op) const = 0;
+};
+
+class QuantizeOpConversionPattern
+    : public QuantizationOpConversionPatternBase<ttir::QuantizeOp,
+                                                 ttnn::QuantizeOp> {
+public:
+  using QuantizationOpConversionPatternBase::
+      QuantizationOpConversionPatternBase;
+
+protected:
+  mlir::quant::QuantizedType
+  getQuantizedElementType(ttir::QuantizeOp op) const override {
+    auto outputType = op.getOutput().getType();
+    return mlir::dyn_cast<mlir::quant::QuantizedType>(
+        outputType.getElementType());
+  }
+};
+
+class DequantizeOpConversionPattern
+    : public QuantizationOpConversionPatternBase<ttir::DequantizeOp,
+                                                 ttnn::DequantizeOp> {
+public:
+  using QuantizationOpConversionPatternBase::
+      QuantizationOpConversionPatternBase;
+
+protected:
+  mlir::quant::QuantizedType
+  getQuantizedElementType(ttir::DequantizeOp op) const override {
+    auto inputType = op.getInput().getType();
+    return mlir::dyn_cast<mlir::quant::QuantizedType>(
+        inputType.getElementType());
+  }
+};
+
+class RequantizeOpConversionPattern
+    : public OpConversionPattern<ttir::RequantizeOp> {
+public:
+  using OpConversionPattern<ttir::RequantizeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RequantizeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputType = op.getInput().getType();
+    auto outputType = op.getOutput().getType();
 
     auto inputElementType =
         mlir::dyn_cast<mlir::quant::QuantizedType>(inputType.getElementType());
     auto outputElementType =
         mlir::dyn_cast<mlir::quant::QuantizedType>(outputType.getElementType());
 
-    if (mlir::isa<ttir::RequantizeOp>(srcOp) && inputElementType &&
-        outputElementType) {
-      auto [inputScale, inputZeroPoint] =
-          getScaleAndZeroPoint(inputElementType, rewriter);
-      // If the input/output scales do not belong to a QuantUniformType (per
-      // tensor), they are nullptrs.
-      if (!inputScale) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Only per tensor quantization is supported right now.");
-      }
-      auto [outputScale, outputZeroPoint] =
-          getScaleAndZeroPoint(outputElementType, rewriter);
-      if (!outputScale) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Only per tensor quantization is supported right now.");
-      }
-      auto [axisAttr, outputDataType, memoryConfigAttr] =
-          getAxisOutputDataTypeAndMemoryConfig(srcOp, inputElementType,
-                                               rewriter);
-      rewriter.replaceOpWithNewOp<ttnn::RequantizeOp>(
-          srcOp,
-          this->getTypeConverter()->convertType(srcOp.getResult().getType()),
-          adaptor.getInput(), inputScale, inputZeroPoint, outputScale,
-          outputZeroPoint, axisAttr, outputDataType, memoryConfigAttr);
-      return success();
+    if (!inputElementType || !outputElementType) {
+      return failure();
     }
 
-    if (mlir::isa<ttir::DequantizeOp>(srcOp) && inputElementType) {
-      auto [inputScale, inputZeroPoint] =
-          getScaleAndZeroPoint(inputElementType, rewriter);
-      // If the input scale does not belong to a QuantUniformType (per tensor),
-      // inputScale is a nullptr.
-      if (!inputScale) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Only per tensor quantization is supported right now.");
-      }
-      auto [axisAttr, outputDataType, memoryConfigAttr] =
-          getAxisOutputDataTypeAndMemoryConfig(srcOp, inputElementType,
-                                               rewriter);
-      rewriter.replaceOpWithNewOp<ttnn::DequantizeOp>(
-          srcOp,
-          this->getTypeConverter()->convertType(srcOp.getResult().getType()),
-          adaptor.getInput(), inputScale, inputZeroPoint, axisAttr,
-          outputDataType, memoryConfigAttr);
-      return success();
+    auto [inputScale, inputZeroPoint] =
+        getScaleAndZeroPoint(inputElementType, rewriter);
+    if (!inputScale) {
+      return rewriter.notifyMatchFailure(
+          op, "Only per tensor quantization is supported right now.");
     }
 
-    if (mlir::isa<ttir::QuantizeOp>(srcOp) && outputElementType) {
-      auto [outputScale, outputZeroPoint] =
-          getScaleAndZeroPoint(outputElementType, rewriter);
-      // If the output scale does not belong to a QuantUniformType (per tensor),
-      // outputScale is a nullptr.
-      if (!outputScale) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Only per tensor quantization is supported right now.");
-      }
-      auto [axisAttr, outputDataType, memoryConfigAttr] =
-          getAxisOutputDataTypeAndMemoryConfig(srcOp, outputElementType,
-                                               rewriter);
-      rewriter.replaceOpWithNewOp<ttnn::QuantizeOp>(
-          srcOp,
-          this->getTypeConverter()->convertType(srcOp.getResult().getType()),
-          adaptor.getInput(), outputScale, outputZeroPoint, axisAttr,
-          outputDataType, memoryConfigAttr);
-      return success();
+    auto [outputScale, outputZeroPoint] =
+        getScaleAndZeroPoint(outputElementType, rewriter);
+    if (!outputScale) {
+      return rewriter.notifyMatchFailure(
+          op, "Only per tensor quantization is supported right now.");
     }
 
-    return failure();
-  }
+    auto [axisAttr, outputDataType] = getAxisAndDataType(
+        op, inputElementType, rewriter, this->getTypeConverter());
 
-private:
-  std::tuple<mlir::FloatAttr, mlir::IntegerAttr>
-  getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
-                       ConversionPatternRewriter &rewriter) const {
-    // Casting the element type to a QuantizedType is required to access the
-    // scale and zero point.
-    auto quantPerTensorType =
-        mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elementType);
-    if (!quantPerTensorType) {
-      return {nullptr, nullptr};
-    }
-    auto scaleAttr = rewriter.getF32FloatAttr(quantPerTensorType.getScale());
-    auto zeroPointAttr = rewriter.getI32IntegerAttr(
-        static_cast<int32_t>(quantPerTensorType.getZeroPoint()));
-    return {scaleAttr, zeroPointAttr};
-  }
-
-  std::tuple<mlir::IntegerAttr, DataTypeAttr, ttnn::MemoryConfigAttr>
-  getAxisOutputDataTypeAndMemoryConfig(
-      TTIROpTy srcOp, mlir::quant::QuantizedType elementType,
-      ConversionPatternRewriter &rewriter) const {
-    IntegerAttr axis;
-    // The axis is only specified if the op is per channel quantized (currently
-    // unsupported).
-    if (mlir::quant::UniformQuantizedPerAxisType perChannelQuantizedType =
-            mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-                elementType)) {
-      axis = rewriter.getI32IntegerAttr(
-          perChannelQuantizedType.getQuantizedDimension());
-    }
-
-    // The storedtype output layout encoding is required for translation, so
-    // call the getTypeConverter.
-    ttnn::TTNNLayoutAttr outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        mlir::cast<RankedTensorType>((this->getTypeConverter()->convertType(
-                                         srcOp.getOutput().getType())))
-            .getEncoding());
-    DataType dtype = outputLayoutAttr.getDataType();
-    DataTypeAttr outputDataType =
-        DataTypeAttr::get(rewriter.getContext(), dtype);
-
-    return {axis, outputDataType, /* memory_config = */ nullptr};
+    rewriter.replaceOpWithNewOp<ttnn::RequantizeOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), inputScale, inputZeroPoint, outputScale,
+        outputZeroPoint, axisAttr, outputDataType, ttnn::MemoryConfigAttr());
+    return success();
   }
 };
 
@@ -1638,9 +1655,9 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            NamedFullConversionPattern<ttir::ZerosOp, ttnn::ZerosOp>,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
            ToLayoutOpConversionPattern,
-           QuantizeOpConversionPattern<ttir::QuantizeOp>,
-           QuantizeOpConversionPattern<ttir::DequantizeOp>,
-           QuantizeOpConversionPattern<ttir::RequantizeOp>,
+           QuantizeOpConversionPattern,
+           DequantizeOpConversionPattern,
+           RequantizeOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,

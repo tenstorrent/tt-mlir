@@ -1418,8 +1418,7 @@ createOp(FlatbufferObjectCache &cache, ttnn::QuantizeOp op) {
       getOperandThroughDPSOps(op.getInput()));
   float scale = op.getScale().convertToFloat();
   int32_t zeroPoint = op.getZeroPoint();
-  ::flatbuffers::Optional<int32_t> axis =
-      op.getAxis() ? std::make_optional(*op.getAxis()) : ::flatbuffers::nullopt;
+  ::flatbuffers::Optional<int32_t> axis = op.getAxis();
   ::flatbuffers::Optional<::tt::target::DataType> dtype =
       toFlatbufferOptional(cache, op.getOutputDtype());
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
@@ -1442,8 +1441,7 @@ createOp(FlatbufferObjectCache &cache, ttnn::DequantizeOp op) {
       getOperandThroughDPSOps(op.getInput()));
   float scale = op.getScale().convertToFloat();
   int32_t zeroPoint = op.getZeroPoint();
-  ::flatbuffers::Optional<int32_t> axis =
-      op.getAxis() ? std::make_optional(*op.getAxis()) : ::flatbuffers::nullopt;
+  ::flatbuffers::Optional<int32_t> axis = op.getAxis();
   ::flatbuffers::Optional<::tt::target::DataType> dtype =
       toFlatbufferOptional(cache, op.getOutputDtype());
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
@@ -1468,8 +1466,7 @@ createOp(FlatbufferObjectCache &cache, ttnn::RequantizeOp op) {
   int32_t inputZeroPoint = op.getInZeroPoint();
   float outputScale = op.getOutScale().convertToFloat();
   int32_t outputZeroPoint = op.getOutZeroPoint();
-  ::flatbuffers::Optional<int32_t> axis =
-      op.getAxis() ? std::make_optional(*op.getAxis()) : ::flatbuffers::nullopt;
+  ::flatbuffers::Optional<int32_t> axis = op.getAxis();
   ::flatbuffers::Optional<::tt::target::DataType> dtype =
       toFlatbufferOptional(cache, op.getOutputDtype());
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
