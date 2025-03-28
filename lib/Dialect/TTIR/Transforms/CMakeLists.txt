@@ -7,7 +7,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         GenericGenerateDatamovement.cpp
         GenericGenerateLoops.cpp
         GenericHWThreadSelection.cpp
-        GenericLowerAffineDMAs.cpp
+        GenericLowerDMAs.cpp
         AttachMetalLayout.cpp
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp

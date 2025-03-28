@@ -261,10 +261,12 @@ def TTIRGenericGenerateLoops : Pass<"ttir-generic-generate-loops", "::mlir::Modu
   }];
 }
 
-def TTIRGenericLowerAffineDMAs : Pass<"ttir-generic-lower-affine-dmas", "::mlir::ModuleOp"> {
-  let summary = "Lower DMA ops from their affine form to indexed form.";
+def TTIRGenericLowerDMAs : Pass<"ttir-generic-lower-dmas", "::mlir::ModuleOp"> {
+  let summary = "Lower DMA ops from their high level form to fully indexed form.";
   let description = [{
-    This pass lowers DMA ops from their affine form to indexed form. This is useful for doing analysis on the DMA
+    This pass lowers DMA ops from their high level forms to fully indexed form.
+
+    One important pattern is rewriting their affine form to indexed form. This is useful for doing analysis on the DMA
     ops and lowering them to an optimal loop nest of coalesced transactions.  This is acheived by sampling the affine
     map over the entire parent generic op iterator space. Note that the affine map provided to the DMA op must be
     one of the indexing maps of the parent generic op.

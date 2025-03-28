@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-generic-lower-affine-dmas %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-generic-lower-dmas %s | FileCheck %s
 
 #dram = #tt.memory_space<dram>
 #l1_ = #tt.memory_space<l1>
@@ -21,7 +21,7 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!tt.tile<32x32, f32>,
     // CHECK-DAG: [[core0:%.*]] = ttir.core_index(0)
     // CHECK-DAG: arith.muli
     // CHECK-DAG: arith.addi
-    // CHECK: ttir.dma %stream{{[_0-9]*}} [%{{.*}}, [[iter2]]]
+    // CHECK: ttir.dma %stream{{[_0-9]*}} [%{{.*}}, [[iter2]], %c0, %c0]
     %tx = ttir.dma %stream<#map1>, %cb0 : (memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 8192 + d3 * 4096)>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
     ttir.dma_wait %tx
     ttir.yield %cb0 : (memref<2x2x!tt.tile<32x32, f32>, #l1_>)
@@ -32,7 +32,7 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!tt.tile<32x32, f32>,
     // CHECK-DAG: [[core1:%.*]] = ttir.core_index(1)
     // CHECK-DAG: arith.muli
     // CHECK-DAG: arith.addi
-    // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], %{{.*}}]
+    // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], %{{.*}}, %c0, %c0]
     %tx = ttir.dma %stream_2<#map2>, %cb1 : (memref<2x1x2x2x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 8192 + d3 * 4096)>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
     ttir.dma_wait %tx
     ttir.yield %cb1 : (memref<2x2x!tt.tile<32x32, f32>, #l1_>)
@@ -61,7 +61,7 @@ func.func @matmul_single_core_transpose(%arg0: memref<1x2x2x2x!tt.tile<32x32, f3
     // CHECK-DAG: [[core0:%.*]] = ttir.core_index(0)
     // CHECK-DAG: arith.muli
     // CHECK-DAG: arith.addi
-    // CHECK: ttir.dma %stream{{[_0-9]*}} [%{{.*}}, [[iter2]]]
+    // CHECK: ttir.dma %stream{{[_0-9]*}} [%{{.*}}, [[iter2]], %c0, %c0]
     %tx = ttir.dma %stream<#map1>, %cb0 : (memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 8192 + d3 * 4096)>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
     ttir.dma_wait %tx
     ttir.yield %cb0 : (memref<2x2x!tt.tile<32x32, f32>, #l1_>)
@@ -73,9 +73,9 @@ func.func @matmul_single_core_transpose(%arg0: memref<1x2x2x2x!tt.tile<32x32, f3
     // CHECK-DAG: arith.muli
     // CHECK-DAG: arith.addi
     // CHECK: ttir.null_tx
-    // CHECK-NEXT: scf.for
-    // CHECK-NEXT: scf.for
-    // CHECK-NEXT: ttir.dma %stream{{[_0-9]*}} [[[iter2]], %{{.*}}]
+    // CHECK-NEXT: scf.for [[for_iter_i:%[a-zA-Z0-9]*]] =
+    // CHECK-NEXT: scf.for [[for_iter_j:%[a-zA-Z0-9]*]] =
+    // CHECK-NEXT: ttir.dma %stream{{[_0-9]*}} [[[iter2]], %{{.*}}, [[for_iter_i]], [[for_iter_j]]]
     // CHECK: scf.yield
     // CHECK: scf.yield
     %tx = ttir.dma %stream_2<#map2>, %cb1 : (memref<2x1x2x2x!tt.tile<32x32, f32>, #tt.stream<(d1, d0, d3, d2) -> (d0, d1, d2 * 8192 + d3 * 4096)>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
@@ -114,7 +114,7 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, 
       // CHECK-DAG: [[core0:%.*]] = ttir.core_index(0)
       // CHECK-DAG: arith.muli
       // CHECK-DAG: arith.addi
-      // CHECK: ttir.dma %stream{{[_0-9]*}} [%{{.*}}, [[iter2]]]
+      // CHECK: ttir.dma %stream{{[_0-9]*}} [%{{.*}}, [[iter2]], %c0, %c0]
       %tx = ttir.dma %stream<#map1>, %cb0 : (memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 24576 + d3 * 4096)>, #l1_>, memref<4x6x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem0, %c3 reset %c0
@@ -140,7 +140,7 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, 
       // CHECK-DAG: [[core1:%.*]] = ttir.core_index(1)
       // CHECK-DAG: arith.muli
       // CHECK-DAG: arith.addi
-      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], %{{.*}}]
+      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], %{{.*}}, %c0, %c0]
       %tx = ttir.dma %stream_2<#map2>, %cb1 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 32768 + d3 * 4096)>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem2, %c1 reset %c0
@@ -185,7 +185,7 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!tt.tile<32x32, f
       // CHECK-DAG: [[core0:%.*]] = ttir.core_index(0)
       // CHECK-DAG: arith.muli
       // CHECK-DAG: arith.addi
-      // CHECK: ttir.dma %stream{{[_0-9]*}} [%{{.*}}, [[iter2]]]
+      // CHECK: ttir.dma %stream{{[_0-9]*}} [%{{.*}}, [[iter2]], %c0, %c0]
       %tx = ttir.dma %stream<#map1>, %cb0 : (memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 24576 + d3 * 4096)>, #l1_>, memref<4x6x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem0, %c3 reset %c0
@@ -211,7 +211,7 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!tt.tile<32x32, f
       // CHECK-DAG: [[core1:%.*]] = ttir.core_index(1)
       // CHECK-DAG: arith.muli
       // CHECK-DAG: arith.addi
-      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], %{{.*}}]
+      // CHECK: ttir.dma %stream{{[_0-9]*}} [[[iter2]], %{{.*}}, %c0, %c0]
       %tx = ttir.dma %stream_2<#map2>, %cb1 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 32768 + d3 * 4096)>, #dram>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem2, %c1 reset %c0
