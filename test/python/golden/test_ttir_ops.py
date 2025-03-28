@@ -13,8 +13,6 @@ from ttmlir.passes import GoldenTensor, DataType
 from ttmlir.ir import (
     DenseI64ArrayAttr,
     DenseI32ArrayAttr,
-    IntegerAttr,
-    IntegerType,
 )
 
 
