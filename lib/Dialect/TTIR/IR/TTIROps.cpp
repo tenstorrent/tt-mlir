@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -3421,4 +3422,33 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 ::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
   return operandsInRegionArguments(
       getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
+}
+
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
+/*
+::mlir::LogicalResult mlir::tt::ttir::AddOp::verify() {
+  MLIRContext* context = getContext();
+  Location location = getLoc();
+  ValueRange operands = getOperands();
+  DictionaryAttr attributes = getAttrDictionary();
+  ::mlir::OpaqueProperties properties;
+  ::mlir::RegionRange regions;
+  ::llvm::SmallVectorImpl<::mlir::Type> inferredReturnTypes;
+
+  return AddOp::inferReturnTypes();
+}
+  */
+
+::mlir::LogicalResult mlir::tt::ttir::AddOp::inferReturnTypes(::mlir::MLIRContext *context, ::std::optional<::mlir::Location> location, ::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes, ::mlir::OpaqueProperties properties, ::mlir::RegionRange regions, ::llvm::SmallVectorImpl<::mlir::Type>& inferredReturnTypes) {
+  auto lhs = mlir::dyn_cast<mlir::RankedTensorType>(operands[0].getType());
+  auto rhs = mlir::dyn_cast<mlir::RankedTensorType>(operands[1].getType());
+
+  if(!lhs || !rhs || lhs != rhs) {
+    return mlir::failure();
+  }
+
+  inferredReturnTypes.push_back(lhs);
+  return mlir::success();
 }

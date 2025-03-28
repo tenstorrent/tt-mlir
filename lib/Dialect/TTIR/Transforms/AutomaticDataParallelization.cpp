@@ -193,6 +193,15 @@ public:
             }
 
             addOp->erase();
+
+            DictionaryAttr dictAttributes = mlir::DictionaryAttr::get(context, attributes);
+            mlir::OpaqueProperties emptyOpaqueProps(nullptr);
+            ::mlir::RegionRange regions;
+            ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
+            
+            if(mlir::succeeded(AddOp::inferReturnTypes(context, loc, operands, dictAttributes, emptyOpaqueProps, regions, inferredReturnTypes))) {
+              llvm::outs() << "yaya\n";
+            }
           }
           else if(ttir::ReluOp reluOp = llvm::dyn_cast<ttir::ReluOp>(op)) {
             // create new relu op

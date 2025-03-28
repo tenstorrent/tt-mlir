@@ -1886,7 +1886,7 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
     TTIR_ElementwiseBinaryOp<mnemonic, traits> {
 }
 
-def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
+def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
     let summary = "Eltwise add.";
     let description = [{
       Eltwise add operation.
