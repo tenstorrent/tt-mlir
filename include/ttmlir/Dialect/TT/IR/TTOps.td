@@ -142,19 +142,20 @@ def TT_DeviceOp : TT_Op<"device", [Symbol]> {
 def TT_LoadCachedOp : TT_Op<"load_cached", []> {
   let summary = "Load cached results from a previously computed function";
   let description = [{
-    The load_cached operation calls a precomputed function with given arguments
-    and returns its results. This is typically used to load constant or hoisted
-    computation results.
+    The load_cached operation calls a precomputed function and returns its results,
+    using a list of indices that correspond to function parameter numbers to determine
+    which inputs to use. This is typically used to load constant or hoisted computation results.
 
     Example:
     ```mlir
-    %0, %1, %2 = "tt.load_cached"(@forward_const_eval_1, [%arg0, %arg2])
+    %0, %1, %2 = "tt.load_cached"(@forward_const_eval_1, [0, 2])
     ```
+    This example uses parameters at indices 0 and 2 as inputs to the function.
   }];
 
   let arguments = (ins
     FlatSymbolRefAttr:$callee,
-    Variadic<AnyRankedTensor>:$inputs
+    DenseI32ArrayAttr:$input_indices
   );
 
   let results = (outs
@@ -162,7 +163,7 @@ def TT_LoadCachedOp : TT_Op<"load_cached", []> {
   );
 
   let assemblyFormat = [{
-    `(` $callee `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $results)
+    `(` $callee `,` `[` $input_indices `]` `)` attr-dict `:` type($results)
   }];
 
   let hasVerifier = 1;

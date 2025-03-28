@@ -118,15 +118,9 @@ LogicalResult CPUModuleOp::verify() { return verifyModuleWrapper(*this); }
 LogicalResult LoadCachedOp::verify() {
   // Verify that the callee exists
   FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
-<<<<<<< HEAD
   func::FuncOp calleeFunc =
       SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this, calleeAttr);
   if (!calleeFunc) {
-=======
-  func::FuncOp funcOp =
-      SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this, calleeAttr);
-  if (!funcOp) {
->>>>>>> 170084d14 (switch to traits, address most feedback)
     return emitOpError() << "'" << calleeAttr.getValue()
                          << "' does not reference a function";
   }

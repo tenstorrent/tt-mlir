@@ -247,6 +247,9 @@ PYBIND11_MODULE(_C, m) {
   m.def("get_layout", &tt::runtime::getLayout, py::arg("executable"),
         py::arg("program_index"), py::arg("input_index"),
         "Get the layout of the input tensor");
+  m.def("dirty_tensor", &tt::runtime::dirtyTensor, py::arg("tensor"),
+        "Mark a tensor as dirty--any dependent const-eval tensors in the cache "
+        "must be recomputed.");
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
