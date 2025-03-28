@@ -163,7 +163,12 @@ def test_dot_general(
             contract_dims_rhs,
         )
 
-    compile_to_flatbuffer(dot_general, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        dot_general,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 def add(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -289,7 +294,12 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
     def prod(in0: Operand, builder: TTIRBuilder):
         return builder.prod(in0, [dim_arg], keep_dim)
 
-    compile_to_flatbuffer(prod, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        prod,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
@@ -297,7 +307,12 @@ def test_lt(shape: Shape, request):
     def lt(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.lt(in0, in1)
 
-    compile_to_flatbuffer(lt, [shape, shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        lt,
+        [shape, shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 def where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
@@ -319,7 +334,12 @@ def test_concat(shapes: List[Shape], dim: int, request):
     def concat(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         return builder.concat([in0, in1, in2], dim=dim)
 
-    compile_to_flatbuffer(concat, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        concat,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.skip(
@@ -331,7 +351,12 @@ def test_squeeze(shape: Shape, dim: int, request):
     def squeeze(in0: Operand, builder: TTIRBuilder):
         return builder.squeeze(in0, dim)
 
-    compile_to_flatbuffer(squeeze, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        squeeze,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.skip(
@@ -343,7 +368,12 @@ def test_unsqueeze(shape: Shape, dim: int, request):
     def unsqueeze(in0: Operand, builder: TTIRBuilder):
         return builder.unsqueeze(in0, dim)
 
-    compile_to_flatbuffer(unsqueeze, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        unsqueeze,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shape", [(1, 32, 32)])
@@ -352,7 +382,12 @@ def test_repeat(shape: Shape, dims: List[int], request):
     def repeat(in0: Operand, builder: TTIRBuilder):
         return builder.repeat(in0, dims=dims)
 
-    compile_to_flatbuffer(repeat, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        repeat,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -367,7 +402,12 @@ def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request)
     def repeat_interleave(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.repeat_interleave(in0, in1, repeats=repeats, dim=dim)
 
-    compile_to_flatbuffer(repeat_interleave, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        repeat_interleave,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shapes", [[(1, 1, 32), (1, 16, 32)]])
@@ -376,7 +416,12 @@ def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request
     def broadcast(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.broadcast(in0, in1, broadcast_dimensions=broadcast_dimensions)
 
-    compile_to_flatbuffer(broadcast, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        broadcast,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.skip("IntegerAttr type mismatch, see issue #2683")
@@ -418,7 +463,13 @@ def test_conv2d(
             groups=groups,
         )
 
-    compile_to_flatbuffer(conv2d, shapes, dtypes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        conv2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.skip("IntegerAttr type mismatch, see issue #2683")
@@ -500,7 +551,13 @@ def test_conv_transpose2d(
             groups=groups,
         )
 
-    compile_to_flatbuffer(conv_transpose2d, shapes, dtypes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        conv_transpose2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -542,7 +599,13 @@ def test_max_pool2d(
             padding_bottom=padding_bottom,
         )
 
-    compile_to_flatbuffer(max_pool2d, shapes, dtypes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        max_pool2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shapes", [[(1, 1, 5, 5), (2, 6, 14, 18)]])
@@ -552,7 +615,12 @@ def test_pad(shapes: List[Shape], padding: List[int], value: int, request):
     def pad(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.pad(in0, in1, padding=padding, value=value)
 
-    compile_to_flatbuffer(pad, inputs_shapes=shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        pad,
+        inputs_shapes=[shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shape", [(32, 64)])
@@ -561,7 +629,12 @@ def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request)
     def index(in0: Operand, builder: TTIRBuilder):
         return builder.index(in0, dim=dim, begin=begin, end=end, step=step)
 
-    compile_to_flatbuffer(index, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        index,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.skip("`select` throwing floating point exception. See issue #2496")
@@ -571,7 +644,12 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, request):
     def select(in0: Operand, builder: TTIRBuilder):
         return builder.select(in0, dim=dim, begin=begin, length=length)
 
-    compile_to_flatbuffer(select, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        select,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 # TODO: these three nullary tensor creation ops can probably be combined in some way
@@ -580,7 +658,12 @@ def test_zeros(shapes: List[Shape], request):
     def zeros(builder: TTIRBuilder):
         return builder.zeros(shapes)
 
-    compile_to_flatbuffer(zeros, inputs_shapes=[], test_base=request.node.name)
+    compile_to_flatbuffer(
+        zeros,
+        inputs_shapes=[],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
@@ -588,7 +671,12 @@ def test_ones(shape: Shape, request):
     def ones(builder: TTIRBuilder):
         return builder.ones(shape)
 
-    compile_to_flatbuffer(ones, inputs_shapes=[], test_base=request.node.name)
+    compile_to_flatbuffer(
+        ones,
+        inputs_shapes=[],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
@@ -596,7 +684,12 @@ def test_empty(shape: Shape, request):
     def empty(builder: TTIRBuilder):
         return builder.empty(shape)
 
-    compile_to_flatbuffer(empty, inputs_shapes=[], test_base=request.node.name)
+    compile_to_flatbuffer(
+        empty,
+        inputs_shapes=[],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
@@ -605,7 +698,12 @@ def test_argmax(shapes, dim, request):
     def argmax(in0: Operand, builder: TTIRBuilder):
         return builder.argmax(in0, [dim])
 
-    compile_to_flatbuffer(argmax, inputs_shapes=shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        argmax,
+        inputs_shapes=shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.skip("`reverse` doesn't have a legalization. See issue #2495")
@@ -615,7 +713,12 @@ def test_reverse(shape: Shape, dims: List[int], request):
     def reverse(in0: Operand, builder: TTIRBuilder):
         return builder.reverse(in0, dims=dims)
 
-    compile_to_flatbuffer(reverse, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        reverse,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.skip(
@@ -641,7 +744,13 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
     def reduce_or(in0: Operand, builder: TTIRBuilder):
         return builder.reduce_or(in0, dim_args=dim_args)
 
-    compile_to_flatbuffer(reduce_or, [shape], [torch.bool], test_base=request.node.name)
+    compile_to_flatbuffer(
+        reduce_or,
+        [shape],
+        [torch.bool],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shapes", [[(2, 3, 4), (3, 4, 2)]])
@@ -650,7 +759,12 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
     def permute(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.permute(in0, in1, permutation=DenseI64ArrayAttr.get(permutation))
 
-    compile_to_flatbuffer(permute, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        permute,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]])
@@ -661,7 +775,12 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
             in0, in1, scale_factor=DenseI32ArrayAttr.get(scale_factor)
         )
 
-    compile_to_flatbuffer(upsample2d, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        upsample2d,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shape,start,end,step,dim", [((5,), 0, 5, 1, 0)])
@@ -669,7 +788,12 @@ def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request
     def arange(in0: Operand, builder: TTIRBuilder):
         return builder.arange(in0, start, end, step, dim)
 
-    compile_to_flatbuffer(arange, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        arange,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 @pytest.mark.parametrize("shape", [(32, 32)])
@@ -689,7 +813,12 @@ def test_cumsum(shapes: List[Shape], dim: int, request):
     def cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.cumsum(in0, in1, dim=dim)
 
-    compile_to_flatbuffer(cumsum, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        cumsum,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+    )
 
 
 def prod(in0: Operand, builder: TTIRBuilder):
@@ -894,6 +1023,7 @@ def test_unary_ops(
         inputs_shapes=[shape],
         inputs_types=[dtype],
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
     )
 
 
@@ -926,7 +1056,11 @@ def test_unary_ops(
 def test_binary_ops(test_fn: Callable, shape: Shape, dtype: torch.dtype, request):
     """NOTE: this function is _only_ for binary ops that take the same shape arguments"""
     compile_to_flatbuffer(
-        test_fn, [shape, shape], [dtype, dtype], test_base=request.node.name
+        test_fn,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
     )
 
 
@@ -938,6 +1072,7 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         inputs_shapes=[shape] * 2,
         inputs_types=[torch.int8] * 2,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
     )
 
 
@@ -961,4 +1096,5 @@ def test_unique_ops(
         inputs_shapes=inputs_shapes,
         inputs_types=inputs_dtypes,
         test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
     )

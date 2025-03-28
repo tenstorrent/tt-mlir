@@ -12,16 +12,18 @@ from ttmlir.ttir_builder import Operand, TTIRBuilder, Shape
 
 @pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
-def test_arbitrary_model(
-    shapes: List[Shape], dtypes: List[torch.dtype], artifact_path: str, request
-):
+def test_arbitrary_model(shapes: List[Shape], dtypes: List[torch.dtype], request):
     def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         add = builder.add(in0, in1)
         exp = builder.exp(in2)
         return builder.multiply(add, exp)
 
     compile_to_flatbuffer(
-        model, shapes, dtypes, test_base=request.node.name, output_root=artifact_path
+        model,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("path"),
     )
 
 
@@ -52,7 +54,6 @@ def test_mnist(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     target: str,
-    artifact_path: str,
     request,
 ):
     def model(
@@ -77,7 +78,7 @@ def test_mnist(
         dtypes,
         test_base=request.node.name,
         target=target,
-        output_root=artifact_path,
+        output_root=request.config.getoption("path"),
     )
 
 
@@ -115,7 +116,6 @@ def test_llama_attention(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     target: str,
-    artifact_path: str,
     request,
 ):
     def model(
@@ -203,5 +203,5 @@ def test_llama_attention(
         dtypes,
         target=target,
         test_base=request.node.name,
-        output_root=artifact_path,
+        output_root=request.config.getoption("path"),
     )
