@@ -577,6 +577,11 @@ inline std::string firstNLines(std::string str, int n) {
   return result;
 }
 
+template <typename...>
+constexpr bool always_false() {
+  return false;
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H
