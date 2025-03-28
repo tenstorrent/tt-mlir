@@ -435,46 +435,4 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
   return {};
 }
 
-inline namespace legacy {
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize,
-                  std::optional<DispatchCoreType> dispatchCoreType,
-                  [[maybe_unused]] std::optional<bool> enableAsyncTTNN,
-                  [[maybe_unused]] std::optional<bool> enableProgramCache) {
-  LOG_ASSERT(deviceIds.size(), "No devices specified");
-
-  ::tt::tt_metal::DispatchCoreType type =
-      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
-
-  ::tt::tt_metal::distributed::MeshShape grid{
-      1, static_cast<uint32_t>(deviceIds.size())};
-  size_t l1SmallSizeValue = l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
-  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
-      ::tt::tt_metal::distributed::MeshDevice::create(
-          ::tt::tt_metal::distributed::MeshDeviceConfig(grid), l1SmallSizeValue,
-          DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
-
-  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
-  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
-           "}");
-
-  return Device(std::static_pointer_cast<void>(meshDevice),
-                DeviceRuntime::TTMetal);
-}
-
-void closeDevice(Device device) {
-  ::tt::tt_metal::distributed::MeshDevice &ttmetalMeshDevice =
-      device.as<::tt::tt_metal::distributed::MeshDevice>(
-          DeviceRuntime::TTMetal);
-
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (::tt::tt_metal::IDevice *ttmetalDevice :
-       ttmetalMeshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
-  }
-#endif
-  ttmetalMeshDevice.close();
-}
-} // namespace legacy
-
 } // namespace tt::runtime::ttmetal
