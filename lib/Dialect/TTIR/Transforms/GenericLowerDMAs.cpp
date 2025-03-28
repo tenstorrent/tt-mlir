@@ -259,7 +259,7 @@ public:
     while (srcIndices.size() < (size_t)dma.getSrcMemRefType().getRank()) {
       srcIndices.push_back(zero);
     }
-    while (dstIndices.size() < (size_t)dma.getDstMemRefType().getRank()) {
+    while (dstIndices.size() < static_cast<size_t>(dma.getDstMemRefType().getRank())) {
       dstIndices.push_back(zero);
     }
     rewriter.replaceOpWithNewOp<ttir::DMAOp>(
