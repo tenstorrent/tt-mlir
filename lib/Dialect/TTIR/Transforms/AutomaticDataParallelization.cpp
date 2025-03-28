@@ -221,6 +221,28 @@ public:
 
             reluOp->erase();
           }
+          else if(ttir::MatmulOp matmulOp = llvm::dyn_cast<ttir::MatmulOp>(op)) {
+            // create new relu op
+            builder.setInsertionPoint(matmulOp);
+          
+            auto loc = matmulOp.getLoc();
+            mlir::RankedTensorType outputType = mlir::dyn_cast<mlir::RankedTensorType>(matmulOp.getType());
+          
+            llvm::SmallVector<int64_t> newShape(outputType.getShape().begin(), outputType.getShape().end());
+            newShape[0] = newShape[0] / meshShapeRef[1];
+            mlir::RankedTensorType newOutputType = RankedTensorType::get(newShape, outputType.getElementType());
+            ttir::EmptyOp emptyOp = builder.create<ttir::EmptyOp>(loc, newOutputType.getShape(), newOutputType.getElementType());
+            
+            llvm::SmallVector<mlir::Type> resultTypes = {newOutputType};
+            llvm::SmallVector<mlir::Value> operands = {matmulOp->mlir::Operation::getOperand(0), matmulOp->mlir::Operation::getOperand(1), emptyOp.getResult()};
+            llvm::SmallVector<mlir::NamedAttribute> attributes;
+            ttir::MatmulOp newMatmulOp = builder.create<ttir::MatmulOp>(loc, resultTypes, operands, attributes);
+          
+            // replace all users of the old add op with this new add op
+            matmulOp.getResult().replaceAllUsesWith(newMatmulOp.getResult());
+          
+            matmulOp->erase();
+          }
         }
       }
     }
