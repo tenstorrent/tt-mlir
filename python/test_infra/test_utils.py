@@ -329,6 +329,7 @@ def compile_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
     target: str = "ttnn",
@@ -403,7 +404,13 @@ def compile_to_flatbuffer(
     )
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-    module = from_ttir(module, module_dump, output_root, test_base + mlir_suffix)
+    module = from_ttir(
+        module,
+        module_dump,
+        output_root,
+        test_base + mlir_suffix,
+        system_desc_path=system_desc_path,
+    )
 
     module_logger = MLIRModuleLogger()
     module_logger.attach_context(module.context)
