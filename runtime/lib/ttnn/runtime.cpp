@@ -990,8 +990,8 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
                    return &input.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
                  });
 
-  std::vector<Tensor> outputs = runProgram(meshDevice, executableHandle,
-                                           programIndex, ttnnInputs, nullptr);
+  std::vector<Tensor> outputs = runProgram(
+      meshDevice, executableHandle, programIndex, ttnnInputs, nullptr, {});
   return outputs;
 }
 
@@ -1030,7 +1030,7 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
   std::vector<Tensor> outputs =
       runProgram(meshDevice, executableHandle, programIndex, ttnnInputs,
-                 tensorCache, inputVersions);
+                 tensorCache, std::move(inputVersions));
   return outputs;
 }
 

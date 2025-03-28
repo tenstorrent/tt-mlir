@@ -222,6 +222,20 @@ class Run:
             help="enable tensor caching between program runs for const-eval",
         )
         Run.register_arg(
+            name="--dirty-input-index",
+            type=int,
+            default=-1,
+            choices=None,
+            help="index of input tensor to dirty after specified iterations (negative means disabled)",
+        )
+        Run.register_arg(
+            name="--dirty-after-iterations",
+            type=int,
+            default=1,
+            choices=None,
+            help="number of iterations after which to dirty the specified input tensor",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",

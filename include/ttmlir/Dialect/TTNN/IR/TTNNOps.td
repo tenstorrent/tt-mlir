@@ -1543,6 +1543,14 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
       %0 = "ttnn.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
   }];
+
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TTNN_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_OnesOp : TTNN_NamedFullOp<"ones", [TT_CreationOpTrait]> {
@@ -1556,6 +1564,14 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones", [TT_CreationOpTrait]> {
       %0 = "ttnn.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
   }];
+
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TTNN_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_FullOp : TTNN_Op<"full", [TT_CreationOpTrait]> {
