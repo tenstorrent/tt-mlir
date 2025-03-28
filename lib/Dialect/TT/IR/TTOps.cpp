@@ -127,14 +127,15 @@ LogicalResult LoadCachedOp::verify() {
 
   FunctionType fnType = funcOp.getFunctionType();
 
-  if (fnType.getNumInputs() != this->getNumOperands()) {
-    return emitOpError("Incorrect number of operands for callee -- expected ")
-           << fnType.getNumInputs() << " but got: " << this->getNumOperands();
-  }
+  // Verify that all indices in input_indices are valid
+  llvm::ArrayRef<int32_t> inputIndices = this->getInputIndices();
 
-  for (unsigned i = 0; i < fnType.getNumInputs(); ++i) {
-    if (this->getOperand(i).getType() != fnType.getInput(i)) {
-      return emitOpError("Operand type mismatch at index ") << i;
+  // Verify each input index is valid for the function signature
+  for (int32_t index : inputIndices) {
+    if (index < 0 || static_cast<unsigned>(index) >= fnType.getNumInputs()) {
+      return emitOpError("input index ")
+             << index << " out of range; function has " << fnType.getNumInputs()
+             << " parameters";
     }
   }
 

@@ -846,6 +846,13 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
+  // Extract versions from input tensors
+  std::vector<uint64_t> inputVersions;
+  inputVersions.reserve(inputHandles.size());
+  for (const auto &input : inputHandles) {
+    inputVersions.push_back(input.version.load());
+  }
+
   // Convert input tensors to the layout expected by the program
   std::vector<Tensor> inputsWithLayout;
   inputsWithLayout.reserve(inputHandles.size());
@@ -865,8 +872,9 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                    return &input.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
                  });
 
-  std::vector<Tensor> outputs = runProgram(
-      meshDevice, executableHandle, programIndex, ttnnInputs, tensorCache);
+  std::vector<Tensor> outputs =
+      runProgram(meshDevice, executableHandle, programIndex, ttnnInputs,
+                 tensorCache, inputVersions);
   return outputs;
 }
 

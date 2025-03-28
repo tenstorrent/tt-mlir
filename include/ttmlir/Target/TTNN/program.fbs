@@ -454,7 +454,7 @@ table CpuOp {
 }
 
 table LoadCachedOp {
-  inputs: [tt.target.ttnn.TensorRef];
+  inputs_indexes: [uint32];
   callee_name: string;
   program_idx: uint32;
   outputs: [tt.target.ttnn.TensorRef];

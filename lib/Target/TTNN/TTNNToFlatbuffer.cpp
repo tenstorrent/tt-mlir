@@ -1437,12 +1437,10 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
 createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
-  // Collect input tensors
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
-  for (auto input : op.getInputs()) {
-    auto in =
-        cache.at<::tt::target::ttnn::TensorRef>(getOperandThroughDPSOps(input));
-    inputs.push_back(in);
+  // Collect input indices from the attribute
+  std::vector<uint32_t> inputIndices;
+  for (int32_t idx : op.getInputIndices()) {
+    inputIndices.push_back(static_cast<uint32_t>(idx));
   }
 
   // Collect output tensors
@@ -1454,11 +1452,11 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
 
   const uint32_t programIdx = programIdxMap[op.getCallee().str()];
 
-  // Create the LoadCachedOp
+  // Create the LoadCachedOp with indices instead of inputs
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
-      *cache.fbb, &inputs, op.getCallee().str().c_str(), programIdx, &outputs);
+      *cache.fbb, &inputIndices, op.getCallee().str().c_str(), programIdx,
+      &outputs);
 }
-
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString, std::string const &locInfo) {
