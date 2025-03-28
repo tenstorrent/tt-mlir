@@ -44,7 +44,7 @@ struct ConstEvalAnalysisResults {
 
 namespace {
 // Analyzer class to detect const-eval subgraphs in a given FuncOp using
-// union-find.
+// a Disjoint Subset Union algorithm.
 class ConstEvalAnalyze {
 public:
   ConstEvalAnalyze(func::FuncOp *funcOp) : funcOp(funcOp) {
@@ -52,6 +52,9 @@ public:
     buildConstEvalSubgraphs();
   }
 
+  // Recursively collapse subsets into subgraphs by iterating over ops in order
+  // and grouping them based on root idx; also collect sets of params
+  // dependencies.
   ConstEvalAnalysisResults getAnalysisResults() {
     llvm::SmallVector<ConstEvalSubgraph, 4> finalSubgraphs;
 
@@ -59,10 +62,10 @@ public:
     llvm::DenseMap<size_t, llvm::SmallPtrSet<mlir::BlockArgument, 4>>
         rootToParamsMap;
 
-    // Collect all operations in the original order
+    // Collect all operations by root index.
     llvm::DenseMap<size_t, llvm::SmallVector<Operation *, 4>> rootToOpsMap;
 
-    // Process all operations and collect them by root
+    // Process all operations in original order and collect them by root
     for (auto &block : funcOp->getBlocks()) {
       for (auto &op : block.getOperations()) {
         auto opIt = opToSubgraphMap.find(&op);
@@ -134,7 +137,7 @@ private:
     }
   }
 
-  // ======  Union-find operations  ====== //
+  // Recurse up hierarchy to find root of given subset.
   size_t findRoot(size_t id) {
     auto [it, inserted] = parent.insert({id, id});
     if (inserted) {
@@ -149,6 +152,7 @@ private:
     return it->second;
   }
 
+  // Union operation for two subsets.
   void unionSubgraphs(size_t x, size_t y) {
     const size_t rootX = findRoot(x);
     const size_t rootY = findRoot(y);
@@ -168,12 +172,9 @@ private:
       }
     }
   }
-  // ======  ---------------  ====== //
 
   void buildConstEvalSubgraphs() {
-    // Iterate over all blocks in the function
     for (auto &block : funcOp->getBlocks()) {
-      // Iterate over all operations in the block
       for (auto &opRef : block.getOperations()) {
         processOp(&opRef);
       }
@@ -181,12 +182,12 @@ private:
   }
 
   void processOp(Operation *op) {
-    // Skip unhoistable and creation ops
-    if (isUnhoistableOp(op) || isCreationOp(op)) {
+    // Skip creation ops, they have special handling.
+    if (isCreationOp(op)) {
       return;
     }
 
-    // Handle shared ops separately
+    // Handle shared ops separately as well.
     if (isSharedOp(op)) {
       sharedOps.push_back(op);
       return;
@@ -208,24 +209,22 @@ private:
     }
 
     // Determine which subgraph this op belongs to
-    size_t targetSubgraphId{};
-
+    size_t targetSubgraphId = 0;
     if (dependentSubgraphIds.empty()) {
-      // Create a new subgraph
+      // Create a new subset id.
       targetSubgraphId = nextSubgraphId++;
 
-      // Initialize union-find entry
+      // Initialize union-find entry for new subset.
       parent[targetSubgraphId] = targetSubgraphId;
       rank[targetSubgraphId] = 0;
     } else if (dependentSubgraphIds.size() == 1) {
-      // Join existing subgraph
+      // Join existing subset.
       targetSubgraphId = *dependentSubgraphIds.begin();
     } else {
       // Need to merge multiple subgraphs
       // Convert to vector for easier handling
       llvm::SmallVector<size_t, 2> subgraphIdVector(
           dependentSubgraphIds.begin(), dependentSubgraphIds.end());
-      // std::sort(subgraphIdVector.begin(), subgraphIdVector.end());
 
       // Choose first as target
       targetSubgraphId = subgraphIdVector[0];
@@ -294,7 +293,7 @@ private:
       }
 
       // Check if it's a valid creation op
-      if (!isUnhoistableOp(defOp) && isCreationOp(defOp)) {
+      if (isCreationOp(defOp)) {
         creationOps.insert(defOp);
         return true;
       }
@@ -308,11 +307,6 @@ private:
   bool isCreationOp(mlir::Operation *op) {
     assert(op != nullptr);
     return op->hasTrait<mlir::tt::Trait::TTCreationOpTrait>();
-  }
-
-  bool isUnhoistableOp(mlir::Operation *op) {
-    assert(op != nullptr);
-    return op->hasTrait<mlir::tt::Trait::TTIgnoreConstEvalTrait>();
   }
 
   bool isSharedOp(mlir::Operation *op) {

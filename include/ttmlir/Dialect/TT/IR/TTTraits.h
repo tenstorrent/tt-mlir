@@ -14,10 +14,6 @@ class TTCreationOpTrait
     : public mlir::OpTrait::TraitBase<Ty, TTCreationOpTrait> {};
 
 template <typename Ty>
-class TTIgnoreConstEvalTrait
-    : public mlir::OpTrait::TraitBase<Ty, TTIgnoreConstEvalTrait> {};
-
-template <typename Ty>
 class TTDuplicateConstEvalTrait
     : public mlir::OpTrait::TraitBase<Ty, TTDuplicateConstEvalTrait> {};
 } // namespace mlir::tt::Trait
