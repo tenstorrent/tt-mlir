@@ -124,6 +124,38 @@ TEST_F(OpModelBase, ReluOpInterface) {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
+
+TEST_F(OpModelBase, SqrtOpInterface) {
+  // create SqrtOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto relu = builder.create<SqrtOp>(builder.getUnknownLoc(), outputType,
+                                     ::mlir::ValueRange{input});
+
+  // test SqrtOp interface
+  auto constraintsExp = getOpConstraints(relu.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cb_size, peak_size, output_size] = l1;
+    EXPECT_EQ(cb_size, 8192);
+    EXPECT_EQ(peak_size, 2048);
+    EXPECT_EQ(output_size, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(relu.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, SoftmaxOpInterface) {
   // create SoftmaxOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
