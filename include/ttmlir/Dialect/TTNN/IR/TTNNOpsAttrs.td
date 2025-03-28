@@ -40,7 +40,7 @@ def TTNN_CoreCoordAttr : TTNN_Attr<"CoreCoord", "core_coord"> {
   }];
 
   let parameters = (ins "uint64_t":$x, "uint64_t":$y);
-  let assemblyFormat = "`<` `(` $x `,` $y `)` `>`";
+  let assemblyFormat = "`<` params `>`";
 }
 
 def TTNN_CoreRangeAttr: TTNN_Attr<"CoreRange", "core_range"> {
