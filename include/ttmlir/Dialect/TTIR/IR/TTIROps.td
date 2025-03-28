@@ -148,6 +148,14 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
                          AnyRankedTensorOrMemRef:$output);
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
+    let builders =
+    [
+      OpBuilder<(ins "Value": $input, "Value": $output),
+      [{
+        build($_builder, $_state, {output.getType()}, input, output);
+      }]>,
+    ];
+
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
 
@@ -165,6 +173,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
@@ -1703,6 +1712,7 @@ def TTIR_EmptyOp : TTIR_Op<"empty",
   [ Pure
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
                                                        , "bufferizesToMemoryWrite"
+                                                       , "bufferizesToAllocation"
                                                        , "bufferize"
                                                        , "getAliasingValues"
                                                        , "getBufferType"
@@ -1730,8 +1740,16 @@ def TTIR_EmptyOp : TTIR_Op<"empty",
     let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }
 
-def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
-                                           AllShapesMatch<["value", "result"]>]> {
+def TTIR_ConstantOp : TTIR_Op<"constant",
+  [ ConstantLike
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , AllShapesMatch<["value", "result"]>
+  ]> {
     let summary = "Constant op.";
     let description = [{
       Produces tensor filled with given constant value.

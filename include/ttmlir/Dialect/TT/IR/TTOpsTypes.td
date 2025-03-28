@@ -63,6 +63,8 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
         }
         return cGridVolume;
       }
+
+      uint64_t getRank() const { return getShape().size(); }
   }];
 }
 
@@ -330,6 +332,13 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
   let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref `>`";
 
   let extraClassDeclaration = [{
+      static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                            RankedTensorType ty,
+                            uint64_t gridRank,
+                            bool tiled = false,
+                            MemorySpace memorySpace = MemorySpace::System,
+                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
+                            OOBVal oobVal = OOBVal::Undef);
       static MetalLayoutAttr get(::mlir::MLIRContext *context,
                             ArrayRef<int64_t> tensorShape,
                             Type elementType,
