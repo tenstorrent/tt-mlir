@@ -1,5 +1,5 @@
-include "Common/types.fbs";
-include "Common/debug_info.fbs";
+include "../Common/types.fbs";
+include "../Common/debug_info.fbs";
 include "types.fbs";
 
 namespace tt.target.ttnn;

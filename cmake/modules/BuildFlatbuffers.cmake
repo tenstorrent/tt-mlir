@@ -18,7 +18,7 @@ foreach(FILE ${sources})
     "${CMAKE_CURRENT_BINARY_DIR}/${BASE_NAME}_generated.h"
     "${CMAKE_CURRENT_BINARY_DIR}/${BASE_NAME}_bfbs_generated.h"
     COMMAND ${FLATBUFFERS_COMPILER}
-    ARGS -I ${PROJECT_SOURCE_DIR}/include/ttmlir/Target
+    ARGS --keep-prefix
     ARGS --bfbs-gen-embed
     ARGS --cpp --cpp-std c++17
     ARGS --scoped-enums --warnings-as-errors

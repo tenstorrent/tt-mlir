@@ -1,5 +1,5 @@
-include "Common/types.fbs";
-include "Common/version.fbs";
+include "../Common/types.fbs";
+include "../Common/version.fbs";
 include "program.fbs";
 include "types.fbs";
 
