@@ -1,4 +1,4 @@
-#!/opt/ttmlir-toolchain/venv/bin/python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
@@ -156,41 +156,59 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Compile EmitC TTNN tests to shared objects."
     )
-    parser.add_argument(
-        "--build-folder",
-        dest="build_folder",
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--build-dir",
+        dest="build_dir",
         type=str,
         default=None,
-        help="Specify a custom build folder instead of the default 'build' directory",
+        metavar="DIR",
+        help="Specify a custom build directory instead of the default 'build' directory",
+    )
+    group.add_argument(
+        "--file",
+        dest="file",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Specify a single cpp file for compilation",
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_arguments()
-    build_folder = args.build_folder
+    build_dir = args.build_dir
+    file = args.file
 
-    # If build_folder is specified, print the information
-    if build_folder:
-        print(f"Using custom build folder: {build_folder}")
+    # Enumerate files for compilation
+    cpp_files = []
+
+    if file:
+        print(f"Using custom file for compilation: {file}")
+        cpp_files.append(file)
     else:
-        build_folder = os.path.join(get_ttmlir_home(), "build")
+        if not build_dir:
+            build_dir = os.path.join(get_ttmlir_home(), "build")
 
-    if not os.path.isdir(build_folder):
-        print(f"Error: Build directory '{build_folder}' does not exist.")
-        sys.exit(1)
+        test_path = get_emitc_tests_path(build_dir)
 
-    test_path = get_emitc_tests_path(build_folder)
+        if not os.path.isdir(test_path):
+            print(f"Error: Test path directory '{test_path}' does not exist.")
+            sys.exit(1)
 
-    if not os.path.isdir(test_path):
-        print(f"Error: Directory '{test_path}' does not exist.")
-        sys.exit(1)
+        print(f"Using test path for compilation: {test_path}")
 
-    for dir_path, _, files in os.walk(test_path):
-        for file in files:
-            if file.endswith(".cpp"):
-                cpp_file_path = os.path.join(dir_path, file)
-                compile_shared_object(cpp_file_path, dir_path)
+        for dir_path, _, files in os.walk(test_path):
+            for file in files:
+                if file.endswith(".cpp"):
+                    cpp_file_path = os.path.join(dir_path, file)
+                    cpp_files.append(cpp_file_path)
+
+    for cpp_file in cpp_files:
+        compile_shared_object(cpp_file, os.path.dirname(cpp_file))
+
+    print("Compilation completed successfully!")
 
 
 if __name__ == "__main__":

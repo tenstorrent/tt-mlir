@@ -9,6 +9,11 @@
   ```bash
   ttrt query --save-artifacts
   ```
+* Activated virtual environment:
+
+  ```bash
+  source env/activate
+  ```
 
 ## Generate EmitC tests and run it
 
@@ -26,10 +31,10 @@
     llvm-lit -sv test/ttmlir/EmitC/TTNN
     ```
 
-2. Compile generated .ccp files to shared objects
+2. Compile generated .cpp files to shared objects
 
     ```python
-    python tools/ttnn-standalone/ci_compile_dylib.py
+    tools/ttnn-standalone/ci_compile_dylib.py
     ```
 
 3. Run flatbuffers + shared objects and compare results
