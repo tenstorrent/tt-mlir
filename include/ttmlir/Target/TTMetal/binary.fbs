@@ -1,6 +1,6 @@
-include "Common/types.fbs";
-include "Common/version.fbs";
-include "Common/debug_info.fbs";
+include "../Common/types.fbs";
+include "../Common/version.fbs";
+include "../Common/debug_info.fbs";
 include "command.fbs";
 include "types.fbs";
 
