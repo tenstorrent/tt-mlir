@@ -543,7 +543,7 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
     return it->second;
   }
 
-  assert(false && "unsupported unary op type");
+  llvm_unreachable("Unsupported unary op type");
 }
 
 inline ::flatbuffers::Offset<
