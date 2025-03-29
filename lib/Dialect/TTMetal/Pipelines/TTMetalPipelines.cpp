@@ -67,7 +67,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttir::createTTIRGenericLinearizeMemref());
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(ttir::createTTIRGenericGenerateDatamovement());
-  pm.addPass(ttir::createTTIRGenericLowerAffineDMAs());
+  pm.addPass(ttir::createTTIRGenericLowerDMAs());
   pm.addPass(ttir::createTTIRGenericHWThreadSelection());
   pm.addPass(ttir::createTTIRGenericGenerateLoops());
   createOptimizationPasses(pm);
