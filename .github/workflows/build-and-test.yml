@@ -291,7 +291,7 @@ jobs:
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
 
     - name: Run Builder Op & Model Tests
-      if: matrix.build.type == 'ttrt' && matrix.build.runs-on == 'n150'
+      if: matrix.build.type == 'ttrt' && matrix.build.runs-on == 'n150' && matrix.build.image == 'tracy'
       shell: bash
       run: |
         source env/activate
@@ -300,14 +300,14 @@ jobs:
         export LD_LIBRARY_PATH=$(pwd)/build/lib
         pytest test/python/golden/test_ttir_ops.py --junit-xml="device-ops-tests.xml" --path="device-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "not fails_golden and not run_error" -v
         cp device-ops-tests.xml ${{ steps.strings.outputs.device_ops_test_report_path }}
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ./device-ops/ttnn/
+        ttrt ${{ matrix.build.name }} ./device-ops/ttnn/
 
         pytest test/python/golden/test_ttir_ops.py --junit-xml="compile-ops-tests.xml" --path="compile-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "fails_golden or run_error" -v
         cp compile-ops-tests.xml ${{ steps.strings.outputs.compile_ops_test_report_path }}
 
         pytest test/python/golden/test_ttir_models.py --junit-xml="device-models-tests.xml" --path="device-models" --sys-desc="${SYSTEM_DESC_PATH}" -m "not fails_golden and not run_error" -v
         cp device-models-tests.xml ${{ steps.strings.outputs.device_models_test_report_path }}
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ./device-models/ttnn/
+        ttrt ${{ matrix.build.name }} ./device-models/ttnn/
 
         pytest test/python/golden/test_ttir_models.py --junit-xml="compile-models-tests.xml" --path="compile-models" --sys-desc="${SYSTEM_DESC_PATH}" -m "fails_golden or run_error" -v
         cp compile-models-tests.xml ${{ steps.strings.outputs.compile_models_test_report_path }}
