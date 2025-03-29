@@ -10,22 +10,15 @@ import sys
 import os
 import subprocess
 import shutil
-
+import argparse
 
 # Returns the path where EmitC TTNN tests live
 #
-def get_emitc_tests_path():
+def get_emitc_tests_path(build_dir):
     if get_emitc_tests_path.path:
         return get_emitc_tests_path.path
 
-    tt_mlir_home = os.environ.get("TT_MLIR_HOME")
-    if not tt_mlir_home:
-        print("Error: TT_MLIR_HOME environment variable is not set.")
-        sys.exit(1)
-
-    get_emitc_tests_path.path = os.path.join(
-        tt_mlir_home, "build/test/ttmlir/EmitC/TTNN"
-    )
+    get_emitc_tests_path.path = os.path.join(build_dir, "test/ttmlir/EmitC/TTNN")
 
     return get_emitc_tests_path.path
 
@@ -33,12 +26,15 @@ def get_emitc_tests_path():
 # Returns TT_MLIR_HOME env var value
 #
 def get_ttmlir_home():
-    tt_mlir_home = os.environ.get("TT_MLIR_HOME")
-    if not tt_mlir_home:
+    if get_ttmlir_home.path:
+        return get_ttmlir_home.path
+
+    get_ttmlir_home.path = os.environ.get("TT_MLIR_HOME")
+    if not get_ttmlir_home.path:
         print("Error: TT_MLIR_HOME environment variable is not set.")
         sys.exit(1)
 
-    return tt_mlir_home
+    return get_ttmlir_home.path
 
 
 # Returns ttnn-standalone dir
@@ -57,14 +53,13 @@ def run_cmake_setup():
     tt_mlir_home = get_ttmlir_home()
 
     source_dir = get_standalone_dir()
-    build_dir = os.path.join(source_dir, "build")
-
+    standalone_build_dir = os.path.join(source_dir, "build")
     cmake_command = [
         "cmake",
         "-G",
         "Ninja",
         "-B",
-        build_dir,
+        standalone_build_dir,
         "-S",
         source_dir,
         "-DCMAKE_BUILD_TYPE=Release",
@@ -91,15 +86,13 @@ def run_cmake_setup():
 #
 get_emitc_tests_path.path = None
 run_cmake_setup.already_created = None
+get_ttmlir_home.path = None
 
 
 # Compile shared object, given source cpp and dest dir
 #
 def compile_shared_object(cpp_file_path, output_dir):
-    tt_mlir_home = os.environ.get("TT_MLIR_HOME")
-    if not tt_mlir_home:
-        print("Error: TT_MLIR_HOME environment variable is not set.")
-        sys.exit(1)
+    tt_mlir_home = get_ttmlir_home()
 
     # Base name of the provided cpp file
     #
@@ -108,9 +101,9 @@ def compile_shared_object(cpp_file_path, output_dir):
     # Various dirs
     #
     source_dir = get_standalone_dir()
-    build_dir = os.path.join(source_dir, "build")
+    standalone_build_dir = os.path.join(source_dir, "build")
     source_cpp_path = os.path.join(source_dir, "ttnn-dylib.cpp")
-    compiled_so_path = os.path.join(build_dir, "libttnn-dylib.so")
+    compiled_so_path = os.path.join(standalone_build_dir, "libttnn-dylib.so")
 
     try:
         # Copy provided cpp file to source dir
@@ -128,7 +121,7 @@ def compile_shared_object(cpp_file_path, output_dir):
         # Run build
         #
         print(f"\nBuilding: {cpp_base_name}")
-        build_command = ["cmake", "--build", build_dir, "--", "ttnn-dylib"]
+        build_command = ["cmake", "--build", standalone_build_dir, "--", "ttnn-dylib"]
         result = subprocess.run(
             build_command, check=True, cwd=tt_mlir_home, capture_output=True, text=True
         )
@@ -159,12 +152,35 @@ def compile_shared_object(cpp_file_path, output_dir):
         pass
 
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Compile EmitC TTNN tests to shared objects."
+    )
+    parser.add_argument(
+        "--build-folder",
+        dest="build_folder",
+        type=str,
+        default=None,
+        help="Specify a custom build folder instead of the default 'build' directory",
+    )
+    return parser.parse_args()
+
+
 def main():
-    if len(sys.argv) != 1:
-        print("Usage: ci_compile_dylib.py")
+    args = parse_arguments()
+    build_folder = args.build_folder
+
+    # If build_folder is specified, print the information
+    if build_folder:
+        print(f"Using custom build folder: {build_folder}")
+    else:
+        build_folder = os.path.join(get_ttmlir_home(), "build")
+
+    if not os.path.isdir(build_folder):
+        print(f"Error: Build directory '{build_folder}' does not exist.")
         sys.exit(1)
 
-    test_path = get_emitc_tests_path()
+    test_path = get_emitc_tests_path(build_folder)
 
     if not os.path.isdir(test_path):
         print(f"Error: Directory '{test_path}' does not exist.")

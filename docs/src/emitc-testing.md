@@ -1,14 +1,39 @@
 # EmitC testing
 
-To locally run EmitC tests:
+## Prerequisites
 
-```bash
-# Generate flatbuffers and .cpp files
-llvm-lit -sv test/ttmlir/EmitC/TTNN
+* [Built ttmlir](https://docs.tenstorrent.com/tt-mlir/build.html#build)
+* [Built ttrt](https://docs.tenstorrent.com/tt-mlir/ttrt.html#building)
+* Saved system descriptor file:
 
-# Compile .cpp files to shared objects
-tools/ttnn-standalone/ci_compile_dylib.py
+  ```bash
+  ttrt query --save-artifacts
+  ```
 
-# Run flatbuffers + shared objects and compare results
-ttrt run --emitc build/test/ttmlir/EmitC/TTNN
-```
+## Generate EmitC tests and run it
+
+1. Generate flatbuffers and .cpp files for EmitC tests
+
+    If you don't have SYSTEM_DESC_PATH environment variable exported, you can run:
+
+    ```bash
+    SYSTEM_DESC_PATH=/path/to/system_desc.ttsys llvm-lit -sv test/ttmlir/EmitC/TTNN
+    ```
+
+    Or if you have SYSTEM_DESC_PATH exported, you can omit it:
+
+    ```bash
+    llvm-lit -sv test/ttmlir/EmitC/TTNN
+    ```
+
+2. Compile generated .ccp files to shared objects
+
+    ```python
+    python tools/ttnn-standalone/ci_compile_dylib.py
+    ```
+
+3. Run flatbuffers + shared objects and compare results
+
+    ```bash
+    ttrt run --emitc build/test/ttmlir/EmitC/TTNN
+    ```
