@@ -297,7 +297,7 @@ jobs:
         source env/activate
         ttrt query --save-artifacts
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-
+        export LD_LIBRARY_PATH=$(pwd)/build/lib
         pytest test/python/golden/test_ttir_ops.py --junit-xml="device-ops-tests.xml" --path="device-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "not failing_golden and not run_error"
         cp device-ops-tests.xml ${{ steps.strings.outputs.device_ops_test_report_path }}
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ./device-ops/ttnn/
