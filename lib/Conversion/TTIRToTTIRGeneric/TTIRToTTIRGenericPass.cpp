@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -37,28 +38,31 @@ struct TTIRToTTIRGenericPass final
 
     mlir::ConversionTarget target{ctx};
     {
+      // Illegal.
+
+      target.addIllegalDialect<ttir::TTIRDialect>();
+
       // Legal.
 
       target.addLegalDialect<mlir::BuiltinDialect>();
       target.addLegalDialect<mlir::func::FuncDialect>();
-      target.addLegalDialect<mlir::tensor::TensorDialect>();
       target.addLegalDialect<mlir::linalg::LinalgDialect>();
 
       target.addLegalDialect<tt::TTDialect>();
-      target.addLegalDialect<ttir::TTIRDialect>();
 
-      // Illegal.
+      // An explicit list of legal ttir.* ops.
+      target.addLegalOp<ttir::GenericOp>();
+      target.addLegalOp<ttir::ToLayoutOp>();
+      target.addLegalOp<ttir::StreamLayoutOp>();
+      target.addLegalOp<ttir::ViewLayoutOp>();
+      target.addLegalOp<ttir::EmptyOp>();
+      target.addLegalOp<ttir::ConstantOp>();
 
-      // Elementwise.
-      target.addIllegalOp<ttir::AddOp>();
-      target.addIllegalOp<ttir::MultiplyOp>();
-      target.addIllegalOp<ttir::ExpOp>();
-      target.addIllegalOp<ttir::LogOp>();
-      // Reductions.
-      target.addIllegalOp<ttir::SumOp>();
-      target.addIllegalOp<ttir::MaxOp>();
-      // Matmul.
-      target.addIllegalOp<ttir::MatmulOp>();
+      target.addLegalOp<
+#define GET_OP_LIST
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"
+#undef GET_OP_LIST
+          >();
     }
     TypeConverter typeConverter;
     {
