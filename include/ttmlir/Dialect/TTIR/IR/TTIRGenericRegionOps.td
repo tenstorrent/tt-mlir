@@ -185,17 +185,12 @@ def TTIR_DMAOp : TTIR_GenericRegionOp<"dma",
 
       - Local to remote dram
       ```mlir
-      %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #dram>) -> !ttir.mem_tx
+      %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<1x1x6x8x!tt.tile<32x32, f32>, $tt.shard<...>, #dram>) -> !ttir.mem_tx
       ```
 
       - Remote dram to local
       ```mlir
-      %tx = ttir.dma %src, %dst : (memref<6x8x!tt.tile<32x32, f32>, #dram>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
-      ```
-
-      - Local to remote L1, e.g. core[1, 2]
-      ```mlir
-      %tx = ttir.dma %src, %dst, core[%c1, %c2] : (memref<6x8x!tt.tile<32x32, f32>, #dram>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %src, %dst : (memref<1x1x6x8x!tt.tile<32x32, f32>, #tt.shard<...>, #dram>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       - Local to mcast, e.g. starting at offset core[1, 2] with mcast shape [4, 4] (src and dst have the same SSA value, implies NoC doesn't loopback)
@@ -231,10 +226,69 @@ _tx
 
     let arguments = (ins AnyNon0RankedMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
                          AnyNon0RankedMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
-                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
+                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
     let results = (outs TTIR_MemTx:$result);
 
-    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let builders =
+    [
+      // %tx = ttir.dma %src, %dst
+      OpBuilder<(ins "Value": $src, "Value": $dst),
+      [{
+        build($_builder, $_state, src, nullptr, dst);
+      }]>,
+      // %tx = ttir.dma %src<#map>, %dst
+      OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst),
+      [{
+        build($_builder, $_state, src, srcAffineMap, dst, ValueRange(), ValueRange());
+      }]>,
+      // %tx = ttir.dma %src<#map>, %dst core[%c0, %c1] mcast[%c2, %c3]
+      OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
+      }]>,
+      // %tx = ttir.dma %src, %dst<#map>
+      OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, ValueRange(), ValueRange());
+      }]>,
+      // %tx = ttir.dma %src[%c0, %c1], %dst
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
+      [{
+        build($_builder, $_state, src, srcIndices, dst, ValueRange());
+      }]>,
+      // %tx = ttir.dma %src[%c0, %c1], %dst core[%c2, %c3] mcast[%c4, %c5]
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
+      }]>,
+      // %tx = ttir.dma %src, %dst[%c0, %c1]
+      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
+      [{
+        build($_builder, $_state, src, ValueRange(), dst, dstIndices);
+      }]>,
+      // %tx = ttir.dma %src[%c0, %c1], %dst[%c2, %c3]
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices),
+      [{
+        build($_builder, $_state, src, srcIndices, dst, dstIndices, ValueRange(), ValueRange());
+      }]>,
+      // %tx = ttir.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7]
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, nullptr, mcastStartIndex, mcastShape);
+      }]>,
+      // %tx = ttir.dma %src[%c0, %c1], %dst[%c2, %c3], <4>
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
+      [{
+        build($_builder, $_state, src, srcIndices, dst, dstIndices, ValueRange(), ValueRange(), numElems);
+      }]>,
+      // %tx = ttir.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7], <4>
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
+      }]>,
+    ];
+
+    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`,` `core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
