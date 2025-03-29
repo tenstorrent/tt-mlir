@@ -48,7 +48,7 @@ def reader_bmm_8bank(cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer, rt_ar
     for nb in range(0, batch, 1):
         itileA: int = itileA_batch + 0
         for mt in range(0, Mt, 1):
-            itileB = itileB_batch + 0
+            itileB: int = itileB_batch + 0
             for nt in range(0, Nt, 1):
                 for kt in range(0, Kt, 1):
                     cb_reserve_back(cb_id_in0, onetile)
@@ -63,15 +63,15 @@ def reader_bmm_8bank(cb_id_in0: CircularBuffer, cb_id_in1: CircularBuffer, rt_ar
                     noc_async_read_barrier()
                     cb_push_back(cb_id_in1, onetile)
 
-                    itileA = itileA + 1
-                    itileB = itileB + Nt
+                    itileA += 1
+                    itileB += Nt
 
-                itileB = itileB - KtNt + 1
-                itileA = itileA - Kt
-            itileA = itileA + Kt
-        itileA_batch = itileA_batch + MtKt
+                itileB -= KtNt + 1
+                itileA -= Kt
+            itileA += Kt
+        itileA_batch += MtKt
         if bcast_B == 0:
-            itileB_batch = itileB_batch + KtNt
+            itileB_batch += KtNt
 
     return
 
