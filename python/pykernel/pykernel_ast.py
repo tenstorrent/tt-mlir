@@ -497,17 +497,19 @@ class TTKernelCompiler(ast.NodeVisitor):
         if isinstance(operand.type, memref.MemRefType):
             operand = memref.LoadOp(
                 operand, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            )
+            ).result
 
         match (node.op):
             # need to expose emitc for these unary operators, not sure if this is necessary yet
-            # case ast.USub():
-            #     # emitc has a unary minus operator
-            #     return arith.subi(arith.ConstantOp(IntegerType.get_signless(32, self.ctx), 0), operand)
-            # case ast.Not():
-            #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), 1))
-            # case ast.Invert():
-            #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), -1))
+            case ast.USub():
+                return emitc.UnaryMinusOp(operand.type, operand)
+            case ast.UAdd():
+                return emitc.UnaryPlusOp(operand.type, operand)
+            case ast.Not():
+                # Must return a 1-bit Signless Integer (bool)
+                return emitc.logical_not(IntegerType.get_signless(1, self.ctx), operand)
+            case ast.Invert():
+                return emitc.bitwise_not(operand.type, operand)
             case _:
                 raise NotImplementedError(
                     f"Unary operator {type(node.op).__name__} not implemented"
