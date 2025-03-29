@@ -64,7 +64,7 @@ def get_test_files(paths):
 
 def GET_TTNN_TEST():
     for test in get_test_files(TEST_LOAD_MODEL_PATHS):
-        if test.endswith("test_mnist.ttnn"):
+        if test.endswith("test_mnist[ttnn-28x28_digits-f32].ttnn"):
             return test
     return None
 
