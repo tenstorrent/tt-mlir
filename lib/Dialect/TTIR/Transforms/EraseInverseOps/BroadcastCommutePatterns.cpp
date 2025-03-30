@@ -185,7 +185,8 @@ private:
   LogicalResult isCommuteViable(ttir::BroadcastOp op,
                                 ttir::TransposeOp) const override {
     // We can always commute a transpose above a broadcast.
-    return success();
+    return success(std::getenv("DISABLE_BROADCAST_TRANSPOSE_COMMUTE") ==
+                   nullptr);
   }
 
   LogicalResult isCommuteFavorable(ttir::BroadcastOp op,
@@ -299,7 +300,8 @@ private:
     // finalStrides will be nullopt if the broadcast -> reshape sequence
     // cannot be performed by editing strides alone. This means we cannot
     // commute the reshape above the broadcast either.
-    return success(finalStrides.has_value());
+    return success(finalStrides.has_value() &&
+                   std::getenv("DISABLE_BROADCAST_RESHAPE_COMMUTE") == nullptr);
   }
 
   LogicalResult isCommuteFavorable(ttir::BroadcastOp op,
@@ -356,7 +358,7 @@ private:
   LogicalResult isCommuteViable(ttir::BroadcastOp op,
                                 ttir::PermuteOp) const override {
     // We can always commute a permute above a broadcast.
-    return success();
+    return success(std::getenv("DISABLE_BROADCAST_PERMUTE_COMMUTE") == nullptr);
   }
 
   LogicalResult isCommuteFavorable(ttir::BroadcastOp op,

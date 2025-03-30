@@ -101,7 +101,7 @@ private:
   LogicalResult isCommuteViable(ElementwiseUnary op,
                                 TMOpType tmUser) const override {
     // We can always commute a TM above an elementwise op
-    return success();
+    return success(std::getenv("DISABLE_ELTWISE_UNARY_COMMUTE") == nullptr);
   }
 
   LogicalResult isCommuteFavorable(ElementwiseUnary op,
@@ -127,7 +127,7 @@ private:
   LogicalResult isCommuteViable(ElementwiseBinary op,
                                 TMOpType tmUser) const override {
     // We can always commute a TM above an elementwise op
-    return success();
+    return success(std::getenv("DISABLE_ELTWISE_BINARY_COMMUTE") == nullptr);
   }
 
   LogicalResult isCommuteFavorable(ElementwiseBinary op,
