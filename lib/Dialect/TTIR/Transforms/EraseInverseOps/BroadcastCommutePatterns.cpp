@@ -325,6 +325,7 @@ public:
                              PatternRewriter &rewriter) const override {
     Value operand = op.getInput();
     auto operandShape = cast<RankedTensorType>(operand.getType()).getShape();
+    auto finalShape = permuteUser.getResult().getType().getShape();
     auto tmResultType = permuteUser.getResult().getType();
 
     // Commuting a broadcast above a permute requires us to permute which dims
@@ -332,9 +333,13 @@ public:
     auto permutation = permuteUser.getPermutation();
     SmallVector<int64_t> newShape =
         ttmlir::utils::applyPermutation(operandShape, permutation);
-    SmallVector<int64_t> newBroadcastDimensions =
-        ttmlir::utils::applyPermutation(op.getBroadcastDimensions(),
-                                        permutation);
+    SmallVector<int64_t> newBroadcastDimensions(finalShape);
+
+    for (uint64_t i = 0; i < newShape.size(); i++) {
+      if (finalShape[i] == newShape[i]) {
+        newBroadcastDimensions[i] = 1;
+      }
+    }
 
     auto newTMResultType = RankedTensorType::get(
         newShape, tmResultType.getElementType(), tmResultType.getEncoding());
