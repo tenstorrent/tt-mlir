@@ -19,7 +19,7 @@ def test_assign():
     a = 1
     a = 2
 
-    # TEST: AugAssign with memref
+    # TEST: AnnAssign with memref
     # CHECK: %[[CONST:.*]] = arith.constant{{.*}} : i32
     # CHECK: %[[ALLOCA:.*]] = memref.alloca() : memref<1xi32>
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
@@ -28,7 +28,7 @@ def test_assign():
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
     b = 2
 
-    # TEST: AnnAssign with memref
+    # TEST: AugAssign with memref
     # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
     # CHECK: {{.*}}arith.addi{{.*}}
     # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
