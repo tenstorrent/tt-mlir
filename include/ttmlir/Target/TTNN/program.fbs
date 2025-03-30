@@ -1,6 +1,6 @@
-include "Common/types.fbs";
-include "Common/debug_info.fbs";
-include "types.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/debug_info.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
