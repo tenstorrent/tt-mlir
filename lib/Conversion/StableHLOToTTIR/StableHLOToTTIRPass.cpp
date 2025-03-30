@@ -99,6 +99,7 @@ struct ConvertStableHLOToTTIRPass
 
     target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
     target.addIllegalDialect<mlir::sdy::SdyDialect>();
+    target.addIllegalOp<mlir::tensor::EmptyOp>();
 
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();
@@ -127,8 +128,6 @@ struct ConvertStableHLOToTTIRPass
         [&](func::CallOp op) { return typeConverter.isLegal(op); });
 
     addEmptyOpTypeConversionPattern(&getContext(), patterns, typeConverter);
-    target.addDynamicallyLegalOp<ttir::EmptyOp>(
-        [&](ttir::EmptyOp op) { return typeConverter.isLegal(op); });
 
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
     populateShardyToTTIRPatterns(&getContext(), patterns, typeConverter);

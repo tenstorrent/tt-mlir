@@ -4,10 +4,10 @@
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 // UNSUPPORTED: true
 // Marked as unsupported because of the following issue:
-// https://github.com/tenstorrent/tt-mlir/issues/2508
+// https://github.com/tenstorrent/tt-mlir/issues/2713
 
-func.func @remainder(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-  %0 = ttir.empty() : tensor<64x128xf32>
-  %1 = "ttir.remainder"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
-  return %1 : tensor<64x128xf32>
-}
+func.func @permute(%arg0: tensor<1x4x32x64xf32>) -> tensor<4x32x64x1xf32> {
+    %0 = ttir.empty() : tensor<4x32x64x1xf32>
+    %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 1, 2, 3, 0>}> : (tensor<1x4x32x64xf32>, tensor<4x32x64x1xf32>) -> tensor<4x32x64x1xf32>
+    return %1 : tensor<4x32x64x1xf32>
+  }

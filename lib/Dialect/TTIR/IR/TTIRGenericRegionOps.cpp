@@ -6,8 +6,16 @@
 
 #include "ttmlir/Utils.h"
 
+#include "llvm/Support/MathExtras.h"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"
+
+static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
+  unsigned width = mlir::IndexType::kInternalStorageBitWidth;
+  return mlir::ConstantIntRanges::fromUnsigned(mlir::APInt(width, umin),
+                                               mlir::APInt(width, umax));
+}
 
 //===----------------------------------------------------------------------===//
 // TileMatmulBlockOp
@@ -78,15 +86,27 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
   }
 
   if (isSrcRemote() && isDstRemote()) {
-    return emitOpError("DMA cannot have both src and dst remote");
+    return emitOpError("cannot have both src and dst remote");
   }
 
-  if (getSrcAffineMap() && getSrcIndices().size()) {
-    return emitOpError("DMA cannot have both src affine map and indices");
+  if (isDstRemote() && isMcast()) {
+    return emitOpError("cannot mcast to remote dst");
   }
 
-  if (getDstAffineMap() && getDstIndices().size()) {
-    return emitOpError("DMA cannot have both dst affine map and indices");
+  if (getSrcAffineMap() && !getSrcIndices().empty()) {
+    return emitOpError("cannot have both src affine map and indices");
+  }
+
+  if (getDstAffineMap() && !getDstIndices().empty()) {
+    return emitOpError("cannot have both dst affine map and indices");
+  }
+
+  if (!getMcastStartIndex().empty() && getMcastShape().empty()) {
+    return emitOpError("mcast start index requires mcast shape");
+  }
+
+  if (!getMcastShape().empty() && getMcastStartIndex().empty()) {
+    return emitOpError("mcast shape requires mcast start index");
   }
 
   int64_t srcIndices = getSrcAffineMap() ? getSrcAffineMap()->getNumResults()
@@ -95,25 +115,31 @@ void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
                                          : getDstIndices().size();
 
   if (srcIndices > srcType.getRank()) {
-    return emitOpError("Invalid number of src indices, expected less than ")
+    return emitOpError("invalid number of src indices, expected less than ")
            << srcType.getRank();
   }
 
   if (dstIndices > dstType.getRank()) {
-    return emitOpError("Invalid number of dst indices, expected less than ")
+    return emitOpError("invalid number of dst indices, expected less than ")
            << dstType.getRank();
   }
 
   if ((srcType.getRank() - srcIndices) != (dstType.getRank() - dstIndices)) {
-    return emitOpError(
-        "MemRef operands to DMA must have the same post-index rank");
+    return emitOpError("memref operands must have the same post-index rank");
   }
 
   if (!std::equal(srcType.getShape().begin() + srcIndices,
                   srcType.getShape().end(),
                   dstType.getShape().begin() + dstIndices)) {
-    return emitOpError(
-        "MemRef operands to DMA must have the same post-index shape");
+    return emitOpError("memref operands must have the same post-index shape");
+  }
+
+  if (getSrcAffineMap() && !isSrcRemote()) {
+    return emitOpError("if src affine map is provided, src must be remote");
+  }
+
+  if (getDstAffineMap() && !isDstRemote()) {
+    return emitOpError("if dst affine map is provided, dst must be remote");
   }
 
   return success();
@@ -152,6 +178,13 @@ void mlir::tt::ttir::IterIndexOp::getAsmResultNames(
   setNameFn(getResult(), "iter" + std::to_string(dim));
 }
 
+void mlir::tt::ttir::IterIndexOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
 void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   int64_t dim = getDim();
@@ -164,4 +197,11 @@ void mlir::tt::ttir::CoreIndexOp::getAsmResultNames(
 
 mlir::OpFoldResult mlir::tt::ttir::CoreIndexOp::fold(FoldAdaptor adaptor) {
   return getDimAttr();
+}
+
+void mlir::tt::ttir::CoreIndexOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
