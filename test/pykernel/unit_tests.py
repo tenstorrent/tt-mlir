@@ -28,6 +28,22 @@ def test_assign():
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
     b = 2
 
+    # TEST: AnnAssign with memref
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.addi{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b += 2
+
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.subi{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b -= 2
+
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.muli{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b *= 2
+
     return
 
 
