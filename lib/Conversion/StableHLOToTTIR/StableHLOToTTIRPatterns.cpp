@@ -2190,10 +2190,12 @@ public:
 
     mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
 
-    float value =
-        paddingValueAttr.getElementType().isInteger()
-            ? static_cast<float>(paddingValueAttr.getSplatValue<int>())
-            : paddingValueAttr.getSplatValue<float>();
+    float value;
+    if (paddingValueAttr.getElementType().isInteger()) {
+      value = paddingValueAttr.getSplatValue<APInt>().signedRoundToDouble();
+    } else {
+      value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
+    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
         srcOp,
