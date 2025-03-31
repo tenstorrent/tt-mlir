@@ -11,6 +11,7 @@
 #endif
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"

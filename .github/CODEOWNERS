@@ -52,6 +52,9 @@
 /test/ttmlir/EmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 
 # Metal Conversions
+/include/ttmlir/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
+/lib/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
+/test/ttmlir/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
 /include/ttmlir/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
 /include/ttmlir/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
 /lib/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
