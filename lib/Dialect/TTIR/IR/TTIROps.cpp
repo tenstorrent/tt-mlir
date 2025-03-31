@@ -910,6 +910,10 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
+  if(std::getenv("DISABLE_RESHAPE_FOLD") != nullptr) {
+    return nullptr;
+  }
+  
   if (auto foldResult = foldIdentityReshape(*this)) {
     return foldResult;
   }
@@ -1452,6 +1456,10 @@ foldInverseTransposeOperand(mlir::tt::ttir::TransposeOp op) {
 
 // TransposeOp folder
 mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
+  if (std::getenv("DISABLE_TRANSPOSE_FOLD") != nullptr) {
+    return nullptr;
+  }
+  
   if (auto foldResult = foldIdentityTranspose(*this)) {
     return foldResult;
   }
@@ -2962,7 +2970,9 @@ static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
 
 // PermuteOp folder
 mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
-
+  if (std::getenv("DISABLE_PERMUTE_FOLD") != nullptr) {
+    return nullptr;
+  }
   if (auto foldResult = foldIdentityPermute(*this)) {
     return foldResult;
   }
