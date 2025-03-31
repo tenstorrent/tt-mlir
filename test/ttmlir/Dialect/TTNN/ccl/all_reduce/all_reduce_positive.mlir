@@ -66,3 +66,63 @@ module attributes {} {
     return %1 : tensor<1x1x4096x16384xf32>
   }
 }
+
+// -----
+
+// Verify transform for all_reduce with non-divisible dimension
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions
+  func.func @all_reduce_positive_with_non_divisible_dimensions(%arg0: tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32> {
+    %0 = ttir.empty() : tensor<1x1x1x1xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.sum"
+    return %1 : tensor<1x1x1x1xf32>
+  }
+}
+
+// -----
+
+// Verify lowering when scattered dimension is smaller than tile size
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_small_dimension
+  func.func @all_reduce_positive_with_small_dimension(%arg0: tensor<1x1x32x32xf32>) -> tensor<1x1x32x32xf32> {
+    %0 = ttir.empty() : tensor<1x1x32x32xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x1x32x32xf32>, tensor<1x1x32x32xf32>) -> tensor<1x1x32x32xf32>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.sum"
+    return %1 : tensor<1x1x32x32xf32>
+  }
+}
+
+// -----
+
+// Verify breakdown of all_reduce into all_gather and reduce with reduce_type Min
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_min
+  func.func @all_reduce_positive_with_min(%arg0: tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32> {
+    %0 = ttir.empty() : tensor<1x1x1x1xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<min>}> : (tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.min"
+    return %1 : tensor<1x1x1x1xf32>
+  }
+}
+
+// -----
+
+// Verify breakdown of all_reduce into all_gather and reduce with reduce_type Max
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_max
+  func.func @all_reduce_positive_with_max(%arg0: tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32> {
+    %0 = ttir.empty() : tensor<1x1x1x1xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<max>}> : (tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.max"
+    return %1 : tensor<1x1x1x1xf32>
+  }
+}
