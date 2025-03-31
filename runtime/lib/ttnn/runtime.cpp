@@ -340,53 +340,79 @@ void wait(Event event) {
 }
 
 void wait(Tensor tensor) {
+  LOG_INFO("Waiting for tensor in TTNN runtime");
   LOG_ASSERT(tensor.matchesRuntime(DeviceRuntime::TTNN),
              "Expected ttnn tensor");
+  LOG_INFO("Calling wait on tensor.event");
   ::tt::runtime::ttnn::wait(tensor.event);
+  LOG_INFO("Finished waiting for tensor.event");
 }
 
 void wait(std::vector<Tensor> const &tensors) {
-  for (const Tensor &tensor : tensors) {
-    LOG_INFO("Waiting for tensor");
-    ::tt::runtime::ttnn::wait(tensor);
+  LOG_INFO("Waiting for tensor vector in TTNN runtime, size: %zu",
+           tensors.size());
+  for (size_t i = 0; i < tensors.size(); i++) {
+    const Tensor &tensor = tensors[i];
+    LOG_INFO("Waiting for tensor %zu in vector", i);
+    ::tt::runtime::ttnn::wait(tensor.event);
+    LOG_INFO("Finished waiting for tensor %d in vector", i);
   }
+  LOG_INFO("Finished waiting for all tensors in vector");
 }
 
 static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
+  LOG_INFO("Starting toHostSingleTensor");
   const ::ttnn::Tensor &deviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  LOG_INFO("Got deviceTensor, calling from_device");
   std::shared_ptr<::ttnn::Tensor> hostTensor =
       std::make_shared<::ttnn::Tensor>(::ttnn::from_device(deviceTensor));
+  LOG_INFO("from_device completed");
 
   if (untilize) {
+    LOG_INFO("Untilizing tensor");
     hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
         *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
         static_cast<::ttnn::IDevice *>(nullptr)));
+    LOG_INFO("Untilizing completed");
   }
 
-  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-                DeviceRuntime::TTNN);
+  LOG_INFO("Creating return tensor");
+  Tensor result = Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
+                         DeviceRuntime::TTNN);
+  LOG_INFO("toHostSingleTensor completed");
+  return result;
 }
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+  LOG_INFO("Starting toHost");
   const ::ttnn::Tensor &multiDeviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  LOG_INFO("Got multiDeviceTensor, storage_type: %d",
+           static_cast<int>(multiDeviceTensor.storage_type()));
   std::vector<Tensor> host_tensors;
   if (multiDeviceTensor.storage_type() ==
           ::ttnn::StorageType::MULTI_DEVICE_HOST ||
       multiDeviceTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE) {
+    LOG_INFO("Processing multi-device tensor");
     std::vector<::ttnn::Tensor> single_tensors =
         ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
-    for (auto &tensor : single_tensors) {
+    LOG_INFO("Got %zu single tensors", single_tensors.size());
+    for (size_t i = 0; i < single_tensors.size(); i++) {
+      LOG_INFO("Processing single tensor %zu", i);
       host_tensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
-          Tensor(std::make_shared<::ttnn::Tensor>(tensor), nullptr,
+          Tensor(std::make_shared<::ttnn::Tensor>(single_tensors[i]), nullptr,
                  DeviceRuntime::TTNN),
           untilize));
+      LOG_INFO("Processed single tensor %zu", i);
     }
   } else {
+    LOG_INFO("Processing single device tensor");
     host_tensors.push_back(
         ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
+    LOG_INFO("Processed single device tensor");
   }
+  LOG_INFO("toHost completed, returning %zu tensors", host_tensors.size());
   return host_tensors;
 }
 
@@ -847,12 +873,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  // Extract versions from input tensors
+  // Use empty vector for versions
   std::vector<uint64_t> inputVersions;
-  inputVersions.reserve(inputHandles.size());
-  for (const auto &input : inputHandles) {
-    inputVersions.push_back(input.version.load());
-  }
 
   // Convert input tensors to the layout expected by the program
   std::vector<Tensor> inputsWithLayout;

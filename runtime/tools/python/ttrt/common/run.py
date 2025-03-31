@@ -651,15 +651,27 @@ class Run:
                                     for i, runtime_output_tensor in enumerate(
                                         runtime_outputs
                                     ):
+                                        self.logging.debug(
+                                            f"Transferring output tensor {i} to host"
+                                        )
                                         output_host = ttrt.runtime.to_host(
                                             runtime_output_tensor, untilize=True
                                         )[0]
+                                        self.logging.debug(
+                                            f"Copying output tensor {i} to host"
+                                        )
                                         ttrt.runtime.memcpy(
                                             total_outputs[loop][i],
                                             output_host,
                                         )
+                                        self.logging.debug(
+                                            f"Copying output tensor {i} to host completed"
+                                        )
                                         ttrt.runtime.deallocate_tensor(
                                             runtime_output_tensor, force=True
+                                        )
+                                        self.logging.debug(
+                                            f"Deallocating output tensor {i} completed"
                                         )
 
                                 self.logging.debug(
