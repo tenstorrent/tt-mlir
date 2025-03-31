@@ -447,7 +447,6 @@ public:
         // Determine the shape of its input tensor. The new tensor
         // shape at the scatter_dim will be tensor_shape[scatter_dim] =
         // original_tensor_shape / num_devices.
-        dimension = dimension + 1;
         inputTypeShape[dimension] =
             inputTypeShape[dimension] / meshShape[clusterAxis];
         auto scatteredInputType =
