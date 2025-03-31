@@ -38,12 +38,20 @@ public:
                                                 oldEltwiseType.getElementType(),
                                                 oldTMResultType.getEncoding());
 
+    auto firstOperandShape =
+        cast<RankedTensorType>(op->getOperand(0).getType()).getShape();
+
     SmallVector<ttir::EmptyOp> newTMDPSOperands;
     SmallVector<Value> newEltwiseOperands;
     SmallVector<RankedTensorType> newTMResultTypes;
     for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
          operandIdx++) {
-
+      auto operandShape =
+          cast<RankedTensorType>(op->getOperand(operandIdx).getType())
+              .getShape();
+      if (firstOperandShape != operandShape) {
+        assert(false && "UH OH");
+      }
       // The new TM will have the same shape as before, but if the eltwise op
       // was a typecast, it will have the element type of the original operand
       // of the eltwise. So we need to generate a new type for the TM keeping
@@ -101,6 +109,10 @@ private:
   LogicalResult isCommuteViable(ElementwiseUnary op,
                                 TMOpType tmUser) const override {
     // We can always commute a TM above an elementwise op
+    if (isa<ttir::ReshapeOp>(tmUser)) {
+      return success(std::getenv("DISABLE_ELTWISE_UNARY_RESHAPE_COMMUTE") ==
+                     nullptr);
+    }
     return success(std::getenv("DISABLE_ELTWISE_UNARY_COMMUTE") == nullptr);
   }
 
@@ -127,6 +139,10 @@ private:
   LogicalResult isCommuteViable(ElementwiseBinary op,
                                 TMOpType tmUser) const override {
     // We can always commute a TM above an elementwise op
+    if (isa<ttir::ReshapeOp>(tmUser)) {
+      return success(std::getenv("DISABLE_ELTWISE_BINARY_RESHAPE_COMMUTE") ==
+                     nullptr);
+    }
     return success(std::getenv("DISABLE_ELTWISE_BINARY_COMMUTE") == nullptr);
   }
 
