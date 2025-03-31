@@ -511,4 +511,16 @@ TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
+// ttnn.permute only works correctly on floating-point inputs
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPermuteIntegerOperandWorkaround(
+  mlir::RankedTensorType inputType) {
+    TTNNOperandWorkarounds operandWorkaround;
+    if (isa<IntegerType>(inputType.getElementType())) {
+      operandWorkaround.tensorDataTypeWorkaround = DataType::Float32;
+    }
+
+    return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds().addInputOperandWorkaround(operandWorkaround).addOutputOperandWorkaround(operandWorkaround);
+}
+
 } // namespace mlir::tt::ttnn::wa
