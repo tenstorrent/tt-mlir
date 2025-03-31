@@ -1011,9 +1011,9 @@ class TTIRBuilder:
         weight: Operand,
         bias: Optional[Operand],
         in1: Operand,
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
-        padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         groups: int,
     ) -> OpView:
         if not bias:
@@ -1042,19 +1042,15 @@ class TTIRBuilder:
         self,
         input_tensor: Operand,
         weight: Operand,
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
-        padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         groups: int,
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
-        stride = tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
-        padding = (
-            tuple(padding) if not isinstance(padding, IntegerAttr) else int(padding)
-        )
-        dilation = (
-            tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
-        )
+        stride = list(stride) if not isinstance(stride, int) else int(stride)
+        padding = list(padding) if not isinstance(padding, int) else int(padding)
+        dilation = list(dilation) if not isinstance(dilation, int) else int(dilation)
         golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
@@ -1077,10 +1073,10 @@ class TTIRBuilder:
         weight: Operand,
         bias: Optional[Operand],
         in1: Operand,
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
-        padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        output_padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        output_padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         groups: int,
     ) -> OpView:
         if not bias:
@@ -1111,25 +1107,21 @@ class TTIRBuilder:
         self,
         input_tensor: Operand,
         weight: Operand,
-        stride: Union[IntegerAttr, DenseI32ArrayAttr],
-        padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        output_padding: Union[IntegerAttr, DenseI32ArrayAttr],
-        dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        output_padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
         groups: int,
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
-        stride = tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
-        padding = (
-            tuple(padding) if not isinstance(padding, IntegerAttr) else int(padding)
-        )
+        stride = list(stride) if not isinstance(stride, int) else int(stride)
+        padding = list(padding) if not isinstance(padding, int) else int(padding)
         output_padding = (
-            tuple(output_padding)
-            if not isinstance(output_padding, IntegerAttr)
+            list(output_padding)
+            if not isinstance(output_padding, int)
             else int(output_padding)
         )
-        dilation = (
-            tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
-        )
+        dilation = list(dilation) if not isinstance(dilation, int) else int(dilation)
         golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
@@ -1319,27 +1311,27 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def zeros(self, shapes: List[Shape], data_type: Optional[Type] = None) -> OpView:
-        output = self.ranked_tensor_type(shapes)
+    def zeros(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
+        output = self.ranked_tensor_type(shape)
         dtype = data_type if data_type is not None else self._default_dtype
         return self.op_proxy(
             torch.zeros,
             ttir.ZerosOp,
             [],
-            golden_kwargs={"size": shapes},
-            ttir_kwargs={"result": output, "shape": shapes},
+            golden_kwargs={"size": shape},
+            ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
         )
 
-    def ones(self, shapes: List[Shape]) -> OpView:
-        output = self.ranked_tensor_type(shapes)
+    def ones(self, shape: Shape) -> OpView:
+        output = self.ranked_tensor_type(shape)
         return self.op_proxy(
             torch.ones,
             ttir.OnesOp,
             [],
-            golden_kwargs={"size": shapes},
-            ttir_kwargs={"result": output, "shape": shapes},
+            golden_kwargs={"size": shape},
+            ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
         )
 
@@ -1400,7 +1392,7 @@ class TTIRBuilder:
         )
 
     def arange(
-        self, result=Operand, start=int, end=int, step=int, arange_dimension=int
+        self, result: Operand, start: int, end: int, step: int, arange_dimension: int
     ) -> OpView:
         single_dim_tensor = torch.arange(
             start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype

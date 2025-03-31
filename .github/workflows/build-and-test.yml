@@ -85,6 +85,9 @@ jobs:
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "op_test_report_path=op_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "model_test_report_path=model_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "ttrt_run_test_report_path=ttrt_run_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -181,6 +184,10 @@ jobs:
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
         echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
         echo "perf_report_path=perf_$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "device_ops_test_report_path=device_ops_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "compile_ops_test_report_path=compile_ops_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "device_models_test_report_path=device_models_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "compile_models_test_report_path=compile_models_test_report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -280,6 +287,28 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
 
+    - name: Run Builder Op & Model Tests
+      if: matrix.build.type == 'ttrt' && matrix.build.runs-on == 'n150' && matrix.build.image == 'tracy'
+      shell: bash
+      run: |
+        source env/activate
+        ttrt query --save-artifacts
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        export LD_LIBRARY_PATH=$(pwd)/build/lib
+        pytest test/python/golden/test_ttir_ops.py --junit-xml="device-ops-tests.xml" --path="device-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "not fails_golden and not run_error" -v
+        cp device-ops-tests.xml ${{ steps.strings.outputs.device_ops_test_report_path }}
+        ttrt ${{ matrix.build.name }} ./device-ops/ttnn/
+
+        pytest test/python/golden/test_ttir_ops.py --junit-xml="compile-ops-tests.xml" --path="compile-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "fails_golden or run_error" -v
+        cp compile-ops-tests.xml ${{ steps.strings.outputs.compile_ops_test_report_path }}
+
+        pytest test/python/golden/test_ttir_models.py --junit-xml="device-models-tests.xml" --path="device-models" --sys-desc="${SYSTEM_DESC_PATH}" -m "not fails_golden and not run_error" -v
+        cp device-models-tests.xml ${{ steps.strings.outputs.device_models_test_report_path }}
+        ttrt ${{ matrix.build.name }} ./device-models/ttnn/
+
+        pytest test/python/golden/test_ttir_models.py --junit-xml="compile-models-tests.xml" --path="compile-models" --sys-desc="${SYSTEM_DESC_PATH}" -m "fails_golden or run_error" -v
+        cp compile-models-tests.xml ${{ steps.strings.outputs.compile_models_test_report_path }}
+
     # TTRT test runner
     - name: Run TTRT tests
       if: matrix.build.type == 'ttrt'
@@ -308,7 +337,7 @@ jobs:
       run: |
         source env/activate
         export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
+        export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.work-dir }}/device-models/ttnn
         pytest -ssv ${{ matrix.build.path }} --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
     - name: Collect and Upload Perf Reports
