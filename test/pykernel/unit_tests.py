@@ -121,10 +121,32 @@ def test_binops():
     # CHECK: %{{.*}} = arith.muli{{.*}}
     # CHECK: %{{.*}} = arith.subi{{.*}}
     a + b - a * b
+
+    # CHECK: %{{.*}} = arith.floordivsi{{.*}}
+    a // b
+
+    # CHECK: %{{.*}} = arith.remsi{{.*}}
+    a % b
+
+    # CHECK: %{{.*}} = arith.shrsi{{.*}}
+    a >> b
+
+    # CHECK: %{{.*}} = arith.shli{{.*}}
+    a << b
+
+    # CHECK: %{{.*}} = arith.andi{{.*}}
+    a & b
+
+    # CHECK: %{{.*}} = arith.ori{{.*}}
+    a | b
+
+    # CHECK: %{{.*}} = arith.xori{{.*}}
+    a ^ b
+
     return
 
 
-@ttkernel_compile()
+@ttkernel_compile(optimize=False)
 def test_compare_expr():
     # CHECK: module {
     # CHECK: func.func @
@@ -142,6 +164,34 @@ def test_compare_expr():
     a > b
     # CHECK: %{{.*}} = arith.cmpi sge{{.*}}
     a >= b
+    return
+
+
+@ttkernel_compile(optimize=False)
+def test_bool_ops():
+    # CHECK: module {
+    # CHECK: func.func @
+    a = 1
+    b = 2
+    # CHECK: %{{.*}} = arith.cmpi sge{{.*}}
+    # CHECK: %{{.*}} = arith.cmpi sle{{.*}}
+    # CHECK: %{{.*}} = arith.andi {{.*}}
+    a >= b and b <= a
+
+    # CHECK: %{{.*}} = arith.cmpi sgt{{.*}}
+    # CHECK: %{{.*}} = arith.cmpi ne{{.*}}
+    # CHECK: %{{.*}} = arith.andi {{.*}}
+    # CHECK: %{{.*}} = arith.cmpi ne{{.*}}
+    # CHECK: %{{.*}} = arith.ori {{.*}}
+    a or b and a > b
+
+    # CHECK: %{{.*}} = arith.cmpi slt{{.*}}
+    # CHECK: %{{.*}} = arith.andi {{.*}}
+    # CHECK: %{{.*}} = arith.ori {{.*}}
+    # CHECK: %{{.*}} = arith.ori {{.*}}
+    # CHECK: %{{.*}} = arith.andi {{.*}}
+    # CHECK: %{{.*}} = arith.ori {{.*}}
+    False and (a < b) or False and (True or False or False)
     return
 
 
@@ -180,4 +230,5 @@ test_ifstmt()
 test_for()
 test_binops()
 test_compare_expr()
+test_bool_ops()
 test_unary_ops()
