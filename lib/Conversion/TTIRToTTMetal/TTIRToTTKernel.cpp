@@ -246,8 +246,7 @@ public:
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), cbId, numPages);
         auto popFront = rewriter.create<ttkernel::CBPopFrontOp>(op.getLoc(),
                                                                 cbId, numPages);
-        rewriter.moveOpBefore(popFront, block,
-                              block->getOps<func::ReturnOp>().begin());
+        rewriter.moveOpBefore(popFront, block->getTerminator());
       } else if (mlir::isa<ttir::YieldOp>(op)) {
         auto reserveBack = rewriter.create<ttkernel::CBReserveBackOp>(
             op.getLoc(), cbId, numPages);
@@ -334,10 +333,16 @@ public:
                                                    Value &nocStartX,
                                                    OperandRange mcastShape) {
     std::pair<Value, Value> nocEndCoords;
-    nocEndCoords.first = rewriter.create<arith::AddIOp>(
-        nocStartY.getLoc(), nocStartY, mcastShape[0]);
-    nocEndCoords.second = rewriter.create<arith::AddIOp>(
-        nocStartX.getLoc(), nocStartX, mcastShape[1]);
+    nocEndCoords.first = rewriter.create<arith::SubIOp>(
+        nocStartY.getLoc(),
+        rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
+                                       mcastShape[0]),
+        index(1, rewriter));
+    nocEndCoords.second = rewriter.create<arith::SubIOp>(
+        nocStartX.getLoc(),
+        rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
+                                       mcastShape[1]),
+        index(1, rewriter));
     return nocEndCoords;
   }
 
