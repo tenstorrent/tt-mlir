@@ -4,6 +4,7 @@
 
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/types.h"
 
 namespace tt::runtime::ttnn::utils {
 
@@ -274,10 +275,12 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   return std::make_optional(memoryConfig);
 }
 
-Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor) {
-  auto tensorPtr = std::make_shared<::ttnn::Tensor>(tensor);
-  return Tensor(std::static_pointer_cast<void>(tensorPtr), nullptr,
-                DeviceRuntime::TTNN);
+::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
+                                                  bool retain) {
+  auto tensorPtr =
+      std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(tensor, retain);
+  return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
+                               nullptr, DeviceRuntime::TTNN);
 }
 
 } // namespace tt::runtime::ttnn::utils

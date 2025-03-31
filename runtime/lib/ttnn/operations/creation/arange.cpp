@@ -4,7 +4,7 @@
 
 #include "operations/creation/arange.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/types.hpp"
@@ -45,6 +45,6 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   ::ttnn::Tensor out = ::ttnn::arange(op->start(), op->end(), op->step(), dtype,
                                       device, memoryConfig);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation

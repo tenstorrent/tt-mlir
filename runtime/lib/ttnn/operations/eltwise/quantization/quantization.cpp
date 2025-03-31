@@ -18,7 +18,8 @@ template <typename OpType, typename QuantizationFunc>
 void runQuantizationOp(const OpType *op, ProgramContext &context,
                        QuantizationFunc quantizationFunc) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->ins()->Get(0));
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->ins()->Get(0));
 
   std::optional<int32_t> axis = std::optional<int32_t>();
   std::optional<::ttnn::DataType> outputDataType =
@@ -57,7 +58,7 @@ void runQuantizationOp(const OpType *op, ProgramContext &context,
   ::ttnn::Tensor output =
       quantizationFunc(input, axis, outputDataType, memoryConfig);
 
-  tensorPool.insertAndValidate(op->out(), output);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {

@@ -32,8 +32,9 @@ void *openSo(std::string path) {
   return handle;
 }
 
-std::vector<Tensor> runSoProgram(void *so, std::string func_name,
-                                 std::vector<Tensor> inputs, Device device) {
+std::vector<::tt::runtime::Tensor>
+runSoProgram(void *so, std::string func_name,
+             std::vector<::tt::runtime::Tensor> inputs, Device device) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
   ::ttnn::MeshDevice &ttnnMeshDevice =
@@ -50,7 +51,9 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
   std::vector<::ttnn::Tensor> ttnnInputs;
   for (auto &input : inputs) {
     LOG_ASSERT(input.matchesRuntime(DeviceRuntime::TTNN));
-    ttnnInputs.push_back(input.as<::ttnn::Tensor>(DeviceRuntime::TTNN));
+    ttnnInputs.push_back(
+        input.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+            .getTensor());
   }
 
   // Clear previous errors
@@ -92,7 +95,7 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
 
   // Convert TTNN Tensors to Runtime Tensors
   //
-  std::vector<Tensor> outputs;
+  std::vector<::tt::runtime::Tensor> outputs;
   for (::ttnn::Tensor &output : ttnnOutputs) {
     outputs.push_back(utils::createRuntimeTensorFromTTNN(output));
   }
@@ -196,7 +199,8 @@ static std::string toString(const IndexTy &v) {
   return result;
 }
 
-bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
+bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
+                 std::vector<::tt::runtime::Tensor> &rhs) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
   std::vector<::ttnn::Tensor *> lhsTensors;

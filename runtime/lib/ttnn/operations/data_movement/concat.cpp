@@ -5,7 +5,7 @@
 #include "operations/data_movement/concat.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -14,7 +14,7 @@ void run(const ::tt::target::ttnn::ConcatOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   std::vector<::ttnn::Tensor> inputs;
   for (const auto &input : *op->inputs()) {
-    const ::ttnn::Tensor &in = tensorPool.getAndValidate(input);
+    const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(input);
     inputs.push_back(in);
   }
   int32_t dim = op->dim();
@@ -26,6 +26,6 @@ void run(const ::tt::target::ttnn::ConcatOp *op, ProgramContext &context) {
                 op->memory_config());
   ::ttnn::Tensor out = ::ttnn::concat(inputs, dim, memoryConfig);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

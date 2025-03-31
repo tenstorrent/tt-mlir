@@ -81,20 +81,20 @@ class ProgramExecutor {
 public:
   ProgramExecutor(const ::tt::target::ttnn::Program *program,
                   const Binary &executableHandle,
-                  const std::vector<::ttnn::Tensor *> &programInputs,
+                  std::vector<::tt::runtime::Tensor> &programInputs,
                   ::ttnn::MeshDevice *meshDevice)
       : program(program), executableHandle(executableHandle) {
     LOG_ASSERT(program, "Program must be provided for execution");
 
     std::vector<uint32_t> programInputIds;
     int inputIndex = 0;
-    std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+    TensorPtrMap liveTensors;
     LOG_ASSERT(program->inputs()->size() == programInputs.size(),
                "Program input size mismatch: ", program->inputs()->size(),
                " != ", programInputs.size());
     for (const ::tt::target::ttnn::TensorRef *input : *program->inputs()) {
       auto [iter, inserted] = liveTensors.try_emplace(
-          input->global_id(), programInputs[inputIndex++]);
+          input->global_id(), &(programInputs[inputIndex++]));
       LOG_ASSERT(inserted, "Duplicate input tensor");
       programInputIds.push_back(input->global_id());
     }
@@ -126,7 +126,7 @@ public:
 
   ProgramContext &getContext() { return *context; }
 
-  std::vector<Tensor> gatherOutputTensors() {
+  std::vector<::tt::runtime::Tensor> gatherOutputTensors() {
     return context->getTensorPool().gatherOutputTensors();
   }
 
@@ -346,16 +346,17 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
 }
 
-std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
-                               Binary executableHandle,
-                               std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs) {
+std::vector<::tt::runtime::Tensor>
+runProgram(::ttnn::MeshDevice &meshDevice, Binary executableHandle,
+           std::uint32_t programIndex,
+           std::vector<::tt::runtime::Tensor> &inputs) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
   ProgramExecutor executor(program, executableHandle, inputs, &meshDevice);
   executor.execute();
-  std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
+  std::vector<::tt::runtime::Tensor> outputTensors =
+      executor.gatherOutputTensors();
   return outputTensors;
 }
 

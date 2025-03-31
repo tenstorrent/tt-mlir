@@ -26,6 +26,7 @@ try:
         release_sub_mesh_device,
         submit,
         create_tensor,
+        create_owned_tensor,
         create_empty_tensor,
         create_multi_device_tensor,
         wait,

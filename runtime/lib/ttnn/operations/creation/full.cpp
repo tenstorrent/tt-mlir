@@ -5,7 +5,7 @@
 #include "operations/creation/full.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
@@ -108,6 +108,6 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
     LOG_FATAL("Unsupported num shards");
   }
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation
