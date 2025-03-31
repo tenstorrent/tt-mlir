@@ -16,4 +16,9 @@ import json
 
 
 def as_dict(bin):
-    return json.loads(bin.as_json())
+    tmp = bin.as_json()
+    # Flatbuffers emits 'nan' and 'inf'
+    # But Python's JSON accepts only 'NaN' and 'Infinity' and nothing else
+    tmp = tmp.replace('nan', 'NaN')
+    tmp = tmp.replace('inf', 'Infinity')
+    return json.loads(tmp)
