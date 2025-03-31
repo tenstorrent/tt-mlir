@@ -12,6 +12,7 @@
 #include <llvm/Support/LogicalResult.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Operation.h>
+#include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <mlir/Support/LLVM.h>
 
 namespace mlir::tt::ttir {
@@ -44,8 +45,13 @@ public:
     SmallVector<ttir::EmptyOp> newTMDPSOperands;
     SmallVector<Value> newEltwiseOperands;
     SmallVector<RankedTensorType> newTMResultTypes;
-    for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
+    for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands();
          operandIdx++) {
+
+      if (op->template hasTrait<DestinationStyleOpInterface::Trait>() &&
+          operandIdx == op->getNumOperands() - 1) {
+        continue;
+      }
       auto operandShape =
           cast<RankedTensorType>(op->getOperand(operandIdx).getType())
               .getShape();
