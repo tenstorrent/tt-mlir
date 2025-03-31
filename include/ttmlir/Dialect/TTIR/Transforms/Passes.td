@@ -30,11 +30,7 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
     Option<"initMemorySpace", "init-memory-space",
           "::mlir::tt::MemorySpace",
           /*default=*/"::mlir::tt::MemorySpace::DeviceL1",
-           "set the initial memory space for tensors to start in">,
-    Option<"useStreamLayout", "use-stream-layout",
-          "bool",
-          /*default=*/"false",
-           "turn on #tt.stream layout decoration">
+           "Set the initial memory space for tensors to start in">
   ];
 }
 
