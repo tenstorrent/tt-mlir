@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TT_IR_UTILS_H
 #define TTMLIR_DIALECT_TT_IR_UTILS_H
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/SymbolTable.h"
 
 namespace mlir::tt {
@@ -26,6 +27,18 @@ DeviceAttr lookupDevice(Operation *op, SymbolRefAttr deviceName);
 
 DeviceAttr lookupDevice(Operation *op,
                         llvm::StringRef deviceName = getDefaultDeviceName());
+
+mlir::memref::GlobalOp createGlobal(Operation *op, StringRef name,
+                                    MemRefType type, ElementsAttr value,
+                                    bool constant = true,
+                                    bool privateVisibility = true,
+                                    size_t alignment = 0);
+
+// Overload auto-generating the name for the above.
+mlir::memref::GlobalOp createGlobal(Operation *op, MemRefType type,
+                                    ElementsAttr value, bool constant = true,
+                                    bool privateVisibility = true,
+                                    size_t alignment = 0);
 
 } // namespace mlir::tt
 

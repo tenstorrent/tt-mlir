@@ -216,42 +216,11 @@ mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
   }
 
   ::llvm::SmallVector<mlir::Value> invocationStack;
-  auto memrefType = *getBufferType(getResult(), options, invocationStack);
+  auto memrefType = mlir::cast<mlir::MemRefType>(
+      *getBufferType(getResult(), options, invocationStack));
 
-  SymbolTable symbolTable(moduleOp);
-
-  auto getUniqueSymbolName = [&]() {
-    SmallString<64> symbolName;
-    llvm::raw_svector_ostream os(symbolName);
-    os << "__constant_";
-    interleave(memrefType.getShape(), os, "x");
-    os << "x" << memrefType.getElementType();
-    int uid = 0;
-    while (symbolTable.lookup((Twine(symbolName) + "_" + Twine(uid)).str())) {
-      uid++;
-    }
-    return (Twine(symbolName) + "_" + Twine(uid)).str();
-  };
-  auto symbolName = getUniqueSymbolName();
-  assert(!symbolTable.lookup(symbolName) &&
-         "Symbol name already exists in the module");
-
-  auto insertionPoint = rewriter.saveInsertionPoint();
-  rewriter.setInsertionPointToStart(moduleOp.getBody());
-  auto global = rewriter.create<memref::GlobalOp>(
-      getLoc(), symbolName,
-      /*sym_visibility*/ rewriter.getStringAttr("private"),
-      /*type*/ mlir::cast<mlir::MemRefType>(memrefType),
-      /*initial_value*/ getValue(),
-      /*constant*/ true,
-      /*alignment*/ nullptr);
-
-  symbolTable.insert(global);
-
-  // Move the global to the beginning of the module, just after the device.
-  global->moveAfter(lookupDeviceOp(moduleOp));
-  rewriter.restoreInsertionPoint(insertionPoint);
-
+  mlir::memref::GlobalOp global =
+      createGlobal(getOperation(), memrefType, getValue());
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
       rewriter, *this, global.getType(), global.getName());
 
