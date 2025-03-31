@@ -25,7 +25,11 @@ public:
   TTIRTensorBufferizeShapeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
     addConversion([](RankedTensorType type) -> Type {
-      auto layout = mlir::cast<MetalLayoutAttr>(type.getEncoding());
+      auto layout =
+          mlir::dyn_cast_if_present<MetalLayoutAttr>(type.getEncoding());
+      if (!layout) {
+        return type;
+      }
       auto bufferType = layout.getBufferType();
       return RankedTensorType::get(bufferType.getShape(),
                                    bufferType.getElementType(), layout);
@@ -69,24 +73,12 @@ void initializeOneShotBufferizationOptions(
          func::FuncOp funcOp,
          const bufferization::BufferizationOptions &options)
       -> ::mlir::BaseMemRefType {
-    auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-    return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-        .getBufferType();
-  };
-  options.defaultMemorySpaceFn =
-      [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
-    auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-    return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-        .getMemref()
-        .getMemorySpace();
-  };
-  options.unknownTypeConverterFn =
-      [](Value value, Attribute memorySpace,
-         const bufferization::BufferizationOptions &) -> BaseMemRefType {
-    auto rankedTensorType =
-        mlir::cast<::mlir::RankedTensorType>(value.getType());
-    return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-        .getBufferType();
+    auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(tensorType);
+    if (rankedTensorType.getEncoding()) {
+      return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+          .getBufferType();
+    }
+    return bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
   };
 }
 

@@ -532,6 +532,18 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
 }
 
 MetalLayoutAttr MetalLayoutAttr::get(
+    ::mlir::MLIRContext *context, RankedTensorType ty, uint64_t gridRank,
+    bool tiled, MemorySpace memorySpace,
+    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
+    OOBVal oobVal) {
+  auto grid = GridAttr::get(context, gridRank);
+  auto elementType =
+      tiled ? TileType::get(context, ty.getElementType()) : ty.getElementType();
+  return get(context, ty.getShape(), elementType, memorySpace, grid,
+             collapseIntervals, oobVal);
+}
+
+MetalLayoutAttr MetalLayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, MemorySpace memorySpace, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
