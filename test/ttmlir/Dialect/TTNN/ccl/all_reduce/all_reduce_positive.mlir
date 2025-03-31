@@ -66,3 +66,85 @@ module attributes {} {
     return %1 : tensor<1x1x4096x16384xf32>
   }
 }
+
+// -----
+
+// Verify transform for all_reduce with non-divisible dimension
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions
+  func.func @all_reduce_positive_with_non_divisible_dimensions(%arg0: tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32> {
+    %0 = ttir.empty() : tensor<1x1x32x31xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x1x32x31xf32>, tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.sum"
+    return %1 : tensor<1x1x32x31xf32>
+  }
+}
+
+
+// -----
+
+// Verify breakdown of all_reduce into all_gather and reduce with reduce_type Min
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_min
+  func.func @all_reduce_positive_with_non_divisible_dimensions_min(%arg0: tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32> {
+    %0 = ttir.empty() : tensor<1x1x32x31xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<min>}> : (tensor<1x1x32x31xf32>, tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.min"
+    return %1 : tensor<1x1x32x31xf32>
+  }
+}
+
+// -----
+
+// Verify breakdown of all_reduce into all_gather and reduce with reduce_type Max
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_max
+  func.func @all_reduce_positive_with_non_divisible_dimensions_max(%arg0: tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32> {
+    %0 = ttir.empty() : tensor<1x1x32x31xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<max>}> : (tensor<1x1x32x31xf32>, tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.max"
+    return %1 : tensor<1x1x32x31xf32>
+  }
+}
+
+
+// -----
+
+// Verify breakdown of all_reduce into all_gather and local reduce memory limit
+// Reduce_Scatter + All_Gather breakdown need to be used for this case due to memory limitation
+// 1x50x64x63x == 201600  (limit: 200000)
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_over_memory_limit
+  func.func @all_reduce_positive_with_non_divisible_dimensions_over_memory_limit(%arg0: tensor<1x50x64x63xf32>) -> tensor<1x50x64x63xf32> {
+    %0 = ttir.empty() : tensor<1x50x64x63xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x50x64x63xf32>, tensor<1x50x64x63xf32>) -> tensor<1x50x64x63xf32>
+    // CHECK: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK-NOT: "ttnn.sum"
+    return %1 : tensor<1x50x64x63xf32>
+  }
+}
+
+
+// -----
+
+// Verify breakdown of all_reduce into all_gather and local reduce memory limit
+// All_Gather + Local_Reduce breakdown need to be used for this case
+// 1x48x64x63x == 193536  (limit: 200000)
+module attributes {} {
+  // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_under_memory_limit
+  func.func @all_reduce_positive_with_non_divisible_dimensions_under_memory_limit(%arg0: tensor<1x48x64x63xf32>) -> tensor<1x48x64x63xf32> {
+    %0 = ttir.empty() : tensor<1x48x64x63xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x48x64x63xf32>, tensor<1x48x64x63xf32>) -> tensor<1x48x64x63xf32>
+    // CHECK-NOT: "ttnn.reduce_scatter"
+    // CHECK: "ttnn.all_gather"
+    // CHECK: "ttnn.sum"
+    return %1 : tensor<1x48x64x63xf32>
+  }
+}
