@@ -314,6 +314,60 @@ getQuadrupleOfInteger(mlir::Attribute attr) {
   }
 }
 
+template <typename T>
+using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
+namespace detail {
+template <typename, typename = void>
+struct is_leaf_type : std::true_type {};
+
+template <typename T>
+struct is_leaf_type<T, std::void_t<decltype(std::declval<T>().begin())>>
+    : std::false_type {};
+
+template <typename T>
+constexpr bool is_leaf_type_v = is_leaf_type<T>::value;
+
+template <typename T, typename = void>
+struct get_value_type {
+  using type = remove_cvref_t<T>;
+};
+
+template <typename T>
+struct get_value_type<T, std::enable_if_t<is_leaf_type_v<T>>> {
+  using type = typename std::iterator_traits<
+      decltype(std::declval<T>().begin())>::value_type;
+};
+
+template <typename T>
+using get_value_type_t = typename get_value_type<T>::type;
+
+template <typename T, typename U>
+std::enable_if_t<std::is_convertible_v<get_value_type_t<T>, U>>
+append(llvm::SmallVector<U> &result, T &&value) {
+  if constexpr (is_leaf_type_v<T>) {
+    result.push_back(std::forward<T>(value));
+  } else {
+    for (auto &&v : value) {
+      append(result, std::forward<decltype(v)>(v));
+    }
+  }
+}
+} // namespace detail
+
+template <typename FirstTy, typename... RestTy,
+          typename ReturnTy = detail::get_value_type_t<FirstTy>>
+llvm::SmallVector<ReturnTy> flatten(FirstTy &&first, RestTy &&...rest) {
+  static_assert(
+      (std::is_convertible_v<detail::get_value_type_t<FirstTy>, ReturnTy> &&
+       ... &&
+       std::is_convertible_v<detail::get_value_type_t<RestTy>, ReturnTy>));
+  llvm::SmallVector<ReturnTy> result;
+  append(result, std::forward<FirstTy>(first));
+  (append(result, std::forward<RestTy>(rest)), ...);
+  return result;
+}
+
 // It's assumed that operand is convertible to mlir::Value or mlir::ValueRange.
 // The only exception being tt::ttnn::DeviceType, which is convertible to
 // mlir::Value but should not be considered an operand.
