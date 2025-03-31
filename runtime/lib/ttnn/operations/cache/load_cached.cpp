@@ -61,7 +61,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   // Collect input tensor IDs for execution
   std::vector<uint32_t> funcInputIds =
       context.getTensorPool().getProgramInputIds();
-  std::vector<uint32_t> inputIds(funcInputIds.size());
+  std::vector<uint32_t> inputIds(op->inputs_indexes()->size());
   for (size_t i = 0; i < inputIds.size(); ++i) {
     const size_t input = op->inputs_indexes()->Get(i);
     LOG_ASSERT(input < funcInputIds.size(),
