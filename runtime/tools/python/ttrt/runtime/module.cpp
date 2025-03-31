@@ -79,6 +79,10 @@ PYBIND11_MODULE(_C, m) {
                           value.cast<tt::runtime::DispatchCoreType>());
           });
   py::class_<tt::runtime::Tensor>(m, "Tensor")
+      .def("is_allocated",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::isTensorAllocated(self);
+           })
       .def("get_shape",
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorShape(self);
@@ -212,14 +216,15 @@ PYBIND11_MODULE(_C, m) {
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
-         std::uint32_t programIndex,
-         const std::vector<::tt::runtime::Tensor> &inputs)
+         std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs)
           -> std::vector<::tt::runtime::Tensor> {
-        return ::tt::runtime::submit(device, executable, programIndex, inputs);
+        return ::tt::runtime::submit(device, executable, programIndex,
+                                     std::move(inputs));
       },
       py::arg("device"), py::arg("executable"), py::arg("program_index"),
       py::arg("inputs"),
-      "Submit a ttnn binary for execution, returns a vector of output tensors");
+      "Submit a ttnn binary for execution, returns a vector of output tensors."
+      "The input tensors will be moved and consumed.");
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,

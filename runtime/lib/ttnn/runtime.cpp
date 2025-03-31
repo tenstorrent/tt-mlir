@@ -88,18 +88,60 @@ createOwnedTTNNTensor(std::shared_ptr<void> data,
       ::ttnn::Layout::ROW_MAJOR);
 }
 
-Tensor createOwnedTensor(std::shared_ptr<void> data,
-                         std::vector<std::uint32_t> const &shape,
-                         std::vector<std::uint32_t> const &stride,
-                         std::uint32_t itemsize,
-                         ::tt::target::DataType dataType) {
-
-  return utils::createRuntimeTensorFromTTNN(
-      createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
-}
-
 static Tensor createNullTensor() {
   return Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
+}
+
+static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
+  const ::ttnn::Tensor &deviceTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::shared_ptr<::ttnn::Tensor> hostTensor =
+      std::make_shared<::ttnn::Tensor>(::ttnn::from_device(deviceTensor));
+
+  if (untilize) {
+    hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+        *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
+        static_cast<::ttnn::IDevice *>(nullptr)));
+  }
+
+  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
+                DeviceRuntime::TTNN);
+}
+
+static std::vector<Tensor> convertInputLayouts(Device deviceHandle,
+                                               Binary executableHandle,
+                                               std::uint32_t programIndex,
+                                               std::vector<Tensor> &&inputs) {
+  // Convert input tensors to the layout expected by the program
+  std::vector<Tensor> inputsWithLayout;
+  inputsWithLayout.reserve(inputs.size());
+  for (size_t i = 0; i < inputs.size(); i++) {
+    Tensor &input = inputs[i];
+    Layout desiredLayout =
+        ::tt::runtime::ttnn::getLayout(executableHandle, programIndex, i);
+
+    const LayoutDesc tensorLayoutDesc = LayoutDesc::fromTensor(input);
+
+    const LayoutDesc &desiredlayoutDesc =
+        desiredLayout.as<LayoutDesc>(DeviceRuntime::TTNN);
+
+    // If the input tensor already has the correct layout
+    // reuse it and continue
+    if (tensorLayoutDesc == desiredlayoutDesc) {
+      inputsWithLayout.emplace_back(std::move(input));
+      continue;
+    }
+
+    // Convert the input tensor to the correct layout
+    // Reset the handle of the old input tensor
+    // Potentially deallocating it if it only has 1 reference
+    Tensor inputWithLayout =
+        ::tt::runtime::ttnn::toLayout(input, deviceHandle, desiredLayout);
+    inputsWithLayout.emplace_back(std::move(inputWithLayout));
+    input.handle.reset();
+  }
+
+  return inputsWithLayout;
 }
 
 static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
@@ -142,6 +184,17 @@ Tensor createTensor(std::shared_ptr<void> data,
       ::ttnn::Layout::ROW_MAJOR);
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
                 DeviceRuntime::TTNN);
+}
+
+// Create a owned tensor from user-owned data
+Tensor createOwnedTensor(std::shared_ptr<void> data,
+                         std::vector<std::uint32_t> const &shape,
+                         std::vector<std::uint32_t> const &stride,
+                         std::uint32_t itemsize,
+                         ::tt::target::DataType dataType) {
+
+  return utils::createRuntimeTensorFromTTNN(
+      createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
 }
 
 // Create a owned multi-device host tensor from user-owned data
@@ -191,6 +244,12 @@ Tensor createTensor(Device device, Layout layout,
       },
       targetDevice);
   return utils::createRuntimeTensorFromTTNN(tensor);
+}
+
+bool isTensorAllocated(Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  return ttnnTensor.is_allocated();
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor) {
@@ -351,22 +410,6 @@ void wait(std::vector<Tensor> const &tensors) {
   }
 }
 
-static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
-  const ::ttnn::Tensor &deviceTensor =
-      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  std::shared_ptr<::ttnn::Tensor> hostTensor =
-      std::make_shared<::ttnn::Tensor>(::ttnn::from_device(deviceTensor));
-
-  if (untilize) {
-    hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
-        *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
-        static_cast<::ttnn::IDevice *>(nullptr)));
-  }
-
-  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-                DeviceRuntime::TTNN);
-}
-
 std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
   const ::ttnn::Tensor &multiDeviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
@@ -390,25 +433,24 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
 }
 
 Tensor toLayout(Tensor tensor, Device device, Layout layout) {
-  const ::ttnn::Tensor &ttnnTensor =
-      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  const ::ttnn::StorageType &inputStorageType = ttnnTensor.storage_type();
-  const ::ttnn::Layout &inputLayout = ttnnTensor.get_layout();
-  const ::ttnn::DataType &inputDataType = ttnnTensor.get_dtype();
-  LayoutDesc inputLayoutDesc(inputStorageType, inputLayout, inputDataType,
-                             std::nullopt);
+  const LayoutDesc tensorLayoutDesc = LayoutDesc::fromTensor(tensor);
 
-  const LayoutDesc &outputLayoutDesc =
+  const LayoutDesc &desiredLayoutDesc =
       layout.as<LayoutDesc>(DeviceRuntime::TTNN);
 
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  const ::ttnn::Tensor &ttnnTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+
   DeviceVariant targetDevice = getTargetDevice(meshDevice);
   if (workaround::Env::get().toLayoutAPIAssumeSingleChip) {
     targetDevice =
         std::ref(*meshDevice.get_device(::ttnn::MeshCoordinate(0, 0)));
   }
-  LayoutConverter converter(inputLayoutDesc, outputLayoutDesc);
+
+  LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
   std::shared_ptr<::ttnn::Tensor> out = std::make_shared<::ttnn::Tensor>(
       converter.convertTensorLayout(ttnnTensor, targetDevice));
 
@@ -678,7 +720,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   }
 
   if (tensorRef.has_value() && tensorPool.contains(tensorRef.value())) {
-    outPtr = &tensorPool.getAndValidate(tensorRef.value());
+    outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef.value());
   } else {
     LOG_WARNING("Output tensor not found in tensor pool");
     return createNullTensor();
@@ -811,31 +853,18 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputHandles) {
+                           std::vector<Tensor> &&inputs) {
+  // Convert input tensors to the layout expected by the program
+  std::vector<Tensor> inputsWithLayout =
+      ::tt::runtime::ttnn::convertInputLayouts(deviceHandle, executableHandle,
+                                               programIndex, std::move(inputs));
+
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  // Convert input tensors to the layout expected by the program
-  std::vector<Tensor> inputsWithLayout;
-  inputsWithLayout.reserve(inputHandles.size());
-  std::transform(
-      inputHandles.begin(), inputHandles.end(),
-      std::back_inserter(inputsWithLayout), [&](const Tensor &input) -> Tensor {
-        Layout inputLayout = ::tt::runtime::ttnn::getLayout(
-            executableHandle, programIndex, inputsWithLayout.size());
-        return ::tt::runtime::ttnn::toLayout(input, deviceHandle, inputLayout);
-      });
-
-  std::vector<::ttnn::Tensor *> ttnnInputs;
-  ttnnInputs.reserve(inputsWithLayout.size());
-  std::transform(inputsWithLayout.begin(), inputsWithLayout.end(),
-                 std::back_inserter(ttnnInputs),
-                 [](Tensor &input) -> ::ttnn::Tensor * {
-                   return &input.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-                 });
-
   std::vector<Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      meshDevice, executableHandle, programIndex, ttnnInputs);
+      meshDevice, executableHandle, programIndex, std::move(inputsWithLayout));
+
   return outputs;
 }
 

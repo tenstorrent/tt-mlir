@@ -4,7 +4,7 @@
 
 #include "operations/creation/arange.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/types.hpp"

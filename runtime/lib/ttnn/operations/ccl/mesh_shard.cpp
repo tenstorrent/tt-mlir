@@ -5,7 +5,7 @@
 #include "operations/ccl/mesh_shard.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/workarounds.h"
@@ -101,7 +101,7 @@ void ShardToFullShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
 void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   const ::tt::target::ttnn::MeshShardDirection shardDirection =
       op->shard_direction();

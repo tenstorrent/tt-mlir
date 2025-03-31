@@ -5,7 +5,7 @@
 #include "operations/eltwise/ternary/ternary.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/eltwise/ternary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"

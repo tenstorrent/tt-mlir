@@ -51,7 +51,7 @@ TEST(TTNNSubtract, Equal) {
       static_cast<uint32_t>(::tt::runtime::getNumAvailableDevices());
   auto device = ::tt::runtime::openMeshDevice({1, numDevices});
   std::vector<::tt::runtime::Tensor> output =
-      ::tt::runtime::submit(device, fbb, 0, inputTensors);
+      ::tt::runtime::submit(device, fbb, 0, std::move(inputTensors));
   ::tt::runtime::closeMeshDevice(device);
   assert(output.size() == 1);
   std::shared_ptr<void> expected =

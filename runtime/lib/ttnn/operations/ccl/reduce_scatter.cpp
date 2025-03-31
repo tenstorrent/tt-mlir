@@ -5,7 +5,7 @@
 #include "operations/ccl/reduce_scatter.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
@@ -16,7 +16,7 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   int32_t scatterDimension = op->scatter_dim();
   uint32_t clusterAxis = op->cluster_axis();

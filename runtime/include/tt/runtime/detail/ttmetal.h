@@ -29,6 +29,7 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
                       desc.dataType);
 }
 
+bool isTensorAllocated(Tensor tensor);
 tt::target::DataType getTensorDataType(Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);

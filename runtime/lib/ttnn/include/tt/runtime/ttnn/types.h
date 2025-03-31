@@ -22,20 +22,17 @@ struct LayoutDesc {
   ::ttnn::DataType dataType;
   std::optional<::ttnn::MemoryConfig> memoryConfig;
 
+  static LayoutDesc fromTensor(const ::tt::runtime::Tensor &tensor);
+
   LayoutDesc(const ::ttnn::StorageType &storageType,
              const ::ttnn::Layout &layout, const ::ttnn::DataType &dataType,
-             const std::optional<::ttnn::MemoryConfig> &memoryConfig)
-      : storageType(storageType), layout(layout), dataType(dataType),
-        memoryConfig(memoryConfig) {}
+             const std::optional<::ttnn::MemoryConfig> &memoryConfig);
 
-  bool isOnHost() const {
-    return (storageType == ::ttnn::StorageType::OWNED) ||
-           (storageType == ::ttnn::StorageType::BORROWED) ||
-           (storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST);
-  }
-  bool isOnDevice() const { return !isOnHost(); }
+  bool isOnHost() const;
+  bool isOnDevice() const;
+  bool isTilized() const;
 
-  bool isTilized() const { return layout == ::ttnn::Layout::TILE; }
+  bool operator==(const LayoutDesc &other) const;
 };
 
 class LayoutConverter {
@@ -88,10 +85,12 @@ private:
 
 class ProgramTensorPool {
 public:
+  using TensorMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor>;
+  using TensorMapIterator = typename TensorMap::iterator;
   ProgramTensorPool(
       const std::vector<uint32_t> &programInputIds,
       const std::vector<uint32_t> &programOutputIds,
-      std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors)
+      std::unordered_map<uint32_t, ::tt::runtime::Tensor> &&liveTensors)
       : programInputIds(programInputIds), programOutputIds(programOutputIds),
         liveTensors(std::move(liveTensors)) {}
   ProgramTensorPool(const ProgramTensorPool &) = delete;
@@ -99,18 +98,24 @@ public:
   ProgramTensorPool(ProgramTensorPool &&) = default;
   ProgramTensorPool &operator=(ProgramTensorPool &&) = default;
 
-  const ::ttnn::Tensor &
-  getAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef) const;
-  ::ttnn::Tensor &
-  getAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
+  const ::tt::runtime::Tensor &getRuntimeTensorAndValidate(
+      const ::tt::target::ttnn::TensorRef *tensorRef) const;
+  ::tt::runtime::Tensor &
+  getRuntimeTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
+  size_t getRuntimeTensorUseCount(std::uint32_t globalId) const;
 
-  std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
+  const ::ttnn::Tensor &getTTNNTensorAndValidate(
+      const ::tt::target::ttnn::TensorRef *tensorRef) const;
+  ::ttnn::Tensor &
+  getTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
+
+  std::pair<TensorMapIterator, bool>
   insertAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
                     const ::ttnn::Tensor &ttnnTensor);
 
-  size_t erase(const ::tt::target::ttnn::TensorRef *tensorRef);
+  std::vector<::tt::runtime::Tensor> gatherOutputTensors();
 
-  std::vector<Tensor> gatherOutputTensors();
+  TensorMapIterator erase(const ::tt::target::ttnn::TensorRef *tensorRef);
 
   bool contains(const ::tt::target::ttnn::TensorRef *tensorRef) const {
     return liveTensors.contains(tensorRef->global_id());
@@ -127,22 +132,19 @@ public:
 private:
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;
-  // A superset of intermedTensors, containing pointers to all tensors created
-  // by the program and the input tensors passed in by the user
-  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+  TensorMap liveTensors;
 
-  // A subset of liveTensors, containing values of any intermediate tensors
-  // created by the program
-  std::unordered_map<std::uint32_t, ::ttnn::Tensor> intermedTensors;
+  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
 };
 
 class ProgramContext {
 public:
-  ProgramContext(const std::vector<uint32_t> &programInputIds,
-                 const std::vector<uint32_t> &programOutputIds,
-                 std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
-                 common::DylibManager &&programDylibManager,
-                 ::ttnn::MeshDevice *parentMesh)
+  ProgramContext(
+      const std::vector<uint32_t> &programInputIds,
+      const std::vector<uint32_t> &programOutputIds,
+      std::unordered_map<uint32_t, ::tt::runtime::Tensor> &&liveTensors,
+      common::DylibManager &&programDylibManager,
+      ::ttnn::MeshDevice *parentMesh)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         dylibManager(std::move(programDylibManager)), parentMesh(parentMesh) {

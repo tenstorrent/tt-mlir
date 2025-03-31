@@ -5,7 +5,7 @@
 #include "operations/embedding/embedding.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -13,8 +13,10 @@ namespace tt::runtime::ttnn::operations::embedding {
 void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
 
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input = tensorPool.getAndValidate(op->input());
-  const ::ttnn::Tensor &weight = tensorPool.getAndValidate(op->weight());
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->input());
+  const ::ttnn::Tensor &weight =
+      tensorPool.getTTNNTensorAndValidate(op->weight());
 
   // default params for embedding op
   std::optional<int> padToken = std::nullopt;

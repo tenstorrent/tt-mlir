@@ -5,14 +5,14 @@
 #include "operations/data_movement/reshape.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   const auto *fbShape = op->shape();
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());

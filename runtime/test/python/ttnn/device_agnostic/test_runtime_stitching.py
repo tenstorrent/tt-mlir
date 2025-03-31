@@ -53,8 +53,9 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
         for program_index in program_indices:
             program = helper.binary.get_program(program_index)
             assert program.num_inputs() == 2 and program.num_outputs() == 1
+            inputs = [activations, weights]
             outputs = ttrt.runtime.submit(
-                device, helper.binary.fbb, program_index, [activations, weights]
+                device, helper.binary.fbb, program_index, inputs
             )
             activations = ttrt.runtime.to_layout(outputs[0], device, activations_layout)
             ttrt.runtime.deallocate_tensor(outputs[0])

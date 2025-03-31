@@ -5,7 +5,7 @@
 #include "operations/data_movement/permute.h"
 
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include <vector>
@@ -14,7 +14,7 @@ namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   ::ttnn::SmallVector<int64_t> permutation(op->permutation()->begin(),
                                            op->permutation()->end());

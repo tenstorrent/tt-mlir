@@ -4,7 +4,7 @@
 #include "operations/eltwise/unary/unary_composite.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/eltwise/unary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
@@ -63,10 +63,10 @@ runEltwiseUnaryCompositeClampTensorOp(const ::tt::target::ttnn::EltwiseOp *op,
 
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
-  ::ttnn::Tensor min =
-      tensorPool.getAndValidate(op->params_as_ClampTensorOpParams()->min());
-  ::ttnn::Tensor max =
-      tensorPool.getAndValidate(op->params_as_ClampTensorOpParams()->max());
+  ::ttnn::Tensor min = tensorPool.getTTNNTensorAndValidate(
+      op->params_as_ClampTensorOpParams()->min());
+  ::ttnn::Tensor max = tensorPool.getTTNNTensorAndValidate(
+      op->params_as_ClampTensorOpParams()->max());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(

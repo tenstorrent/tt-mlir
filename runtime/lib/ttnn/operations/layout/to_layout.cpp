@@ -5,7 +5,7 @@
 #include "operations/layout/to_layout.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -13,7 +13,8 @@ namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &inputTensor = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &inputTensor =
+      tensorPool.getTTNNTensorAndValidate(op->in());
   const ::tt::target::Dim2d *targetTileShape =
       op->out()->desc()->layout()->memory_desc()->tile_shape();
   LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(targetTileShape),

@@ -226,6 +226,21 @@ Tensor createTensor(Device device, Layout layout,
   LOG_FATAL("runtime is not enabled");
 }
 
+bool isTensorAllocated(Tensor tensor) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::isTensorAllocated(tensor);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::isTensorAllocated(tensor);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 tt::target::DataType getTensorDataType(Tensor tensor) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
@@ -509,11 +524,11 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputHandles) {
+                           std::vector<Tensor> &&inputs) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
-                                       programIndex, inputHandles);
+                                       programIndex, std::move(inputs));
   }
 #endif
 

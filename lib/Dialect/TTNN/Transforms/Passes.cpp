@@ -64,10 +64,10 @@ public:
   }
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
+    ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    module->walk([&](func::FuncOp func) {
+    moduleOp->walk([&](func::FuncOp func) {
       if (func.isDeclaration()) {
         return;
       }
@@ -76,6 +76,21 @@ public:
       Liveness liveness(func.getOperation());
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
+
+      // Handle func op parameters
+      for (BlockArgument arg : func.getArguments()) {
+        if (!isa<RankedTensorType>(arg.getType())) {
+          continue;
+        }
+        Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
+
+        if (isa<func::ReturnOp>(lastOp)) {
+          continue;
+        }
+
+        rewriter.setInsertionPointAfter(lastOp);
+        rewriter.create<DeallocateOp>(lastOp->getLoc(), arg);
+      }
 
       // Handle non DPS ops which do not store function result and are used to
       // allocate tensors. DPS ops are handled via ttnn::EmptyOp.

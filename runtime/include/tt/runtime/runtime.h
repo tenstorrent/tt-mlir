@@ -88,6 +88,7 @@ inline Tensor createTensor(Device device, Layout layout,
                                      desc.itemsize);
 }
 
+bool isTensorAllocated(Tensor tensor);
 tt::target::DataType getTensorDataType(Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor);
 std::uint32_t getTensorElementSize(Tensor tensor);
@@ -138,7 +139,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputs);
+                           std::vector<Tensor> &&inputs);
 
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex, std::vector<Tensor> const &inputs,

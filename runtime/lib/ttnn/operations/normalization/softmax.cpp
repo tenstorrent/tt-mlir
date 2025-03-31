@@ -5,14 +5,14 @@
 #include "operations/normalization/softmax.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::normalization {
 void run(const ::tt::target::ttnn::SoftmaxOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   int32_t dimension = op->dimension();
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

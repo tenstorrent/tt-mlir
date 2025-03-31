@@ -89,8 +89,8 @@ inline Tensor createTensor(Device device, Layout layout,
                                            desc.stride, desc.itemsize);
 }
 
+bool isTensorAllocated(Tensor tensor);
 tt::target::DataType getTensorDataType(Tensor tensor);
-
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
@@ -147,12 +147,12 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputs);
+                           std::vector<Tensor> &&inputs);
 
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs);
+                               std::vector<Tensor> &&inputs);
 
 } // namespace tt::runtime::ttnn
 

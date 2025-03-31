@@ -62,6 +62,10 @@ Tensor createTensor(std::shared_ptr<void> data,
                 DeviceRuntime::TTMetal);
 }
 
+bool isTensorAllocated(Tensor tensor) {
+  LOG_FATAL("isTensorAllocated not implemented for metal runtime");
+}
+
 tt::target::DataType getTensorDataType(Tensor tensor) {
   const MetalTensor &metalTensor =
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
