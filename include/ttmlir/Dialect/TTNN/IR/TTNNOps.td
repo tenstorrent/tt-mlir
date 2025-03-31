@@ -1647,6 +1647,15 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
+            getInput().getType()
+          );
+      }
+    }];
 }
 
 def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
