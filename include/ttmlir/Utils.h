@@ -405,12 +405,26 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
   template <typename... ArgsTy>
   static auto call(mlir::PatternRewriter &rewriter, mlir::Location loc,
                    mlir::Value output, ArgsTy &&...args) {
-    return rewriter.create<OpTy>(
-        loc, output.getType(),
-        std::get<Is>(std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
-        output,
-        std::get<sizeof...(Is) + Js>(
-            std::forward_as_tuple(std::forward<ArgsTy>(args)...))...);
+    if constexpr (sizeof...(Js) == 1 &&
+                  std::is_convertible_v<
+                      std::tuple_element<sizeof...(Is) + sizeof...(Js) - 1,
+                                         std::tuple<std::decay_t<ArgsTy>...>>,
+                      mlir::ArrayRef<mlir::NamedAttribute>>) {
+      return rewriter.create<OpTy>(
+          loc, output.getType(),
+          flatten(std::get<Is>(
+                      std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
+                  output),
+          std::get<sizeof...(Is) + sizeof...(Js) - 1>(
+              std::forward_as_tuple(std::forward<ArgsTy>(args)...)));
+    } else {
+      return rewriter.create<OpTy>(
+          loc, output.getType(),
+          std::get<Is>(std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
+          output,
+          std::get<sizeof...(Is) + Js>(
+              std::forward_as_tuple(std::forward<ArgsTy>(args)...))...);
+    }
   }
 };
 
