@@ -26,6 +26,11 @@ module @sysmem_creation attributes {} {
     return %0 : tensor<1x1xf32>
   }
 
+  func.func @test_neginf_float() -> tensor<1xf32> {
+    %0 = "ttir.constant"() <{value = dense<0xFF800000> : tensor<1xf32>}> : () -> tensor<1xf32>
+    return %0 : tensor<1xf32>
+  }
+
   func.func @test_full_int() -> tensor<64x128xi32> {
     %0 = "ttir.constant"() <{value = dense<1> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
     // CHECK: = "ttnn.full"
