@@ -32,11 +32,17 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   // Extract function name
   const std::string functionName = op->callee_name()->str();
 
-  std::vector<uint64_t> inputVersions(op->inputs_indexes()->size());
-  const std::vector<uint64_t> allArgVersions = context.getInputVersions();
-  for (size_t i = 0; i < inputVersions.size(); ++i) {
-    const size_t argIdx = op->inputs_indexes()->Get(i);
-    inputVersions[i] = allArgVersions[argIdx];
+  std::vector<uint64_t> inputVersions(op->inputs_indexes()->size(), 0);
+  const std::vector<uint64_t> &allArgVersions = context.getInputVersions();
+
+  // Only try to access allArgVersions if it's not empty
+  if (!allArgVersions.empty()) {
+    for (size_t i = 0; i < inputVersions.size(); ++i) {
+      const size_t argIdx = op->inputs_indexes()->Get(i);
+      if (argIdx < allArgVersions.size()) {
+        inputVersions[i] = allArgVersions[argIdx];
+      }
+    }
   }
 
   // Get the cached tensors, which will be empty if cache is invalid
