@@ -254,9 +254,8 @@ public:
 
       // Create function type
       //
-      mlir::TypeRange returnTypeRange = mlir::TypeRange(rewriter.getI32Type());
       FunctionType functionType =
-          mlir::FunctionType::get(&getContext(), {}, returnTypeRange);
+          mlir::FunctionType::get(&getContext(), {}, rewriter.getI32Type());
 
       // Set insertion point to end of first block
       //

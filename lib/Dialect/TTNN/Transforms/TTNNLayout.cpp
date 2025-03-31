@@ -693,7 +693,7 @@ public:
       patterns.add<TTNNLayoutFuncInputOutputTypeRewriter>(
           &getContext(), device.getWorkerGrid());
       FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
         signalPassFailure();
         return;
       }
@@ -711,8 +711,7 @@ public:
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
+      if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
         signalPassFailure();
         return;
       }

@@ -149,11 +149,8 @@ private:
   LogicalResult
   checkConversionLegality(tosa::MatMulOp srcOp, Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getQuantizationInfo().has_value()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR MatmulOp currently doesn't support quantization.");
-    }
-    return success();
+    return rewriter.notifyMatchFailure(
+        srcOp, "TTIR MatmulOp currently doesn't support quantization.");
   }
 };
 } // namespace
