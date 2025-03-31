@@ -143,8 +143,8 @@ void ProgramExecutor::runCallback(
     std::string callbackKey, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
-  if (auto callback = debug::Hooks::get(callbackKey).getOperatorCallback();
-      callback) {
+  if (auto callback = debug::Hooks::get().getOperatorCallback();
+      callback and debug::Hooks::get().getCallbackKey() == callbackKey) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);
     std::shared_ptr<void> opContextPtr =

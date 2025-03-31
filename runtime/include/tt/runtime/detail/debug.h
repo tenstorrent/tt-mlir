@@ -49,10 +49,7 @@ struct Hooks {
       std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
-  constexpr static Hooks
-  get(std::optional<std::string> callbackKey = "post-op") {
-    return Hooks();
-  }
+  constexpr static Hooks get() { return Hooks(); }
 #endif
 
   std::string getCallbackKey() const {
