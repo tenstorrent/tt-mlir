@@ -3057,11 +3057,11 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
   }
 
   if (isExternalSymbolForm()) {
-    for (auto &thread : getThreads()) {
-      if (!mlir::cast<ThreadAttr>(thread).getKernelSymbol()) {
-        return emitOpError("threads must have a kernel symbol in external "
-                           "symbol form (i.e. without regions)");
-      }
+    if (llvm::any_of(getThreads(), [](Attribute thread) {
+          return !mlir::cast<ThreadAttr>(thread).getKernelSymbol();
+        })) {
+      return emitOpError("threads must have a kernel symbol in external symbol "
+                         "form (i.e. without regions)");
     }
   }
 

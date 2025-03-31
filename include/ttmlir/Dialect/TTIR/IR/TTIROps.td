@@ -143,11 +143,9 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $computeRegionBuilder),
       [{
         build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes);
-        llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) {
+        llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-          tt::MetalLayoutAttr layout =
-              mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
-          return mlir::cast<Type>(layout.getMemref());
+          return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
         });
         Region& region = *$_state.regions.front().get();
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
