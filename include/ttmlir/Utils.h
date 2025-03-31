@@ -582,11 +582,11 @@ constexpr bool always_false() {
   return false;
 }
 
-template <typename... Args>
+template <typename... ParentOps>
 static mlir::Region *getRegionWithParentOfType(mlir::Operation *op) {
   mlir::Region *region = op->getParentRegion();
   mlir::Operation *parentOp = region->getParentOp();
-  while (!mlir::isa<Args...>(parentOp)) {
+  while (!mlir::isa<ParentOps...>(parentOp)) {
     region = parentOp->getParentRegion();
     if (!region) {
       break;

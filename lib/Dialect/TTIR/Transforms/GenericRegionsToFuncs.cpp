@@ -58,7 +58,7 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     OpBuilder builder(&getContext());
-    static int unique = 0;
+    int unique = 0;
     moduleOp->walk([&](GenericOp generic) {
       generic.walk([&](DMAOp dma) {
         rewriteCapturedDMAOperands(builder, generic, dma);
