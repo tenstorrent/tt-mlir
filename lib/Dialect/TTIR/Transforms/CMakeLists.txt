@@ -8,7 +8,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         GenericHWThreadSelection.cpp
         GenericLowerDMAs.cpp
         GenericRegionsToFuncs.cpp
-        AttachMetalLayout.cpp
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
         Bufferization.cpp

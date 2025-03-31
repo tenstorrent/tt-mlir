@@ -7,20 +7,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Attach a TTMetal layout to operands of a TTIR op.
-  }];
-
-  let options = [
-    Option<"initMemorySpace", "init-memory-space",
-          "::mlir::tt::MemorySpace",
-          /*default=*/"::mlir::tt::MemorySpace::DeviceL1",
-           "set the initial memory space for tensors to start in">
-  ];
-}
-
 def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
   let summary = "Linearize memref operands for generic ops.";
   let description = [{
