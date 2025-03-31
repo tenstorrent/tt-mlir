@@ -667,7 +667,7 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryOp<"atan2"> {
       Example:
       ```
         // %lhs: [0.0, 1.0, -1.0]
-        // %rhs: [0.0, 0.0, 0.0]
+        // %rhs: [1.0, 0.0, 0.0]
         %result = "ttnn.atan2"(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
         // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
       ```
