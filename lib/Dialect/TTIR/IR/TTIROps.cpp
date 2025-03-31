@@ -233,7 +233,6 @@ mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
     return (Twine(symbolName) + "_" + Twine(uid)).str();
   };
   auto symbolName = getUniqueSymbolName();
-  llvm::errs() << "Symbol name: " << symbolName << "\n";
   assert(!symbolTable.lookup(symbolName) &&
          "Symbol name already exists in the module");
 

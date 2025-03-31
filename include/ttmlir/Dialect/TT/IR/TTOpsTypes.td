@@ -556,7 +556,8 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let assemblyFormat = "`<` custom<DimensionList>($shape) `,` $dataType `>`";
 
     let extraClassDeclaration = [{
-      static TileType get(::mlir::MLIRContext *context, Type elementType, ArrayRef<int64_t> shape = {32, 32});
+      static constexpr std::array<int64_t, 2> getDefaultShape() { return {32, 32}; }
+      static TileType get(::mlir::MLIRContext *context, Type elementType, ArrayRef<int64_t> shape = getDefaultShape());
       SmallVector<int64_t> getScalarShape(SmallVector<int64_t> tiledShape) const;
       SmallVector<int64_t> getTiledShape(SmallVector<int64_t> scalarShape) const;
       uint64_t getSizeBytes() const;

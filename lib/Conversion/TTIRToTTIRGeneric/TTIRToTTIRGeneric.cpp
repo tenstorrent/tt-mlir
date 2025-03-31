@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
@@ -402,9 +403,8 @@ private:
   // (at the current 'builder' insertion point).
   static mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
                                   mlir::Type elementType) {
-    SmallVector<int64_t> scalerShape{1};
     mlir::RankedTensorType scalerType =
-        RankedTensorType::get(scalerShape, elementType);
+        RankedTensorType::get(TileType::getDefaultShape(), elementType);
 
     mlir::Attribute one;
     if (mlir::isa<mlir::FloatType>(elementType)) {

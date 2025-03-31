@@ -74,29 +74,6 @@ void initializeOneShotBufferizationOptions(
       -> ::mlir::BaseMemRefType {
     return bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
   };
-  options.defaultMemorySpaceFn =
-      [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
-    auto rankedTensorType = mlir::cast<::mlir::RankedTensorType>(tensorType);
-    if (!rankedTensorType.getEncoding()) {
-      return MemorySpaceAttr::get(tensorType.getContext(), MemorySpace::System);
-    }
-    return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-        .getMemref()
-        .getMemorySpace();
-  };
-#if 0
-  options.unknownTypeConverterFn =
-      [](Value value, Attribute memorySpace,
-         const bufferization::BufferizationOptions &) -> BaseMemRefType {
-    auto rankedTensorType =
-        mlir::cast<::mlir::RankedTensorType>(value.getType());
-    if (!rankedTensorType.getEncoding()) {
-      return nullptr;
-    }
-    return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-        .getBufferType();
-  };
-#endif
 }
 
 } // namespace mlir::tt::ttir
