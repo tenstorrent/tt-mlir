@@ -595,13 +595,16 @@ void wait(Event event) {
 void wait(::tt::runtime::Tensor tensor) {
   LOG_ASSERT(tensor.matchesRuntime(DeviceRuntime::TTNN),
              "Expected ttnn tensor");
+  LOG_INFO("Calling wait on tensor.event");
   ::tt::runtime::ttnn::wait(tensor.event);
+  LOG_INFO("Finished waiting for tensor.event");
 }
 
 void wait(std::vector<::tt::runtime::Tensor> const &tensors) {
   for (const ::tt::runtime::Tensor &tensor : tensors) {
     ::tt::runtime::ttnn::wait(tensor);
   }
+  LOG_INFO("Finished waiting for all tensors in vector");
 }
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
@@ -625,6 +628,7 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   } else {
     hostTensors.push_back(
         ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
+    LOG_INFO("Processed single device tensor");
   }
   return hostTensors;
 }
@@ -1002,12 +1006,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  // Extract versions from input tensors
+  // Use empty vector for versions
   std::vector<uint64_t> inputVersions;
-  inputVersions.reserve(inputHandles.size());
-  for (const auto &input : inputHandles) {
-    inputVersions.push_back(input.version.load());
-  }
 
   // Convert input tensors to the layout expected by the program
   std::vector<Tensor> inputsWithLayout;
