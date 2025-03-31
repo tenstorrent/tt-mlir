@@ -5,9 +5,9 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 // RUN: FileCheck --input-file=%t.mlir %s
 
-module @jit_eltwise_power attributes {} {
+module {
   func.func public @test_power(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    // CHECK-LABEL: func.func public @test_power
+    // CHECK-LABEL: func.func public @test_pow
     // CHECK: ttnn.pow
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
