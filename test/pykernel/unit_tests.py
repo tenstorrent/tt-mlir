@@ -31,7 +31,7 @@ def test_assign():
     return
 
 
-@ttkernel_compile()
+@ttkernel_compile(optimize=False)
 def test_ifstmt():
     # CHECK: module {
     # CHECK: func.func @
@@ -68,6 +68,19 @@ def test_ifstmt():
     a = 1
     b = 2
     c = 3
+
+    # CHECK: %[[COND2:.*]] = arith.cmpi ne{{.*}}
+    # CHECK: scf.if %[[COND2]]{{.*}}
+    if a:
+        # CHECK: memref.store {{.*}}
+        a = 2
+
+    # CHECK: %{{.*}} = arith.cmpi sgt{{.*}}
+    # CHECK: %[[COND3:.*]] = arith.andi {{.*}}
+    # CHECK: scf.if %[[COND3]]{{.*}}
+    if True and a > 10:
+        # CHECK: memref.store {{.*}}
+        a = 2
     return
 
 

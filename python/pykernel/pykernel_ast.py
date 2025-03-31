@@ -267,7 +267,30 @@ class TTKernelCompiler(ast.NodeVisitor):
         #     node.test, ast.Compare
         # ), "Only Compare supported in if statements"
         if_cond = self.visit(node.test)
-        # if not if_cond.result.type.width == 1 or not if_cond.result.type.is_signless:
+        cond_type = None
+
+        if hasattr(if_cond, "result"):
+            if_cond = if_cond.result
+
+        if hasattr(if_cond, "type") and isinstance(if_cond.type, memref.MemRefType):
+            if_cond = memref.LoadOp(
+                if_cond, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+            cond_type = if_cond.type
+        elif hasattr(if_cond, "type") and isinstance(if_cond.type, IntegerType):
+            cond_type = if_cond.type
+        elif isinstance(if_cond, arith.ConstantOp):
+            cond_type = if_cond.type
+
+        # Create C-Style comparison if cond_type is not None
+        if cond_type is None or not isinstance(cond_type, IntegerType):
+            raise ValueError("Cannot Compare Non-Integer Values")
+
+        if cond_type.width != 1:
+            # Turn into comparison to make sure value is not 0
+            if_cond = arith.cmpi(
+                arith.CmpIPredicate.ne, if_cond, arith.ConstantOp(cond_type, 0)
+            )
         # if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
         if_exp = scf.IfOp(cond=if_cond, hasElse=bool(node.orelse))
 
