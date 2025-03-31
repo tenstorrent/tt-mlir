@@ -347,6 +347,7 @@ void wait(Tensor tensor) {
 
 void wait(std::vector<Tensor> const &tensors) {
   for (const Tensor &tensor : tensors) {
+    LOG_INFO("Waiting for tensor");
     ::tt::runtime::ttnn::wait(tensor);
   }
 }
