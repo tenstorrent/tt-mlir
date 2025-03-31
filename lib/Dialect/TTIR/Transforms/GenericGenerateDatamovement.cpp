@@ -85,12 +85,11 @@ public:
                          SmallVector<Value> coreIndex = {},
                          SmallVector<Value> mcastShape = {}) {
     return builder
-        .create<ttir::DMAOp>(loc, builder.getType<MemTxType>(), src,
+        .create<ttir::DMAOp>(loc, src,
                              operandIndexingMap
                                  ? AffineMapAttr::get(*operandIndexingMap)
                                  : nullptr,
-                             ValueRange(), dst, nullptr, ValueRange(), nullptr,
-                             coreIndex, mcastShape)
+                             dst, coreIndex, mcastShape)
         .getResult();
   }
 

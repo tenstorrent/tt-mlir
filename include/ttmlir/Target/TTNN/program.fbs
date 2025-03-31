@@ -80,16 +80,13 @@ table ConstructTensorOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table ZerosOp {
-  shape: [int64];
-  dtype: DataType = null;
-  layout: TensorLayout = null;
-  device: tt.target.DeviceRef;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  out: tt.target.ttnn.TensorRef;
+enum NamedFullOpType: uint32 {
+  Zeros,
+  Ones,
 }
 
-table OnesOp {
+table NamedFullOp {
+  type: NamedFullOpType;
   shape: [int64];
   dtype: DataType = null;
   layout: TensorLayout = null;
@@ -471,8 +468,7 @@ union OpType {
   FromDeviceOp,
   EmptyOp,
   ConstructTensorOp,
-  ZerosOp,
-  OnesOp,
+  NamedFullOp,
   FullOp,
   EltwiseOp,
   LinearOp,

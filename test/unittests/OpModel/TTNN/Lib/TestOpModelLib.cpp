@@ -153,6 +153,91 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::BufferType::L1},
             detail::ExpectedResult{false})));
 
+TEST_P(OpModelUnaryEltwiseParam, Sqrt) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+              expectedOutputSize] = std::get<2>(params);
+
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const mlir::tt::ttnn::TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  auto constraintsExp = SqrtOpInterface::getOpConstraints(
+      inputShape, inputLayout, outputShape, outputLayout);
+  // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+  // which llvm::Expected<T> does not have
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (expectedLegal) {
+    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    EXPECT_EQ(cbSize, expectedCbSize);
+    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(outputSize, expectedOutputSize);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = SqrtOpInterface::getOpRuntime(inputShape, inputLayout,
+                                                  outputShape, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (expectedLegal) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SqrtTests, OpModelUnaryEltwiseParam,
+    ::testing::Values(
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 8192, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 8192, 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 8192, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 8192, 2048, 2048}),
+        std::make_tuple(
+            detail::TestTensor{
+                {14 * OpModelFixture::workerCoresN300 * 32, 32},
+                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                mlir::tt::ttnn::BufferType::L1},
+            detail::TestTensor{
+                {14 * OpModelFixture::workerCoresN300 * 32, 32},
+                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                mlir::tt::ttnn::BufferType::L1},
+            detail::ExpectedResult{true, 0, 14 * 32 * 32 * 2,
+                                   14 * 32 * 32 * 2}),
+        std::make_tuple(
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            detail::TestTensor{
+                {14 * OpModelFixture::workerCoresN300 * 32, 32},
+                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                mlir::tt::ttnn::BufferType::L1},
+            detail::ExpectedResult{false}),
+        std::make_tuple(
+            detail::TestTensor{
+                {14 * OpModelFixture::workerCoresN300 * 32, 32},
+                mlir::tt::ttnn::TensorMemoryLayout::HeightSharded,
+                mlir::tt::ttnn::BufferType::L1},
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
+                               mlir::tt::ttnn::BufferType::L1},
+            detail::ExpectedResult{false})));
+
 class OpModelReductionParam
     : public OpModelTest,
       public testing::WithParamInterface<
@@ -1005,6 +1090,9 @@ class OpModelConv2dParam
                      bool, bool>> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
+  // Enable test once #2588 is fixed.
+  GTEST_SKIP();
+
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -1073,23 +1161,6 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   }
 }
 
-class OpModelMaxPool2DParam
-    : public OpModelTest,
-      public testing::WithParamInterface<
-          std::tuple<detail::TestTensor,         // input
-                     detail::TestTensor,         // output
-                     int32_t,                    // batch_size
-                     int32_t,                    // input_height
-                     int32_t,                    // input_width
-                     int32_t,                    // input_channels
-                     llvm::SmallVector<int32_t>, // kernel_size
-                     llvm::SmallVector<int32_t>, // stride
-                     llvm::SmallVector<int32_t>, // padding
-                     llvm::SmallVector<int32_t>, // dilation
-                     bool,                       // ceil_mode
-                     bool                        // expected legal
-                     >> {};
-
 INSTANTIATE_TEST_SUITE_P(
     Conv2dTests, OpModelConv2dParam,
     ::testing::Values(
@@ -1113,6 +1184,23 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
                         llvm::SmallVector<int32_t>{1, 1}, 1, false, false)));
+
+class OpModelMaxPool2DParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,         // input
+                     detail::TestTensor,         // output
+                     int32_t,                    // batch_size
+                     int32_t,                    // input_height
+                     int32_t,                    // input_width
+                     int32_t,                    // input_channels
+                     llvm::SmallVector<int32_t>, // kernel_size
+                     llvm::SmallVector<int32_t>, // stride
+                     llvm::SmallVector<int32_t>, // padding
+                     llvm::SmallVector<int32_t>, // dilation
+                     bool,                       // ceil_mode
+                     bool                        // expected legal
+                     >> {};
 
 TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
   auto params = GetParam();

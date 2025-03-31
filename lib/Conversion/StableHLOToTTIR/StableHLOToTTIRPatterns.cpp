@@ -2068,70 +2068,14 @@ public:
     auto indicesAreSorted = adaptor.getIndicesAreSorted();
     auto uniqueIndices = adaptor.getUniqueIndices();
 
-    auto newScatterOp = ttmlir::utils::createDPSOp<ttir::ScatterOp>(
-        rewriter, srcOp->getLoc(), outputType, operand, scatterIndices, update,
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
+        rewriter, srcOp, outputType, operand, scatterIndices, update,
         llvm::SmallVector<int32_t>(updateWindowsDims),
         llvm::SmallVector<int32_t>(insertedWindowDims),
         llvm::SmallVector<int32_t>(inputBatchingDims),
         llvm::SmallVector<int32_t>(scatterIndicesBatchingDims),
         llvm::SmallVector<int32_t>(scatterDimsToOperandDims), indexVectorDim,
         indicesAreSorted, uniqueIndices);
-
-    rewriter.replaceOp(srcOp, newScatterOp);
-
-    return success();
-  }
-
-private:
-  void changeRegionTypes(mlir::Region &region,
-                         const mlir::TypeConverter &typeConverter,
-                         mlir::PatternRewriter &rewriter) const {
-    Block &block = *region.getBlocks().begin();
-    llvm::SmallVector<mlir::BlockArgument, 4> oldArguments(
-        block.getArguments().begin(), block.getArguments().end());
-    llvm::SmallVector<mlir::Value, 4> newArguments;
-
-    // Add new arguments with updated types to the block.
-    for (auto arg : oldArguments) {
-      if (auto newType = typeConverter.convertType(arg.getType())) {
-        mlir::BlockArgument newArg = block.addArgument(newType, arg.getLoc());
-        newArguments.push_back(newArg);
-      } else {
-        newArguments.push_back(arg); // Type didn't change
-      }
-    }
-
-    for (auto it : llvm::zip(oldArguments, newArguments)) {
-      mlir::BlockArgument oldArg = std::get<0>(it);
-      mlir::Value newArg = std::get<1>(it);
-      if (oldArg != newArg) {
-        oldArg.replaceAllUsesWith(newArg);
-      }
-    }
-
-    for (auto arg : oldArguments) {
-      if (!llvm::is_contained(newArguments, arg)) {
-        block.eraseArgument(arg.getArgNumber());
-      }
-    }
-  }
-};
-} // namespace
-
-namespace {
-class StableHLOToTTIRReturnOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::ReturnOp> {
-
-  using OpConversionPattern<mlir::stablehlo::ReturnOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::ReturnOp srcOp,
-                  mlir::stablehlo::ReturnOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::YieldOp>(srcOp,
-                                                         srcOp.getResults());
 
     return success();
   }
@@ -2190,10 +2134,12 @@ public:
 
     mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
 
-    float value =
-        paddingValueAttr.getElementType().isInteger()
-            ? static_cast<float>(paddingValueAttr.getSplatValue<int>())
-            : paddingValueAttr.getSplatValue<float>();
+    float value;
+    if (paddingValueAttr.getElementType().isInteger()) {
+      value = paddingValueAttr.getSplatValue<APInt>().signedRoundToDouble();
+    } else {
+      value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
+    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
         srcOp,
@@ -2462,12 +2408,6 @@ static void addScatterOpConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
 }
 
-static void addReturnOpConversionPatterns(MLIRContext *ctx,
-                                          RewritePatternSet &patterns,
-                                          TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIRReturnOpConversionPattern>(typeConverter, ctx);
-}
-
 static void addReverseOpConversionPattern(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
                                           TypeConverter &typeConverter) {
@@ -2505,7 +2445,6 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
   addIotaOpConversionPattern(ctx, patterns, typeConverter);
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
-  addReturnOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
 }
