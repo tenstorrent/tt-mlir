@@ -467,16 +467,7 @@ ProgramTensorPool::insertTTNNTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef,
     const ::ttnn::Tensor &ttnnTensor, bool retain) {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
-  std::uint32_t globalId = tensorRef->global_id();
-  DEBUG_ASSERT(ttnnTensor.is_allocated());
-  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
-
-  ::tt::runtime::Tensor runtimeTensor =
-      utils::createRuntimeTensorFromTTNN(ttnnTensor, retain);
-  auto [iter, inserted] =
-      intermedTensors.insert_or_assign(globalId, runtimeTensor);
-
-  return liveTensors.insert_or_assign(globalId, &(iter->second));
+  return insertAndValidate(tensorRef->global_id(), ttnnTensor);
 }
 
 std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {

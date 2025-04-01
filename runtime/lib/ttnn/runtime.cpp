@@ -592,45 +592,55 @@ void wait(Event event) {
   LOG_ASSERT(event.matchesRuntime(DeviceRuntime::TTNN));
 }
 
-void wait(::tt::runtime::Tensor tensor) {
+void wait(Tensor tensor) {
   LOG_ASSERT(tensor.matchesRuntime(DeviceRuntime::TTNN),
              "Expected ttnn tensor");
-  LOG_INFO("Calling wait on tensor.event");
   ::tt::runtime::ttnn::wait(tensor.event);
-  LOG_INFO("Finished waiting for tensor.event");
 }
 
-void wait(std::vector<::tt::runtime::Tensor> const &tensors) {
-  for (const ::tt::runtime::Tensor &tensor : tensors) {
+void wait(std::vector<Tensor> const &tensors) {
+  for (const Tensor &tensor : tensors) {
     ::tt::runtime::ttnn::wait(tensor);
   }
-  LOG_INFO("Finished waiting for all tensors in vector");
 }
 
-std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
-                                          bool untilize) {
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
+  const ::ttnn::Tensor &deviceTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::shared_ptr<::ttnn::Tensor> hostTensor =
+      std::make_shared<::ttnn::Tensor>(::ttnn::from_device(deviceTensor));
 
-  const ::ttnn::Tensor &multiDeviceTensor = tensorWrapper.getTensor();
-  bool shouldRetain = tensorWrapper.shouldRetain();
+  if (untilize) {
+    hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+        *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
+        static_cast<::ttnn::IDevice *>(nullptr)));
+  }
 
-  std::vector<::tt::runtime::Tensor> hostTensors;
+  Tensor result = Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
+                         DeviceRuntime::TTNN);
+  return result;
+}
+
+std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
+  const ::ttnn::Tensor &multiDeviceTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::vector<Tensor> host_tensors;
   if (multiDeviceTensor.storage_type() ==
           ::ttnn::StorageType::MULTI_DEVICE_HOST ||
       multiDeviceTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE) {
-    std::vector<::ttnn::Tensor> singleTensors =
+    std::vector<::ttnn::Tensor> single_tensors =
         ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
-    for (auto &tensor : singleTensors) {
-      hostTensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
-          utils::createRuntimeTensorFromTTNN(tensor, shouldRetain), untilize));
+    for (auto &tensor : single_tensors) {
+      host_tensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
+          Tensor(std::make_shared<::ttnn::Tensor>(tensor), nullptr,
+                 DeviceRuntime::TTNN),
+          untilize));
     }
   } else {
-    hostTensors.push_back(
+    host_tensors.push_back(
         ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
-    LOG_INFO("Processed single device tensor");
   }
-  return hostTensors;
+  return host_tensors;
 }
 
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
