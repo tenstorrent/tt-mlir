@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
+#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
