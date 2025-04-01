@@ -1857,7 +1857,7 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_NamedOp<"matmul", [DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.
