@@ -6,11 +6,8 @@ import os
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.callback import (
-    get_callback_fn,
-    CallbackRuntimeConfig,
-    get_atol_rtol_pcc,
-)
+from ttrt.common.callback import get_callback_fn, CallbackRuntimeConfig
+from ttrt.common.util import get_atol_rtol_pcc
 
 
 class Run:
