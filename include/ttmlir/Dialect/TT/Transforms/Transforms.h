@@ -12,7 +12,8 @@
 namespace mlir::tt {
 
 void registerDevice(ModuleOp module, std::string path = {},
-                    ArrayRef<int64_t> meshShape = {});
+                    ArrayRef<int64_t> meshShape = {1, 1},
+                    StringRef meshName = "mesh");
 
 } // namespace mlir::tt
 
