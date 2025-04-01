@@ -21,6 +21,6 @@ func.func @add(%arg0: memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<
   }
   return %alloc : memref<1x1x2x4x!tt.tile<32x32, f32>, #l1_>
 }
-// CHECK: func.func private @datamovement_kernel0{{.*}} attributes {ttir.thread_type = 1 : i32}
+// CHECK: func.func private @datamovement_kernel0{{.*}} attributes {ttir.thread = #ttir.thread<datamovement>}
 // CHECK: ttir.get_global_operand(0)
-// CHECK: func.func private @compute_kernel1{{.*}} attributes {ttir.thread_type = 0 : i32}
+// CHECK: func.func private @compute_kernel1{{.*}} attributes {ttir.thread = #ttir.thread<compute>}

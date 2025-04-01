@@ -74,19 +74,20 @@ public:
             stringifyEnum(generic.getRegionThreadType(region.getRegionNumber()))
                 .str() +
             "_kernel" + Twine(unique++).str();
+        auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
+            threadType, builder.getAttr<SymbolRefAttr>(symbolName));
+        auto threadAttrWithoutSym =
+            builder.getAttr<ThreadAttr>(threadType, nullptr);
         auto func = builder.create<func::FuncOp>(
             generic.getLoc(), symbolName,
             FunctionType::get(builder.getContext(), region.getArgumentTypes(),
                               {}));
         func.setPrivate();
-        func->setAttr(TTIRDialect::getThreadTypeAttrName(),
-                      builder.getAttr<ThreadTypeAttr>(threadType));
+        func->setAttr(ttir::ThreadAttr::name, threadAttrWithoutSym);
         func.getBody().takeBody(region);
         builder.setInsertionPointToEnd(&func.getBody().front());
         builder.create<func::ReturnOp>(generic.getLoc());
-
-        threads.push_back(builder.getAttr<ThreadAttr>(
-            threadType, builder.getAttr<SymbolRefAttr>(symbolName)));
+        threads.push_back(threadAttrWithSym);
       }
 
       builder.setInsertionPoint(generic);

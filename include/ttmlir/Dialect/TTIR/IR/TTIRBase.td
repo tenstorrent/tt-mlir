@@ -39,10 +39,6 @@ def TTIR_Dialect : Dialect {
 
     let extraClassDeclaration = [{
         void registerTypes();
-
-        static StringRef getThreadTypeAttrName() {
-          return "ttir.thread_type";
-        }
     }];
 }
 
