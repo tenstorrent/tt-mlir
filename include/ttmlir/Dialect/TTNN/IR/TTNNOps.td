@@ -1209,7 +1209,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getInput(), getBias() != nullptr
+            getBias() != nullptr
         );
       }
     }];
@@ -1296,7 +1296,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-            getInput(), getBias() != nullptr
+            getBias() != nullptr
         );
       }
     }];

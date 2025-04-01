@@ -521,7 +521,7 @@ TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
 // https://github.com/tenstorrent/tt-metal/issues/19762
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
-    mlir::TypedValue<mlir::RankedTensorType> input, bool hasBias) {
+    bool hasBias) {
 
   TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
