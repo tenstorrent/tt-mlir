@@ -1307,62 +1307,31 @@ public:
 };
 } // namespace
 
-// ZerosOp conversion pattern
+// Named FullOp conversion pattern for operations like ttnn::zeros or ttnn::ones
 //
 namespace {
-class ZerosOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ZerosOp> {
+template <typename SourceOp>
+class NamedFullOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::ZerosOp>::TTNNToEmitCBaseOpConversionPattern;
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::ZerosOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ZerosOp> emitter(srcOp, adaptor,
-                                                               rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getShape()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
-        emitter.emit<::ttnn::operations::creation::detail::OptionalAnyDevice>(
+        emitter.template emit<
+            ::ttnn::operations::creation::detail::OptionalAnyDevice>(
             srcOp.getDevice()),
-        emitter.emit(srcOp.getMemoryConfig()) |
-            emitter.getMemoryConfig(srcOp.getResult()),
-    };
-
-    emitter.replaceOp(*this, args);
-
-    return success();
-  }
-};
-} // namespace
-
-// OnesOp conversion pattern
-//
-namespace {
-class OnesOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::OnesOp> {
-
-public:
-  using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::OnesOp>::TTNNToEmitCBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(tt::ttnn::OnesOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::OnesOp> emitter(srcOp, adaptor,
-                                                              rewriter);
-
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getShape()),
-        emitter.emit(srcOp.getDtype()),
-        emitter.emit(srcOp.getLayout()),
-        emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -1742,8 +1711,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // clang-format off
   patterns.add<EmptyOpConversionPattern,
                ConstructTensorOpConversionPattern,
-               ZerosOpConversionPattern,
-               OnesOpConversionPattern,
+               NamedFullOpConversionPattern<tt::ttnn::ZerosOp>,
+               NamedFullOpConversionPattern<tt::ttnn::OnesOp>,
                DefaultOpConversionPattern<tt::ttnn::FullOp>,
                DefaultOpConversionPattern<tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<tt::ttnn::ConstantOp>>(typeConverter, ctx);
