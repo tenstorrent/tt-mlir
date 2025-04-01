@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -42,23 +41,26 @@ struct ConvertTTIRToTTMetal
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
+    target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<func::FuncDialect>();
+    target.addLegalDialect<memref::MemRefDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
-    target.addIllegalDialect<ttir::TTIRDialect>();
-    target.addIllegalDialect<arith::ArithDialect>();
+    target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<math::MathDialect>();
-    target.addIllegalDialect<scf::SCFDialect>();
+    target.addIllegalDialect<ttir::TTIRDialect>();
+
+    target.addLegalOp<tt::DeviceOp>();
+    target.addLegalOp<ttir::StreamLayoutOp>();
+    target.addLegalOp<ttir::ViewLayoutOp>();
+    target.addIllegalOp<memref::AllocOp>();
 
     TypeConverter typeConverter;
-    // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTMetalPatterns(&getContext(), patterns, typeConverter);
 
-    // Apply full conversion
-    //
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
@@ -72,47 +74,29 @@ struct ConvertTTIRToTTKernel
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
-    target.addLegalDialect<func::FuncDialect>();
-    target.addLegalDialect<ttmetal::TTMetalDialect>();
-    target.addLegalDialect<memref::MemRefDialect>();
-    target.addLegalDialect<ttkernel::TTKernelDialect>();
-    target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<arith::ArithDialect>();
-    target.addIllegalDialect<math::MathDialect>();
+    target.addLegalDialect<func::FuncDialect>();
+    target.addLegalDialect<memref::MemRefDialect>();
+    target.addLegalDialect<ttmetal::TTMetalDialect>();
+    target.addLegalDialect<ttkernel::TTKernelDialect>();
     target.addLegalDialect<scf::SCFDialect>();
+    target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     target.addLegalOp<tt::DeviceOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
-    target.addLegalOp<memref::CollapseShapeOp>();
     target.addIllegalOp<memref::StoreOp>();
 
     TypeConverter typeConverter;
-    // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
 
-    RewritePatternSet innerRegionPatterns(&getContext());
-    populateTTIRToTTKernelInnerRegionPatterns(
-        &getContext(), innerRegionPatterns, typeConverter);
+    RewritePatternSet patterns(&getContext());
+    populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter);
 
-    if (failed(applyFullConversion(getOperation(), target,
-                                   std::move(innerRegionPatterns)))) {
-      signalPassFailure();
-      return;
-    }
-
-    target.addIllegalOp<memref::AllocOp>();
-    target.addIllegalOp<memref::LoadOp>();
-    target.addIllegalOp<ttir::GenericOp>();
-
-    RewritePatternSet topLevelPatterns(&getContext());
-    populateTTIRToTTKernelTopLevelPatterns(&getContext(), topLevelPatterns,
-                                           typeConverter);
-
-    if (failed(applyFullConversion(getOperation(), target,
-                                   std::move(topLevelPatterns)))) {
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }
