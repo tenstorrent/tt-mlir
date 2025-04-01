@@ -9,7 +9,6 @@
 #include "mlir/Support/LLVM.h"
 
 namespace mlir {
-namespace OpTrait {
 namespace tt {
 namespace ttir {
 namespace impl {
@@ -70,7 +69,7 @@ public:
 
 template <typename ConcreteType>
 struct TTIRGenericRegionComputeOpTrait
-    : public TraitBase<ConcreteType, TTIRGenericRegionComputeOpTrait> {
+    : public OpTrait::TraitBase<ConcreteType, TTIRGenericRegionComputeOpTrait> {
   static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
     return impl::verifyGenericRegionComputeOp(op);
   }
@@ -78,7 +77,8 @@ struct TTIRGenericRegionComputeOpTrait
 
 template <typename ConcreteType>
 struct TTIRGenericRegionDatamovementOpTrait
-    : public TraitBase<ConcreteType, TTIRGenericRegionDatamovementOpTrait> {
+    : public OpTrait::TraitBase<ConcreteType,
+                                TTIRGenericRegionDatamovementOpTrait> {
   static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
     return impl::verifyGenericRegionDatamovementOp(op);
   }
@@ -86,7 +86,6 @@ struct TTIRGenericRegionDatamovementOpTrait
 
 } // namespace ttir
 } // namespace tt
-} // namespace OpTrait
 } // namespace mlir
 
 #endif // TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H

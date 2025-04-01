@@ -58,7 +58,7 @@ def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
 def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
 
 class TTIR_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, traits> {
-  let cppNamespace = "::mlir::OpTrait::tt::ttir";
+  let cppNamespace = "::mlir::tt::ttir";
 }
 
 // Involution is property of an operation where applying the operation twice results in the original value.
