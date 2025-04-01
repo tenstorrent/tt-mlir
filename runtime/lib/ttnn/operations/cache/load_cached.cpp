@@ -32,16 +32,15 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   // Extract function name
   const std::string functionName = op->callee_name()->str();
 
-  std::vector<uint64_t> inputVersions(op->inputs_indexes()->size(), 0);
+  // Initialize input versions array with the correct size
+  std::vector<uint64_t> inputVersions(op->inputs_indexes()->size());
   const std::vector<uint64_t> &allArgVersions = context.getInputVersions();
 
-  // Only try to access allArgVersions if it's not empty
-  if (!allArgVersions.empty()) {
-    for (size_t i = 0; i < inputVersions.size(); ++i) {
-      const size_t argIdx = op->inputs_indexes()->Get(i);
-      if (argIdx < allArgVersions.size()) {
-        inputVersions[i] = allArgVersions[argIdx];
-      }
+  // Extract versions from the context
+  for (size_t i = 0; i < inputVersions.size(); ++i) {
+    const size_t argIdx = op->inputs_indexes()->Get(i);
+    if (!allArgVersions.empty() && argIdx < allArgVersions.size()) {
+      inputVersions[i] = allArgVersions[argIdx];
     }
   }
 
@@ -50,7 +49,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
       cache.getAll(functionName, inputVersions);
 
   if (cachedOutputs) {
-    LOG_INFO("Cache hit for function: ", functionName);
+    LOG_INFO("Cache hit for function: ", functionName.c_str());
 
     assert(cachedOutputs->size() == op->outputs()->size());
     for (size_t i = 0; i < cachedOutputs->size(); ++i) {
