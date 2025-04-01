@@ -9,28 +9,27 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
-#include <llvm/ADT/DenseMap.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/LogicalResult.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/Conversion/ArithToEmitC/ArithToEmitC.h>
-#include <mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h>
-#include <mlir/Conversion/SCFToEmitC/SCFToEmitC.h>
-#include <mlir/Dialect/EmitC/IR/EmitC.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/SCF/IR/SCF.h>
-#include <mlir/IR/Builders.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/IRMapping.h>
-#include <mlir/IR/Location.h>
-#include <mlir/IR/Operation.h>
-#include <mlir/IR/Value.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Support/LLVM.h>
-#include <mlir/Target/Cpp/CppEmitter.h>
-#include <mlir/Transforms/DialectConversion.h>
+#include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
+#include "mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h"
+#include "mlir/Conversion/SCFToEmitC/SCFToEmitC.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cctype>
 #include <string>
@@ -45,7 +44,6 @@ namespace mlir::tt::ttkernel {
 #include "ttmlir/Conversion/Passes.h.inc"
 
 } // namespace mlir::tt::ttkernel
-
 // ............................................................................
 
 emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
@@ -711,15 +709,12 @@ public:
   }
 };
 } // namespace
-
 // ............................................................................
-
 namespace mlir::tt {
 
 std::unique_ptr<::mlir::Pass> createConvertTTKernelToEmitC() {
   return std::make_unique<ConvertTTKernelToEmitCPass>();
 }
-
 // ............................................................................
 
 // Class used to add includes and other boilerplate code to the generated
@@ -800,7 +795,8 @@ private:
 
 inline FailureOr<mlir::ModuleOp>
 convertTTKernelRegionToEmitC(Region *region,
-                             const ttkernel::ThreadType &threadType) {
+                             const ttkernel::ThreadType &threadType,
+                             const std::string &pipelineExtension) {
   auto loc = region->getLoc();
   auto *ctx = region->getContext();
 
@@ -821,10 +817,17 @@ convertTTKernelRegionToEmitC(Region *region,
     IRMapping irMapper;
     region->cloneInto(&funcOp.getBody(), irMapper);
 
-    auto pm = PassManager::on<mlir::ModuleOp>(ctx);
-    pm.addPass(createConvertTTKernelToEmitC());
+    PassManager pm = PassManager::on<mlir::ModuleOp>(ctx);
+    {
+      pm.addPass(tt::createConvertTTKernelToEmitC());
 
-    if (pm.run(moduleWrapper).failed()) {
+      if (!pipelineExtension.empty()) {
+        if (failed(mlir::parsePassPipeline(pipelineExtension, pm))) {
+          return llvm::failure();
+        }
+      }
+    }
+    if (failed(pm.run(moduleWrapper))) {
       return failure();
     }
   }
@@ -832,14 +835,16 @@ convertTTKernelRegionToEmitC(Region *region,
 }
 
 LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
-                                const ttkernel::ThreadType &threadType) {
+                                const ttkernel::ThreadType &threadType,
+                                const std::string &pipelineExtension) {
 
   llvm::raw_string_ostream os(regionCpp);
-  return emitOpRegionAsCpp(region, os, threadType);
+  return emitOpRegionAsCpp(region, os, threadType, pipelineExtension);
 }
 
 LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
-                                const ttkernel::ThreadType &threadType) {
+                                const ttkernel::ThreadType &threadType,
+                                const std::string &pipelineExtension) {
 
   // We must load the EmitC dialect before we can emit any EmitC code. This
   // dialect won't be loaded by MLIR until pass manager starts a pass that
@@ -848,7 +853,7 @@ LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
   region->getContext()->getOrLoadDialect<emitc::EmitCDialect>();
 
   FailureOr<mlir::ModuleOp> moduleOp =
-      convertTTKernelRegionToEmitC(region, threadType);
+      convertTTKernelRegionToEmitC(region, threadType, pipelineExtension);
   if (failed(moduleOp)) {
     return failure();
   }
@@ -869,9 +874,8 @@ emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
   for (auto &reg : enqueueProgramOp->getRegions()) {
     auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
         enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
-    if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-                          kernelConfig.getThreadType())
-            .failed()) {
+    if (failed(emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
+                                 kernelConfig.getThreadType()))) {
       return llvm::failure();
     }
   }
@@ -880,13 +884,14 @@ emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
 }
 
 LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,
-                              const ttkernel::ThreadType &threadType) {
+                              const ttkernel::ThreadType &threadType,
+                              const std::string &pipelineExtension) {
   llvm::SmallVector<func::FuncOp, 1> ops;
   op->walk([&](func::FuncOp entry) { ops.push_back(entry); });
 
   for (const auto &op : ops) {
     for (auto &reg : op->getRegions()) {
-      if (emitOpRegionAsCpp(&reg, os, threadType).failed()) {
+      if (failed(emitOpRegionAsCpp(&reg, os, threadType, pipelineExtension))) {
         return llvm::failure();
       }
     }
