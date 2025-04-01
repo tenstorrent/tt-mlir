@@ -39,6 +39,20 @@ static Value index(int64_t value, OpBuilder &builder) {
       .getResult();
 }
 
+static uint32_t getCbId(Value value) {
+  if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+    return blockArg.getArgNumber();
+  }
+  memref::CollapseShapeOp collapseOp =
+      mlir::dyn_cast<memref::CollapseShapeOp>(value.getDefiningOp());
+  if (auto blockArg =
+          mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {
+    return blockArg.getArgNumber();
+  }
+  assert(false && "Could not match collapse op src to block argument, cannot "
+                  "determine CB id. Failing.");
+}
+
 namespace {
 class TTIRGenericRewriter : public OpRewritePattern<ttir::GenericOp> {
 public:
@@ -67,20 +81,9 @@ class MemrefStoreRewriter : public OpRewritePattern<memref::StoreOp> {
 public:
   using OpRewritePattern<memref::StoreOp>::OpRewritePattern;
 
-  static uint32_t getCbId(memref::StoreOp op) {
-    memref::CollapseShapeOp collapseOp =
-        llvm::cast<memref::CollapseShapeOp>(op.getMemref().getDefiningOp());
-    if (auto blockArg =
-            mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {
-      return blockArg.getArgNumber();
-    }
-    assert(false && "Could not match collapse op src to block argument, cannot "
-                    "determine CB id. Failing.");
-  }
-
   LogicalResult matchAndRewrite(memref::StoreOp op,
                                 PatternRewriter &rewriter) const final {
-    auto cbId = index(getCbId(op), rewriter);
+    auto cbId = index(getCbId(op.getMemref()), rewriter);
     auto storeIdx = op.getIndices().front();
     rewriter.create<ttkernel::PackTileOp>(op.getLoc(), index(0, rewriter), cbId,
                                           storeIdx, rewriter.getBoolAttr(true));
@@ -101,24 +104,10 @@ public:
       mlir::OpTrait::tt::ttir::TTIRGenericRegionComputeOpTrait>::
       OpTraitRewritePattern;
 
-  static Value index(Value tile) {
+  static Value getLoadIndex(Value tile) {
     Operation *loadOp = tile.getDefiningOp();
     assert(mlir::isa<memref::LoadOp>(loadOp) && "Expected load op, failing.");
     return mlir::cast<memref::LoadOp>(loadOp).getIndices().front();
-  }
-
-  static uint32_t getCbId(memref::LoadOp value) {
-    memref::CollapseShapeOp collapseOp =
-        mlir::cast<memref::CollapseShapeOp>(value.getMemref().getDefiningOp());
-    assert(
-        collapseOp &&
-        "Could not find assocated collapse shape op with memref load, failing");
-    if (auto blockArg =
-            mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {
-      return blockArg.getArgNumber();
-    }
-    assert(false && "Could not match collapse op src to block argument, cannot "
-                    "determine CB id. Failing.");
   }
 
   static bool computeOpInBlock(Block *block) {
@@ -136,10 +125,9 @@ public:
 
   static void lowerLoad(memref::LoadOp op, bool copyToDst, bool cbIndices,
                         PatternRewriter &rewriter) {
-    OpBuilder builder(op);
     if (copyToDst) {
-      auto cbId = i32(getCbId(op), builder);
       rewriter.setInsertionPoint(op);
+      auto cbId = index(getCbId(op.getMemref()), rewriter);
       rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
       rewriter.create<ttkernel::CopyTileOp>(
           op.getLoc(), cbId, op.getIndices().front(),
@@ -162,11 +150,16 @@ public:
           op->getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(0));
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(),
-          i32(getCbId(op->getOperand(0).getDefiningOp<memref::LoadOp>()),
+          index(getCbId(op->getOperand(0)
+                          .getDefiningOp<memref::LoadOp>()
+                          .getMemref()),
               rewriter),
-          i32(getCbId(op->getOperand(1).getDefiningOp<memref::LoadOp>()),
+          index(getCbId(op->getOperand(1)
+                          .getDefiningOp<memref::LoadOp>()
+                          .getMemref()),
               rewriter),
-          index(op->getOperand(0)), index(op->getOperand(1)), dstIdx);
+          getLoadIndex(op->getOperand(0)), getLoadIndex(op->getOperand(1)),
+          dstIdx);
     } else {
       return failure();
     }
@@ -206,23 +199,9 @@ class TTIRAwaitYieldRewriter : public OpRewritePattern<T> {
 public:
   using OpRewritePattern<T>::OpRewritePattern;
 
-  static uint32_t getCbId(Value value) {
-    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
-      return blockArg.getArgNumber();
-    }
-    memref::CollapseShapeOp collapseOp =
-        llvm::cast<memref::CollapseShapeOp>(value.getDefiningOp());
-    if (auto blockArg =
-            mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {
-      return blockArg.getArgNumber();
-    }
-    assert(false && "Could not match collapse op src to block argument, cannot "
-                    "determine CB id. Failing.");
-  }
-
   LogicalResult matchAndRewrite(T op, PatternRewriter &rewriter) const final {
     for (Value input : op.getValues()) {
-      auto cbId = i32(getCbId(input), rewriter);
+      auto cbId = index(getCbId(input), rewriter);
       auto type = mlir::cast<MemRefType>(input.getType());
       auto numPages = i32(type.getNumElements(), rewriter);
       Block *block = op->getBlock();
@@ -350,14 +329,6 @@ public:
                            std::multiplies<int64_t>());
   }
 
-  static Value getCBIndex(PatternRewriter &rewriter, Value memref) {
-    Block *block = memref.getParentBlock();
-    Block::BlockArgListType blockArgs = block->getArguments();
-    return index(
-        std::find(blockArgs.begin(), blockArgs.end(), memref)->getArgNumber(),
-        rewriter);
-  }
-
   static std::tuple<AffineMap, AffineMap, AffineMap>
   getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
                           OpBuilder &builder) {
@@ -391,10 +362,10 @@ public:
 
     if (op.isSrcLocal() && op.isDstLocal() && !op.getDstCoreIndex().size()) {
       Value srcL1Addr = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), getCBIndex(rewriter, op.getSrc()));
+          op.getLoc(), index(getCbId(op.getSrc()), rewriter));
 
       Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
-          op.getLoc(), getCBIndex(rewriter, op.getDst()));
+          op.getLoc(), index(getCbId(op.getDst()), rewriter));
       // local movement
       Value transferSize =
           i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
@@ -412,9 +383,9 @@ public:
       // mcast & l1 to l1 single core remote
 
       Value srcL1Addr = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), getCBIndex(rewriter, op.getSrc()));
+          op.getLoc(), index(getCbId(op.getSrc()), rewriter));
       Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
-          op.getLoc(), getCBIndex(rewriter, op.getDst()));
+          op.getLoc(), index(getCbId(op.getDst()), rewriter));
       Value transferSize =
           i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
       assert(op.getDstCoreIndex().size() == 2 &&
@@ -457,7 +428,7 @@ public:
     } else if (!op.isSrcLocal() && op.isDstLocal()) {
       // read l1 from l1 or l1 from dram
       Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
-          op.getLoc(), getCBIndex(rewriter, op.getDst()));
+          op.getLoc(), index(getCbId(op.getDst()), rewriter));
 
       // Fully Index the Operands
       while (op.getSrcIndices().size() !=
