@@ -1222,16 +1222,8 @@ class TTIRBuilder:
         )
 
     def pad(self, in0: Operand, padding: List[int], value: int) -> OpView:
-        golden_padding = []
-        # Reformatting padding dimensions for golden tensor:
-        if len(padding) == 4:
-            golden_padding = padding.copy()
-            golden_padding.reverse()
-        if len(padding) > 4:
-            for i in range(int(len(padding) / 2) - 4):
-                i = i + 4
-                golden_padding.append(padding[(2 * i) + 1])
-                golden_padding.append(padding[2 * i])
+        golden_padding = padding.copy()
+        golden_padding.reverse()
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
