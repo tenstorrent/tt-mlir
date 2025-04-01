@@ -48,6 +48,7 @@ void createTTIRToTTMetalBackendPipeline(
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+    registerDeviceOptions.meshName = options.meshName;
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
   pm.addPass(ttir::createTTIRConstantAsFill());

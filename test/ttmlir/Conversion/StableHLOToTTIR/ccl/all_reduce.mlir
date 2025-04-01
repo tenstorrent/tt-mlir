@@ -1,7 +1,7 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt -split-input-file --stablehlo-to-ttir-pipeline %s | FileCheck %s
 
-module {
+module attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32, tt.meshes = #tt.meshes<[<name = "mesh_gspmd", shape = 1x2, chipIds = [0, 1]>]>} {
   func.func @all_reduce_variadic(%arg0: tensor<f32>, %arg1: tensor<f32>) -> (tensor<f32>, tensor<f32>) {
     %cst_0 = stablehlo.constant dense<1.600000e+01> : tensor<f32>
     %cst_1 = stablehlo.constant dense<0.000000e+00> : tensor<f32>

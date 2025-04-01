@@ -196,4 +196,36 @@ MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(CoreCoordAttr::get(unwrap(ctx), y, x));
 }
 
+MlirAttribute ttmlirTTMeshAttrGet(MlirContext ctx, const char *meshName,
+                                  size_t meshNameSize, int64_t *shape,
+                                  size_t shapeSize, unsigned *chipIds,
+                                  size_t chipIdsSize) {
+  std::string meshNameStr;
+  meshNameStr.assign(meshName, meshNameSize);
+  mlir::StringAttr meshNameAttr = StringAttr::get(unwrap(ctx), meshNameStr);
+
+  std::vector<int64_t> shapeVec;
+  for (size_t i = 0; i < shapeSize; i++) {
+    shapeVec.push_back(shape[i]);
+  }
+
+  std::vector<unsigned> chipIdsVec;
+  for (size_t i = 0; i < chipIdsSize; i++) {
+    chipIdsVec.push_back(chipIds[i]);
+  }
+
+  return wrap(
+      tt::MeshAttr::get(unwrap(ctx), meshNameAttr, shapeVec, chipIdsVec));
+}
+
+MlirAttribute ttmlirTTMeshesAttrGet(MlirContext ctx, MlirAttribute *meshes,
+                                    size_t meshesSize) {
+  std::vector<MeshAttr> meshesVec;
+  for (size_t i = 0; i < meshesSize; i++) {
+    meshesVec.push_back(mlir::cast<MeshAttr>(unwrap(meshes[i])));
+  }
+
+  return wrap(tt::MeshesAttr::get(unwrap(ctx), meshesVec));
+}
+
 } // namespace mlir::tt

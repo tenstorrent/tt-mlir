@@ -23,13 +23,11 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
   DeviceAttr deviceAttr = lookupDevice(op);
   auto currentInsertionPoint = rewriter.saveInsertionPoint();
   rewriter.setInsertionPoint(block, block->begin());
-  llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
-  if (meshShape.empty()) {
-    meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
-  }
   auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
       op->getLoc(), rewriter.getType<DeviceType>(),
-      ttnn::MeshShapeAttr::get(op->getContext(), meshShape[0], meshShape[1]));
+      ttnn::MeshShapeAttr::get(op->getContext(),
+                               deviceAttr.getMesh().getShape()[0],
+                               deviceAttr.getMesh().getShape()[1]));
   rewriter.restoreInsertionPoint(currentInsertionPoint);
   return deviceOp;
 }
