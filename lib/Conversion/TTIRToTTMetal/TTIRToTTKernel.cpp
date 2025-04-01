@@ -39,22 +39,6 @@ static Value index(int64_t value, OpBuilder &builder) {
       .getResult();
 }
 
-static size_t getElementSizeBytes(MemRefType memref) {
-  mlir::Type elementType = memref.getElementType();
-  if (mlir::isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    return tileType.getSizeBytes();
-  }
-  return elementType.getIntOrFloatBitWidth() / 8;
-}
-
-static int32_t getMemrefSizeBytes(MemRefType memref) {
-  if (auto elementType = mlir::dyn_cast<TileType>(memref.getElementType())) {
-    return elementType.getSizeBytes() * memref.getNumElements();
-  }
-  return memref.getElementTypeBitWidth() / 8 * memref.getNumElements();
-}
-
 namespace {
 class TTIRGenericRewriter : public OpRewritePattern<ttir::GenericOp> {
 public:
@@ -338,7 +322,19 @@ public:
     return nocEndCoords;
   }
 
-  static size_t getMemRefShardSizeBytes(MemRefType memref) {
+  static size_t getElementSizeBytes(MemRefType memref) {
+    mlir::Type elementType = memref.getElementType();
+    auto tileType = mlir::dyn_cast<TileType>(elementType);
+    return tileType ? tileType.getSizeBytes()
+                    : elementType.getIntOrFloatBitWidth() / 8;
+  }
+
+  static int64_t getMemrefSizeBytes(MemRefType memref) {
+    return getElementSizeBytes(memref) * memref.getNumElements();
+  }
+
+  // For use on REMOTE memrefs
+  static size_t getMemrefShardSizeBytes(MemRefType memref) {
     ArrayRef<int64_t> memrefShardShape =
         memref.getShape().drop_front(memref.getRank() / 2);
     return std::accumulate(memrefShardShape.begin(), memrefShardShape.end(),
@@ -346,7 +342,8 @@ public:
                            std::multiplies<int64_t>());
   }
 
-  static size_t getMemRefShardNumElems(MemRefType memref) {
+  // For use on REMOTE memrefs
+  static size_t getMemrefShardNumElems(MemRefType memref) {
     ArrayRef<int64_t> memrefShardShape =
         memref.getShape().drop_front(memref.getRank() / 2);
     return std::accumulate(memrefShardShape.begin(), memrefShardShape.end(), 1,
@@ -364,7 +361,7 @@ public:
   static std::tuple<AffineMap, AffineMap, AffineMap>
   getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
                           OpBuilder &builder) {
-    size_t pageSize = getMemRefShardSizeBytes(memref);
+    size_t pageSize = getMemrefShardSizeBytes(memref);
     AffineMap memoryMap = device.getMemoryMap(memref, pageSize, 0)
                               .dropResult(0); // drop the device index
     assert(memoryMap.getNumResults() == 3);
@@ -472,7 +469,7 @@ public:
         op.getDstIndicesMutable().append(index(0, rewriter));
       }
       if (!op.getOptNumElems()) {
-        op.setOptNumElems(getMemRefShardNumElems(op.getSrc().getType()));
+        op.setOptNumElems(getMemrefShardNumElems(op.getSrc().getType()));
       }
 
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
