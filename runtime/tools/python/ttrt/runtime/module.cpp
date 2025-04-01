@@ -119,7 +119,6 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::TensorCache,
              std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
       .def(py::init<>())
-      .def("contains", &tt::runtime::TensorCache::contains)
       .def("clear", &tt::runtime::TensorCache::clear)
       .def("size", &tt::runtime::TensorCache::size)
       .def("get_stats", &tt::runtime::TensorCache::getStats);

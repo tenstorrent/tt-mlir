@@ -46,11 +46,6 @@ public:
   TensorCache(TensorCache &&) = default;
   TensorCache &operator=(TensorCache &&) = default;
 
-  // Check if a function name exists in the cache
-  bool contains(const std::string &functionName) const {
-    return cache.find(functionName) != cache.end();
-  }
-
   // Check if a cache entry is valid (input tensor versions match)
   bool isValid(const std::string &functionName,
                const std::vector<Tensor> &inputs) const {
@@ -81,6 +76,7 @@ public:
          const std::vector<uint64_t> &inputVersions) const {
     auto it = cache.find(functionName);
     if (it == cache.end()) {
+      ++stats["misses"];
       return nullptr;
     }
 
@@ -90,8 +86,10 @@ public:
       {
         LOG_INFO("Prev version: ", value.inputVersions[i], " vs given version: ", inputVersions[i]);
       }
+      ++stats["misses"];
       return nullptr;
     }
+    ++stats["hits"];
     return &value.tensors;
   }
 
@@ -117,20 +115,13 @@ public:
 
   // Get cache statistics
   std::unordered_map<std::string, size_t> getStats() const {
-    std::unordered_map<std::string, size_t> stats;
-    stats["total_entries"] = cache.size();
-
-    size_t total_tensors = 0;
-    for (const auto &[key, value] : cache) {
-      total_tensors += value.tensors.size();
-    }
-    stats["total_tensors"] = total_tensors;
-
     return stats;
   }
 
 private:
   std::unordered_map<std::string, CacheValue> cache;
+
+  mutable std::unordered_map<std::string, size_t> stats;
 };
 
 } // namespace tt::runtime

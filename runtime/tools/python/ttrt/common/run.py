@@ -642,7 +642,7 @@ class Run:
                                         # Log cache stats after execution
                                         cache_stats = tensor_cache.get_stats()
                                         self.logging.debug(
-                                            f"Tensor cache stats: entries={cache_stats['total_entries']}, tensors={cache_stats['total_tensors']}"
+                                            f"Tensor cache stats: hits={cache_stats['hits']}, misses={cache_stats['misses']}"
                                         )
                                     else:
                                         runtime_outputs = ttrt.runtime.submit(
