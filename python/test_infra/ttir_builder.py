@@ -774,8 +774,8 @@ class TTIRBuilder:
     def remainder(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.remainder, ttir.RemainderOp, [in0, in1])
 
-    def power(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.pow, ttir.PowerOp, [in0, in1])
+    def pow(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.pow, ttir.PowOp, [in0, in1])
 
     # class TTIR_ReductionOp
 
