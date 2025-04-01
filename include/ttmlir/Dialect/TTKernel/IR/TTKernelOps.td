@@ -86,7 +86,7 @@ def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
       Must be called before copy_tile.
     }];
 
-    let arguments = (ins I32:$cb0);
+    let arguments = (ins Index:$cb0);
 }
 
 def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
@@ -103,7 +103,7 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
       engine.
     }];
 
-    let arguments = (ins I32:$cb0, Index:$tile_index_cb, I32:$tile_index_dst);
+    let arguments = (ins Index:$cb0, Index:$tile_index_cb, I32:$tile_index_dst);
 }
 
 //===----------------------------------------------------------------------===//
@@ -125,7 +125,7 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
       Matmul tiles operation
     }];
 
-    let arguments = (ins I32:$in0_cb_id, I32:$in1_cb_id, Index:$in0_tile_idx, Index:$in1_tile_idx, Index:$dst_tile_idx);
+    let arguments = (ins Index:$in0_cb_id, Index:$in1_cb_id, Index:$in0_tile_idx, Index:$in1_tile_idx, Index:$dst_tile_idx);
 }
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
@@ -298,7 +298,7 @@ def TTKernel_CBPushBackOp : TTKernel_Op<"cb_push_back"> {
       CBPushBack operation
     }];
 
-    let arguments = (ins I32:$cb, I32:$numPages);
+    let arguments = (ins Index:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -309,7 +309,7 @@ def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
       CBPopFront operation
     }];
 
-    let arguments = (ins I32:$cb, I32:$numPages);
+    let arguments = (ins Index:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -320,7 +320,7 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
       CBReserveBack operation
     }];
 
-    let arguments = (ins I32:$cb, I32:$numPages);
+    let arguments = (ins Index:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -331,7 +331,7 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
       CBWaitFront operation
     }];
 
-    let arguments = (ins I32:$cb, I32:$numPages);
+    let arguments = (ins Index:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
