@@ -54,8 +54,8 @@ public:
     }
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, op->getResultTypes(), op.getInputs(), op.getOutputs(),
-        op.getThreads(),
-        rewriter.getArrayAttr(coreRanges), rewriter.getArrayAttr({}));
+        op.getThreads(), rewriter.getArrayAttr(coreRanges),
+        rewriter.getArrayAttr({}));
     return success();
   };
 };
