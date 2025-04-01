@@ -1006,8 +1006,12 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  // Use empty vector for versions
+  // Extract versions from input tensors
   std::vector<uint64_t> inputVersions;
+  inputVersions.reserve(inputHandles.size());
+  for (const auto &input : inputHandles) {
+    inputVersions.push_back(input.version.load());
+  }
 
   // Convert input tensors to the layout expected by the program
   std::vector<Tensor> inputsWithLayout;
