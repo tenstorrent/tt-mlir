@@ -84,7 +84,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     LOG_INFO("Looking for tensor with id: ", inputIds[i]);
     inputs[i] = &context.getTensorPool().getAndValidate(inputIds[i]);
     inputTensors.emplace_back(utils::createRuntimeTensorFromTTNN(*inputs[i]));
-    // Updating the version feels correct, but isn't useful unless we support nested const-eval.
+    // Updating the version feels correct, but isn't useful unless we support
+    // nested const-eval.
     inputTensors.back().version.store(inputVersions[i]);
   }
 
@@ -107,10 +108,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   LOG_ASSERT(outputs.size() == outputIds.size());
 
   // Store the results in the cache with input versions
-  if (inputTensors.size() == inputIds.size()) {
-    // Only store versions if we have all input runtime tensors
-    cache.store(functionName, outputs, inputVersions);
-  }
+  assert(inputTensors.size() == inputIds.size());
+  cache.store(functionName, outputs, inputVersions);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     Tensor &runtimeOutput = outputs[i];
