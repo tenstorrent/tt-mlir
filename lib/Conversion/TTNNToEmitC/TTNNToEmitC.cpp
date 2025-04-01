@@ -1807,8 +1807,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseBinaryOpConversionPattern<tt::ttnn::DivideOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::ScatterOp>,
            EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::RemainderOp>,
-           EltwiseBinaryOpConversionPattern<tt::ttnn::PowerOp>>(typeConverter,
-                                                                ctx);
+           EltwiseBinaryOpConversionPattern<tt::ttnn::PowerOp>,
+           EltwiseBinaryCompositeOpConversionPattern<tt::ttnn::Atan2Op>>(
+          typeConverter, ctx);
 
   // Eltwise ternary ops
   //

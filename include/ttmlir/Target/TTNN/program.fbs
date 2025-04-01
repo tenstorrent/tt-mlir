@@ -163,7 +163,8 @@ enum EltwiseOpType: uint32 {
   Tan,
   Tanh,
   Power,
-  Atan
+  Atan,
+  Atan2
 }
 
 table ClampScalarOpParams {
