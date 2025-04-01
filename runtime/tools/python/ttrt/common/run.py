@@ -573,41 +573,45 @@ class Run:
                                 Run.TorchInitializer.get_initilizer("zeros")
                             )
 
-                            total_inputs = []
-                            total_outputs = []
-                            for loop in range(self["--loops"]):
-                                self.logging.debug(
-                                    f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                            # total_inputs = []
+                            # total_outputs = []
+                            # for loop in range(self["--loops"]):
+                            #     self.logging.debug(
+                            #         f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                            #     )
+
+                            inputs = []
+                            outputs = []
+                            for i in program.input_tensors:
+                                inputs.append(
+                                    ttrt.runtime.create_tensor(
+                                        i.data_ptr(),
+                                        list(i.shape),
+                                        list(i.stride()),
+                                        i.element_size(),
+                                        Binary.Program.to_data_type(i.dtype),
+                                    )
                                 )
 
-                                inputs = []
-                                outputs = []
-                                for i in program.input_tensors:
-                                    inputs.append(
-                                        ttrt.runtime.create_tensor(
-                                            i.data_ptr(),
-                                            list(i.shape),
-                                            list(i.stride()),
-                                            i.element_size(),
-                                            Binary.Program.to_data_type(i.dtype),
-                                        )
+                            for i in program.output_tensors:
+                                outputs.append(
+                                    ttrt.runtime.create_tensor(
+                                        i.data_ptr(),
+                                        list(i.shape),
+                                        list(i.stride()),
+                                        i.element_size(),
+                                        Binary.Program.to_data_type(i.dtype),
                                     )
+                                )
 
-                                for i in program.output_tensors:
-                                    outputs.append(
-                                        ttrt.runtime.create_tensor(
-                                            i.data_ptr(),
-                                            list(i.shape),
-                                            list(i.stride()),
-                                            i.element_size(),
-                                            Binary.Program.to_data_type(i.dtype),
-                                        )
-                                    )
-
-                                total_inputs.append(inputs)
-                                total_outputs.append(outputs)
+                            # total_inputs.append(inputs)
+                            # total_outputs.append(outputs)
 
                             event = None
+
+                            self.logging.info("dirtying initial inputs")
+                            for input_tensor in inputs:
+                                ttrt.runtime.dirty_tensor(input_tensor)
 
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
@@ -619,9 +623,9 @@ class Run:
                                     and loop == self["--dirty-after-iterations"]
                                 ):
                                     input_idx = self["--dirty-input-index"]
-                                    if input_idx < len(total_inputs[loop]):
+                                    if input_idx < len(inputs):
                                         # Get the tensor to dirty
-                                        tensor_to_dirty = total_inputs[loop][input_idx]
+                                        tensor_to_dirty = inputs[input_idx]
                                         # Call the dirtyTensor function to increment the version counter
                                         ttrt.runtime.dirty_tensor(tensor_to_dirty)
                                         self.logging.info(
@@ -629,7 +633,7 @@ class Run:
                                         )
                                     else:
                                         self.logging.warning(
-                                            f"Cannot dirty input tensor {input_idx}, only {len(total_inputs[loop])} inputs available"
+                                            f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
                                         )
 
                                 if (
@@ -640,8 +644,8 @@ class Run:
                                         device,
                                         bin.fbb,
                                         program_index,
-                                        total_inputs[loop],
-                                        total_outputs[loop],
+                                        inputs,
+                                        outputs,
                                     )
 
                                 elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
@@ -654,7 +658,7 @@ class Run:
                                             device,
                                             bin.fbb,
                                             program_index,
-                                            total_inputs[loop],
+                                            inputs,
                                             tensor_cache,
                                         )
                                         # Log cache stats after execution
@@ -667,7 +671,7 @@ class Run:
                                             device,
                                             bin.fbb,
                                             program_index,
-                                            total_inputs[loop],
+                                            inputs,
                                         )
                                     ttrt.runtime.wait(runtime_outputs)
                                     for i, runtime_output_tensor in enumerate(
@@ -683,7 +687,7 @@ class Run:
                                             f"Copying output tensor {i} to host"
                                         )
                                         ttrt.runtime.memcpy(
-                                            total_outputs[loop][i],
+                                            outputs[i],
                                             output_host,
                                         )
                                         self.logging.debug(
@@ -713,7 +717,7 @@ class Run:
                                 for loop in range(self["--loops"]):
                                     inputs_converted = convert_input_layouts(
                                         device,
-                                        total_inputs[loop],
+                                        inputs,
                                         bin.fbb,
                                         program_index,
                                     )
@@ -735,7 +739,7 @@ class Run:
 
                                     all_tensors_match = (
                                         ttrt.runtime.testing.compare_outs(
-                                            total_outputs[0], emitc_outs
+                                            outputs, emitc_outs
                                         )
                                     )
 
@@ -744,7 +748,7 @@ class Run:
                                             "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
                                         )
                                         self.logging.error(
-                                            total_outputs[loop], emitc_outs
+                                            outputs, emitc_outs
                                         )
                                         raise Exception(
                                             "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"

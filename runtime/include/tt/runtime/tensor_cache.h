@@ -6,6 +6,7 @@
 #define TT_RUNTIME_TENSOR_CACHE_H
 
 #include "tt/runtime/types.h"
+#include "tt/runtime/detail/logger.h"
 
 #include <cstdint>
 #include <string>
@@ -85,26 +86,13 @@ public:
 
     const CacheValue &value = it->second;
     if (value.inputVersions != inputVersions) {
+      for (size_t i = 0; i < inputVersions.size(); ++i)
+      {
+        LOG_INFO("Prev version: ", value.inputVersions[i], " vs given version: ", inputVersions[i]);
+      }
       return nullptr;
     }
     return &value.tensors;
-  }
-
-  // Store tensors and their input versions in the cache
-  void store(const std::string &functionName, std::vector<Tensor> tensors,
-             const std::vector<Tensor> &inputs) {
-    CacheValue value;
-
-    // Store input tensor versions
-    value.inputVersions.reserve(inputs.size());
-    for (const auto &input : inputs) {
-      value.inputVersions.push_back(input.version.load());
-    }
-
-    value.tensors = std::move(tensors);
-
-    // Replace any existing entry
-    cache[functionName] = std::move(value);
   }
 
   // Store tensors with explicit input versions
