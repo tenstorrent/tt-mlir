@@ -41,6 +41,7 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
+        dirty_tensor,
     )
 except ModuleNotFoundError:
     raise ImportError(
