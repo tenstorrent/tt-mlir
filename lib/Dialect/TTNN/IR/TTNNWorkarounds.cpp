@@ -526,13 +526,20 @@ TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
   TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
 
+  // Convolution outputs are always in tile layout regardless
+  // of the input layout. We explicitly state this here to
+  // avoid accidentally assigning the output of a convolution
+  // to row major layout just because its input is row major.
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorLayoutWorkaround = Layout::Tile;
+
   TTNNOperandWorkarounds parameterWorkaround;
 
   auto workaround =
       wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
           .addInputOperandWorkaround(inputWorkaround)
           .addInputOperandWorkaround(parameterWorkaround)
-          .addOutputOperandWorkaround(inputWorkaround);
+          .addOutputOperandWorkaround(outputWorkaround);
 
   if (hasBias) {
     workaround = workaround.addInputOperandWorkaround(parameterWorkaround);
