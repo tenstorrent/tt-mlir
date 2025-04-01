@@ -29,7 +29,7 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOp
 
     let arguments = (ins Variadic<AnyNon0RankedMemRef>:$inputs,
                          Variadic<AnyNon0RankedMemRef>:$outputs,
-                         ArrayAttr:$kernel_symbols,
+                         ArrayAttr:$threads,
                          TTMetal_CoreRangeArrayAttr:$core_ranges,
                          TTKernel_KernelConfigArrayAttr:$kernelConfigs);
     let results = (outs Variadic<AnyNon0RankedMemRef>:$results);
