@@ -77,7 +77,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
       the reserved section of the circular buffer to the consumer.
     }];
 
-    let arguments = (ins Index:$dst_index, I32:$out_cb, Index:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
+    let arguments = (ins Index:$dst_index, Index:$out_cb, Index:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
 }
 
 def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
@@ -808,7 +808,7 @@ def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
       GetWritePtr operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins Index:$cb);
     let results = (outs I32:$writePtr);
 }
 
@@ -818,7 +818,7 @@ def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
       GetReadPtr operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins Index:$cb);
     let results = (outs I32:$readPtr);
 }
 

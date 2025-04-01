@@ -96,7 +96,7 @@ public:
 
   LogicalResult matchAndRewrite(memref::StoreOp op,
                                 PatternRewriter &rewriter) const final {
-    auto cbId = i32(getCbId(op), rewriter);
+    auto cbId = index(getCbId(op), rewriter);
     auto storeIdx = op.getIndices().front();
     rewriter.create<ttkernel::PackTileOp>(op.getLoc(), index(0, rewriter), cbId,
                                           storeIdx, rewriter.getBoolAttr(true));
@@ -361,6 +361,14 @@ public:
                            std::multiplies<int64_t>());
   }
 
+  static Value getCBIndex(PatternRewriter &rewriter, Value memref) {
+    Block *block = memref.getParentBlock();
+    Block::BlockArgListType blockArgs = block->getArguments();
+    return index(
+        std::find(blockArgs.begin(), blockArgs.end(), memref)->getArgNumber(),
+        rewriter);
+  }
+
   static std::tuple<AffineMap, AffineMap, AffineMap>
   getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
                           OpBuilder &builder) {
@@ -372,19 +380,6 @@ public:
     auto gridX = memoryMap.dropResults({0, 2});
     auto offset = memoryMap.dropResults({0, 1});
     return std::make_tuple(gridY, gridX, offset);
-  }
-
-  static int64_t getAddressFromMemref(Value memref) {
-    // Use get_read_ptr/get_write_ptr for local block args
-    // Maps from TT dialect for block args / streams?
-
-    // for (auto &use : memref.getUses()) {
-    //   if (auto alloc = mlir::dyn_cast<memref::AllocOp>(use.getOwner())) {
-    //     return alloc->getAttrOfType<IntegerAttr>("address").getInt();
-    //   }
-    // }
-    // assert("Unallocated tensor found, failing.");
-    return 0;
   }
 
   LogicalResult matchAndRewrite(ttir::DMAOp op,
@@ -405,9 +400,12 @@ public:
                                .getValue()) &&
            "Expected src and dst memory spaces to be L1, failing.");
 
-    Value srcL1Addr = i32(getAddressFromMemref(op.getSrc()), rewriter);
-    Value dstL1Addr = i32(getAddressFromMemref(op.getDst()), rewriter);
     if (op.isSrcLocal() && op.isDstLocal() && !op.getDstCoreIndex().size()) {
+      Value srcL1Addr = rewriter.create<ttkernel::GetReadPtrOp>(
+          op.getLoc(), getCBIndex(rewriter, op.getSrc()));
+
+      Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
+          op.getLoc(), getCBIndex(rewriter, op.getDst()));
       // local movement
       Value transferSize =
           i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
@@ -422,6 +420,10 @@ public:
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
                                                  nocAddr, transferSize);
     } else if (op.isSrcLocal() && op.isDstLocal()) {
+      Value srcL1Addr = rewriter.create<ttkernel::GetReadPtrOp>(
+          op.getLoc(), getCBIndex(rewriter, op.getSrc()));
+      Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
+          op.getLoc(), getCBIndex(rewriter, op.getDst()));
       // mcast & l1 to l1 single core remote
       Value transferSize =
           i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
@@ -465,6 +467,8 @@ public:
       }
     } else if (!op.isSrcLocal() && op.isDstLocal()) {
       // read l1 from l1 or l1 from dram
+      Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
+          op.getLoc(), getCBIndex(rewriter, op.getDst()));
 
       // Fully Index the Operands
       while (op.getSrcIndices().size() !=
