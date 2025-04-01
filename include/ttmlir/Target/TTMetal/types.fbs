@@ -1,4 +1,4 @@
-include "Common/types.fbs";
+include "ttmlir/Target/Common/types.fbs";
 
 namespace tt.target.metal;
 

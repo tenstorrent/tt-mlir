@@ -6,7 +6,7 @@
 
 module {
   func.func public @reduce_not_keep_dim(%arg0: tensor<128x10xf32>) -> tensor<128xf32> {
-    %0 = tensor.empty() : tensor<128xf32>
+    %0 = ttir.empty() : tensor<128xf32>
     // CHECK: "ttnn.max"
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = false
@@ -17,7 +17,7 @@ module {
   }
 
   func.func public @reduce_keep_dim(%arg0: tensor<128x10xf32>) -> tensor<128x1xf32> {
-    %0 = tensor.empty() : tensor<128x1xf32>
+    %0 = ttir.empty() : tensor<128x1xf32>
     // CHECK: "ttnn.max"
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = true

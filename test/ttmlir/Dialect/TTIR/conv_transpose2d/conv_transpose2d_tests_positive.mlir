@@ -2,7 +2,7 @@
 
 module attributes {} {
   func.func @conv_transpose2d_simple(%arg0: tensor<4x8x8x256xbf16>, %arg1: tensor<256x256x3x3xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<4x10x10x256xbf16> {
-    %0 = tensor.empty() : tensor<4x10x10x256xbf16>
+    %0 = ttir.empty() : tensor<4x10x10x256xbf16>
     // CHECK: = "ttir.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
@@ -16,7 +16,7 @@ module attributes {} {
   }
 
   func.func @conv_transpose2d_stride(%arg0: tensor<1x16x32x256xbf16>, %arg1: tensor<256x256x8x8xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<1x38x132x256xbf16> {
-    %0 = tensor.empty() : tensor<1x38x132x256xbf16>
+    %0 = ttir.empty() : tensor<1x38x132x256xbf16>
     // CHECK: = "ttir.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
@@ -30,7 +30,7 @@ module attributes {} {
   }
 
   func.func @conv_transpose2d_padding(%arg0: tensor<1x64x64x256xbf16>, %arg1: tensor<256x256x16x16xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<1x73x67x256xbf16> {
-    %0 = tensor.empty() : tensor<1x73x67x256xbf16>
+    %0 = ttir.empty() : tensor<1x73x67x256xbf16>
     // CHECK: = "ttir.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
@@ -44,7 +44,7 @@ module attributes {} {
   }
 
   func.func @conv_transpose2d_padding_4(%arg0: tensor<1x64x64x256xbf16>, %arg1: tensor<256x256x16x16xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<1x73x67x256xbf16> {
-    %0 = tensor.empty() : tensor<1x73x67x256xbf16>
+    %0 = ttir.empty() : tensor<1x73x67x256xbf16>
     // CHECK: = "ttir.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
@@ -58,7 +58,7 @@ module attributes {} {
   }
 
   func.func @conv_transpose2d_output_padding(%arg0: tensor<1x32x32x128xbf16>, %arg1: tensor<128x256x8x8xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<1x45x47x256xbf16> {
-    %0 = tensor.empty() : tensor<1x45x47x256xbf16>
+    %0 = ttir.empty() : tensor<1x45x47x256xbf16>
     // CHECK: = "ttir.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
@@ -72,7 +72,7 @@ module attributes {} {
   }
 
   func.func @conv_transpose2d_dilation(%arg0: tensor<1x32x32x128xbf16>, %arg1: tensor<128x256x16x32xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<1x77x94x256xbf16> {
-    %0 = tensor.empty() : tensor<1x77x94x256xbf16>
+    %0 = ttir.empty() : tensor<1x77x94x256xbf16>
     // CHECK: = "ttir.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
@@ -86,7 +86,7 @@ module attributes {} {
   }
 
   func.func @conv_transpose2d_groups(%arg0: tensor<1x16x32x192xbf16>, %arg1: tensor<192x126x8x8xbf16>, %arg2: tensor<1x1x1x252xbf16>) -> tensor<1x23x39x252xbf16> {
-    %0 = tensor.empty() : tensor<1x23x39x252xbf16>
+    %0 = ttir.empty() : tensor<1x23x39x252xbf16>
     // CHECK: = "ttir.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
@@ -100,7 +100,7 @@ module attributes {} {
   }
 
   func.func @conv_transpose2d(%arg0: tensor<1x8x8x256xbf16>, %arg1: tensor<256x64x3x3xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<1x21x38x256xbf16> {
-    %0 = tensor.empty() : tensor<1x21x38x256xbf16>
+    %0 = ttir.empty() : tensor<1x21x38x256xbf16>
     // CHECK: = "ttir.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{

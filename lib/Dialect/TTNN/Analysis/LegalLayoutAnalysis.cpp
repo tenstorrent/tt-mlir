@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
+#include "ttmlir/OpModel//TTNN/TTNNOpModel.h"
 
 namespace mlir::tt::ttnn {
 
@@ -27,15 +28,21 @@ bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
 
   // For now just check if we have enough tiles to shard the tensor to the
   // desired grid. This is a safe heuristic that should be valid for all ops.
-  if (not layout.hasShardedTensorMemoryLayout()) {
+  if (!layout.hasShardedTensorMemoryLayout()) {
     return true;
   }
 
-  if (layout.isTiled()) {
-    RankedTensorType tensorType =
-        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-    llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+  if (!op_model::ttnn::isLayoutLegalForTensorShape(tensorShape, layout)) {
+    return false;
+  }
+
+  // TODO(rpavlovic): Revisit this logic now that we are able to check validity
+  // through op model interface.
+  if (layout.isTiled()) {
     llvm::SmallVector<int64_t, 2> tiledShape =
         layout.getTiledShape(tensorShape);
     llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
@@ -83,11 +90,11 @@ bool LegalLayoutAnalysis::applyOverrides() {
   // operation.
   //
 
-  if (not analysisInput.outputLayoutOverrides) {
+  if (!analysisInput.outputLayoutOverrides) {
     return false;
   }
 
-  if (not isa<NameLoc>(op->getLoc())) {
+  if (!isa<NameLoc>(op->getLoc())) {
     return false;
   }
 
@@ -103,7 +110,7 @@ bool LegalLayoutAnalysis::applyOverrides() {
   // If all layout parameters are set (except data type), we can skip analysis
   // and create the overriden layout. Otherwise, we need to perform analysis and
   // apply partial overrides.
-  if (not layoutOverride.fullLayoutOverride()) {
+  if (!layoutOverride.fullLayoutOverride()) {
     return false;
   }
 
@@ -138,7 +145,7 @@ bool LegalLayoutAnalysis::applyOverrides() {
 bool incompatibleWithOverride(
     const OpConfig &config,
     const std::optional<OutputLayoutOverrideParams> &layoutOverride) {
-  if (not layoutOverride.has_value()) {
+  if (!layoutOverride.has_value()) {
     return false;
   }
 
@@ -223,7 +230,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
 
   // Generate both TILE and ROW_MAJOR layouts.
   for (Type elementType : {scalarElementType, tileElementType}) {
-    if (not rowMajorAllowed && elementType == scalarElementType) {
+    if (!rowMajorAllowed && elementType == scalarElementType) {
       continue;
     }
     // DRAM
@@ -257,13 +264,14 @@ void LegalLayoutAnalysis::analysisImplementation() {
         mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
             op->getContext(), TensorMemoryLayout::BlockSharded,
             analysisInput.maxGrid.getShape());
-    for (int width = 1; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
-      for (int height = 1; height <= analysisInput.maxGrid.getShape()[1];
-           ++height) {
+    for (int height = 1; height <= analysisInput.maxGrid.getShape()[0];
+         ++height) {
+      for (int width = 1; width <= analysisInput.maxGrid.getShape()[1];
+           ++width) {
         shardedResults.push_back(
             shardedBase
                 .withGrid(op->getContext(), tensorType,
-                          GridAttr::get(op->getContext(), {width, height},
+                          GridAttr::get(op->getContext(), {height, width},
                                         affineMapBs))
                 .withMemoryLayout(op->getContext(),
                                   TensorMemoryLayout::BlockSharded));

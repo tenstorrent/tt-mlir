@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 module {
   func.func @conv1d_test1(%arg0: tensor<1x256x512xf32>, %arg1: tensor<1024x256x1xf32>, %arg2: tensor<1024xf32>) -> tensor<1x1024x512xf32> {
-    %0 = tensor.empty() : tensor<1x1024x512xf32>
+    %0 = ttir.empty() : tensor<1x1024x512xf32>
     // CHECK: "ttnn.reshape"
     // CHECK-SAME: shape = [1 : i32, 256 : i32, 512 : i32, 1 : i32]
     // CHECK: "ttnn.reshape"
@@ -20,7 +20,7 @@ module {
 
   // Test a different ordering of dimensions
   func.func public @conv1d_test2(%arg0: tensor<1x7x768xbf16>, %arg1: tensor<1x192x768xbf16>) -> (tensor<1x7x768xbf16>) {
-    %0 = tensor.empty() : tensor<1x7x768xbf16>
+    %0 = ttir.empty() : tensor<1x7x768xbf16>
     // CHECK: "ttnn.reshape"
     // CHECK-SAME: shape = [1 : i32, 7 : i32, 768 : i32, 1 : i32]
     // CHECK: "ttnn.reshape"

@@ -47,6 +47,7 @@ target_include_directories(TTRuntimeSysDesc
 )
 target_include_directories(TTRuntimeSysDesc SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 add_dependencies(TTRuntimeSysDesc tt-metal FBS_GENERATION)
+target_link_libraries(TTRuntimeSysDesc PUBLIC coverage_config)
 
 add_library(TTRuntimeDebug STATIC debug.cpp)
 set_property(TARGET TTRuntimeDebug PROPERTY CXX_STANDARD 20)
@@ -54,6 +55,7 @@ target_include_directories(TTRuntimeDebug
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
 )
+target_link_libraries(TTRuntimeDebug PUBLIC coverage_config)
 
 add_library(TTRuntimeDylibs STATIC dylib.cpp)
 set_property(TARGET TTRuntimeDylibs PROPERTY CXX_STANDARD 20)
@@ -61,3 +63,4 @@ target_include_directories(TTRuntimeDylibs
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
 )
+target_link_libraries(TTRuntimeDylibs PUBLIC coverage_config)

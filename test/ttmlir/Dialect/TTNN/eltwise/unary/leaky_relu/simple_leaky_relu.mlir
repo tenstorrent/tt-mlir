@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 module attributes {} {
   func.func @leaky_relu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    %0 = tensor.empty() : tensor<64x128xf32>
+    %0 = ttir.empty() : tensor<64x128xf32>
     %1 = "ttir.leaky_relu"(%arg0, %0) <{parameter = 0.01 : f32, operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: "ttnn.leaky_relu"
     // CHECK-SAME: (tensor<64x128xf32

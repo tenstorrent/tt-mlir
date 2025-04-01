@@ -47,6 +47,8 @@ target_link_libraries(TTMLIRRuntime
     flatbuffers
 )
 
+target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
+
 set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
 set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 

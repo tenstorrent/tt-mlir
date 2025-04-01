@@ -7,7 +7,7 @@
 module attributes {} {
   func.func public @argmax_2d(%arg0: tensor<64x64xf32>) -> tensor<64xi32> {
     // CHECK-LABEL: func.func public @argmax_2d(
-    %0 = tensor.empty() : tensor<64xi32>
+    %0 = ttir.empty() : tensor<64xi32>
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, use_multicore = false}>
     // CHECK-SAME: tensor<1x1x64x64xbf16
@@ -18,7 +18,7 @@ module attributes {} {
 
   func.func public @argmax_3d(%arg0: tensor<1x28x28xf32>) -> tensor<1x28xi32> {
     // CHECK-LABEL: func.func public @argmax_3d(
-    %0 = tensor.empty() : tensor<1x28xi32>
+    %0 = ttir.empty() : tensor<1x28xi32>
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, use_multicore = false}>
     // CHECK-SAME: tensor<1x1x28x28xbf16
@@ -29,7 +29,7 @@ module attributes {} {
 
   func.func public @argmax_4d(%arg0: tensor<1x1x128x64xf32>) -> tensor<1x1x128xi32> {
     // CHECK-LABEL: func.func public @argmax_4d(
-    %0 = tensor.empty() : tensor<1x1x128xi32>
+    %0 = ttir.empty() : tensor<1x1x128xi32>
     // CHECK: "ttnn.argmax"
     // CHECK-SAME: {dim = 3 : i32, use_multicore = false}>
     // CHECK-SAME: tensor<1x1x128x64xbf16

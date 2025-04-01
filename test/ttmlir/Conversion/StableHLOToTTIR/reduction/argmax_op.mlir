@@ -4,7 +4,7 @@
 module @module_argmax attributes {} {
   func.func public @argmax_torch_2d(%arg0: tensor<1x32128xf32>) -> tensor<1xi64> {
     // CHECK-LABEL: func.func public @argmax_torch_2d(
-    // CHECK: %[[EMPTY:[0-9]+]] = tensor.empty() : tensor<1xi32>
+    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : tensor<1xi32>
     // CHECK: %[[VAL:[0-9]+]] = "ttir.argmax"(%arg0, %[[EMPTY]])
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = false
@@ -28,7 +28,7 @@ module @module_argmax attributes {} {
 
   func.func public @argmax_jax_2d(%arg0: tensor<64x64xf32>) -> tensor<64xi32> {
     // CHECK-LABEL: func.func public @argmax_jax_2d(
-    // CHECK: %[[EMPTY:[0-9]+]] = tensor.empty() : tensor<64xi32>
+    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : tensor<64xi32>
     // CHECK: %[[VAL:[0-9]+]] = "ttir.argmax"(%arg0, %[[EMPTY]])
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = false
@@ -55,7 +55,7 @@ module @module_argmax attributes {} {
 
   func.func public @argmax_jax_3d(%arg0: tensor<128x28x28xf32>) -> tensor<28x28xi32> {
     // CHECK-LABEL: func.func public @argmax_jax_3d(
-    // CHECK: %[[EMPTY:[0-9]+]] = tensor.empty() : tensor<28x28xi32>
+    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : tensor<28x28xi32>
     // CHECK: %[[VAL:[0-9]+]] = "ttir.argmax"(%arg0, %[[EMPTY]])
     // CHECK-SAME: dim_arg = [0 : i32]
     // CHECK-SAME: keep_dim = false
@@ -82,7 +82,7 @@ module @module_argmax attributes {} {
 
   func.func public @argmax_torch_4d(%arg0: tensor<4x8x128x64xf32>) -> tensor<4x8x64xi64> {
     // CHECK-LABEL: func.func public @argmax_torch_4d(
-    // CHECK: %[[EMPTY:[0-9]+]] = tensor.empty() : tensor<4x8x64xi32>
+    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : tensor<4x8x64xi32>
     // CHECK: %[[VAL:[0-9]+]] = "ttir.argmax"(%arg0, %[[EMPTY]])
     // CHECK-SAME: dim_arg = [2 : i32]
     // CHECK-SAME: keep_dim = false
@@ -106,7 +106,7 @@ module @module_argmax attributes {} {
 
   func.func public @argmax_jax_2D_bool(%arg0: tensor<2x7xi1>) -> tensor<2xi32> {
     // CHECK-LABEL: func.func public @argmax_jax_2D_bool(
-    // CHECK: %[[EMPTY:[0-9]+]] = tensor.empty() : tensor<2xi32>
+    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : tensor<2xi32>
     // CHECK: %[[VAL:[0-9]+]] = "ttir.argmax"(%arg0, %[[EMPTY]])
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = false

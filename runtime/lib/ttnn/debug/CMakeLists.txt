@@ -17,3 +17,4 @@ target_include_directories(TTRuntimeTTNNDebug PUBLIC
 target_include_directories(TTRuntimeTTNNDebug SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 add_dependencies(TTRuntimeTTNNDebug TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNNDebug PUBLIC TTRuntimeTTNNUtils)
+target_link_libraries(TTRuntimeTTNNDebug PUBLIC coverage_config)

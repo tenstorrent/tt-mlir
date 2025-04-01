@@ -31,7 +31,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     jq \
     sudo \
-    gh
+    gh \
+    lcov
 
 # Install clang 17
 RUN wget https://apt.llvm.org/llvm.sh && \

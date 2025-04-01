@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -36,6 +37,7 @@ struct ConvertTTIRToLinalgPass
     target.addLegalDialect<tensor::TensorDialect>();
     target.addLegalDialect<linalg::LinalgDialect>();
     target.addLegalDialect<arith::ArithDialect>();
+    target.addLegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     TypeConverter typeConverter;

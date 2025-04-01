@@ -47,13 +47,12 @@ TEST(TTNNSubtract, Equal) {
   ::tt::runtime::Tensor outputTensor =
       ::tt::runtime::createTensor(outputDataPtr, outputDescs[0]);
 
-  size_t numDevices = ::tt::runtime::getNumAvailableDevices();
-  std::vector<int> deviceIds(numDevices);
-  std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  auto device = ::tt::runtime::openDevice({deviceIds[0]});
+  uint32_t numDevices =
+      static_cast<uint32_t>(::tt::runtime::getNumAvailableDevices());
+  auto device = ::tt::runtime::openMeshDevice({1, numDevices});
   std::vector<::tt::runtime::Tensor> output =
       ::tt::runtime::submit(device, fbb, 0, inputTensors);
-  ::tt::runtime::closeDevice(device);
+  ::tt::runtime::closeMeshDevice(device);
   assert(output.size() == 1);
   std::shared_ptr<void> expected =
       ::tt::runtime::utils::malloc_shared(tensorSize);

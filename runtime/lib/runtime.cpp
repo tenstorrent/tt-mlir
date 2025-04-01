@@ -256,36 +256,66 @@ size_t getNumAvailableDevices() {
   LOG_FATAL("runtime is not enabled");
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize,
-                  std::optional<DispatchCoreType> dispatchCoreType,
-                  std::optional<bool> enableAsyncTTNN) {
+Device openMeshDevice(const std::vector<uint32_t> &meshShape,
+                      const MeshDeviceOptions &options) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::openDevice(deviceIds, numHWCQs, l1SmallSize,
-                                           dispatchCoreType, enableAsyncTTNN);
+    return ::tt::runtime::ttnn::openMeshDevice(meshShape, options);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::openDevice(
-        deviceIds, numHWCQs, l1SmallSize, dispatchCoreType, enableAsyncTTNN);
+    return ::tt::runtime::ttmetal::openMeshDevice(meshShape, options);
   }
 #endif
   LOG_FATAL("runtime is not enabled");
 }
 
-void closeDevice(Device device) {
+void closeMeshDevice(Device parentMesh) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::closeDevice(device);
+    return ::tt::runtime::ttnn::closeMeshDevice(parentMesh);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::closeDevice(device);
+    return ::tt::runtime::ttmetal::closeMeshDevice(parentMesh);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Device createSubMeshDevice(
+    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
+    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::createSubMeshDevice(parentMesh, meshShape,
+                                                    meshOffset);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::createSubMeshDevice(parentMesh, meshShape,
+                                                       meshOffset);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+void releaseSubMeshDevice(Device subMesh) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::releaseSubMeshDevice(subMesh);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::releaseSubMeshDevice(subMesh);
   }
 #endif
   LOG_FATAL("runtime is not enabled");

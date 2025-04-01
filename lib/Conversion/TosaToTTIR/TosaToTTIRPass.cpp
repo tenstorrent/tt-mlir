@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
+
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -13,9 +18,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-
-#include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -37,7 +39,7 @@ struct ConvertTosaToTTIRPass
     target.addIllegalDialect<tosa::TosaDialect>();
 
     target.addLegalDialect<ttir::TTIRDialect>();
-    target.addLegalOp<mlir::tensor::EmptyOp>();
+    target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
     target.addLegalOp<mlir::func::FuncOp>();
     target.addLegalOp<mlir::func::ReturnOp>();

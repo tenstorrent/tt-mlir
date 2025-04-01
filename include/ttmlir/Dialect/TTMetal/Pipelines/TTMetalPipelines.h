@@ -27,13 +27,6 @@ struct TTIRToTTMetalBackendPipelineOptions
       llvm::cl::desc(
           "Pass in a system descriptor flatbuffer to compile against."),
       llvm::cl::init("")};
-
-  // Option to select pipeline variant/version.
-  //
-  Option<std::size_t> version{
-      *this, "version",
-      llvm::cl::desc("Select pipeline implementation version (default: 0)."),
-      llvm::cl::init(1)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);

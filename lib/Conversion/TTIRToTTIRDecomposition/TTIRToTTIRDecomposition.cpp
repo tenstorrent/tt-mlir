@@ -1291,14 +1291,14 @@ public:
     RankedTensorType newOutputType = RankedTensorType::get(
         outputShapeVec, outputType.getElementType(), outputType.getEncoding());
 
-    tensor::EmptyOp argMaxOutputTensor = rewriter.create<tensor::EmptyOp>(
+    ttir::EmptyOp argMaxOutputTensor = rewriter.create<ttir::EmptyOp>(
         op.getLoc(), outputShapeVec, outputType.getElementType());
 
     ttir::ArgMaxOp newArgMaxOp = rewriter.create<mlir::tt::ttir::ArgMaxOp>(
         op->getLoc(), newOutputType, op.getInput(), argMaxOutputTensor,
         /*keepDim*/ true, op.getDimArgAttr());
 
-    tensor::EmptyOp reshapeOutputTensor = rewriter.create<tensor::EmptyOp>(
+    ttir::EmptyOp reshapeOutputTensor = rewriter.create<ttir::EmptyOp>(
         op.getLoc(), outputType.getShape(), outputType.getElementType());
     mlir::ArrayAttr shapeAttr = rewriter.getI32ArrayAttr(
         llvm::SmallVector<int32_t>(outputType.getShape()));

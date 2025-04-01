@@ -66,7 +66,7 @@ def emit_op_as_entry_point(op, ip=None, loc=None):
         operands = [arg for arg in entry_block.arguments]
         for output_type in output_types:
             operands.append(
-                tensor.empty(
+                ttir.empty(
                     output_type.shape,
                     output_type.element_type,
                     encoding=output_type.encoding,

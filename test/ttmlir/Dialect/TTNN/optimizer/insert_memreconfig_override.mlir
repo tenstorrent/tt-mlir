@@ -5,14 +5,14 @@ module attributes {} {
     // CHECK: #[[L1_:.*]] = #ttnn.buffer_type<l1>
     // CHECK-DAG: #[[LAYOUT_1:.*]] = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1, (d0, d1) -> (0, d1 floordiv 8, d1 mod 8)>, memref<1x1x!tt.tile<32x32, f32>, #l1_>, <width_sharded>>
     // CHECK-DAG: #[[LAYOUT_2:.*]] = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<32x32xf32, #dram>, <interleaved>>
-    %0 = tensor.empty() : tensor<1x32x32xf32> loc(#loc5)
+    %0 = ttir.empty() : tensor<1x32x32xf32> loc(#loc5)
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_2]]>
     %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc5)
-    %2 = tensor.empty() : tensor<1x32x32xf32> loc(#loc6)
+    %2 = ttir.empty() : tensor<1x32x32xf32> loc(#loc6)
     // CHECK: %[[IDX:.*]] = "ttnn.to_memory_config"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_1]]>
     // CHECK: %{{.*}} = "ttnn.add"(%[[IDX]]{{.*}}
     %3 = "ttir.add"(%1, %arg0, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc6)
-    %4 = tensor.empty() : tensor<1x32x32xf32> loc(#loc7)
+    %4 = ttir.empty() : tensor<1x32x32xf32> loc(#loc7)
     %5 = "ttir.relu"(%3, %4) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc7)
     return %5 : tensor<1x32x32xf32> loc(#loc4)
   } loc(#loc)

@@ -291,11 +291,11 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
   // If the input tensor is a constant or empty tensor, we can replace it with a
   // new tensor with the desired layout
-  tensor::EmptyOp existingEmpty = input.getDefiningOp<tensor::EmptyOp>();
+  ttir::EmptyOp existingEmpty = input.getDefiningOp<ttir::EmptyOp>();
   if (existingEmpty) {
     return rewriter
-        .replaceOpWithNewOp<tensor::EmptyOp>(existingEmpty, ty.getShape(),
-                                             ty.getElementType(), desiredLayout)
+        .replaceOpWithNewOp<ttir::EmptyOp>(existingEmpty, ty.getShape(),
+                                           ty.getElementType(), desiredLayout)
         .getResult();
   }
 

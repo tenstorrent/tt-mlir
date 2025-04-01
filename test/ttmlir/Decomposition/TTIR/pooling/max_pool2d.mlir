@@ -4,7 +4,7 @@ module attributes {} {
   // Kernel size = 1; stride = 1
   func.func @test_maxpool2d_kernel_1x1_stride_1x1(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x28x28xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_1x1_stride_1x1(
-    %0 = tensor.empty() : tensor<1x192x28x28xbf16>
+    %0 = ttir.empty() : tensor<1x192x28x28xbf16>
     // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"(%arg0
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK-SAME: (tensor<1x192x28x28xbf16>, tensor<1x28x28x192xbf16>)
@@ -29,7 +29,7 @@ module attributes {} {
   // Kernel size = 3; stride = 1
   func.func @test_maxpool2d_kernel_3x3_stride_1x1(%arg0: tensor<1x256x28x28xbf16>) -> tensor<1x256x28x28xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_3x3_stride_1x1(
-    %0 = tensor.empty() : tensor<1x256x28x28xbf16>
+    %0 = ttir.empty() : tensor<1x256x28x28xbf16>
     // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"(%arg0
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK-SAME: (tensor<1x256x28x28xbf16>, tensor<1x28x28x256xbf16>)
@@ -54,7 +54,7 @@ module attributes {} {
   // Kernel size = (2, 1); stride = 1
   func.func @test_maxpool2d_kernel_2x1_stride_1x1(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x27x28xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_2x1_stride_1x1(
-    %0 = tensor.empty() : tensor<1x192x27x28xbf16>
+    %0 = ttir.empty() : tensor<1x192x27x28xbf16>
     // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"(%arg0
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK-SAME: (tensor<1x192x28x28xbf16>, tensor<1x28x28x192xbf16>)
@@ -79,7 +79,7 @@ module attributes {} {
   // Kernel size = (1, 2); stride = (3, 1)
   func.func @test_maxpool2d_kernel_1x2_stride_3x1(%arg0: tensor<1x192x28x28xbf16>) -> tensor<1x192x10x27xbf16> {
     // CHECK-LABEL: func.func @test_maxpool2d_kernel_1x2_stride_3x1(
-    %0 = tensor.empty() : tensor<1x192x10x27xbf16>
+    %0 = ttir.empty() : tensor<1x192x10x27xbf16>
     // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"(%arg0
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK-SAME: (tensor<1x192x28x28xbf16>, tensor<1x28x28x192xbf16>)

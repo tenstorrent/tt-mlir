@@ -259,19 +259,32 @@ public:
 // modelled in the dialect (memcfg).
 //
 namespace {
+template <typename SourceOp>
 class ClampOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ClampOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    if constexpr (std::is_same_v<SourceOp, tt::ttnn::ClampScalarOp>) {
+      return "ttnn.clamp_scalar";
+    } else if constexpr (std::is_same_v<SourceOp, tt::ttnn::ClampTensorOp>) {
+      return "ttnn.clamp_tensor";
+    }
+
+    llvm_unreachable("Operation not supported.");
+  }
+
+  std::string getPrefixSwapPattern() const override { return "ttnn::clamp"; }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      tt::ttnn::ClampOp>::TTNNToEmitCBaseOpConversionPattern;
-  using Adaptor = typename tt::ttnn::ClampOp::Adaptor;
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
 
   LogicalResult
-  matchAndRewrite(tt::ttnn::ClampOp srcOp, Adaptor adaptor,
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::ClampOp> emitter(srcOp, adaptor,
-                                                               rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputs()[0]),
         emitter.emit(srcOp.getMin()),
@@ -347,6 +360,42 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputs()[0]),
         emitter.emit(srcOp.getInputs()[1]),
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(srcOp->getResult(0)),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// Eltwise Ternary op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseTernaryOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputs()[0]),
+        emitter.emit(srcOp.getInputs()[1]),
+        emitter.emit(srcOp.getInputs()[2]),
         emitter.emit(std::nullopt) |
             emitter.getMemoryConfig(srcOp->getResult(0)),
     };
@@ -1153,6 +1202,111 @@ public:
 };
 } // namespace
 
+// ConstructTensorOp conversion pattern
+//
+namespace {
+// ConstructTensorOp conversion pattern
+class ConstructTensorOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::ConstructTensorOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::ConstructTensorOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::ConstructTensorOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    emitc::CallOpaqueOp shapeOp = tt::ttnn_to_emitc::utils::createShapeOp(
+        rewriter, srcOp.getShapeAttr(), srcOp.getLoc());
+
+    // Create a variable to hold the member function pointer
+    auto memberFuncPtrTy = emitc::OpaqueType::get(
+        rewriter.getContext(), "decltype(&ttnn::Shape::volume)");
+    auto memberFuncPtrAttr =
+        emitc::OpaqueAttr::get(rewriter.getContext(), "&ttnn::Shape::volume");
+    auto memberFuncPtrOp = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(), memberFuncPtrTy, memberFuncPtrAttr);
+
+    // Call std::invoke with the member function pointer and shape
+    auto volumeTy = emitc::OpaqueType::get(rewriter.getContext(), "uint32_t");
+    auto volumeOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), volumeTy, "std::invoke", nullptr, nullptr,
+        ValueRange{memberFuncPtrOp.getResult(), shapeOp.getResult(0)});
+
+    // Create owned_buffer with proper template based on data type
+    auto dtype = srcOp.getDtypeAttr().getValue();
+
+    TypeAttr templateTypeAttr;
+
+    switch (dtype) {
+    case tt::DataType::Float32:
+      templateTypeAttr =
+          TypeAttr::get(emitc::OpaqueType::get(rewriter.getContext(), "float"));
+      break;
+    case tt::DataType::UInt8:
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "uint8_t"));
+      break;
+    case tt::DataType::UInt16:
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "uint16_t"));
+      break;
+    case tt::DataType::Int32:
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "int32_t"));
+      break;
+    case tt::DataType::UInt32:
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "uint32_t"));
+      break;
+    case tt::DataType::BFloat16:
+      templateTypeAttr = TypeAttr::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "bfloat16"));
+      break;
+    default:
+      return rewriter.notifyMatchFailure(
+          srcOp, "Unsupported data type for ConstructTensorOp");
+    }
+
+    auto bufferTy = emitc::OpaqueType::get(rewriter.getContext(),
+                                           "::tt::tt_metal::OwnedBuffer");
+
+    auto bufferOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), bufferTy, "::tt::tt_metal::owned_buffer::create",
+        nullptr, rewriter.getArrayAttr({templateTypeAttr}),
+        ValueRange{volumeOp.getResult(0)});
+
+    // Create owned_storage from buffer
+    auto storageTy = emitc::OpaqueType::get(rewriter.getContext(),
+                                            "::tt::tt_metal::OwnedStorage");
+    auto storageOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), storageTy, "::tt::tt_metal::OwnedStorage", nullptr,
+        nullptr, ValueRange{bufferOp.getResult(0)});
+
+    // Create Tensor with storage, shape, dtype, and layout
+    llvm::SmallVector<Value, 4> operands{storageOp.getResult(0),
+                                         shapeOp.getResult(0)};
+
+    // Create ArrayAttr object holding attributes and pointers to operands
+    size_t operandIndex = 0;
+    ArrayAttr arrayAttr = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(operandIndex++), // OwnedStorage
+        rewriter.getIndexAttr(operandIndex++), // Shape
+        tt::ttnn_to_emitc::utils::convertDType(
+            rewriter, srcOp.getDtypeAttr()), // DataType
+        tt::ttnn_to_emitc::utils::convertLayoutAttr(
+            rewriter, srcOp.getLayoutAttr()) // Layout
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        "::ttnn::Tensor", arrayAttr, nullptr, operands);
+
+    return success();
+  }
+};
+} // namespace
+
 // ZerosOp conversion pattern
 //
 namespace {
@@ -1174,7 +1328,8 @@ public:
         emitter.emit(srcOp.getShape()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getLayout()),
-        emitter.emit(srcOp.getDevice()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalAnyDevice>(
+            srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -1498,6 +1653,67 @@ public:
 };
 } // namespace
 
+// SliceOp conversion pattern
+//
+namespace {
+class SliceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::SliceOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::SliceOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::SliceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::SliceOp> emitter(srcOp, adaptor,
+                                                               rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<::ttnn::SmallVector<int32_t>>(srcOp.getBegins()),
+        emitter.emit<::ttnn::SmallVector<int32_t>>(srcOp.getEnds()),
+        emitter.emit<::ttnn::SmallVector<int32_t>>(srcOp.getStep()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PermuteOp conversion pattern
+//
+namespace {
+class PermuteOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<tt::ttnn::PermuteOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      tt::ttnn::PermuteOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::ttnn::PermuteOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::PermuteOp> emitter(srcOp, adaptor,
+                                                                 rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<::ttnn::SmallVector<int64_t>>(srcOp.getPermutation()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getPadValue()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -1525,6 +1741,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   // clang-format off
   patterns.add<EmptyOpConversionPattern,
+               ConstructTensorOpConversionPattern,
                ZerosOpConversionPattern,
                OnesOpConversionPattern,
                DefaultOpConversionPattern<tt::ttnn::FullOp>,
@@ -1536,7 +1753,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<EltwiseUnaryOpConversionPattern<tt::ttnn::AbsOp>,
                EltwiseUnaryCompositeOpConversionPattern<tt::ttnn::CbrtOp>,
-               ClampOpConversionPattern,
+               ClampOpConversionPattern<tt::ttnn::ClampScalarOp>,
+               ClampOpConversionPattern<tt::ttnn::ClampTensorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::FloorOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::IsFiniteOp>,
                EltwiseUnaryOpConversionPattern<tt::ttnn::LogicalNotOp>,
@@ -1592,13 +1810,17 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseBinaryOpConversionPattern<tt::ttnn::PowerOp>>(typeConverter,
                                                                 ctx);
 
+  // Eltwise ternary ops
+  //
+  patterns.add<EltwiseTernaryOpConversionPattern<tt::ttnn::WhereOp>>(
+      typeConverter, ctx);
+
   // Tensor manipulation ops
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern,
-               DefaultOpConversionPattern<tt::ttnn::SliceOp>,
-               DefaultOpConversionPattern<tt::ttnn::PermuteOp>,
+               RepeatInterleaveOpConversionPattern, SliceOpConversionPattern,
+               PermuteOpConversionPattern,
                DefaultOpConversionPattern<tt::ttnn::PadOp>>(typeConverter, ctx);
 
   // Matmul ops
@@ -1630,7 +1852,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
                DefaultOpConversionPattern<tt::ttnn::EmbeddingBackwardOp>,
-               DefaultOpConversionPattern<tt::ttnn::WhereOp>,
                MorehCumSumOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops

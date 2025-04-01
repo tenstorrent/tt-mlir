@@ -3,27 +3,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Scheduler/Scheduler.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsDialect.h.inc"
+
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/Operation.h>
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Operation.h"
 
 namespace mlir::tt::scheduler {
 
 // TTNN op is scheduleable if it is not an EmptyOp and has at least one result.
-bool isTTNNScheduleableOp(mlir::Operation *op) {
+static bool isTTNNScheduleableOp(mlir::Operation *op) {
   return isa<ttnn::TTNNDialect>(op->getDialect()) && op->getNumResults() > 0 &&
          !llvm::isa<ttnn::EmptyOp>(op) && !llvm::isa<ttnn::GetDeviceOp>(op);
 }
 
-bool isTTIROp(mlir::Operation *op) {
-  return isa<ttir::TTIRDialect>(op->getDialect());
+static bool isTTIRSchedulableOp(mlir::Operation *op) {
+  return isa<ttir::TTIRDialect>(op->getDialect()) &&
+         !llvm::isa<ttir::EmptyOp>(op);
 }
 
 bool Scheduler::isTTSchedulableOp(mlir::Operation *op) {
-  return isTTNNScheduleableOp(op) || isTTIROp(op);
+  return isTTNNScheduleableOp(op) || isTTIRSchedulableOp(op);
 }
 
 // Init the dependencies map of all ops which are TTIR ops

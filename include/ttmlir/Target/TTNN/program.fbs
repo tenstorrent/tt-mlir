@@ -1,6 +1,6 @@
-include "Common/types.fbs";
-include "Common/debug_info.fbs";
-include "types.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/debug_info.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
@@ -73,16 +73,20 @@ table EmptyOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table ZerosOp {
+table ConstructTensorOp {
   shape: [int64];
-  dtype: DataType = null;
-  layout: TensorLayout = null;
-  device: tt.target.DeviceRef;
-  memcfg: tt.target.ttnn.MemoryConfig;
+  dtype: DataType;
+  layout: TensorLayout;
   out: tt.target.ttnn.TensorRef;
 }
 
-table OnesOp {
+enum NamedFullOpType: uint32 {
+  Zeros,
+  Ones,
+}
+
+table NamedFullOp {
+  type: NamedFullOpType;
   shape: [int64];
   dtype: DataType = null;
   layout: TensorLayout = null;
@@ -152,7 +156,8 @@ enum EltwiseOpType: uint32 {
   Floor,
   Where,
   Gelu,
-  Clamp,
+  ClampScalar,
+  ClampTensor,
   LeakyRelu,
   Scatter,
   Tan,
@@ -161,9 +166,14 @@ enum EltwiseOpType: uint32 {
   Atan
 }
 
-table ClampOpParams {
+table ClampScalarOpParams {
   min: float;
   max: float;
+}
+
+table ClampTensorOpParams {
+  min: tt.target.ttnn.TensorRef;
+  max: tt.target.ttnn.TensorRef;
 }
 
 table EltwiseOpWithFloatParams {
@@ -171,7 +181,8 @@ table EltwiseOpWithFloatParams {
 }
 
 union EltwiseOpParams {
-  ClampOpParams,
+  ClampScalarOpParams,
+  ClampTensorOpParams,
   EltwiseOpWithFloatParams,
 }
 
@@ -354,7 +365,6 @@ table ConvTranspose2dOp {
 table MaxPool2dOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
   batch_size: uint32;
   input_height: uint32;
   input_width: uint32;
@@ -457,8 +467,8 @@ union OpType {
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
-  ZerosOp,
-  OnesOp,
+  ConstructTensorOp,
+  NamedFullOp,
   FullOp,
   EltwiseOp,
   LinearOp,

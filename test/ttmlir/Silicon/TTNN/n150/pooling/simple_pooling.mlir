@@ -3,7 +3,7 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module attributes {} {
   func.func @forward(%arg0: tensor<1x32x128x128xf32>) -> tensor<1x32x64x64xf32> {
-    %0 = tensor.empty() : tensor<1x32x64x64xf32>
+    %0 = ttir.empty() : tensor<1x32x64x64xf32>
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK: "ttnn.max_pool2d"

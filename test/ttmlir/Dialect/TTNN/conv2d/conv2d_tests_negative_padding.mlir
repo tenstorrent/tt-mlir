@@ -3,7 +3,7 @@
 // TTNN does not support asymmetric padding
 module {
   func.func @conv2d_padding_no_support_for_asymmteric_padding_ttnn(%arg0: tensor<8x32x32x64xbf16>, %arg1: tensor<256x64x3x3xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<8x48x42x256xbf16> {
-    %0 = tensor.empty() : tensor<8x48x42x256xbf16>
+    %0 = ttir.empty() : tensor<8x48x42x256xbf16>
     // CHECK: error: failed to legalize operation 'ttir.conv2d'
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{

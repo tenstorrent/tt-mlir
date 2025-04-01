@@ -11,13 +11,7 @@ import numpy as np
 from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
-from ttmlir.ir import (
-    DenseI64ArrayAttr,
-    DenseElementsAttr,
-    DenseI32ArrayAttr,
-    IntegerAttr,
-    IntegerType,
-)
+from ttmlir.ir import *
 
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371
@@ -173,6 +167,17 @@ def test_is_finite(in0: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_get_dimension_size(in0: Operand, builder: TTIRBuilder):
     return builder.get_dimension_size(in0)
+
+
+@compile_to_flatbuffer(
+    [
+        (4, 10, 3, 5, 7),
+        (4, 10, 5, 7, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_dot_general(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.dot_general(in0, in1, [0], [3], [0], [2])
 
 
 @compile_to_flatbuffer(
@@ -493,37 +498,38 @@ def test_transpose(in0: Operand, builder: TTIRBuilder):
     return builder.transpose(in0)
 
 
-# @compile_to_flatbuffer(
-# [
-#    (64, 64),
-#    (64, 64),
-#    (64, 64),
-# ],
-# inputs_types = [torch.int8, torch.float32, torch.float32],
-# targets=["ttnn"],
-# )
-# def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-# return builder.where(in0, in1, in2)
+@compile_to_flatbuffer(
+    [
+        (64, 64),
+        (64, 64),
+        (64, 64),
+    ],
+    inputs_types=[torch.int8, torch.float32, torch.float32],
+    targets=["ttnn"],
+)
+def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.where(in0, in1, in2)
 
 
 @compile_to_flatbuffer(
     [
-        (2, 3),
+        (1, 32, 32),
     ],
     targets=["ttnn"],
 )
 def test_repeat(in0: Operand, builder: TTIRBuilder):
-    return builder.repeat(in0, [2, 2])
+    return builder.repeat(in0, [32, 1, 1])
 
 
 @compile_to_flatbuffer(
     [
-        (2, 3),
+        (1, 8, 1, 12, 64),
+        (1, 8, 1, 12, 64),
     ],
     targets=["ttnn"],
 )
-def test_repeat_interleave(in0: Operand, builder: TTIRBuilder):
-    return builder.repeat_interleave(in0, repeats=2, dim=1)
+def test_repeat_interleave(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.repeat_interleave(in0, in1, repeats=1, dim=0)
 
 
 @compile_to_flatbuffer(
@@ -553,7 +559,6 @@ def test_conv2d(
     stride = DenseI32ArrayAttr.get([2, 1])
     padding = DenseI32ArrayAttr.get([2, 1])
     dilation = DenseI32ArrayAttr.get([2, 1])
-    groups = IntegerAttr.get(IntegerType.get_signless(32), 2)
     return builder.conv2d(
         in0,
         weight,
@@ -562,7 +567,7 @@ def test_conv2d(
         stride=stride,
         padding=padding,
         dilation=dilation,
-        groups=groups,
+        groups=2,
     )
 
 
@@ -583,7 +588,6 @@ def test_conv_transpose2d(
     padding = IntegerAttr.get(IntegerType.get_signless(32), 0)
     output_padding = IntegerAttr.get(IntegerType.get_signless(32), 0)
     dilation = IntegerAttr.get(IntegerType.get_signless(32), 1)
-    groups = IntegerAttr.get(IntegerType.get_signless(32), 1)
     return builder.conv_transpose2d(
         in0,
         weight,
@@ -593,7 +597,7 @@ def test_conv_transpose2d(
         padding=padding,
         output_padding=output_padding,
         dilation=dilation,
-        groups=groups,
+        groups=1,
     )
 
 
@@ -689,6 +693,20 @@ def test_permute(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
+    [(10, 64, 32, 3), (10, 128, 128, 3)],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_upsample2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.upsample2d(in0, in1, scale_factor=DenseI32ArrayAttr.get([2, 4]))
+
+
+@compile_to_flatbuffer([(5,)], inputs_types=[torch.bfloat16], targets=["ttnn"])
+def test_arange(in0: Operand, builder: TTIRBuilder):
+    return builder.arange(in0, 0, 5, 1, 0)
+
+
+@compile_to_flatbuffer(
     [(32, 32), (32, 32)], inputs_types=[torch.uint32, torch.uint16], targets=["ttnn"]
 )
 def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -696,19 +714,30 @@ def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
-    [(128, 10, 32, 4)], inputs_types=[torch.bfloat16], targets=["ttnn"]
+    [(128, 10, 32, 4)],
+    inputs_types=[torch.bfloat16],
+    targets=["ttnn"],
 )
 def test_prod(in0: Operand, builder: TTIRBuilder):
     return builder.prod(in0, [1])
 
 
 @compile_to_flatbuffer(
-    [(32, 32), (512, 128), (32, 32, 128)],
-    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    [(4, 4, 128, 128), (4, 4, 128, 128)],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
     targets=["ttnn"],
 )
-def test_embedding(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-    return builder.embedding(in0, in1, in2)
+def test_cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.cumsum(in0, in1, dim=1)
+
+
+@compile_to_flatbuffer(
+    [(32, 32), (512, 128)],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.embedding(in0, in1)
 
 
 @compile_to_flatbuffer(

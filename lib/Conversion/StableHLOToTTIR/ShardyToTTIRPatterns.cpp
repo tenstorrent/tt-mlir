@@ -252,8 +252,7 @@ public:
       // identical.
       bool shouldCreateMeshShardOp =
           meshSharding.checkAndUpdateShardyArgSharding(
-              rewriter, funcOp, globalOperand, argSharding,
-              tensorMeshShardingAttr);
+              rewriter, funcOp, globalOperand, argSharding);
       if (shouldCreateMeshShardOp) {
         auto outputType = mlir::cast<mlir::RankedTensorType>(
             getTypeConverter()->convertType(localArgType));
@@ -275,6 +274,7 @@ public:
 
     // Add mesh_shard (ShardToFullShape) for outputs.
     rewriter.setInsertionPointAfter(srcOp);
+    llvm::SmallVector<mlir::Value> shardToFullResults;
     mlir::Operation *sdyReturn = getBodyTerminator(srcOp);
     for (auto [retIdx, args] : llvm::enumerate(llvm::zip_equal(
              sdyReturn->getOpOperands(), srcOp.getOutShardings().getShardings(),
@@ -292,8 +292,8 @@ public:
       // create dummy mesh shard op even though frontend expect sharded return
       // in case input and output shapes of mesh shard op are different.
       bool shouldCreateMeshShardOp =
-          meshSharding.checkAndUpdateShardyRetSharding(
-              rewriter, funcOp, retIdx, outSharding, tensorMeshShardingAttr);
+          meshSharding.checkAndUpdateShardyRetSharding(rewriter, funcOp, retIdx,
+                                                       outSharding);
       if (shouldCreateMeshShardOp) {
         auto inputOperand = returnOperand.get();
         auto inputType = mlir::cast<mlir::RankedTensorType>(
@@ -311,11 +311,11 @@ public:
                 meshSharding.getShardType(), meshSharding.getShardDirection(),
                 meshSharding.getShardShape(), meshSharding.getShardDims());
 
-        rewriter.replaceAllUsesWith(opResult, meshShardOp.getResult());
+        shardToFullResults.push_back(meshShardOp.getResult());
       } else {
         // Do not create mesh shard op if input and output shapes are identical:
         // frontend expects sharded return and shard type is replicate.
-        rewriter.replaceAllUsesWith(opResult, returnOperand.get());
+        shardToFullResults.push_back(returnOperand.get());
       }
     }
 
@@ -323,7 +323,7 @@ public:
     rewriter.inlineBlockBefore(&srcOp.getBody().front(), srcOp,
                                fullToShardResults);
     rewriter.eraseOp(sdyReturn);
-    rewriter.eraseOp(srcOp);
+    rewriter.replaceOp(srcOp, shardToFullResults);
 
     return llvm::success();
   }
@@ -351,34 +351,65 @@ public:
     for (auto meshAxisAttr : sdyMesh.getAxes()) {
       meshShape.push_back(meshAxisAttr.getSize());
     }
+    if (meshShape.size() < 2) {
+      llvm_unreachable("1d hardware mesh is not supported.");
+    }
     mlir::tt::utils::addMeshToModuleAttribute(rewriter, module, meshName,
                                               meshShape);
 
-    // Before erasing MeshOp, visit public functions and erase argument sharding
-    // attributes that are not refered by ManualComputationOp. Ones that are
-    // refered by ManualComputationOp are properly handled by
-    // ShardyToTTIRManualComputationOpConversionPattern.
+    // Before erasing MeshOp, visit public functions and properly handle
+    // argument sharding attributes that are not used by ManualComputationOp or
+    // MeshShardOp. Ones that are refered by ManualComputationOp are properly
+    // handled by ShardyToTTIRManualComputationOpConversionPattern.
     module->walk([&](mlir::func::FuncOp funcOp) {
-      if (funcOp.isPublic()) {
-        for (auto arg : funcOp.getArguments()) {
-          auto argIdx = arg.getArgNumber();
-          auto argShardingAttr =
-              funcOp.getArgAttrOfType<mlir::sdy::TensorShardingAttr>(
-                  argIdx, mlir::sdy::kShardingAttr);
-          if (!argShardingAttr) {
-            continue;
-          }
-          if (llvm::any_of(arg.getUsers(), [&](mlir::Operation *user) {
-                return mlir::dyn_cast_if_present<
-                    mlir::sdy::ManualComputationOp>(*user);
-              })) {
-            continue;
-          }
-          rewriter.modifyOpInPlace(funcOp, [&]() {
-            funcOp.removeArgAttr(argIdx, mlir::sdy::kShardingAttr);
-          });
-        }
+      if (!funcOp.isPublic()) {
+        return mlir::WalkResult::skip();
       }
+      for (auto arg : funcOp.getArguments()) {
+        auto argIdx = arg.getArgNumber();
+        // Check arguments with sdy sharding attribute.
+        auto argShardingAttr =
+            funcOp.getArgAttrOfType<mlir::sdy::TensorShardingAttr>(
+                argIdx, mlir::sdy::kShardingAttr);
+        if (!argShardingAttr) {
+          continue;
+        }
+        if (llvm::any_of(arg.getUsers(), [&](mlir::Operation *user) {
+              return mlir::isa<mlir::sdy::ManualComputationOp,
+                               mlir::tt::ttir::MeshShardOp>(*user);
+            })) {
+          continue;
+        }
+
+        auto *firstUserOp = *arg.user_begin();
+        rewriter.setInsertionPoint(firstUserOp);
+        auto outputType = mlir::cast<mlir::RankedTensorType>(
+            getTypeConverter()->convertType(arg.getType()));
+
+        mlir::tt::sharding_utils::MeshSharding meshSharding;
+        auto error = meshSharding.convertSdyShardingToMeshSharding(
+            argShardingAttr, sdyMesh,
+            mlir::tt::MeshShardDirection::ShardToFull);
+        if (auto e = error.takeError()) {
+          llvm_unreachable(llvm::toString(std::move(e)).c_str());
+        }
+
+        rewriter.modifyOpInPlace(funcOp, [&]() {
+          funcOp.removeArgAttr(argIdx, mlir::sdy::kShardingAttr);
+          mlir::tt::sharding_utils::addTensorMeshShardingAttrToFunctionArg(
+              funcOp, argIdx, meshSharding.getTensorMeshShardingAttr(rewriter));
+        });
+
+        auto meshShardOp =
+            ttmlir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+                rewriter, firstUserOp->getLoc(), outputType, arg,
+                meshSharding.getShardType(), meshSharding.getShardDirection(),
+                meshSharding.getShardShape(), meshSharding.getShardDims());
+
+        rewriter.replaceAllUsesExcept(arg, meshShardOp.getResult(),
+                                      meshShardOp);
+      }
+      return mlir::WalkResult::advance();
     });
 
     rewriter.eraseOp(srcOp);

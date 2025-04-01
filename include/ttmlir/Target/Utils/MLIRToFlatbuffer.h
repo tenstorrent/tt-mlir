@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
+#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
@@ -306,7 +307,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       toFlatbuffer(cache, chipDesc.getChipPhysicalCores()),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
-      chipDesc.getNumCBs());
+      chipDesc.getNumCBs(), chipDesc.getNumComputeThreads(),
+      chipDesc.getNumDatamovementThreads());
 }
 
 inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,

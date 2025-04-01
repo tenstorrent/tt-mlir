@@ -237,9 +237,39 @@ void populatePassesModule(nb::module_ &m) {
       },
       nb::arg("module"), nb::arg("isTensixKernel"));
 
+  m.def(
+      "pykernel_compile_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getName());
+
+        mlir::DialectRegistry registry;
+        mlir::tt::registerAllDialects(registry);
+        mlir::tt::registerAllExtensions(registry);
+        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
+        ctx->appendDialectRegistry(registry);
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("pykernel-compile-pipeline");
+
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "");
+
   nb::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
-      .value("Float16", ::tt::target::DataType::Float16);
+      .value("Float16", ::tt::target::DataType::Float16)
+      .value("BFloat16", ::tt::target::DataType::BFloat16)
+      .value("Int32", ::tt::target::DataType::Int32);
 
   m.def("lookup_dtype", [](std::string enumName) {
     // Function to return the enum value based on the name.

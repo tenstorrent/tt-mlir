@@ -85,7 +85,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
         operandTypes.push_back(f32TensorType);
 
         // Create converted tensor value
-        auto emptyTensor = typeBuilder.create<mlir::tensor::EmptyOp>(
+        auto emptyTensor = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
             opToHoist->getLoc(), tensorType.getShape(), f32Type);
         auto converted = typeBuilder.create<mlir::tt::ttir::ToLayoutOp>(
             opToHoist->getLoc(), f32TensorType, operand, emptyTensor);
@@ -200,7 +200,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
        llvm::zip(opToHoist->getResults(), callOp.getResults())) {
     if (auto tensorType = dyn_cast<mlir::RankedTensorType>(result.getType())) {
       if (!tensorType.getElementType().isF32()) {
-        auto converted = opBuilder.create<mlir::tensor::EmptyOp>(
+        auto converted = opBuilder.create<mlir::tt::ttir::EmptyOp>(
             opToHoist->getLoc(), tensorType.getShape(),
             tensorType.getElementType());
         auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(

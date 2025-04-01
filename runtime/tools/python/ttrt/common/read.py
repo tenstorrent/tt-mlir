@@ -78,6 +78,13 @@ class Read:
             help="test file to save results to",
         )
         Read.register_arg(
+            name="--ignore-version",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
+        )
+        Read.register_arg(
             name="binary",
             type=str,
             default="",
@@ -150,7 +157,7 @@ class Read:
         for path in ttsys_binary_paths:
             try:
                 bin = SystemDesc(self.logger, self.file_manager, path)
-                if bin.check_version():
+                if bin.check_version(ignore=self["--ignore-version"]):
                     self.system_desc_binaries.append(bin)
             except Exception as e:
                 test_result = {
@@ -168,7 +175,7 @@ class Read:
         for path in ttnn_binary_paths:
             try:
                 bin = Binary(self.logger, self.file_manager, path)
-                if bin.check_version():
+                if bin.check_version(ignore=self["--ignore-version"]):
                     self.ttnn_binaries.append(bin)
             except Exception as e:
                 test_result = {
@@ -186,7 +193,7 @@ class Read:
         for path in ttmetal_binary_paths:
             try:
                 bin = Binary(self.logger, self.file_manager, path)
-                if bin.check_version():
+                if bin.check_version(ignore=self["--ignore-version"]):
                     self.ttmetal_binaries.append(bin)
             except Exception as e:
                 test_result = {

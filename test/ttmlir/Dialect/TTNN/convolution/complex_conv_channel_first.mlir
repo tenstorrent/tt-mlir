@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 module @jit_convolution {
   func.func public @test_NCHW_IOHW_to_NHWC_OIHW_conv2d(%arg0: tensor<1x3x100x100xbf16>, %arg1: tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16> {
-    %0 = tensor.empty() : tensor<1x7x100x100xbf16>
+    %0 = ttir.empty() : tensor<1x7x100x100xbf16>
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
     // CHECK: "ttnn.conv2d"

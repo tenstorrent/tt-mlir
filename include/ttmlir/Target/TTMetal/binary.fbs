@@ -1,8 +1,8 @@
-include "Common/types.fbs";
-include "Common/version.fbs";
-include "Common/debug_info.fbs";
-include "command.fbs";
-include "types.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/version.fbs";
+include "ttmlir/Target/Common/debug_info.fbs";
+include "ttmlir/Target/TTMetal/command.fbs";
+include "ttmlir/Target/TTMetal/types.fbs";
 
 namespace tt.target.metal;
 

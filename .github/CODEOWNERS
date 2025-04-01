@@ -52,6 +52,9 @@
 /test/ttmlir/EmitC/ @svuckovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 
 # Metal Conversions
+/include/ttmlir/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
+/lib/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
+/test/ttmlir/Conversion/TTIRToTTIRGeneric/ @nsmithtt @vroubtsovTT
 /include/ttmlir/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
 /include/ttmlir/Conversion/TTKernelToEmitC/ @nsmithtt @vroubtsovTT
 /lib/Conversion/TTIRToTTMetal/ @nsmithtt @vroubtsovTT
@@ -89,17 +92,17 @@
 /test/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
 
 # TTNN Optimizer
-/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/include/ttmlir/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/include/ttmlir/Scheduler/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/lib/Dialect/TTNN/Analysis/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/lib/OpModel/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/lib/Scheduler/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/test/ttmlir/Dialect/TTNN/optimizer/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/test/ttmlir/Silicon/TTNN/optimizer/ @odjuricicTT @tt-mpantic @sdjordjevicTT
-/test/unittests/Optimizer @odjuricicTT @tt-mpantic @sdjordjevicTT
-/test/unittests/OpModel @odjuricicTT @tt-mpantic @sdjordjevicTT
-/test/unittests/TestScheduler/ @odjuricicTT @tt-mpantic @sdjordjevicTT
+/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/include/ttmlir/OpModel/ @arminaleTT @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/include/ttmlir/Scheduler/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/lib/Dialect/TTNN/Analysis/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/lib/OpModel/ @arminaleTT @odjuricicTT @rpavlovicTT
+/lib/Scheduler/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/test/ttmlir/Dialect/TTNN/optimizer/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/test/ttmlir/Silicon/TTNN/**/optimizer/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/test/unittests/Optimizer @odjuricicTT @rpavlovicTT @sdjordjevicTT
+/test/unittests/OpModel @arminaleTT @odjuricicTT @rpavlovicTT
+/test/unittests/TestScheduler/ @odjuricicTT @rpavlovicTT @sdjordjevicTT
 
 # LLVM Target
 /include/ttmlir/Target/LLVM/ @vwellsTT @mtopalovicTT
@@ -123,7 +126,7 @@
 /python/test_infra @ctodTT @tapspatel
 
 # tt-explorer
-/tools/explorer/ @odjuricicTT @tt-mpantic @sdjordjevicTT @vprajapati-tt @vcanicTT @tapspatel
+/tools/explorer/ @tapspatel @odjuricicTT @vprajapati-tt @vcanicTT
 
 # ttnn-standalone
 /tools/ttnn-standalone @svuckovicTT @mtopalovicTT @sdjordjevicTT @azecevicTT @jserbedzijaTT

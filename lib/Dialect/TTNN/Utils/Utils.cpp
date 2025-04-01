@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
@@ -135,6 +136,17 @@ std::string getOpLocName(Operation *op) {
     return loc.getName().str();
   }
   return "";
+}
+
+llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
+  llvm::SmallVector<int64_t, 4> tiledShape(shape);
+  tiledShape[shape.size() - 1] =
+      ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 1], TILE_WIDTH);
+  if (shape.size() > 1) {
+    tiledShape[shape.size() - 2] =
+        ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 2], TILE_HEIGHT);
+  }
+  return tiledShape;
 }
 
 } // namespace mlir::tt::ttnn::utils

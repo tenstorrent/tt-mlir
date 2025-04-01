@@ -4,7 +4,7 @@
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 
 func.func @repeat(%arg0: tensor<1x32x32xf32>) -> tensor<32x32x32xf32> {
-  %0 = tensor.empty() : tensor<32x32x32xf32>
+  %0 = ttir.empty() : tensor<32x32x32xf32>
   %1 = "ttir.repeat"(%arg0, %0) {repeat_dimensions = array<i64: 32, 1, 1>} : (tensor<1x32x32xf32>, tensor<32x32x32xf32>) -> tensor<32x32x32xf32>
   return %1 : tensor<32x32x32xf32>
 }

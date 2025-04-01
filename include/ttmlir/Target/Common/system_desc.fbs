@@ -1,5 +1,5 @@
-include "types.fbs";
-include "version.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/version.fbs";
 
 namespace tt.target;
 

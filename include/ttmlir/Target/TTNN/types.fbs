@@ -1,4 +1,4 @@
-include "Common/types.fbs";
+include "ttmlir/Target/Common/types.fbs";
 
 namespace tt.target.ttnn;
 
@@ -105,6 +105,7 @@ table LayoutDesc {
 
 table TensorDesc {
   shape: [int];
+  mesh_shape: [int32];
   layout: LayoutDesc;
 }
 

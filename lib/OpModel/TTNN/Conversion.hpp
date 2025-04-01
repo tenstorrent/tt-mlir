@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-#include "MetalHeaders.h"
 
+#include "MetalHeaders.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/ArrayRef.h"
 
+#include <type_traits>
 namespace mlir::tt::op_model::ttnn {
 namespace conversion {
 ::tt::tt_metal::DataType getDataType(const DataType dataType);
@@ -49,11 +50,21 @@ getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 ::ttnn::SmallVector<int>
 convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec);
 
-std::array<uint32_t, 2>
-convertArrayRefToArray(const llvm::ArrayRef<int32_t> array);
-
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
     const std::optional<mlir::tt::ttnn::Conv2dConfigAttr> &conv2dConfig);
+
+template <typename To, std::size_t N, typename From>
+std::array<To, N> convertLLVMArrayRefToStdArray(::llvm::ArrayRef<From> vec) {
+  if (vec.size() != N) {
+    throw std::runtime_error(
+        "Size of LLVM ArrayRef does not match the size of std::array");
+  }
+  static_assert(std::is_convertible_v<From, To>);
+
+  std::array<To, N> stdArray;
+  std::copy(vec.begin(), vec.end(), stdArray.begin());
+  return stdArray;
+}
 
 } // namespace conversion
 } // namespace mlir::tt::op_model::ttnn

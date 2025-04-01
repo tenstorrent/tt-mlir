@@ -33,9 +33,16 @@ struct SmallVector {
   using value_type = T;
 };
 
+struct AnyDevice;
 struct IDevice;
 
 struct Tensor;
+
+namespace operations::creation::detail {
+
+struct OptionalAnyDevice;
+
+} // namespace operations::creation::detail
 } // namespace ttnn
 
 namespace mlir {
@@ -131,8 +138,19 @@ struct TypeName<std::tuple<Types...>> {
 };
 
 template <>
+struct TypeName<::ttnn::AnyDevice> {
+  inline static const std::string value = "::ttnn::AnyDevice";
+};
+
+template <>
 struct TypeName<::ttnn::IDevice> {
   inline static const std::string value = "::ttnn::IDevice";
+};
+
+template <>
+struct TypeName<::ttnn::operations::creation::detail::OptionalAnyDevice> {
+  inline static const std::string value =
+      "::ttnn::operations::creation::detail::OptionalAnyDevice";
 };
 
 template <>
@@ -736,11 +754,7 @@ public:
       return emit(std::nullopt);
     }
 
-    mlir::OpOperand *opOperand =
-        std::find_if(op->getOpOperands().begin(), op->getOpOperands().end(),
-                     [&](OpOperand &operand) { return operand.get() == val; });
-
-    unsigned index = opOperand->getOperandNumber();
+    unsigned index = getOperandIndex(val);
     operands.push_back(adaptor.getOperands()[index]);
     return rewriter.getIndexAttr(index);
   }
@@ -811,6 +825,52 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(result);
   }
 
+  // Handles conversion of DeviceType objects to:
+  // - ::ttnn::IDevice*
+  // - ::ttnn::IDevice
+  // - ::ttnn::AnyDevice
+  // - ::ttnn::operations::creation::detail::OptionalAnyDevice
+  //    - converts to ::ttnn::AnyDevice, see comment below
+  //
+  // Will return `std::nullopt` if DeviceType is null
+  //
+  template <typename TargetTy = ::ttnn::IDevice *>
+  mlir::Attribute
+  emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
+    if (!device) {
+      return emit(std::nullopt);
+    }
+
+    if constexpr (std::is_same_v<TargetTy, ::ttnn::IDevice *> ||
+                  std::is_same_v<TargetTy, ::ttnn::IDevice>) {
+      unsigned index = getOperandIndex(device);
+      operands.push_back(adaptor.getOperands()[index]);
+
+      return rewriter.getIndexAttr(index);
+    } else if constexpr (std::is_same_v<TargetTy,
+                                        ::ttnn::operations::creation::detail::
+                                            OptionalAnyDevice> ||
+                         std::is_same_v<TargetTy, ::ttnn::AnyDevice>) {
+      // Whether the desired target type is OptionalAnyDevice or AnyDevice, we
+      // can convert to AnyDevice in both scenarios, as there's an implicit
+      // constructor OptionalAnyDevice(AnyDevice).
+
+      unsigned index = getOperandIndex(device);
+      mlir::Value deviceValueFromOperandsList = adaptor.getOperands()[index];
+
+      emitc::CallOpaqueOp anyDeviceOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(),
+                                 TypeNameV<::ttnn::AnyDevice>),
+          TypeNameV<::ttnn::AnyDevice>, deviceValueFromOperandsList);
+
+      operands.push_back(anyDeviceOp->getResult(0));
+      return rewriter.getIndexAttr(operands.size() - 1);
+    } else {
+      llvm_unreachable("Unknown TargetTy");
+    }
+  }
+
   template <typename OpConversionPatternTy>
   emitc::CallOpaqueOp replaceOp(OpConversionPatternTy &&opConversionPattern,
                                 llvm::ArrayRef<mlir::Attribute> args) {
@@ -878,6 +938,14 @@ private:
             tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
             nullptr, operands)
         ->getResult(0);
+  }
+
+  unsigned getOperandIndex(mlir::Value value) {
+    mlir::OpOperand *opOperand = std::find_if(
+        op->getOpOperands().begin(), op->getOpOperands().end(),
+        [&](OpOperand &operand) { return operand.get() == value; });
+
+    return opOperand->getOperandNumber();
   }
 
   TTNNOp op;

@@ -28,10 +28,10 @@ set(CMAKE_SHARED_LINKER_FLAGS_ASAN
 
 # Code coverage build type
 set(CMAKE_C_FLAGS_COVERAGE
-    "${CMAKE_C_FLAGS_DEBUG} --coverage" CACHE STRING
+    "${CMAKE_C_FLAGS_DEBUG} -O0 --coverage" CACHE STRING
     "Flags used by the C compiler for code coverage build type or configuration." FORCE)
 set(CMAKE_CXX_FLAGS_COVERAGE
-    "${CMAKE_CXX_FLAGS_DEBUG} --coverage" CACHE STRING
+    "${CMAKE_CXX_FLAGS_DEBUG} -O0 --coverage" CACHE STRING
     "Flags used by the C++ compiler for code coverage build type or configuration." FORCE)
 set(CMAKE_EXE_LINKER_FLAGS_COVERAGE
     "${CMAKE_EXE_LINKER_FLAGS_DEBUG} --coverage" CACHE STRING

@@ -120,6 +120,8 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   PYTHON_BINDINGS_LIBRARY nanobind
 )
 
+set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir")
+
 set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Core
   MLIRPythonSources.Dialects.affine
@@ -131,6 +133,8 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.tosa
   MLIRPythonSources.Dialects.memref
+  MLIRPythonSources.Dialects.emitc
+  MLIRPythonSources.Dialects.quant
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonTestInfra

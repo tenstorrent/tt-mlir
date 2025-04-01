@@ -11,10 +11,10 @@
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
+#include "operations/creation/construct_tensor.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
-#include "operations/creation/ones.h"
-#include "operations/creation/zeros.h"
+#include "operations/creation/full_with.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
@@ -213,11 +213,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return operations::creation::run(op->type_as_EmptyOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::ZerosOp: {
-    return operations::creation::run(op->type_as_ZerosOp(), getContext());
+  case ::tt::target::ttnn::OpType::ConstructTensorOp: {
+    return operations::creation::run(op->type_as_ConstructTensorOp(),
+                                     getContext());
   }
-  case ::tt::target::ttnn::OpType::OnesOp: {
-    return operations::creation::run(op->type_as_OnesOp(), getContext());
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    return operations::creation::run(op->type_as_NamedFullOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::FullOp: {
     return operations::creation::run(op->type_as_FullOp(), getContext());

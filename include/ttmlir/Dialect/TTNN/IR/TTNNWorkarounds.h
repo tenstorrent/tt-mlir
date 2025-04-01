@@ -270,6 +270,11 @@ public:
 
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
+
+  // Create workarounds for pad op operands.
+  static TTNNOperandsWorkarounds
+  createPadOpOperandsWorkarounds(mlir::TypedValue<mlir::RankedTensorType> input,
+                                 ttnn::TTNNLayoutAttr layoutAttr);
 };
 
 } // namespace mlir::tt::ttnn::wa

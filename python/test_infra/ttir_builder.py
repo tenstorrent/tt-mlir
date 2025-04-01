@@ -8,7 +8,7 @@ import inspect
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, tt, tensor
+from ttmlir.dialects import ttir, tt, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 import torch
 import array
@@ -91,6 +91,24 @@ class Golden:
         return Golden(self.tensor.contiguous())
 
 
+@dataclass
+class TypeInfo:
+    """Encapsulates type information for quantized tensors.
+
+    Contains both the base data type and quantization parameters (scale and zero point)
+    required for quantized operations.
+
+    Attributes:
+        dtype: Base PyTorch data type (e.g. torch.float32, torch.qint32).
+        scale: Scaling factor for quantization. Required for quantized types.
+        zero_point: Zero point offset for quantization. Required for quantized types.
+    """
+
+    dtype: torch.dtype
+    scale: Optional[float] = None
+    zero_point: Optional[int] = None
+
+
 class TTIRBuilder:
     """Builder class providing API for creating TTIR ops."""
 
@@ -111,6 +129,9 @@ class TTIRBuilder:
 
         # id to golden map
         self.id_golden_map = {}
+
+        # mesh_shape for multi-device
+        self.mesh_shape = ()
 
     # ----- Public helpers -----
 
@@ -173,15 +194,20 @@ class TTIRBuilder:
         golden_info = {}
         for name, golden_tensor in self.id_golden_map.items():
             golden_tensor = golden_tensor.contiguous()
+            data_type = self.get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
             golden_info[name] = GoldenTensor(
                 name,
                 list(golden_tensor.tensor.shape),
                 list(golden_tensor.tensor.stride()),
-                DataType.Float32,
+                data_type if data_type is not None else DataType.Float32,
                 golden_tensor.tensor.data_ptr(),
                 golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
             )
         return golden_info
+
+    # set mesh_shape for multi-device environment
+    def set_mesh_shape(self, mesh_shape: Tuple[int, int]):
+        self.mesh_shape = mesh_shape
 
     # ----- Private helpers -----
 
@@ -219,7 +245,6 @@ class TTIRBuilder:
         Generates random tensor of shape `shape`, with type `dtype`, using `seed` to seed torch
         random generator.
         """
-
         if dtype.is_floating_point:
             return torch.randn(shape, generator=torch.manual_seed(seed), dtype=dtype)
         else:
@@ -287,11 +312,41 @@ class TTIRBuilder:
 
     # ----- Utility Conversion ----
 
-    def get_type_from_torch_dtype(self, dtype: torch.dtype) -> Type:
+    def get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
         """
-        Returns a MLIR `Type` obj corresponding to `dtype`
+        Returns a MLIR `DataType` obj corresponding to `dtype`.
         """
         match dtype:
+            case torch.float16:
+                return DataType.Float16
+            case torch.bfloat16:
+                return DataType.BFloat16
+            case torch.float32:
+                return DataType.Float32
+            case torch.int32:
+                return DataType.Int32
+            case None:
+                return DataType.Float32
+
+    def get_type_from_torch_dtype(self, dtype: Union[torch.dtype, TypeInfo]) -> Type:
+        """Converts PyTorch dtype or TypeInfo to corresponding MLIR Type.
+
+        For quantized types (e.g. qint32), scale and zero_point must be provided via TypeInfo.
+        For non-quantized types, a plain torch.dtype can be used.
+
+        Args:
+            dtype: Either a torch.dtype or TypeInfo containing dtype and quantization params.
+
+        Returns:
+            MLIR Type corresponding to the input dtype.
+
+        Raises:
+            ValueError: If quantization parameters are missing for quantized types.
+            TypeError: If the dtype is not supported.
+        """
+        base_dtype = dtype.dtype if isinstance(dtype, TypeInfo) else dtype
+
+        match base_dtype:
             case torch.bfloat16:
                 return BF16Type.get(self._ctx)
             case torch.float16:
@@ -316,8 +371,22 @@ class TTIRBuilder:
                 return IntegerType.get_unsigned(32, self._ctx)
             case torch.uint64:
                 return IntegerType.get_unsigned(64, self._ctx)
+            case torch.qint32:
+                if not isinstance(dtype, TypeInfo):
+                    raise ValueError("TypeInfo required for qint32")
+                if dtype.scale is None or dtype.zero_point is None:
+                    raise ValueError("scale and zero_point required for qint32")
+                return quant.UniformQuantizedType.get(
+                    quant.UniformQuantizedType.FLAG_SIGNED,
+                    IntegerType.get_signless(32, self._ctx),
+                    F32Type.get(self._ctx),
+                    dtype.scale,
+                    dtype.zero_point,
+                    torch.iinfo(torch.qint32).min,
+                    torch.iinfo(torch.qint32).max,
+                )
             case _:
-                raise TypeError(f"Invalid Type {type}")
+                raise TypeError(f"Invalid Type {dtype}")
 
     # ----- Utility factories -----
 
@@ -338,10 +407,10 @@ class TTIRBuilder:
         shape: Shape,
         data_type: Optional[Type] = None,
     ) -> OpView:
-        """Convenience wrapper constructing `tensor.EmptyOp`."""
+        """Convenience wrapper constructing `ttir.EmptyOp`."""
         dtype = data_type if data_type is not None else self._default_dtype
         with self._ctx, self._loc:
-            op = tensor.EmptyOp(shape, dtype)
+            op = ttir.EmptyOp(RankedTensorType.get(shape, dtype))
 
             self.generate_and_store_random_golden(op)
 
@@ -391,6 +460,7 @@ class TTIRBuilder:
 
                 The list/tuple will then be unpacked as the positional arugments for the op_golden_function
         - output_shape (Optional[Shape]): An optional argument specifying the shape of the output of the OP.
+        - output_type (Optional[Type]): An optional argument specifying the type of the output of the OP.
         - golden_kwargs (dict): Additional keyword arguments for the `op_golden_function`.
         - ttir_kwargs (dict): Additional keyword arguments for the `op_ttir_function`.
 
@@ -437,10 +507,15 @@ class TTIRBuilder:
                 if not isinstance(golden_output, torch.Tensor)
                 else Golden(golden_output)
             )
-
-            # Use the golden output to determine proper output shape and type unless otherwise specified
+            # Use the golden output to determine proper output shape and type unless otherwise specified.
             output_shape = golden.tensor.shape if not output_shape else output_shape
-            output_type = self._default_dtype if not output_type else output_type
+            if not output_type and inputs:
+                output_type = self.get_type_from_torch_dtype(
+                    self._get_golden_tensor(inputs[0]).dtype
+                )
+            elif not output_type:
+                output_type = self._default_dtype
+
             if use_zeros:
                 output = self.zeros(output_shape, output_type)
             else:
@@ -472,7 +547,6 @@ class TTIRBuilder:
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
-
             return op
 
     def eltwise_proxy(
@@ -486,29 +560,77 @@ class TTIRBuilder:
     # TTIR top level ops
 
     def get_dimension_size(self, in0: Operand, dimension: int = 0) -> OpView:
+        golden_dim = [self._get_golden_tensor(in0).size(dimension)]
         return self.op_proxy(
-            self.get_dimension_size_golden_function,
+            torch.tensor,
             ttir.GetDimensionSizeOp,
             [in0],
-            golden_kwargs={"dimension": dimension},
+            golden_kwargs={"data": golden_dim},
             ttir_kwargs={"dimension": dimension},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
+            organize_golden_args=lambda i: 0,
             output_type=self.get_type_from_torch_dtype(torch.int32),
         )
 
-    def get_dimension_size_golden_function(
-        self, in0: Operand, dimension: int = 0
-    ) -> torch.Tensor:
-        return torch.tensor([in0.size(dimension)])
+    def dot_general(
+        self,
+        in0: Operand,
+        in1: Operand,
+        batch_dims_lhs: List[int],
+        contract_dims_lhs: List[int],
+        batch_dims_rhs: List[int],
+        contract_dims_rhs: List[int],
+    ) -> OpView:
+        # Configure inputs for golden function
+        lhs_dims = contract_dims_lhs + batch_dims_lhs
+        rhs_dims = contract_dims_rhs + batch_dims_rhs
+
+        # Get output_shape from inputs' shapes and dimensions
+        lhs = self._get_golden_tensor(in0)
+        rhs = self._get_golden_tensor(in1)
+        lhs_shape = self.get_shape(in0)
+        rhs_shape = self.get_shape(in1)
+        output_shape = [lhs_shape[i] for i in batch_dims_lhs]
+        for d in range(len(lhs_shape)):
+            if d not in batch_dims_lhs and d not in contract_dims_lhs:
+                output_shape.append(lhs_shape[d])
+        for d in range(len(rhs_shape)):
+            if d not in batch_dims_rhs and d not in contract_dims_rhs:
+                output_shape.append(rhs_shape[d])
+        return self.op_proxy(
+            torch.tensordot,
+            ttir.DotGeneralOp,
+            [in0, in1],
+            golden_kwargs={"dims": (lhs_dims, rhs_dims)},
+            ttir_kwargs={
+                "batch_dims_lhs": batch_dims_lhs,
+                "contract_dims_lhs": contract_dims_lhs,
+                "batch_dims_rhs": batch_dims_rhs,
+                "contract_dims_rhs": contract_dims_rhs,
+            },
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            output_shape=output_shape,
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(in0).dtype
+            ),
+        )
 
     # TTIR top level named ops
     # class TTIR_ElementwiseTernaryOp
 
-    # NOTE torch.where doesn't take the same inputs as ttir.WhereOp, needs more extensive configuration
     def where(
         self, in0: Operand, in1: Operand, in2: Operand, operandSegmentSizes=List[int]
     ) -> OpView:
-        return self.eltwise_proxy(torch.where, ttir.WhereOp, [in0, in1, in2])
+        return self.op_proxy(
+            torch.where,
+            ttir.WhereOp,
+            [in0, in1, in2],
+            organize_golden_args=lambda i: (
+                self._get_golden_tensor(i[0]).to(dtype=torch.bool),
+                self._get_golden_tensor(i[1]),
+                self._get_golden_tensor(i[2]),
+            ),
+        )
 
     # class TTIR_ElementwiseUnaryOp
 
@@ -572,14 +694,14 @@ class TTIRBuilder:
     def sqrt(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.sqrt, ttir.SqrtOp, [in0])
 
-    def typecast(self, in0: Operand, in1: Operand) -> OpView:
+    def typecast(self, in0: Operand, out: Operand) -> OpView:
+        output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(out).dtype)
         return self.op_proxy(
             torch.Tensor.type,
             ttir.TypecastOp,
-            [in0, in1],
-            golden_kwargs={"dtype": self._get_golden_tensor(in0).type()},
-            organize_ttir_args=lambda i, o, shape: ([self._get_type(o)], [i[0]], o),
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[1])],
+            [in0],
+            golden_kwargs={"dtype": self._get_golden_tensor(out).type()},
+            output_type=output_type,
         )
 
     def log(self, in0: Operand) -> OpView:
@@ -667,39 +789,44 @@ class TTIRBuilder:
             golden_kwargs={"dim": dim_arg[0], "keepdim": keep_dim},
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            output_type=IntegerType.get_signless(32, self._ctx),
         )
 
     def sum(
         self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
     ) -> OpView:
-        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
-        ttir_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self.op_proxy(
             torch.sum,
             ttir.SumOp,
             [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs=ttir_kwargs,
+            golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
+            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
     def mean(
         self, in0: Operand, dim_arg: List[int] = [0], keep_dim: bool = True
     ) -> OpView:
-        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
-        ttir_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
         return self.op_proxy(
             torch.mean,
             ttir.MeanOp,
             [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs=ttir_kwargs,
+            golden_kwargs={"dim": dim_arg, "keepdim": keep_dim},
+            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def max(self, in0: Operand, dim_arg: int = 0, keep_dim: bool = True) -> OpView:
-        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
-        ttir_kwargs = {"dim_arg": [dim_arg], "keep_dim": keep_dim}
+    def max(self, in0: Operand, dim_arg: int = None, keep_dim: bool = True) -> OpView:
+        # Handle ttir and golden function arguments for edge cases
+        golden_kwargs = {}
+        ttir_kwargs = {"keep_dim": keep_dim}
+        output_shape = [1] * len(self.get_shape(in0))
+        if dim_arg:
+            golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+            ttir_kwargs["dim_arg"] = [dim_arg]
+        if not keep_dim:
+            output_shape = torch.Size([1])
+
         return self.op_proxy(
             torch.max,
             ttir.MaxOp,
@@ -707,11 +834,20 @@ class TTIRBuilder:
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            output_shape=output_shape,
         )
 
-    def min(self, in0: Operand, dim_arg: int = 0, keep_dim: bool = True) -> OpView:
-        golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
-        ttir_kwargs = {"dim_arg": [dim_arg], "keep_dim": keep_dim}
+    def min(self, in0: Operand, dim_arg: int = None, keep_dim: bool = True) -> OpView:
+        # Handle ttir and golden function arguments for edge cases
+        golden_kwargs = {}
+        ttir_kwargs = {"keep_dim": keep_dim}
+        output_shape = [1] * len(self.get_shape(in0))
+        if dim_arg:
+            golden_kwargs = {"dim": dim_arg, "keepdim": keep_dim}
+            ttir_kwargs["dim_arg"] = [dim_arg]
+        if not keep_dim:
+            output_shape = torch.Size([1])
+
         return self.op_proxy(
             torch.min,
             ttir.MinOp,
@@ -719,6 +855,7 @@ class TTIRBuilder:
             golden_kwargs=golden_kwargs,
             ttir_kwargs=ttir_kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            output_shape=output_shape,
         )
 
     # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
@@ -754,7 +891,7 @@ class TTIRBuilder:
             g_kwargs["keepdim"] = keep_dim
             g_function = torch.prod
         else:
-            g_function = self.prod_golden_function
+            g_function = lambda i: torch.tensor([torch.prod(i[0]).item()])
         return self.op_proxy(
             g_function,
             ttir.ProdOp,
@@ -764,21 +901,29 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def prod_golden_function(self, in0: Operand):
-        return torch.tensor([torch.prod(in0).item()])
-
-    def embedding(self, in0: Operand, weight: Operand, in1: Operand) -> OpView:
-        embedding = torch.nn.Embedding.from_pretrained(self._get_golden_tensor(weight))
+    def embedding(self, in0: Operand, in1: Operand) -> OpView:
+        embedding = torch.nn.Embedding.from_pretrained(self._get_golden_tensor(in1))
         return self.op_proxy(
             embedding,
             ttir.EmbeddingOp,
-            [in0, weight, in1],
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
+            [in0, in1],
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             organize_golden_args=lambda i: (
                 torch.ones(self._get_golden_tensor(i[0]).size(), dtype=torch.long),
             ),
+        )
+
+    def cumsum(self, in0: Operand, in1: Operand, dim: int) -> OpView:
+        return self.op_proxy(
+            torch.cumsum,
+            ttir.CumSumOp,
+            [in0, in1],
+            golden_kwargs={"dim": dim},
+            ttir_kwargs={"dim": dim, "output": in1},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             output_type=self.get_type_from_torch_dtype(
-                self._get_golden_tensor(weight).dtype
+                self._get_golden_tensor(in1).dtype
             ),
         )
 
@@ -832,16 +977,20 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def repeat_interleave(self, in0: Operand, repeats: int, dim: int) -> OpView:
-        g_dims = [1] * (dim + 1)
-        g_dims[dim] = repeats
+    def repeat_interleave(
+        self, in0: Operand, in1: Operand, repeats: int, dim: int
+    ) -> OpView:
         return self.op_proxy(
-            torch.Tensor.repeat,
+            torch.repeat_interleave,
             ttir.RepeatInterleaveOp,
-            [in0],
-            golden_kwargs={"repeats": g_dims},
+            [in0, in1],
+            golden_kwargs={"repeats": repeats, "dim": dim},
             ttir_kwargs={"repeats": repeats, "dim": dim},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(in1).dtype
+            ),
         )
 
     def broadcast(
@@ -865,9 +1014,8 @@ class TTIRBuilder:
         stride: Union[IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
         dilation: Union[IntegerAttr, DenseI32ArrayAttr],
-        groups: IntegerAttr,
+        groups: int,
     ) -> OpView:
-        output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(in1).dtype)
         if not bias:
             bias = None
         return self.op_proxy(
@@ -878,7 +1026,7 @@ class TTIRBuilder:
                 "stride": stride,
                 "padding": padding,
                 "dilation": dilation,
-                "groups": int(groups),
+                "groups": groups,
             },
             ttir_kwargs={
                 "stride": stride,
@@ -888,12 +1036,11 @@ class TTIRBuilder:
                 "bias": bias,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
-            output_type=output_type,
         )
 
     def conv2d_golden_function(
         self,
-        in0: Operand,
+        input_tensor: Operand,
         weight: Operand,
         stride: Union[IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
@@ -901,32 +1048,28 @@ class TTIRBuilder:
         groups: int,
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
-        golden_stride = (
-            tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
-        )
-        golden_padding = (
+        stride = tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
+        padding = (
             tuple(padding) if not isinstance(padding, IntegerAttr) else int(padding)
         )
-        golden_dilation = (
+        dilation = (
             tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
         )
-        golden_bias = torch.rand((weight.size()[0]), dtype=in0.dtype)
+        golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
-        n, h_out, w_out, c_out = list(in0.size())
-        input_tensor = torch.rand((n, c_out, h_out, w_out), dtype=in0.dtype)
-        output_unorganized = torch.nn.functional.conv2d(
+        input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+        result = torch.nn.functional.conv2d(
             input_tensor,
             weight,
             bias=golden_bias,
-            stride=golden_stride,
-            padding=golden_padding,
-            dilation=golden_dilation,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
             groups=groups,
         )
-        n, c_out, h_out, w_out = list(output_unorganized.size())
-        output_tensor = torch.rand((n, h_out, w_out, c_out), dtype=in0.dtype)
-        return output_tensor
+        result = result.transpose(-3, -2).transpose(-2, -1)
+        return result
 
     def conv_transpose2d(
         self,
@@ -938,9 +1081,8 @@ class TTIRBuilder:
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
         output_padding: Union[IntegerAttr, DenseI32ArrayAttr],
         dilation: Union[IntegerAttr, DenseI32ArrayAttr],
-        groups: IntegerAttr,
+        groups: int,
     ) -> OpView:
-        output_type = self.get_type_from_torch_dtype(self._get_golden_tensor(in1).dtype)
         if not bias:
             bias = None
         return self.op_proxy(
@@ -952,7 +1094,7 @@ class TTIRBuilder:
                 "padding": padding,
                 "output_padding": output_padding,
                 "dilation": dilation,
-                "groups": int(groups),
+                "groups": groups,
             },
             ttir_kwargs={
                 "stride": stride,
@@ -963,12 +1105,11 @@ class TTIRBuilder:
                 "bias": bias,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
-            output_type=output_type,
         )
 
     def conv_transpose2d_golden_function(
         self,
-        in0: Operand,
+        input_tensor: Operand,
         weight: Operand,
         stride: Union[IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
@@ -977,38 +1118,34 @@ class TTIRBuilder:
         groups: int,
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
-        golden_stride = (
-            tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
-        )
-        golden_padding = (
+        stride = tuple(stride) if not isinstance(stride, IntegerAttr) else int(stride)
+        padding = (
             tuple(padding) if not isinstance(padding, IntegerAttr) else int(padding)
         )
-        golden_out_padding = (
+        output_padding = (
             tuple(output_padding)
             if not isinstance(output_padding, IntegerAttr)
             else int(output_padding)
         )
-        golden_dilation = (
+        dilation = (
             tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
         )
-        golden_bias = torch.rand((weight.size()[0]), dtype=in0.dtype)
+        golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
-        n, h_out, w_out, c_out = list(in0.size())
-        input_tensor = torch.rand((n, c_out, h_out, w_out), dtype=in0.dtype)
-        output_unorganized = torch.nn.functional.conv_transpose2d(
+        input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+        result = torch.nn.functional.conv_transpose2d(
             input_tensor,
             weight,
             bias=golden_bias,
-            stride=golden_stride,
-            padding=golden_padding,
-            output_padding=golden_out_padding,
-            dilation=golden_dilation,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            dilation=dilation,
             groups=groups,
         )
-        n, c_out, h_out, w_out = list(output_unorganized.size())
-        output_tensor = torch.rand((n, h_out, w_out, c_out), dtype=in0.dtype)
-        return output_tensor
+        result = result.transpose(-3, -2).transpose(-2, -1)
+        return result
 
     def max_pool2d(
         self,
@@ -1062,10 +1199,16 @@ class TTIRBuilder:
         dilation: tuple[int],
         ceil_mode: bool,
     ):
+        # TTIR  max_pool2d is channels last. PyTorch max_pool2d is channels first.
+        # We need to transpose the input tensor to channels first before applying max_pool2d,
+        # and transpose back to channels last afterward to properly calculate the golden tensor.
         maxpool_object = torch.nn.MaxPool2d(
             kernel_size, stride, padding, dilation, ceil_mode
         )
-        return maxpool_object(input_tensor)
+        input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+        result = maxpool_object(input_tensor)
+        result = result.transpose(-3, -2).transpose(-2, -1)
+        return result
 
     def reshape(self, in0: Operand, shape: Shape) -> OpView:
         kwargs = {"shape": shape}
@@ -1089,7 +1232,6 @@ class TTIRBuilder:
                 i = i + 4
                 golden_padding.append(padding[(2 * i) + 1])
                 golden_padding.append(padding[2 * i])
-
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
@@ -1181,7 +1323,7 @@ class TTIRBuilder:
         kwargs = {"min": min_arg, "max": max_arg}
         return self.op_proxy(
             torch.clamp,
-            ttir.ClampOp,
+            ttir.ClampScalarOp,
             [in0],
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
@@ -1246,6 +1388,59 @@ class TTIRBuilder:
             ttir_kwargs={"permutation": permutation},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
+        )
+
+    def upsample2d(
+        self,
+        in0: Operand,
+        in1: Operand,
+        scale_factor: Union[SI32Attr, DenseI32ArrayAttr],
+        mode: str = "nearest",
+    ) -> OpView:
+        golden_scale_factor = (
+            tuple(scale_factor) if not isinstance(scale_factor, int) else scale_factor
+        )
+        upsample_obj = torch.nn.Upsample(scale_factor=golden_scale_factor, mode=mode)
+        return self.op_proxy(
+            upsample_obj,
+            ttir.Upsample2dOp,
+            [in0, in1],
+            ttir_kwargs={"scale_factor": scale_factor, "mode": mode},
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
+        )
+
+    def arange(
+        self, result=Operand, start=int, end=int, step=int, arange_dimension=int
+    ) -> OpView:
+        single_dim_tensor = torch.arange(
+            start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
+        )
+        shape = self.get_shape(result)
+        repeat_dims = []
+        for i in range(len(shape)):
+            if i == arange_dimension:
+                repeat_dims.append(int(shape[i] / ((end - start) / step)))
+            else:
+                repeat_dims.append(shape[i])
+
+        return self.op_proxy(
+            torch.Tensor.repeat,
+            ttir.ArangeOp,
+            [result, single_dim_tensor],
+            golden_kwargs={"repeats": tuple(repeat_dims)},
+            ttir_kwargs={
+                "start": start,
+                "end": end,
+                "step": step,
+                "arange_dimension": arange_dimension,
+            },
+            organize_ttir_args=lambda i, o, _: (self._get_type(o),),
+            organize_golden_args=lambda i: [i[1]],
+            output_shape=shape,
+            output_type=self.get_type_from_torch_dtype(
+                self._get_golden_tensor(result).dtype
+            ),
         )
 
     # TTIR top level generic ops

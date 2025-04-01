@@ -106,6 +106,13 @@ class Perf:
             help="disable putting dispatch on ethernet cores - place it on worker cores instead",
         )
         Perf.register_arg(
+            name="--ignore-version",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -212,7 +219,7 @@ class Perf:
             for path in ttnn_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
                 try:
-                    bin.check_version()
+                    bin.check_version(ignore=self["--ignore-version"])
                 except Exception as e:
                     test_result = {
                         "file_path": path,
@@ -270,7 +277,7 @@ class Perf:
             for path in ttmetal_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
                 try:
-                    bin.check_version()
+                    bin.check_version(ignore=self["--ignore-version"])
                 except Exception as e:
                     test_result = {
                         "file_path": path,

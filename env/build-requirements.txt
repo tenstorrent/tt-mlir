@@ -1,7 +1,7 @@
 cmake
 ninja
 clang-format
-clang-tidy
+clang-tidy==19.1.0
 wheel
 setuptools
 black

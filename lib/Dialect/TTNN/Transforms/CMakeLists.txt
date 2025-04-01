@@ -23,5 +23,3 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         MLIRTTNNAnalysis
         MLIRTTDialect
         )
-
-target_include_directories(MLIRTTNNTransforms PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
