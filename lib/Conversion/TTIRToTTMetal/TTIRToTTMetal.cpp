@@ -40,8 +40,11 @@ public:
   LogicalResult matchAndRewrite(memref::AllocOp op,
                                 PatternRewriter &rewriter) const final {
 
-    assert(op->getAttr("address") && "No address attribute found, failing.");
-    auto address = op->getAttrOfType<IntegerAttr>("address");
+    auto address = op->getAttr("address")
+                       ? op->getAttrOfType<IntegerAttr>("address")
+                       : rewriter.getI64IntegerAttr(
+                             1000); // arbitrary default for now, remove when
+                                    // allocate pass is implemented
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memroy space found, failing.");
     assert(mlir::isa<TileType>(op.getMemref().getType().getElementType()) &&
