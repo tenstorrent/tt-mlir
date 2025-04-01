@@ -8,12 +8,12 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
-namespace mlir::tt {
+using namespace mlir::tt;
 
 MlirAttribute ttmlirTTGridAttrGet(MlirContext ctx, int64_t *shape,
                                   int shapeSize) {
   return wrap(GridAttr::get(unwrap(ctx), {shape, shape + shapeSize},
-                            AffineMap::get(unwrap(ctx))));
+                            mlir::AffineMap::get(unwrap(ctx))));
 }
 
 MlirAttribute ttmlirTTChipCapabilityAttrGet(MlirContext ctx,
@@ -89,29 +89,29 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
                                               chipDescIndicesSize);
 
   // Unwrap all of the MlirAttributes
-  std::vector<tt::ChipDescAttr> chipDescsUnwrapped;
+  std::vector<ChipDescAttr> chipDescsUnwrapped;
   for (auto chipDesc : chipDescsRef) {
     chipDescsUnwrapped.push_back(mlir::cast<ChipDescAttr>(unwrap(chipDesc)));
   }
 
-  std::vector<tt::ChipCapabilityAttr> chipCapabilitiesUnwrapped;
+  std::vector<ChipCapabilityAttr> chipCapabilitiesUnwrapped;
   for (auto chipCapability : chipCapabilitiesRef) {
     chipCapabilitiesUnwrapped.push_back(
         mlir::cast<ChipCapabilityAttr>(unwrap(chipCapability)));
   }
 
-  std::vector<tt::ChipCoordAttr> chipCoordsUnwrapped;
+  std::vector<ChipCoordAttr> chipCoordsUnwrapped;
   for (auto chipCoord : chipCoordsRef) {
     chipCoordsUnwrapped.push_back(mlir::cast<ChipCoordAttr>(unwrap(chipCoord)));
   }
 
-  std::vector<tt::ChipChannelAttr> chipChannelsUnwrapped;
+  std::vector<ChipChannelAttr> chipChannelsUnwrapped;
   for (auto chipChannel : chipChannelsRef) {
     chipChannelsUnwrapped.push_back(
         mlir::cast<ChipChannelAttr>(unwrap(chipChannel)));
   }
 
-  std::vector<tt::CPUDescAttr> cpuDescsUnwrapped;
+  std::vector<CPUDescAttr> cpuDescsUnwrapped;
   for (auto cpuDesc : cpuDescsRef) {
     cpuDescsUnwrapped.push_back(mlir::cast<CPUDescAttr>(unwrap(cpuDesc)));
   }
@@ -125,26 +125,26 @@ MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
                                          unsigned oobVal, MlirAttribute grid,
                                          MlirType memref) {
   mlir::AffineMap affineMap = mlir::AffineMap::getFromOpaquePointer(linear.ptr);
-  return wrap(MetalLayoutAttr::get(unwrap(ctx), affineMap,
-                                   static_cast<OOBVal>(oobVal),
-                                   mlir::cast<GridAttr>(unwrap(grid)),
-                                   mlir::cast<MemRefType>(unwrap(memref))));
+  return wrap(
+      MetalLayoutAttr::get(unwrap(ctx), affineMap, static_cast<OOBVal>(oobVal),
+                           mlir::cast<GridAttr>(unwrap(grid)),
+                           mlir::cast<mlir::MemRefType>(unwrap(memref))));
 }
 
 MlirAttribute ttmlirTTMemorySpaceAttrGet(MlirContext ctx,
                                          uint32_t memorySpace) {
-  return wrap(MemorySpaceAttr::get(unwrap(ctx),
-                                   static_cast<tt::MemorySpace>(memorySpace)));
+  return wrap(
+      MemorySpaceAttr::get(unwrap(ctx), static_cast<MemorySpace>(memorySpace)));
 }
 
 MlirAttribute ttmlirTTOOBValAttrGet(MlirContext ctx, uint32_t oobVal) {
-  return wrap(OOBValAttr::get(unwrap(ctx), static_cast<tt::OOBVal>(oobVal)));
+  return wrap(OOBValAttr::get(unwrap(ctx), static_cast<OOBVal>(oobVal)));
 }
 
 MlirAttribute ttmlirTTIteratorTypeAttrGet(MlirContext ctx,
                                           uint32_t iteratorType) {
-  return wrap(IteratorTypeAttr::get(
-      unwrap(ctx), static_cast<tt::IteratorType>(iteratorType)));
+  return wrap(IteratorTypeAttr::get(unwrap(ctx),
+                                    static_cast<IteratorType>(iteratorType)));
 }
 
 MlirAttribute ttmlirTTIteratorTypeArrayAttrGet(MlirContext ctx,
@@ -156,10 +156,10 @@ MlirAttribute ttmlirTTIteratorTypeArrayAttrGet(MlirContext ctx,
 
   for (auto iteratorEnum : iteratorTypesEnumArray) {
     iteratorTypesArray.push_back(IteratorTypeAttr::get(
-        unwrap(ctx), static_cast<tt::IteratorType>(iteratorEnum)));
+        unwrap(ctx), static_cast<IteratorType>(iteratorEnum)));
   }
 
-  return wrap(ArrayAttr::get(unwrap(ctx), iteratorTypesArray));
+  return wrap(mlir::ArrayAttr::get(unwrap(ctx), iteratorTypesArray));
 }
 
 MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx, int64_t y, int64_t x) {
@@ -195,5 +195,3 @@ MlirAttribute ttmlirTTChipPhysicalCoresAttrGet(
 MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(CoreCoordAttr::get(unwrap(ctx), y, x));
 }
-
-} // namespace mlir::tt
