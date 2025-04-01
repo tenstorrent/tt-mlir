@@ -917,6 +917,25 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
     auto parameter = op.getParameter().convertToFloat();
     return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
                                                               parameter);
+  } else if constexpr (std::is_same_v<EltwiseOp, QuantizeOp> ||
+                       std::is_same_v<EltwiseOp, DequantizeOp>) {
+    auto scale = op.getScale().convertToFloat();
+    auto zeroPoint = op.getZeroPoint();
+    ::flatbuffers::Optional<int32_t> axis = op.getAxis();
+    ::flatbuffers::Optional<::tt::target::DataType> dtype =
+        toFlatbufferOptional(cache, op.getOutputDtype());
+    return ::tt::target::ttnn::CreateQuantizationOpParams(
+        *cache.fbb, scale, zeroPoint, axis, dtype);
+  } else if constexpr (std::is_same_v<EltwiseOp, RequantizeOp>) {
+    auto inScale = op.getInScale().convertToFloat();
+    auto inZeroPoint = op.getInZeroPoint();
+    auto outScale = op.getOutScale().convertToFloat();
+    auto outZeroPoint = op.getOutZeroPoint();
+    ::flatbuffers::Optional<int32_t> axis = op.getAxis();
+    ::flatbuffers::Optional<::tt::target::DataType> dtype =
+        toFlatbufferOptional(cache, op.getOutputDtype());
+    return ::tt::target::ttnn::CreateRequantizeOpParams(
+        *cache.fbb, inScale, inZeroPoint, outScale, outZeroPoint, axis, dtype);
   }
 }
 
@@ -986,6 +1005,27 @@ createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
                                    ::tt::target::ttnn::ClampTensorOpParams>(
                  cache, op)
                  .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, QuantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Quantize;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::QuantizationOpParams;
+    params = createEltwiseOpParams<QuantizeOp,
+                                   ::tt::target::ttnn::QuantizationOpParams>(
+                 cache, op)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, DequantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Dequantize;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::QuantizationOpParams;
+    params = createEltwiseOpParams<DequantizeOp,
+                                   ::tt::target::ttnn::QuantizationOpParams>(
+                 cache, op)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, RequantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Requantize;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::RequantizeOpParams;
+    params =
+        createEltwiseOpParams<RequantizeOp,
+                              ::tt::target::ttnn::RequantizeOpParams>(cache, op)
+            .Union();
   } else {
     llvm_unreachable("unhandled non-DPS EltwiseOp");
   }
@@ -1412,78 +1452,6 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::QuantizeOp>
-createOp(FlatbufferObjectCache &cache, ttnn::QuantizeOp op) {
-  auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  float scale = op.getScale().convertToFloat();
-  int32_t zeroPoint = op.getZeroPoint();
-  ::flatbuffers::Optional<int32_t> axis = op.getAxis();
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbufferOptional(cache, op.getOutputDtype());
-  std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateQuantizeOp(
-      *cache.fbb, input, scale, zeroPoint, axis, dtype,
-      memoryConfig ? memoryConfigToFlatbuffer(
-                         cache, *memoryConfig, tileShape,
-                         getTensorValueCoreRangeSet(cache, op.getResult()))
-                   : 0,
-      output);
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::DequantizeOp>
-createOp(FlatbufferObjectCache &cache, ttnn::DequantizeOp op) {
-  auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  float scale = op.getScale().convertToFloat();
-  int32_t zeroPoint = op.getZeroPoint();
-  ::flatbuffers::Optional<int32_t> axis = op.getAxis();
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbufferOptional(cache, op.getOutputDtype());
-  std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateDequantizeOp(
-      *cache.fbb, input, scale, zeroPoint, axis, dtype,
-      memoryConfig ? memoryConfigToFlatbuffer(
-                         cache, *memoryConfig, tileShape,
-                         getTensorValueCoreRangeSet(cache, op.getResult()))
-                   : 0,
-      output);
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::RequantizeOp>
-createOp(FlatbufferObjectCache &cache, ttnn::RequantizeOp op) {
-  auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  float inputScale = op.getInScale().convertToFloat();
-  int32_t inputZeroPoint = op.getInZeroPoint();
-  float outputScale = op.getOutScale().convertToFloat();
-  int32_t outputZeroPoint = op.getOutZeroPoint();
-  ::flatbuffers::Optional<int32_t> axis = op.getAxis();
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbufferOptional(cache, op.getOutputDtype());
-  std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateRequantizeOp(
-      *cache.fbb, input, inputScale, inputZeroPoint, outputScale,
-      outputZeroPoint, axis, dtype,
-      memoryConfig ? memoryConfigToFlatbuffer(
-                         cache, *memoryConfig, tileShape,
-                         getTensorValueCoreRangeSet(cache, op.getResult()))
-                   : 0,
-      output);
-}
-
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString, std::string const &locInfo) {
@@ -1882,17 +1850,17 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
   }
-  if (auto quantizeOp = dyn_cast<QuantizeOp>(op); quantizeOp) {
-    return createOperation(cache, createOp(cache, quantizeOp), debugString,
-                           locInfo);
+  if (auto quantizeOp = dyn_cast<QuantizeOp>(op)) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, quantizeOp),
+                           debugString, locInfo);
   }
   if (auto dequantizeOp = dyn_cast<DequantizeOp>(op); dequantizeOp) {
-    return createOperation(cache, createOp(cache, dequantizeOp), debugString,
-                           locInfo);
+    return createOperation(cache, createNonDPSEltwiseOp(cache, dequantizeOp),
+                           debugString, locInfo);
   }
   if (auto requantizeOp = dyn_cast<RequantizeOp>(op); requantizeOp) {
-    return createOperation(cache, createOp(cache, requantizeOp), debugString,
-                           locInfo);
+    return createOperation(cache, createNonDPSEltwiseOp(cache, requantizeOp),
+                           debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

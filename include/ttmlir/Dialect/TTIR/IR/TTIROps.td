@@ -2162,8 +2162,8 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
 
       Example:
       ```mlir
-      %input = tensor.empty() : () -> tensor<64x128xf32>
-      %output = tensor.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      %input = ttir.empty() : () -> tensor<64x128xf32>
+      %output = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
       %quantized = "ttir.quantize"(%input, %output) : (tensor<64x128xf32>, tensor<64x128x!quant.uniform<i32:f32, 0.1>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
       ```
   }];
@@ -2172,10 +2172,6 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
                        AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
   let hasVerifier = 1;
 }
@@ -2191,8 +2187,8 @@ def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {
     ```
     Example:
     ```mlir
-    %input = tensor.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
-    %output = tensor.empty() : () -> tensor<64x128xf32>
+    %input = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+    %output = ttir.empty() : () -> tensor<64x128xf32>
     %dequantized = "ttir.dequantize"(%input, %output) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>, tensor<64x128xf32>) -> tensor<64x128xf32>
     ```
   }];
@@ -2201,10 +2197,6 @@ def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {
                        AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
   let hasVerifier = 1;
 }
@@ -2221,8 +2213,8 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
     ```
     Example:
     ```mlir
-    %input = tensor.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
-    %output = tensor.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
+    %input = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+    %output = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
     %requantized = "ttir.requantize"(%input, %output) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>, tensor<64x128x!quant.uniform<i32:f32, 0.2>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
     ```
   }];
@@ -2231,10 +2223,6 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
                        AnyRankedTensor:$output);
 
   let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
   let hasVerifier = 1;
 }

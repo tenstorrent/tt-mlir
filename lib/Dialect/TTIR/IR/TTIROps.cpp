@@ -498,8 +498,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // Common verifier for all Quantize ops.
 static ::mlir::LogicalResult verifyQuantizeOpCommon(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
-    ::mlir::RankedTensorType inputType, ::mlir::RankedTensorType outputType,
-    bool isQuantize) {
+    ::mlir::RankedTensorType inputType, ::mlir::RankedTensorType outputType) {
   // Sanity check to make sure that input rank matches the rank of the output
   // tensor.
   if (inputType.getRank() != outputType.getRank()) {
@@ -517,66 +516,73 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
                                 ")";
   }
 
-  // For QuantizeOp: input must be float, output must be UniformQuantizedType.
-  // For DequantizeOp: input must be UniformQuantizedType, output must be float.
-  // For RequantizeOp: both input and output must be UniformQuantizedType.
-  auto inputElemType = inputType.getElementType();
-  auto outputElemType = outputType.getElementType();
-
-  if (isQuantize) {
-    if (!mlir::isa<mlir::FloatType>(inputElemType)) {
-      return emitOpError() << "Input element type must be float, but got "
-                           << inputElemType;
-    }
-    if (!mlir::isa<mlir::quant::UniformQuantizedType,
-                   mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
-      return emitOpError()
-             << "Output element type must be UniformQuantizedType or "
-                "UniformQuantizedPerAxisType, but got "
-             << outputElemType;
-    }
-  } else {
-    if (!mlir::isa<mlir::quant::UniformQuantizedType,
-                   mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
-      return emitOpError() << "Input element type must be UniformQuantizedType "
-                              "or UniformQuantizedPerAxisType, but got "
-                           << inputElemType;
-    }
-    // Dequantize op.
-    if (mlir::isa<mlir::FloatType>(outputElemType)) {
-      return ::mlir::success();
-    }
-    // Requantize op.
-    if (mlir::isa<mlir::quant::UniformQuantizedType,
-                  mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
-      return ::mlir::success();
-    }
-    return emitOpError() << "Unsupported output element type: "
-                         << outputElemType;
-  }
-
   return ::mlir::success();
 }
 
 // QuantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::QuantizeOp::verify() {
+  auto inputElemType = getInput().getType().getElementType();
+  auto outputElemType = getResult().getType().getElementType();
+
+  if (!mlir::isa<mlir::FloatType>(inputElemType)) {
+    return emitOpError() << "Input element type must be float, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+    return emitOpError()
+           << "Output element type must be UniformQuantizedType or "
+              "UniformQuantizedPerAxisType, but got "
+           << outputElemType;
+  }
+
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getOutput().getType(),
-                                /*isQuantize=*/true);
+                                getInput().getType(), getOutput().getType());
 }
 
 // DequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::DequantizeOp::verify() {
+  auto inputElemType = getInput().getType().getElementType();
+  auto outputElemType = getResult().getType().getElementType();
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
+    return emitOpError() << "Input element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::FloatType>(outputElemType)) {
+    return emitOpError() << "Output element type must be float, but got "
+                         << outputElemType;
+  }
+
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getOutput().getType(),
-                                /*isQuantize=*/false);
+                                getInput().getType(), getOutput().getType());
 }
 
 // RequantizeOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::RequantizeOp::verify() {
+  auto inputElemType = getInput().getType().getElementType();
+  auto outputElemType = getResult().getType().getElementType();
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
+    return emitOpError() << "Input element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+    return emitOpError() << "Output element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << outputElemType;
+  }
+
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getOutput().getType(),
-                                /*isQuantize=*/false);
+                                getInput().getType(), getOutput().getType());
 }
 
 //===----------------------------------------------------------------------===//

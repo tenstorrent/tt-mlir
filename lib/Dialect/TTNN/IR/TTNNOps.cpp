@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
 
@@ -301,9 +302,43 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 
 // QuantizeOp verification.
 ::mlir::LogicalResult QuantizeOp::verify() {
+  ::mlir::Operation::operand_range inputs = getInputs();
+  ::mlir::Operation::result_range outputs = getResults();
+
+  if (inputs.size() != 1) {
+    return emitOpError() << "Expects one tensor as input but got "
+                         << inputs.size();
+  }
+
+  if (outputs.size() != 1) {
+    return emitOpError() << "Generates one tensor as output but got "
+                         << outputs.size();
+  }
+
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(inputs.front().getType());
+
+  const RankedTensorType outputTensorType =
+      mlir::cast<RankedTensorType>(outputs.front().getType());
+
+  auto inputElemType = inputTensorType.getElementType();
+  auto outputElemType = outputTensorType.getElementType();
+
+  if (!mlir::isa<mlir::FloatType>(inputElemType)) {
+    return emitOpError() << "Input element type must be float, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+    return emitOpError()
+           << "Output element type must be UniformQuantizedType or "
+              "UniformQuantizedPerAxisType, but got "
+           << outputElemType;
+  }
+
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getResult().getType(),
-                                getAxis());
+                                inputTensorType, outputTensorType, getAxis());
 }
 
 //===----------------------------------------------------------------------===//
@@ -312,9 +347,42 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 
 // DequantizeOp verification.
 ::mlir::LogicalResult DequantizeOp::verify() {
+  ::mlir::Operation::operand_range inputs = getInputs();
+  ::mlir::Operation::result_range outputs = getResults();
+
+  if (inputs.size() != 1) {
+    return emitOpError() << "Expects one tensor as input but got "
+                         << inputs.size();
+  }
+
+  if (outputs.size() != 1) {
+    return emitOpError() << "Generates one tensor as output but got "
+                         << outputs.size();
+  }
+
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(inputs.front().getType());
+
+  const RankedTensorType outputTensorType =
+      mlir::cast<RankedTensorType>(outputs.front().getType());
+
+  auto inputElemType = inputTensorType.getElementType();
+  auto outputElemType = outputTensorType.getElementType();
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
+    return emitOpError() << "Input element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::FloatType>(outputElemType)) {
+    return emitOpError() << "Output element type must be float, but got "
+                         << outputElemType;
+  }
+
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getResult().getType(),
-                                getAxis());
+                                inputTensorType, outputTensorType, getAxis());
 }
 
 //===----------------------------------------------------------------------===//
@@ -323,9 +391,44 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 
 // RequantizeOp verification.
 ::mlir::LogicalResult RequantizeOp::verify() {
+  ::mlir::Operation::operand_range inputs = getInputs();
+  ::mlir::Operation::result_range outputs = getResults();
+
+  if (inputs.size() != 1) {
+    return emitOpError() << "Expects one tensor as input but got "
+                         << inputs.size();
+  }
+
+  if (outputs.size() != 1) {
+    return emitOpError() << "Generates one tensor as output but got "
+                         << outputs.size();
+  }
+
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(inputs.front().getType());
+
+  const RankedTensorType outputTensorType =
+      mlir::cast<RankedTensorType>(outputs.front().getType());
+
+  auto inputElemType = inputTensorType.getElementType();
+  auto outputElemType = outputTensorType.getElementType();
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
+    return emitOpError() << "Input element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+    return emitOpError() << "Output element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << outputElemType;
+  }
+
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getResult().getType(),
-                                getAxis());
+                                inputTensorType, outputTensorType, getAxis());
 }
 
 //===----------------------------------------------------------------------===//

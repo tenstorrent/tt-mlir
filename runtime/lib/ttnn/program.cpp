@@ -26,6 +26,7 @@
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
+#include "operations/eltwise/quantization/quantization.h"
 #include "operations/eltwise/ternary/ternary.h"
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
@@ -44,7 +45,6 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/pool/upsample.h"
-#include "operations/quantization/quantization.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
@@ -176,10 +176,16 @@ void ProgramExecutor::runEltwiseOperation(
     return operations::ternary::run(op, getContext());
   };
 
+  auto runQuantizationOp = [&]() {
+    return operations::quantization::run(op, getContext());
+  };
+
+  if (operations::quantization::isQuantizationOp(op)) {
+    return runQuantizationOp();
+  }
   if (operations::unary::isUnaryOp(op)) {
     return runUnaryOp();
   }
-
   if (operations::binary::isBinaryOp(op)) {
     return runBinaryOp();
   }
@@ -334,19 +340,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConstantOp: {
     return operations::creation::run(op->type_as_ConstantOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::QuantizeOp: {
-    return operations::quantization::run(op->type_as_QuantizeOp(),
-                                         getContext());
-  }
-  case ::tt::target::ttnn::OpType::DequantizeOp: {
-    return operations::quantization::run(op->type_as_DequantizeOp(),
-                                         getContext());
-  }
-  case ::tt::target::ttnn::OpType::RequantizeOp: {
-    return operations::quantization::run(op->type_as_RequantizeOp(),
-                                         getContext());
-  }
-
   default: {
     LOG_FATAL("Unsupported operation type");
   }

@@ -551,7 +551,7 @@ public:
 // Quantization ops conversion pattern
 
 template <typename OpType>
-class UniformQuantizationOpConversionPattern
+class QuantizationOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<OpType> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
@@ -563,15 +563,12 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<OpType> emitter(op, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args;
-    args.push_back(emitter.emit(op.getInput()));
+    args.push_back(emitter.emit(op.getInputs()[0]));
     args.push_back(emitter.emit(op.getScale()));
     args.push_back(emitter.emit(op.getZeroPoint()));
+    args.push_back(emitter.emit(op.getAxis()));
     args.push_back(emitter.emit(op.getOutputDtype()));
-    if (op.getMemoryConfig()) {
-      args.push_back(emitter.emit(op.getMemoryConfig()));
-    } else {
-      args.push_back(emitter.emit(std::nullopt));
-    }
+    args.push_back(emitter.emit(op.getMemoryConfig()));
 
     emitter.replaceOp(*this, args);
     return success();
@@ -592,17 +589,14 @@ public:
                                                                     rewriter);
 
     llvm::SmallVector<mlir::Attribute> args;
-    args.push_back(emitter.emit(op.getInput()));
+    args.push_back(emitter.emit(op.getInputs()[0]));
     args.push_back(emitter.emit(op.getInScale()));
     args.push_back(emitter.emit(op.getInZeroPoint()));
     args.push_back(emitter.emit(op.getOutScale()));
     args.push_back(emitter.emit(op.getOutZeroPoint()));
+    args.push_back(emitter.emit(op.getAxis()));
     args.push_back(emitter.emit(op.getOutputDtype()));
-    if (op.getMemoryConfig()) {
-      args.push_back(emitter.emit(op.getMemoryConfig()));
-    } else {
-      args.push_back(emitter.emit(std::nullopt));
-    }
+    args.push_back(emitter.emit(op.getMemoryConfig()));
 
     emitter.replaceOp(*this, args);
     return success();
@@ -1856,8 +1850,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Quantization ops.
   //
-  patterns.add<UniformQuantizationOpConversionPattern<tt::ttnn::QuantizeOp>,
-               UniformQuantizationOpConversionPattern<tt::ttnn::DequantizeOp>,
+  patterns.add<QuantizationOpConversionPattern<tt::ttnn::QuantizeOp>,
+               QuantizationOpConversionPattern<tt::ttnn::DequantizeOp>,
                RequantizeOpConversionPattern>(typeConverter, ctx);
 
   // Matmul ops

@@ -9,9 +9,19 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::quantization {
-void run(const ::tt::target::ttnn::QuantizeOp *op, ProgramContext &context);
-void run(const ::tt::target::ttnn::DequantizeOp *op, ProgramContext &context);
-void run(const ::tt::target::ttnn::RequantizeOp *op, ProgramContext &context);
+
+inline bool isQuantizationOp(const ::tt::target::ttnn::EltwiseOp *op) {
+  switch (op->type()) {
+  case ::tt::target::ttnn::EltwiseOpType::Quantize:
+  case ::tt::target::ttnn::EltwiseOpType::Dequantize:
+  case ::tt::target::ttnn::EltwiseOpType::Requantize:
+    return true;
+  default:
+    return false;
+  }
+}
+
+void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::quantization
 
 #endif // RUNTIME_LIB_TTNN_OPERATIONS_QUANTIZATION_QUANTIZE_H
