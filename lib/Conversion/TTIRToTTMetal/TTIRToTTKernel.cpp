@@ -96,7 +96,7 @@ public:
 } // namespace
 namespace {
 
-class TTIRTileOpsRewriter
+class TTIRComputeOpsRewriter
     : public OpTraitRewritePattern<
           mlir::OpTrait::tt::ttir::TTIRGenericRegionComputeOpTrait> {
 public:
@@ -575,7 +575,7 @@ void populateTTIRToTTKernelInnerRegionPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns,
     TypeConverter & /*typeConverter*/) {
 
-  patterns.add<ttkernel::TTIRTileOpsRewriter, ttkernel::MemrefStoreRewriter,
+  patterns.add<ttkernel::TTIRComputeOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
                ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
                ttkernel::TTIRDMARewriter, ttkernel::TTIRDMAWaitRewriter,
