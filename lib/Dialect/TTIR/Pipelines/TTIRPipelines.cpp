@@ -40,6 +40,7 @@ void createStableHLOToTTIRPipeline(
   if (options.legalizeCompositeToCallEnabled) {
     pm.addPass(stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
+  pm.addPass(mlir::createInlinerPass());
   pm.addPass(createConvertStableHLOToTTIRPass());
   pm.addPass(createTTIRTensorAnnotationCleanupPass());
 }
