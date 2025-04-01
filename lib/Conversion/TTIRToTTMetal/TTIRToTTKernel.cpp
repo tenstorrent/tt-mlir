@@ -264,10 +264,6 @@ public:
 
 } // namespace
 
-// reconfig data formats
-
-// memref.alloc -> ttmetal.create_buffer pass
-
 namespace {
 
 class MemrefAllocRewriter : public OpRewritePattern<memref::AllocOp> {
@@ -298,10 +294,6 @@ public:
 };
 
 } // namespace
-
-// core range and kernel config rewriter
-
-// dma rewriter
 
 namespace {
 
@@ -420,14 +412,14 @@ public:
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
                                                  nocAddr, transferSize);
     } else if (op.isSrcLocal() && op.isDstLocal()) {
+      // mcast & l1 to l1 single core remote
+
       Value srcL1Addr = rewriter.create<ttkernel::GetReadPtrOp>(
           op.getLoc(), getCBIndex(rewriter, op.getSrc()));
       Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), getCBIndex(rewriter, op.getDst()));
-      // mcast & l1 to l1 single core remote
       Value transferSize =
           i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
-      // mcast or l1 to l1 (local)
       assert(op.getDstCoreIndex().size() == 2 &&
              "Expected 2 core indices for dst core index, failing.");
 
@@ -510,7 +502,8 @@ public:
       rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
                                                 size);
     } else if (op.isSrcLocal() && !op.isDstLocal()) {
-      // write l1 to l1 or l1 to dram
+      // write l1 to dram
+      assert(false && "Unimplemented lowering l1 to dram write, failing.");
     } else {
       assert(false && "Illegal DMA op configuration.");
     }
@@ -521,11 +514,6 @@ public:
 };
 
 } // namespace
-
-// memref.dealloc -> ttmetal.deallocate_buffer pass?
-
-// init cleanup pass ?
-
 namespace {
 
 class TTIRCoreIndexRewriter : public OpRewritePattern<ttir::CoreIndexOp> {
