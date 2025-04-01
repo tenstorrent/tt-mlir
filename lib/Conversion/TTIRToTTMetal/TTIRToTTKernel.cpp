@@ -559,7 +559,7 @@ public:
 
   LogicalResult matchAndRewrite(ttir::GetGlobalOperandOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttkernel::MetalCompileTimeArgOp>(
+    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
         op, rewriter.getI32Type(), op.getOperandIndex());
     return success();
   }
