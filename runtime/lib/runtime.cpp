@@ -183,8 +183,9 @@ Tensor createTensor(std::shared_ptr<void> data,
 }
 
 void dirtyTensor(Tensor &tensor) {
-  // No-op for now
-  LOG_INFO("dirtyTensor called (no-op)");
+  static std::atomic<uint64_t> version(0);
+  tensor.version.store(version++);
+  LOG_INFO("dirtyTensor called, new version: %lu", tensor.version.load());
 }
 
 Tensor

@@ -59,7 +59,17 @@ public:
       return false;
     }
 
-    // For now, assume all tensors are valid since we're not tracking versions
+    // Check if input versions match the stored versions
+    if (it->second.inputVersions.size() != inputs.size()) {
+      return false;
+    }
+
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      if (inputs[i].version.load() != it->second.inputVersions[i]) {
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -73,8 +83,11 @@ public:
       return nullptr;
     }
 
-    // For now, ignore version checking
-    return &it->second.tensors;
+    const CacheValue &value = it->second;
+    if (value.inputVersions != inputVersions) {
+      return nullptr;
+    }
+    return &value.tensors;
   }
 
   // Store tensors and their input versions in the cache
@@ -82,8 +95,11 @@ public:
              const std::vector<Tensor> &inputs) {
     CacheValue value;
 
-    // For now, use zeros for versions since we're not tracking them
-    value.inputVersions.resize(inputs.size(), 0);
+    // Store input tensor versions
+    value.inputVersions.reserve(inputs.size());
+    for (const auto &input : inputs) {
+      value.inputVersions.push_back(input.version.load());
+    }
 
     value.tensors = std::move(tensors);
 
@@ -91,7 +107,7 @@ public:
     cache[functionName] = std::move(value);
   }
 
-  // New overload that takes input versions directly
+  // Store tensors with explicit input versions
   void store(const std::string &functionName, std::vector<Tensor> tensors,
              const std::vector<uint64_t> &inputVersions) {
     CacheValue value;
@@ -131,4 +147,4 @@ private:
 
 } // namespace tt::runtime
 
-#endif // TT_RUNTIME_TTNN_TENSOR_CACHE_H
+#endif // TT_RUNTIME_TENSOR_CACHE_H
