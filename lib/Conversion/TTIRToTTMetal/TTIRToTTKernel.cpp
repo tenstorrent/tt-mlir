@@ -70,7 +70,7 @@ public:
     }
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, op->getResultTypes(), op.getInputs(), op.getOutputs(),
-        rewriter.getArrayAttr(op.getThreads().getValue()),
+        op.getThreads(),
         rewriter.getArrayAttr(coreRanges), rewriter.getArrayAttr({}));
     return success();
   };
