@@ -9,34 +9,6 @@
 namespace mlir::ttmlir::python {
 void populateTTNNModule(nb::module_ &m) {
 
-  tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")
-      .def_static("get",
-                  [](MlirContext ctx, std::vector<int64_t> offset,
-                     std::vector<int64_t> size) {
-                    return wrap(tt::ttnn::CoreRangeAttr::get(unwrap(ctx),
-                                                             offset, size));
-                  })
-      .def_static(
-          "get_with_grid",
-          [](MlirContext ctx, MlirAttribute grid, std::vector<int64_t> offset) {
-            llvm::SmallVector<int64_t> offsetVec{0, 0};
-            if (offset.size() == 2 && not(offset[0] == 0 && offset[1] == 0)) {
-              offsetVec[0] = offset[0];
-              offsetVec[1] = offset[1];
-            }
-            return wrap(tt::ttnn::CoreRangeAttr::get(
-                unwrap(ctx), mlir::cast<tt::GridAttr>(unwrap(grid)),
-                offsetVec));
-          },
-          nb::arg("ctx"), nb::arg("grid"),
-          nb::arg("offset") = std::vector<int64_t>{0, 0})
-      .def_prop_ro(
-          "offset",
-          [](tt::ttnn::CoreRangeAttr self) { return self.getOffset().vec(); })
-      .def_prop_ro("size", [](tt::ttnn::CoreRangeAttr self) {
-        return self.getSize().vec();
-      });
-
   tt_attribute_class<tt::ttnn::LayoutAttr>(m, "LayoutAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t layout) {

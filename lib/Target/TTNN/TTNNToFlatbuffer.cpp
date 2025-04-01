@@ -682,8 +682,42 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
       getOperandThroughDPSOps(op.getB()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
+
+  using MatmulConfigType = ::tt::target::ttnn::MatmulProgramConfig;
+  MatmulConfigType matmulProgramConfigType = MatmulConfigType::NONE;
+  ::flatbuffers::Offset<void> matmulProgramConfigDesc;
+  if (auto matmulProgramConfig = op.getMatmulProgramConfigAttr()) {
+    if (auto config =
+            mlir::dyn_cast<ttnn::MatmulMultiCoreReuseProgramConfigAttr>(
+                matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (auto config = mlir::dyn_cast<
+                   ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+                   matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseMultiCastProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (auto config = mlir::dyn_cast<
+                   ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+                   matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseMultiCast1DProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (
+        auto config = mlir::dyn_cast<
+            ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+            matmulProgramConfig)) {
+      matmulProgramConfigType = MatmulConfigType::
+          MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    }
+  }
+
   return ::tt::target::ttnn::CreateMatmulOp(
-      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
+      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB(),
+      matmulProgramConfigType, matmulProgramConfigDesc);
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
