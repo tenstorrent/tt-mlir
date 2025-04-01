@@ -59,6 +59,7 @@ void createTTIRToTTMetalBackendPipeline(
   }
   pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(ttir::createTTIRLowerToLayout());
   createTTIRBufferizationPipeline(pm);
   pm.addPass(ttir::createTTIRPlaceholderAllocate());
   pm.addPass(mlir::createCanonicalizerPass());

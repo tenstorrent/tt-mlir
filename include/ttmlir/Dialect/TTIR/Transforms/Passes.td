@@ -250,27 +250,11 @@ def TTIRGenericRegionsToFuncs : Pass<"ttir-generic-regions-to-funcs", "::mlir::M
   }];
 }
 
-def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
+def TTIRLowerToLayout: Pass<"ttir-lower-to-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
     Transition between different tensor layouts.
-  }];
 
-  let options = [
-    Option<"initMemorySpace", "init-memory-space",
-          "::mlir::tt::MemorySpace",
-          /*default=*/"::mlir::tt::MemorySpace::System",
-           "Set the initial memory space for tensors to start in">,
-    Option<"defaultMemorySpace", "default-memory-space",
-          "::mlir::tt::MemorySpace",
-          /*default=*/"::mlir::tt::MemorySpace::DeviceDRAM",
-           "Set the default memory space for layout pass to prefer for operation operands, if not constrained">,
-  ];
-}
-
-def TTIRSplitCompoundLayout: Pass<"ttir-split-compound-layout", "::mlir::ModuleOp"> {
-  let summary = "Split compound layouts.";
-  let description = [{
     A single to_layout op in ttir can simultaneously perform multiple layout transformations
     at once, including changing layout, format, memory space or memory layout. This pass splits each of
     these transformation categories into separate to_layout ops.

@@ -11,7 +11,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         OptimizeTensorLayout.cpp
         HoistCPUOps.cpp
         Bufferization.cpp
-        Layout.cpp
+        LowerToLayout.cpp
         Transforms.cpp
 
         ADDITIONAL_HEADER_DIRS

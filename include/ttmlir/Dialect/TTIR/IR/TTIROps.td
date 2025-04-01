@@ -209,10 +209,20 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
         bool isGridChange = false;
         bool isFormatChange = false;
         bool isMemorySpaceChange = false;
+
+        bool isCompound() {
+          return (static_cast<int>(isLayoutChange) +
+                  static_cast<int>(isGridChange) +
+                  static_cast<int>(isFormatChange) +
+                  static_cast<int>(isMemorySpaceChange)) > 1;
+        }
       };
 
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
       CompoundComponents compoundComponents();
+      bool isCompound() { return compoundComponents().isCompound(); }
+      MetalLayoutAttr getInputLayout();
+      MetalLayoutAttr getOutputLayout();
     }];
 
     let hasVerifier = 1;
