@@ -275,6 +275,9 @@ public:
   static TTNNOperandsWorkarounds
   createPadOpOperandsWorkarounds(mlir::TypedValue<mlir::RankedTensorType> input,
                                  ttnn::TTNNLayoutAttr layoutAttr);
+
+  static TTNNOperandsWorkarounds createConv2dOpOperandsWorkarounds(
+      mlir::TypedValue<mlir::RankedTensorType> input, bool hasBias);
 };
 
 } // namespace mlir::tt::ttnn::wa

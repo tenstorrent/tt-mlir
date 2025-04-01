@@ -511,4 +511,33 @@ TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
+// Currently, there is more support for conv2d and conv_transpose2d for
+// row-major inputs than there is for tile inputs.
+// There is no single issue in tt-metal for this. This workaround is here
+// to ensure we use the more generally-supported input layout for
+// convolutions in ttnn. For example, here is an issue highliting
+// some convolutions that will not work when the input is in tile layout,
+// but will work when the input is in row-major layout:
+// https://github.com/tenstorrent/tt-metal/issues/19762
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+    mlir::TypedValue<mlir::RankedTensorType> input, bool hasBias) {
+
+  TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandWorkarounds parameterWorkaround;
+
+  auto workaround =
+      wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(inputWorkaround)
+          .addInputOperandWorkaround(parameterWorkaround)
+          .addOutputOperandWorkaround(inputWorkaround);
+
+  if (hasBias) {
+    workaround = workaround.addInputOperandWorkaround(parameterWorkaround);
+  }
+  return workaround;
+}
+
 } // namespace mlir::tt::ttnn::wa

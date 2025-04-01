@@ -1205,6 +1205,14 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+            getInput(), getBias() != nullptr
+        );
+      }
+    }];
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
@@ -1284,6 +1292,14 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+            getInput(), getBias() != nullptr
+        );
+      }
+    }];
 }
 
 def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
