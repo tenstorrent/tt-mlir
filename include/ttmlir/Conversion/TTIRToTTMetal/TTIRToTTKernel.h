@@ -10,13 +10,9 @@
 
 namespace mlir::tt {
 
-void populateTTIRToTTKernelInnerRegionPatterns(MLIRContext *ctx,
-                                               RewritePatternSet &patterns,
-                                               TypeConverter &typeConverter);
-
-void populateTTIRToTTKernelTopLevelPatterns(MLIRContext *ctx,
-                                            RewritePatternSet &patterns,
-                                            TypeConverter & /*typeConverter*/);
+void populateTTIRToTTKernelPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTKernelPass();
 

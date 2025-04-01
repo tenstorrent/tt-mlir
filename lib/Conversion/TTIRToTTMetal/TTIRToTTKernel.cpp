@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
+#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTKernel.h"
 
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
@@ -52,28 +52,6 @@ static uint32_t getCbId(Value value) {
   assert(false && "Could not match collapse op src to block argument, cannot "
                   "determine CB id. Failing.");
 }
-
-namespace {
-class TTIRGenericRewriter : public OpRewritePattern<ttir::GenericOp> {
-public:
-  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::GenericOp op,
-                                PatternRewriter &rewriter) const final {
-    auto coreRanges = llvm::SmallVector<Attribute>();
-    coreRanges.reserve(op.getThreads().size());
-    for (size_t i = 0; i < op.getThreads().size(); i++) {
-      coreRanges.push_back(
-          rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
-    }
-    rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, op->getResultTypes(), op.getInputs(), op.getOutputs(),
-        op.getThreads(), rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr({}));
-    return success();
-  };
-};
-} // namespace
 
 namespace {
 
@@ -151,13 +129,13 @@ public:
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(),
           index(getCbId(op->getOperand(0)
-                          .getDefiningOp<memref::LoadOp>()
-                          .getMemref()),
-              rewriter),
+                            .getDefiningOp<memref::LoadOp>()
+                            .getMemref()),
+                rewriter),
           index(getCbId(op->getOperand(1)
-                          .getDefiningOp<memref::LoadOp>()
-                          .getMemref()),
-              rewriter),
+                            .getDefiningOp<memref::LoadOp>()
+                            .getMemref()),
+                rewriter),
           getLoadIndex(op->getOperand(0)), getLoadIndex(op->getOperand(1)),
           dstIdx);
     } else {
@@ -221,37 +199,6 @@ public:
     }
 
     rewriter.eraseOp(op);
-    return success();
-  };
-};
-
-} // namespace
-
-namespace {
-
-class MemrefAllocRewriter : public OpRewritePattern<memref::AllocOp> {
-public:
-  using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(memref::AllocOp op,
-                                PatternRewriter &rewriter) const final {
-
-    assert(op->getAttr("address") && "No address attribute found, failing.");
-    auto address = op->getAttrOfType<IntegerAttr>("address");
-    assert(op.getMemref().getType().getMemorySpace() &&
-           "No memref memroy space found, failing.");
-    assert(mlir::isa<TileType>(op.getMemref().getType().getElementType()) &&
-           "Expected memref to have tile element type, failing.");
-    auto size = mlir::cast<TileType>(op.getMemref().getType().getElementType())
-                    .getSizeBytes() *
-                op.getMemref().getType().getNumElements();
-    auto memorySpace = mlir::cast<tt::MemorySpaceAttr>(
-        op.getMemref().getType().getMemorySpace());
-    auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(
-        op->getLoc(), op.getMemref().getType(), address.getInt(), size,
-        memorySpace.getValue());
-    rewriter.replaceOp(op, createBufferOp);
-
     return success();
   };
 };
@@ -571,9 +518,9 @@ public:
 
 namespace mlir::tt {
 
-void populateTTIRToTTKernelInnerRegionPatterns(
-    MLIRContext *ctx, RewritePatternSet &patterns,
-    TypeConverter & /*typeConverter*/) {
+void populateTTIRToTTKernelPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter & /*typeConverter*/) {
 
   patterns.add<ttkernel::TTIRComputeOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
@@ -581,13 +528,6 @@ void populateTTIRToTTKernelInnerRegionPatterns(
                ttkernel::TTIRDMARewriter, ttkernel::TTIRDMAWaitRewriter,
                ttkernel::TTIRCoreIndexRewriter,
                ttkernel::TTIRGetGlobalOperandRewriter>(ctx);
-}
-
-void populateTTIRToTTKernelTopLevelPatterns(MLIRContext *ctx,
-                                            RewritePatternSet &patterns,
-                                            TypeConverter & /*typeConverter*/) {
-  patterns.add<ttkernel::TTIRGenericRewriter, ttkernel::MemrefAllocRewriter>(
-      ctx);
 }
 
 } // namespace mlir::tt
