@@ -511,4 +511,22 @@ TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
+// ttnn.permute will not work correctly on 32-bit integers. This workaround will
+// typecast the 32-bit integers to 32-bit floats before the ttnn.permute op and
+// typecast the output back.
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/19950
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
+    mlir::RankedTensorType inputType) {
+  TTNNOperandWorkarounds operandWorkaround;
+  if (auto elementType = dyn_cast<IntegerType>(inputType.getElementType());
+      elementType && elementType.getWidth() == 32) {
+    operandWorkaround.tensorDataTypeWorkaround = DataType::Float32;
+  }
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
 } // namespace mlir::tt::ttnn::wa

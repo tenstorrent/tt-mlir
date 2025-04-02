@@ -275,6 +275,10 @@ public:
   static TTNNOperandsWorkarounds
   createPadOpOperandsWorkarounds(mlir::TypedValue<mlir::RankedTensorType> input,
                                  ttnn::TTNNLayoutAttr layoutAttr);
+
+  // Create workaround for permute op operands.
+  static TTNNOperandsWorkarounds
+  createPermuteOpOperandWorkaround(mlir::RankedTensorType inputType);
 };
 
 } // namespace mlir::tt::ttnn::wa
