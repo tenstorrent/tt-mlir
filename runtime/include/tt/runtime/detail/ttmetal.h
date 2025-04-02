@@ -172,17 +172,6 @@ createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
 }
 #pragma clang diagnostic pop
 
-inline namespace legacy {
-Device openDevice(
-    DeviceIds const &deviceIds, size_t numHWCQs = 1,
-    std::optional<size_t> l1SmallSize = std::nullopt,
-    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
-    [[maybe_unused]] std::optional<bool> enableAsyncTTNN = std::nullopt,
-    [[maybe_unused]] std::optional<bool> enableProgramCache = std::nullopt);
-
-void closeDevice(Device device);
-} // namespace legacy
-
 } // namespace tt::runtime::ttmetal
 
 #endif

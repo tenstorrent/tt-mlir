@@ -28,7 +28,6 @@
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
-#include "types_generated.h"
 
 namespace mlir::tt {
 flatbuffers::Offset<::tt::target::metal::MemoryDesc>

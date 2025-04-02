@@ -541,12 +541,8 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConstructTensorOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::ZerosOp: {
-    tensorRef = opContext.type_as_ZerosOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::OnesOp: {
-    tensorRef = opContext.type_as_OnesOp()->out();
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    tensorRef = opContext.type_as_NamedFullOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::FullOp: {
@@ -850,53 +846,5 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
       meshDevice, executableHandle, programIndex, ttnnInputs);
   return outputs;
 }
-
-inline namespace legacy {
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize,
-                  std::optional<DispatchCoreType> dispatchCoreType,
-                  std::optional<bool> enableAsyncTTNN,
-                  std::optional<bool> enableProgramCache) {
-
-  ::tt::tt_metal::DispatchCoreType type =
-      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
-
-  LOG_ASSERT(deviceIds.size(), "No devices specified");
-  ::ttnn::MeshShape grid{1, static_cast<uint32_t>(deviceIds.size())};
-  size_t l1SmallSizeValue =
-      l1SmallSize.value_or(::tt::constants::L1_SMALL_SIZE);
-  std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
-      ::ttnn::MeshDeviceConfig(grid), l1SmallSizeValue,
-      DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
-
-  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
-  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
-           "}");
-
-  bool enableAsyncValue = enableAsyncTTNN.value_or(false);
-  bool enableProgramCacheValue = enableProgramCache.value_or(false);
-  for (::ttnn::IDevice *device : meshDevice->get_devices()) {
-    device->enable_async(enableAsyncValue);
-    if (enableProgramCacheValue) {
-      device->enable_program_cache();
-    }
-  }
-
-  return Device(std::static_pointer_cast<void>(meshDevice),
-                DeviceRuntime::TTNN);
-}
-
-void closeDevice(Device device) {
-  ::ttnn::MeshDevice &ttnnMeshDevice =
-      device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
-    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
-  }
-#endif
-
-  ttnnMeshDevice.close();
-}
-} // namespace legacy
 
 } // namespace tt::runtime::ttnn

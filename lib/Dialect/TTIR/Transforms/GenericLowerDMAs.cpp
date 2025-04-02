@@ -15,7 +15,7 @@
 #include <numeric>
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRGENERICLOWERAFFINEDMAS
+#define GEN_PASS_DEF_TTIRGENERICLOWERDMAS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
@@ -169,9 +169,8 @@ public:
           SmallVector<Value> srcIndex =
               llvm::to_vector(llvm::concat<Value>(streamIndex, iters));
           return SmallVector<Value>{builder.create<ttir::DMAOp>(
-              dma.getLoc(), builder.getType<MemTxType>(), dma.getSrc(), nullptr,
-              srcIndex, dma.getDst(), nullptr, iters, nullptr,
-              dma.getDstCoreIndex(), dma.getMcastShape())};
+              dma.getLoc(), dma.getSrc(), srcIndex, dma.getDst(), iters,
+              dma.getMcastStartIndex(), dma.getMcastShape())};
         });
     return loopNest;
   }
@@ -222,9 +221,8 @@ public:
         static_cast<size_t>(ttmlir::utils::volume(memrefShardShape))) {
       // Fully coalesced, we can trivially lower.
       newDma = rewriter.create<ttir::DMAOp>(
-          dma.getLoc(), rewriter.getType<MemTxType>(), dma.getSrc(), nullptr,
-          streamIndex, dma.getDst(), nullptr, ValueRange(), nullptr,
-          dma.getDstCoreIndex(), dma.getMcastShape());
+          dma.getLoc(), dma.getSrc(), streamIndex, dma.getDst(),
+          dma.getMcastStartIndex(), dma.getMcastShape());
     } else {
       // Fallback to single tile gather for now, in the future we can chage this
       // to support more sophisticated gathering.
@@ -241,15 +239,54 @@ public:
 } // namespace
 
 namespace {
-class TTIRGenericLowerAffineDMAs
-    : public impl::TTIRGenericLowerAffineDMAsBase<TTIRGenericLowerAffineDMAs> {
+class TTIRGenericLowerToFullyIndexedDMARewritePattern
+    : public OpRewritePattern<DMAOp> {
 public:
-  using impl::TTIRGenericLowerAffineDMAsBase<
-      TTIRGenericLowerAffineDMAs>::TTIRGenericLowerAffineDMAsBase;
+  using OpRewritePattern<DMAOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(DMAOp dma,
+                                PatternRewriter &rewriter) const final {
+    if (dma.isAffine() || dma.isFullyIndexed()) {
+      // Lower to affine first.
+      // Or if it's already fully indexed, nothing to do.
+      return failure();
+    }
+
+    SmallVector<Value> srcIndices(dma.getSrcIndices());
+    SmallVector<Value> dstIndices(dma.getDstIndices());
+    Value zero = rewriter.create<arith::ConstantOp>(
+        dma.getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    while (srcIndices.size() <
+           static_cast<size_t>(dma.getSrcMemRefType().getRank())) {
+      srcIndices.push_back(zero);
+    }
+    while (dstIndices.size() <
+           static_cast<size_t>(dma.getDstMemRefType().getRank())) {
+      dstIndices.push_back(zero);
+    }
+    rewriter.replaceOpWithNewOp<ttir::DMAOp>(
+        dma, dma.getResult().getType(), dma.getSrc(), nullptr, srcIndices,
+        dma.getDst(), nullptr, dstIndices,
+        rewriter.getI64IntegerAttr(dma.getNumElems()), dma.getMcastStartIndex(),
+        dma.getMcastShape());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTIRGenericLowerDMAs
+    : public impl::TTIRGenericLowerDMAsBase<TTIRGenericLowerDMAs> {
+public:
+  using impl::TTIRGenericLowerDMAsBase<
+      TTIRGenericLowerDMAs>::TTIRGenericLowerDMAsBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericLowerAffineDMAsRewritePattern>(&getContext());
+    patterns.add<TTIRGenericLowerAffineDMAsRewritePattern,
+                 TTIRGenericLowerToFullyIndexedDMARewritePattern>(
+        &getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

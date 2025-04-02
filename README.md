@@ -1,3 +1,6 @@
+[![Tests][tests badge]][tests]
+[![Codecov][codecov badge]][codecov]
+
 # tt-mlir
 
 tt-mlir is a compiler project aimed at defining MLIR dialects to abstract compute on Tenstorrent AI accelerators.
@@ -18,3 +21,8 @@ For more information on the project, see https://tenstorrent.github.io/tt-mlir/.
 - [Building](https://tenstorrent.github.io/tt-mlir/build.html)
 - [Tools](https://tenstorrent.github.io/tt-mlir/tools.html)
 - [Additional Reading](https://tenstorrent.github.io/tt-mlir/additional-reading.html)
+
+[codecov]: https://codecov.io/gh/tenstorrent/tt-mlir
+[tests]: https://github.com/tenstorrent/tt-mlir/actions/workflows/on-push.yml?query=branch%3Amain
+[codecov badge]: https://codecov.io/gh/tenstorrent/tt-mlir/graph/badge.svg
+[tests badge]: https://github.com/tenstorrent/tt-mlir/actions/workflows/on-push.yml/badge.svg?query=branch%3Amain
