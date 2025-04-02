@@ -20,6 +20,32 @@ Base image starts with a supported base image (Ubuntu 22.04) and installs depend
 
 During the CI Docker build, the project is built and tests are run to ensure that everything is set up correctly. If any dependencies are missing, the Docker build will fail.
 
+## Using the Docker Image
+
+Here is a typical command to run the latest developer (ird) docker image:
+
+```bash
+sudo docker run -it -d --rm \
+  --name my-docker \
+  --cap-add ALL \
+  --device /dev/tenstorrent/0:/dev/tenstorrent/0 \
+  -v /dev/hugepages:/dev/hugepages \
+  -v /dev/hugepages-1G:/dev/hugepages-1G \
+  ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-22-04:latest bash
+```
+
+> Special attention should be paid to flags:
+> - `--device /dev/tenstorrent/0:/dev/tenstorrent/0`: this is required to map
+>   the hardware device into the container. For machines with multiple devices,
+>   this flag can be specified multiple times or adjusted with the appropriate
+>   device number.
+> - `-v /dev/hugepages:/dev/hugepages` / `-v /dev/hugepages-1G:/dev/hugepages-1G`:
+>   this is required to map the hugepages volume into the container. For more
+>   information on hugepages, please refer to the [Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html#step-4-set-up-hugepages).
+>
+> The base or CI image can also be used in the same way, but the IRD image is
+> recommended for development.
+
 ## Building the Docker Image using GitHub Actions
 
 The GitHub Actions workflow [Build and Publish Docker Image](.github/workflows/build-image.yml) builds the Docker images and uploads them to GitHub Packages at [https://github.com/orgs/tenstorrent/packages?repo_name=tt-mlir](https://github.com/orgs/tenstorrent/packages?repo_name=tt-mlir). We use the git SHA we build from as the tag.
