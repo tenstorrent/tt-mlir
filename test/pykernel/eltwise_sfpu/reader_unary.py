@@ -49,11 +49,11 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
         # CHECK: "ttkernel.cb_push_back"{{.*}}
         cb_push_back(cb_in, ublock_size_tiles)
 
-        # CHECK: emitc.verbatim "// src_addr = src_addr + ublock_size_bytes"
+        # CHECK: emitc.verbatim "// src_addr += ublock_size_bytes"
         # CHECK: {{.*}}memref.load %[[SRC_ADDR]]{{.*}}
         # CHECK: {{.*}}arith.addi{{.*}}
         # CHECK: memref.store {{.*}} %[[SRC_ADDR]]{{.*}}
-        src_addr = src_addr + ublock_size_bytes
+        src_addr += ublock_size_bytes
 
     return
 

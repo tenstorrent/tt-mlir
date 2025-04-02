@@ -32,6 +32,15 @@ inline ::ttnn::Shape toTTNNShape(const flatbuffers::Vector<T> &vec) {
   return ::ttnn::Shape(rawShape);
 }
 
+::ttnn::operations::unary::UnaryOpType
+toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType);
+
+::ttnn::operations::unary::UnaryWithParam
+toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParam &unaryWithParam);
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op);
+
 ::ttnn::operations::conv::conv2d::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 

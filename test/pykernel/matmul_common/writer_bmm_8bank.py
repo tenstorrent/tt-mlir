@@ -33,7 +33,7 @@ def writer_bmm_8bank(cb_id_out0: CircularBuffer):
                 noc_async_write_tile(itileC, s, l1_read_addr)
                 noc_async_write_barrier()
                 cb_pop_front(cb_id_out0, onetile)
-                itileC = itileC + 1
+                itileC += 1
 
     return
 

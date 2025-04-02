@@ -423,12 +423,44 @@ class TTKernelCompiler(ast.NodeVisitor):
             var = memref.alloca(memref_type, [], [])
             sym_table[var_name] = var
         else:
-            assert isinstance(var, MemRefType), "Can not AugAssign to non-memref types"
+            assert isinstance(var, MemRefType), "Can not AnnAssign to non-memref types"
 
         memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     def visit_AugAssign(self, node):
-        raise NotImplementedError("AugAssign not supported yet")
+        target = self.visit(node.target)
+
+        # Target must already be defined in the scope of the symbol table
+        if not target:
+            raise ValueError(
+                "AugAssign can only Assign to values that have been defined"
+            )
+
+        value = self.visit(node.value)
+        sym_table = self.symbol_tables[-1]
+
+        if not isinstance(target.type, memref.MemRefType):
+            raise ValueError("Can not AugAssign to non-memref types")
+
+        _target = memref.LoadOp(
+            target, arith.ConstantOp(IndexType.get(self.ctx), 0)
+        ).result
+
+        # Determine the operation based on the type of AugAssign
+        match node.op:
+            case ast.Add():
+                result = arith.AddIOp(_target, value)
+            case ast.Sub():
+                result = arith.SubIOp(_target, value)
+            case ast.Mult():
+                result = arith.MulIOp(_target, value)
+            case _:
+                raise NotImplementedError(
+                    f"AugAssign operation {type(node.op).__name__} not supported"
+                )
+
+        # Store the result back to the target
+        memref.StoreOp(result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     # Function calls
     def visit_Call(self, node):
@@ -497,17 +529,19 @@ class TTKernelCompiler(ast.NodeVisitor):
         if isinstance(operand.type, memref.MemRefType):
             operand = memref.LoadOp(
                 operand, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            )
+            ).result
 
         match (node.op):
             # need to expose emitc for these unary operators, not sure if this is necessary yet
-            # case ast.USub():
-            #     # emitc has a unary minus operator
-            #     return arith.subi(arith.ConstantOp(IntegerType.get_signless(32, self.ctx), 0), operand)
-            # case ast.Not():
-            #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), 1))
-            # case ast.Invert():
-            #     return arith.xori(operand, arith.ConstantOp(IntegerType.get_signless(32, self.ctx), -1))
+            case ast.USub():
+                return emitc.UnaryMinusOp(operand.type, operand)
+            case ast.UAdd():
+                return emitc.UnaryPlusOp(operand.type, operand)
+            case ast.Not():
+                # Must return a 1-bit Signless Integer (bool)
+                return emitc.logical_not(IntegerType.get_signless(1, self.ctx), operand)
+            case ast.Invert():
+                return emitc.bitwise_not(operand.type, operand)
             case _:
                 raise NotImplementedError(
                     f"Unary operator {type(node.op).__name__} not implemented"
@@ -590,7 +624,9 @@ class TTKernelCompiler(ast.NodeVisitor):
         if any(
             isinstance(node, supported_node) for supported_node in self.supported_nodes
         ):
-            if self.verbose and isinstance(node, (ast.Assign, ast.AnnAssign)):
+            if self.verbose and isinstance(
+                node, (ast.Assign, ast.AnnAssign, ast.AugAssign)
+            ):
                 # Create a verbatim Op here to store the comment
                 source_code = self.get_source_comment(node)
                 emitc.verbatim(source_code)

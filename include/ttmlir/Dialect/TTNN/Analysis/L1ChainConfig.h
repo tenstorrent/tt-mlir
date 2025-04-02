@@ -90,6 +90,8 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 
     os << "\n\t" << opL1MemSpec.op->getName().getStringRef() << "\t"
        << utils::getOpLocName(opL1MemSpec.op);
+
+    os << "\n\t\t" << opL1MemSpec.config.outputLayout;
   }
   return os;
 }

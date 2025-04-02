@@ -1,6 +1,6 @@
-include "Common/types.fbs";
-include "Common/debug_info.fbs";
-include "types.fbs";
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/debug_info.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
@@ -80,16 +80,13 @@ table ConstructTensorOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table ZerosOp {
-  shape: [int64];
-  dtype: DataType = null;
-  layout: TensorLayout = null;
-  device: tt.target.DeviceRef;
-  memcfg: tt.target.ttnn.MemoryConfig;
-  out: tt.target.ttnn.TensorRef;
+enum NamedFullOpType: uint32 {
+  Zeros,
+  Ones,
 }
 
-table OnesOp {
+table NamedFullOp {
+  type: NamedFullOpType;
   shape: [int64];
   dtype: DataType = null;
   layout: TensorLayout = null;
@@ -165,8 +162,9 @@ enum EltwiseOpType: uint32 {
   Scatter,
   Tan,
   Tanh,
-  Power,
-  Atan
+  Pow,
+  Atan,
+  Atan2
 }
 
 table ClampScalarOpParams {
@@ -324,6 +322,7 @@ table MatmulOp {
   out: tt.target.ttnn.TensorRef;
   transpose_a: bool;
   transpose_b: bool;
+  matmul_program_config: tt.target.ttnn.MatmulProgramConfig;
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 
@@ -471,8 +470,7 @@ union OpType {
   FromDeviceOp,
   EmptyOp,
   ConstructTensorOp,
-  ZerosOp,
-  OnesOp,
+  NamedFullOp,
   FullOp,
   EltwiseOp,
   LinearOp,

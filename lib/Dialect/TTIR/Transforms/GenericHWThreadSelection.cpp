@@ -57,10 +57,14 @@ public:
       return failure();
     }
 
+    SmallVector<Attribute> threads(op.getThreads().getValue());
+    // Skip the output operands block
+    threads.erase(threads.begin() + outputOperandsIndex);
     auto newGeneric = rewriter.create<GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), op.getGrid(), op.getIndexingMaps(),
-        op.getIteratorTypes(), op.getNumRegions() - 1);
+        op.getIteratorTypes(), rewriter.getArrayAttr(threads),
+        op.getNumRegions() - 1);
 
     unsigned regionIndex = 0;
     for (mlir::Region &region : op.getRegions()) {

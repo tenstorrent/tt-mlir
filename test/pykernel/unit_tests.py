@@ -19,7 +19,7 @@ def test_assign():
     a = 1
     a = 2
 
-    # TEST: AugAssign with memref
+    # TEST: AnnAssign with memref
     # CHECK: %[[CONST:.*]] = arith.constant{{.*}} : i32
     # CHECK: %[[ALLOCA:.*]] = memref.alloca() : memref<1xi32>
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
@@ -27,6 +27,22 @@ def test_assign():
     # CHECK: %[[CONST:.*]] = arith.constant{{.*}} : i32
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
     b = 2
+
+    # TEST: AugAssign with memref
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.addi{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b += 2
+
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.subi{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b -= 2
+
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.muli{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b *= 2
 
     return
 
@@ -145,8 +161,39 @@ def test_compare_expr():
     return
 
 
+@ttkernel_compile()
+def test_unary_ops():
+    # CHECK: module {
+    # CHECK: func.func @
+
+    a = 1
+
+    # CHECK: %{{.*}} = emitc.expression : i1 {{.*}}
+    # CHECK: %{{.*}} = logical_not {{.*}}
+    # CHECK: yield %{{.*}}
+    not a
+
+    # CHECK: %{{.*}} = emitc.expression {{.*}}
+    # CHECK: %{{.*}} = bitwise_not {{.*}}
+    # CHECK: yield %{{.*}}
+    ~a
+
+    # CHECK: %{{.*}} = emitc.expression {{.*}}
+    # CHECK: %{{.*}} = unary_minus {{.*}}
+    # CHECK: yield %{{.*}}
+    -a
+
+    # CHECK: %{{.*}} = emitc.expression {{.*}}
+    # CHECK: %{{.*}} = unary_plus {{.*}}
+    # CHECK: yield %{{.*}}
+    +a
+
+    return
+
+
 test_assign()
 test_ifstmt()
 test_for()
 test_binops()
 test_compare_expr()
+test_unary_ops()

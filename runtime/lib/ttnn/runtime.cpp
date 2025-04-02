@@ -541,12 +541,8 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConstructTensorOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::ZerosOp: {
-    tensorRef = opContext.type_as_ZerosOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::OnesOp: {
-    tensorRef = opContext.type_as_OnesOp()->out();
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    tensorRef = opContext.type_as_NamedFullOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::FullOp: {
