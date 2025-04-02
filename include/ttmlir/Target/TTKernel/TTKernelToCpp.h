@@ -14,7 +14,8 @@ namespace mlir::tt::ttkernel {
 // Translates a TTKernel operation to C++ and writes it to the given
 // stream.
 LogicalResult translateTTKernelToCpp(Operation *op, llvm::raw_ostream &os,
-                                     const ThreadType &threadType);
+                                     const ThreadType &threadType,
+                                     const std::string &pipelineExtension = "");
 
 } // namespace mlir::tt::ttkernel
 

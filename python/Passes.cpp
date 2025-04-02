@@ -221,7 +221,8 @@ void populatePassesModule(nb::module_ &m) {
 
   m.def(
       "ttkernel_to_cpp",
-      [](MlirModule module, bool isTensixKernel) {
+      [](MlirModule module, bool isTensixKernel,
+         const std::string &pipelineExtension = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         tt::ttkernel::ThreadType threadType =
             isTensixKernel ? tt::ttkernel::ThreadType::Tensix
@@ -229,13 +230,14 @@ void populatePassesModule(nb::module_ &m) {
         std::string output;
         llvm::raw_string_ostream output_stream(output);
         if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
-                moduleOp, output_stream, threadType))) {
+                moduleOp, output_stream, threadType, pipelineExtension))) {
           throw std::runtime_error("Failed to generate cpp");
         }
         output_stream.flush();
         return output;
       },
-      nb::arg("module"), nb::arg("isTensixKernel"));
+      nb::arg("module"), nb::arg("isTensixKernel"),
+      nb::arg("pipelineExtension") = "");
 
   m.def(
       "pykernel_compile_pipeline",

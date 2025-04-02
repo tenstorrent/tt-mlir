@@ -16,16 +16,19 @@ namespace mlir::tt::ttkernel {
 
 static llvm::LogicalResult
 translateModuleToCpp(Operation *op, llvm::raw_ostream &os,
-                     const ttkernel::ThreadType &threadType) {
+                     const ttkernel::ThreadType &threadType,
+                     const std::string &pipelineExtension = "") {
 
   ModuleOp module = dyn_cast<ModuleOp>(op);
   assert(module && "Expected ModuleOp as top level operation");
-  return mlir::tt::emitKernelAsCpp(module, os, threadType);
+  return mlir::tt::emitKernelAsCpp(module, os, threadType, pipelineExtension);
 }
 
-LogicalResult translateTTKernelToCpp(Operation *op, llvm::raw_ostream &os,
-                                     const ttkernel::ThreadType &threadType) {
-  return translateModuleToCpp(op, os, threadType);
+LogicalResult
+translateTTKernelToCpp(Operation *op, llvm::raw_ostream &os,
+                       const ttkernel::ThreadType &threadType,
+                       const std::string &pipelineExtension = "") {
+  return translateModuleToCpp(op, os, threadType, pipelineExtension);
 }
 
 } // namespace mlir::tt::ttkernel

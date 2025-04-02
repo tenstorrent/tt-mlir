@@ -626,7 +626,11 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False):
             if kernel_type:
                 assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
                 is_tensix_kernel = kernel_type == "tensix"
-                kernel_string = ttkernel_to_cpp(b.module, is_tensix_kernel)
+                kernel_string = ttkernel_to_cpp(
+                    b.module,
+                    is_tensix_kernel,
+                    pipelineExtension="builtin.module(form-expressions)",
+                )
                 return kernel_string
 
         return _wrapper
