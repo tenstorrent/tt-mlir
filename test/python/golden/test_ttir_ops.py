@@ -12,6 +12,7 @@ from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
 from ttmlir.ir import *
+from ttmlir.passes import GoldenTensor, DataType
 
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371
@@ -773,6 +774,18 @@ def test_embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
 def test_fill_cache(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.fill_cache(in0, in1)
 
+  
+@compile_to_flatbuffer(
+    [  
+        (1, 32, 1, 512),
+        (1,),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.int32],
+    targets=["ttnn"],
+)
+def test_update_cache(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.update_cache(in0, in1, in2)
+
 
 @compile_to_flatbuffer(
     [
@@ -806,6 +819,61 @@ def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
         unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
         use_zeros=True,
     )
+
+
+def test_provided_graph_input_output():
+    def golden_tensor_to_torch_tensor(golden):
+        shape = golden.shape
+        stride = golden.strides
+        match golden.dtype:
+            case DataType.Float16:
+                np_dtype = np.float16
+            case DataType.BFloat16:
+                np_dtype = np.bfloat16
+            case DataType.Float32:
+                np_dtype = np.float32
+            case DataType.Int32:
+                np_dtype = np.int32
+            case None:
+                np_dtype = np.float32
+        np_array = (
+            np.frombuffer(bytes(golden.data), dtype=np_dtype).copy().reshape(shape)
+        )
+        tensor = torch.as_strided(torch.from_numpy(np_array), size=shape, stride=stride)
+        return tensor
+
+    @compile_to_flatbuffer(
+        [
+            (64, 128),
+            (64, 128),
+        ],
+        targets=["ttnn"],
+    )
+    def test_simple_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        input_0 = torch.randn(builder.get_shape(in0))
+        input_1 = torch.randn(builder.get_shape(in1))
+        output = input_0 + input_1
+        builder.set_graph_input_output([input_0, input_1], [output])
+        result = builder.add(in0, in1)
+
+        # Verify graph input / output on golden map
+        golden_map = builder.get_golden_map()
+
+        assert "input_0" in golden_map
+        golden_input_0 = golden_tensor_to_torch_tensor(golden_map["input_0"])
+        assert torch.equal(golden_input_0, input_0)
+
+        assert "input_1" in golden_map
+        golden_input_1 = golden_tensor_to_torch_tensor(golden_map["input_1"])
+        assert torch.equal(golden_input_1, input_1)
+
+        assert "output_0" in golden_map
+        golden_output_0 = golden_tensor_to_torch_tensor(golden_map["output_0"])
+        assert torch.equal(golden_output_0, output)
+
+        return result
+
+    test_simple_add()
 
 
 if __name__ == "__main__":
