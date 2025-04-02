@@ -746,6 +746,7 @@ class Run:
                                 ).reshape(golden_tensor.shape)
 
                                 for loop in range(self["--loops"]):
+<<<<<<< HEAD
                                     output_tensor = total_outputs[loop][idx]
                                     output_tensor_torch = torch.frombuffer(
                                         bytearray(output_tensor.get_data_buffer()),
@@ -756,6 +757,55 @@ class Run:
                                     if (
                                         golden_tensor_torch.shape
                                         != output_tensor_torch.shape
+=======
+                                    inputs_converted = convert_input_layouts(
+                                        device,
+                                        inputs,
+                                        bin.fbb,
+                                        program_index,
+                                    )
+                                    emitc_outs = ttrt.runtime.testing.run_so_program(
+                                        emitc_dylib_handle,
+                                        fwd_func_sym,
+                                        inputs_converted,
+                                        device,
+                                    )
+                                    emitc_outs = [
+                                        ttrt.runtime.to_host(emitc_out, untilize=True)[
+                                            0
+                                        ]
+                                        for emitc_out in emitc_outs
+                                    ]
+                                    self.logging.debug(
+                                        f"got emitc outputs for program_index={program_index}, loop={loop}"
+                                    )
+
+                                    all_tensors_match = (
+                                        ttrt.runtime.testing.compare_outs(
+                                            outputs, emitc_outs
+                                        )
+                                    )
+
+                                    if not all_tensors_match:
+                                        self.logging.error(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+                                        self.logging.error(outputs, emitc_outs)
+                                        raise Exception(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+
+                            if self["--identity"]:
+                                self.logging.debug(
+                                    f"checking identity with rtol={self['--rtol']} and atol={self['--atol']}"
+                                )
+
+                                for i, o in zip(
+                                    program.input_tensors, program.output_tensors
+                                ):
+                                    if not torch.allclose(
+                                        i, o, rtol=self["--rtol"], atol=self["--atol"]
+>>>>>>> ad5e51ee2 (fixup dirty option for ttrt)
                                     ):
                                         self.logging.error(
                                             f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
