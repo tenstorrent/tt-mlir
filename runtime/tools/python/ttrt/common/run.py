@@ -642,7 +642,7 @@ class Run:
                                         # Log cache stats after execution
                                         cache_stats = tensor_cache.get_stats()
                                         self.logging.debug(
-                                            f"Tensor cache stats: hits={cache_stats['hits']}, misses={cache_stats['misses']}"
+                                            f"Tensor cache stats: hits={cache_stats.get('hits', 0)}, misses={cache_stats.get('misses', 0)}"
                                         )
                                     else:
                                         runtime_outputs = ttrt.runtime.submit(
@@ -725,9 +725,7 @@ class Run:
                                         self.logging.error(
                                             "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
                                         )
-                                        self.logging.error(
-                                            outputs, emitc_outs
-                                        )
+                                        self.logging.error(outputs, emitc_outs)
                                         raise Exception(
                                             "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
                                         )
