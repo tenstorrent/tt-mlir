@@ -145,17 +145,8 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise unary op.
     }];
 
-    let builders =
-    [
-      OpBuilder<(ins "Value": $in, "Type": $outputType),
-      [{
-        build($_builder, $_state, {outputType}, in);
-      }]>,
-      OpBuilder<(ins "Value": $in),
-      [{
-        build($_builder, $_state, in, in.getType());
-      }]>
-    ];
+    let arguments = (ins AnyRankedTensor:$input);
+    let results = (outs AnyRankedTensor:$result);
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
@@ -165,17 +156,13 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise binary op.
     }];
 
-    let builders =
-    [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Type": $outputType),
-      [{
-        build($_builder, $_state, {outputType}, {lhs, rhs});
-      }]>
-    ];
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs);
+    let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getInputs();
+        ::mlir::Operation::operand_range inputs = getOperands();
         mlir::Operation *op = getOperation();
         return
           wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
@@ -191,13 +178,10 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
       Eltwise ternary op.
     }];
 
-    let builders =
-    [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Type": $outputType),
-      [{
-        build($_builder, $_state, {outputType}, {first, second, third});
-      }]>
-    ];
+    let arguments = (ins AnyRankedTensor:$first,
+                         AnyRankedTensor:$second,
+                         AnyRankedTensor:$third);
+    let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
@@ -208,7 +192,7 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getInputs();
+        ::mlir::Operation::operand_range inputs = getOperands();
         return
           wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
                                                                         inputs);
@@ -427,16 +411,8 @@ class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
       Eltwise unary op with the float parameter.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$parameter);
-
-    let builders =
-    [
-      OpBuilder<(ins "Value": $in, "FloatAttr":$parameter),
-      [{
-        build($_builder, $_state, {in.getType()}, {in}, parameter);
-      }]>
-    ];
 }
 
 def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
@@ -1370,11 +1346,11 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar"> {
         -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$min,
                          F32Attr:$max);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
@@ -1393,11 +1369,11 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
       %out:  [[2, 2, 2, 3, 4, 5, 6, 6]]
   }];
 
-  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+  let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$min,
                        AnyRankedTensor:$max);
 
-  let results = (outs Variadic<AnyRankedTensor>:$result);
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_EmptyOp : TTNN_Op<"empty", [TT_CreationOpTrait]> {

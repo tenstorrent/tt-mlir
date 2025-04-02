@@ -136,7 +136,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
   mlir::Operation *opA =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
+      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
   uint64_t outputL1Usage = 2;
   uint64_t requiredL1Usage = 8;
   prepareOpForGreedyConfigPicker(opA, outputL1Usage, requiredL1Usage,
@@ -146,7 +146,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = func.getBody().getBlocks().front().getArgument(1);
   mlir::Operation *opB =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
+      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
   outputL1Usage = 3;
   requiredL1Usage = 7;
   prepareOpForGreedyConfigPicker(opB, outputL1Usage, requiredL1Usage,
@@ -156,7 +156,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = func.getBody().getBlocks().front().getArgument(1);
   mlir::Operation *opC =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
+      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
   outputL1Usage = 1;
   requiredL1Usage = 9;
   prepareOpForGreedyConfigPicker(opC, outputL1Usage, requiredL1Usage,
@@ -166,7 +166,7 @@ TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = func.getBody().getBlocks().front().getArgument(1);
   mlir::Operation *opD =
-      builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, lhs.getType());
+      builder.create<AddOp>(builder.getUnknownLoc(), lhs.getType(), lhs, rhs);
   outputL1Usage = 4;
   requiredL1Usage = 0;
   prepareOpForGreedyConfigPicker(opD, outputL1Usage, requiredL1Usage,
