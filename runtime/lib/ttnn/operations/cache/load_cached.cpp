@@ -27,7 +27,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   // TODO(vwells): think this through before PR
 
   // Get the appropriate cache for this device
-  TensorCache &cache = context.getCache();
+  std::shared_ptr<TensorCache> cache = context.getCache();
+  LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
   // Extract function name
   const std::string functionName = op->callee_name()->str();
@@ -46,7 +47,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Get the cached tensors, which will be empty if cache is invalid
   const std::vector<Tensor> *cachedOutputs =
-      cache.getAll(functionName, inputVersions);
+      cache->getAll(functionName, inputVersions);
 
   if (cachedOutputs) {
     LOG_INFO("Cache hit for function: ", functionName.c_str());
@@ -109,7 +110,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Store the results in the cache with input versions
   assert(inputTensors.size() == inputIds.size());
-  cache.store(functionName, outputs, inputVersions);
+  cache->store(functionName, outputs, inputVersions);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     Tensor &runtimeOutput = outputs[i];

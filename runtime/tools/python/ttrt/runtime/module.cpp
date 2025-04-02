@@ -38,7 +38,11 @@ PYBIND11_MODULE(_C, m) {
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
       .def("get_memory_view", &tt::runtime::detail::getMemoryView,
-           py::arg("device_id") = 0);
+           py::arg("device_id") = 0)
+      .def(
+          "get_tensor_cache",
+          [](tt::runtime::Device &device) { return device.cache; },
+          py::return_value_policy::reference);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::TensorDesc>(m, "TensorDesc")
       .def_readonly("shape", &tt::runtime::TensorDesc::shape)
@@ -221,6 +225,8 @@ PYBIND11_MODULE(_C, m) {
   m.def("dirty_tensor", &tt::runtime::dirtyTensor, py::arg("tensor"),
         "Mark a tensor as dirty--any dependent const-eval tensors in the cache "
         "must be recomputed.");
+  m.def("init_cache", &tt::runtime::initCache, py::arg("device"),
+        "Initialize device's cache to valid empty cache.");
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
@@ -232,20 +238,6 @@ PYBIND11_MODULE(_C, m) {
       py::arg("device"), py::arg("executable"), py::arg("program_index"),
       py::arg("inputs"),
       "Submit a ttnn binary for execution, returns a vector of output tensors");
-  m.def(
-      "submit",
-      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
-         std::uint32_t programIndex,
-         const std::vector<::tt::runtime::Tensor> &inputs,
-         std::shared_ptr<tt::runtime::TensorCache> tensorCache)
-          -> std::vector<::tt::runtime::Tensor> {
-        return ::tt::runtime::submit(device, executable, programIndex, inputs,
-                                     tensorCache);
-      },
-      py::arg("device"), py::arg("executable"), py::arg("program_index"),
-      py::arg("inputs"), py::arg("tensor_cache"),
-      "Submit a ttnn binary for execution with a tensor cache, returns a "
-      "vector of output tensors");
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
