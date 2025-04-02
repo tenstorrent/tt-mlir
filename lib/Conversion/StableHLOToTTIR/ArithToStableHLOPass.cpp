@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "stablehlo/reference/InterpreterOps.h"
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
@@ -55,6 +56,7 @@ struct ConvertArithToStableHLOPass
 
     target.addIllegalDialect<mlir::arith::ArithDialect>();
     target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
+    target.addLegalDialect<mlir::stablehlo::interpreter::InterpreterDialect>();
     target.addLegalDialect<mlir::sdy::SdyDialect>();
     target.addLegalOp<mlir::tensor::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
