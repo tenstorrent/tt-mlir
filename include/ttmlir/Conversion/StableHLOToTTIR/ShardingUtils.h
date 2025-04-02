@@ -71,6 +71,12 @@ public:
   mlir::tt::TensorMeshShardingAttr
   getTensorMeshShardingAttr(mlir::PatternRewriter &rewriter);
 
+  // Given TensorMeshShardingAttr, extract MeshSharding info.
+  void extractMeshShardingFromTensorMeshShardingAttr(
+      mlir::tt::MeshAttr mesh,
+      mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr,
+      mlir::tt::MeshShardDirection direction);
+
   // Getter functions.
   mlir::tt::MeshShardDirection getShardDirection() const {
     return shardDirection;

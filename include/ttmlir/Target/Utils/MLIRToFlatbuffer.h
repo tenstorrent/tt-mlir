@@ -426,6 +426,207 @@ toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, std::string const &name,
 
   return ::tt::target::CreateMLIRDirect(fbb, name.c_str(), source.c_str());
 }
+
+inline double toFlatbuffer(FlatbufferObjectCache &, mlir::FloatAttr attr) {
+  return attr.getValueAsDouble();
+}
+
+inline ::tt::target::ttnn::CoreCoord
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::CoreCoordAttr coreCoordAttr) {
+  return ::tt::target::ttnn::CoreCoord(coreCoordAttr.getX(),
+                                       coreCoordAttr.getY());
+}
+
+inline ::tt::target::ttnn::CoreRange
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::CoreRangeAttr coreRangeAttr) {
+  return ::tt::target::ttnn::CoreRange(
+      toFlatbuffer(cache, coreRangeAttr.getStartCoord()),
+      toFlatbuffer(cache, coreRangeAttr.getEndCoord()));
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::CoreRangeSetAttr coreRangeSetAttr) {
+  return ::tt::target::ttnn::CreateCoreRangeSet(
+      *cache.fbb, toFlatbuffer(cache, coreRangeSetAttr.getCoreRanges()));
+}
+
+inline ::tt::target::ttnn::UnaryOpType
+toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
+  using MlirUnaryOpType = ::mlir::tt::ttnn::UnaryOpType;
+  using FbUnaryOpType = ::tt::target::ttnn::UnaryOpType;
+
+  static const std::unordered_map<MlirUnaryOpType, FbUnaryOpType> opTypeMap = {
+      {MlirUnaryOpType::Exp, FbUnaryOpType::Exp},
+      {MlirUnaryOpType::Recip, FbUnaryOpType::Recip},
+      {MlirUnaryOpType::Gelu, FbUnaryOpType::Gelu},
+      {MlirUnaryOpType::Relu, FbUnaryOpType::Relu},
+      {MlirUnaryOpType::Sqrt, FbUnaryOpType::Sqrt},
+      {MlirUnaryOpType::Sigmoid, FbUnaryOpType::Sigmoid},
+      {MlirUnaryOpType::Log, FbUnaryOpType::Log},
+      {MlirUnaryOpType::Tanh, FbUnaryOpType::Tanh},
+      {MlirUnaryOpType::Log2, FbUnaryOpType::Log2},
+      {MlirUnaryOpType::Log10, FbUnaryOpType::Log10},
+      {MlirUnaryOpType::Sin, FbUnaryOpType::Sin},
+      {MlirUnaryOpType::Cos, FbUnaryOpType::Cos},
+      {MlirUnaryOpType::Abs, FbUnaryOpType::Abs},
+      {MlirUnaryOpType::AbsInt32, FbUnaryOpType::AbsInt32},
+      {MlirUnaryOpType::Sign, FbUnaryOpType::Sign},
+      {MlirUnaryOpType::Square, FbUnaryOpType::Square},
+      {MlirUnaryOpType::Eqz, FbUnaryOpType::Eqz},
+      {MlirUnaryOpType::Nez, FbUnaryOpType::Nez},
+      {MlirUnaryOpType::Gtz, FbUnaryOpType::Gtz},
+      {MlirUnaryOpType::Ltz, FbUnaryOpType::Ltz},
+      {MlirUnaryOpType::Gez, FbUnaryOpType::Gez},
+      {MlirUnaryOpType::Lez, FbUnaryOpType::Lez},
+      {MlirUnaryOpType::ReluMax, FbUnaryOpType::ReluMax},
+      {MlirUnaryOpType::ReluMin, FbUnaryOpType::ReluMin},
+      {MlirUnaryOpType::Power, FbUnaryOpType::Power},
+      {MlirUnaryOpType::LeakyRelu, FbUnaryOpType::LeakyRelu},
+      {MlirUnaryOpType::Elu, FbUnaryOpType::Elu},
+      {MlirUnaryOpType::Exp2, FbUnaryOpType::Exp2},
+      {MlirUnaryOpType::Heaviside, FbUnaryOpType::Heaviside},
+      {MlirUnaryOpType::Expm1, FbUnaryOpType::Expm1},
+      {MlirUnaryOpType::Signbit, FbUnaryOpType::Signbit},
+      {MlirUnaryOpType::Asin, FbUnaryOpType::Asin},
+      {MlirUnaryOpType::Acos, FbUnaryOpType::Acos},
+      {MlirUnaryOpType::Rsqrt, FbUnaryOpType::Rsqrt},
+      {MlirUnaryOpType::Relu6, FbUnaryOpType::Relu6},
+      {MlirUnaryOpType::Atan, FbUnaryOpType::Atan},
+      {MlirUnaryOpType::Erf, FbUnaryOpType::Erf},
+      {MlirUnaryOpType::Erfc, FbUnaryOpType::Erfc},
+      {MlirUnaryOpType::IsInf, FbUnaryOpType::Isinf},
+      {MlirUnaryOpType::IsPosInf, FbUnaryOpType::Isposinf},
+      {MlirUnaryOpType::IsNegInf, FbUnaryOpType::Isneginf},
+      {MlirUnaryOpType::IsNan, FbUnaryOpType::Isnan},
+      {MlirUnaryOpType::LogicalNotUnary, FbUnaryOpType::LogicalNotUnary},
+      {MlirUnaryOpType::IsFinite, FbUnaryOpType::Isfinite},
+      {MlirUnaryOpType::Erfinv, FbUnaryOpType::Erfinv},
+      {MlirUnaryOpType::I0, FbUnaryOpType::I0},
+      {MlirUnaryOpType::I1, FbUnaryOpType::I1},
+      {MlirUnaryOpType::Tan, FbUnaryOpType::Tan},
+      {MlirUnaryOpType::Rsub, FbUnaryOpType::Rsub},
+      {MlirUnaryOpType::Rdiv, FbUnaryOpType::Rdiv},
+      {MlirUnaryOpType::Silu, FbUnaryOpType::Silu},
+      {MlirUnaryOpType::SoftPlus, FbUnaryOpType::Softplus},
+      {MlirUnaryOpType::Identity, FbUnaryOpType::Identity},
+      {MlirUnaryOpType::Neg, FbUnaryOpType::Neg},
+      {MlirUnaryOpType::AddUnarySfpu, FbUnaryOpType::AddUnarySfpu},
+      {MlirUnaryOpType::SubUnarySfpu, FbUnaryOpType::SubUnarySfpu},
+      {MlirUnaryOpType::MulUnarySfpu, FbUnaryOpType::MulUnarySfpu},
+      {MlirUnaryOpType::DivUnarySfpu, FbUnaryOpType::DivUnarySfpu},
+      {MlirUnaryOpType::IdentityUint32, FbUnaryOpType::IdentityUint32},
+      {MlirUnaryOpType::UnaryNe, FbUnaryOpType::UnaryNe},
+      {MlirUnaryOpType::UnaryGt, FbUnaryOpType::UnaryGt},
+      {MlirUnaryOpType::UnaryLt, FbUnaryOpType::UnaryLt},
+      {MlirUnaryOpType::TiledProd, FbUnaryOpType::TiledProd},
+      {MlirUnaryOpType::Typecast, FbUnaryOpType::Typecast},
+      {MlirUnaryOpType::BitwiseXor, FbUnaryOpType::BitwiseXor},
+      {MlirUnaryOpType::BitwiseNot, FbUnaryOpType::BitwiseNot},
+      {MlirUnaryOpType::BitwiseAnd, FbUnaryOpType::BitwiseAnd},
+      {MlirUnaryOpType::BitwiseOr, FbUnaryOpType::BitwiseOr},
+      {MlirUnaryOpType::RightShift, FbUnaryOpType::RightShift},
+      {MlirUnaryOpType::Floor, FbUnaryOpType::Floor},
+      {MlirUnaryOpType::FloorFloat32, FbUnaryOpType::FloorFloat32},
+      {MlirUnaryOpType::Ceil, FbUnaryOpType::Ceil},
+      {MlirUnaryOpType::CeilFloat32, FbUnaryOpType::CeilFloat32},
+      {MlirUnaryOpType::LeftShift, FbUnaryOpType::LeftShift},
+      {MlirUnaryOpType::Remainder, FbUnaryOpType::Remainder},
+      {MlirUnaryOpType::Fmod, FbUnaryOpType::Fmod},
+      {MlirUnaryOpType::Dropout, FbUnaryOpType::Dropout},
+      {MlirUnaryOpType::Fill, FbUnaryOpType::Fill},
+      {MlirUnaryOpType::PreluSfpu, FbUnaryOpType::PreluSfpu},
+      {MlirUnaryOpType::ZeroPoint, FbUnaryOpType::ZeroPoint}};
+
+  auto it = opTypeMap.find(unaryOpType);
+  if (it != opTypeMap.end()) {
+    return it->second;
+  }
+
+  llvm_unreachable("Unsupported unary op type");
+}
+
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::MatmulMultiCoreReuseProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
+  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseProgramConfig(
+      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
+      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
+      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN());
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::UnaryWithParamAttr unaryWithParam) {
+  return ::tt::target::ttnn::CreateUnaryWithParam(
+      *cache.fbb, toFlatbuffer(cache, unaryWithParam.getOpType()),
+      toFlatbuffer(cache, unaryWithParam.getParams()));
+}
+
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfig>
+toFlatbuffer(
+    FlatbufferObjectCache &cache,
+    ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
+  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
+  if (matmulConfigAttr.getFusedActivation()) {
+    fusedActivation =
+        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
+  }
+  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseMultiCastProgramConfig(
+      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
+      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
+      matmulConfigAttr.getOutBlockH(), matmulConfigAttr.getOutBlockW(),
+      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
+      matmulConfigAttr.getTransposeMcast(), fusedActivation,
+      matmulConfigAttr.getFuseBatch());
+}
+
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfig>
+toFlatbuffer(
+    FlatbufferObjectCache &cache,
+    ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
+  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
+  if (matmulConfigAttr.getFusedActivation()) {
+    fusedActivation =
+        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
+  }
+  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseMultiCast1DProgramConfig(
+      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
+      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
+      matmulConfigAttr.getOutBlockH(), matmulConfigAttr.getOutBlockW(),
+      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
+      matmulConfigAttr.getFuseBatch(), fusedActivation,
+      matmulConfigAttr.getMcastIn0(), matmulConfigAttr.getGatherIn0(),
+      toFlatbuffer(cache, matmulConfigAttr.getHopCores()),
+      matmulConfigAttr.getNumGlobalCbReceivers());
+}
+
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+                 matmulConfigAttr) {
+  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
+  if (matmulConfigAttr.getFusedActivation()) {
+    fusedActivation =
+        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
+  }
+  return ::tt::target::ttnn::
+      CreateMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
+          *cache.fbb, matmulConfigAttr.getIn0BlockW(),
+          matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
+          fusedActivation);
+}
+
 } // namespace mlir::tt
 
 #endif

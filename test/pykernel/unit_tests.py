@@ -19,7 +19,7 @@ def test_assign():
     a = 1
     a = 2
 
-    # TEST: AugAssign with memref
+    # TEST: AnnAssign with memref
     # CHECK: %[[CONST:.*]] = arith.constant{{.*}} : i32
     # CHECK: %[[ALLOCA:.*]] = memref.alloca() : memref<1xi32>
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
@@ -28,10 +28,26 @@ def test_assign():
     # CHECK: memref.store %[[CONST]], %[[ALLOCA]]{{.*}} : memref<1xi32>
     b = 2
 
+    # TEST: AugAssign with memref
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.addi{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b += 2
+
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.subi{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b -= 2
+
+    # CHECK: {{.*}}memref.load %[[ALLOCA]]{{.*}}
+    # CHECK: {{.*}}arith.muli{{.*}}
+    # CHECK: memref.store {{.*}} %[[ALLOCA]]{{.*}}
+    b *= 2
+
     return
 
 
-@ttkernel_compile()
+@ttkernel_compile(optimize=False)
 def test_ifstmt():
     # CHECK: module {
     # CHECK: func.func @
@@ -68,6 +84,19 @@ def test_ifstmt():
     a = 1
     b = 2
     c = 3
+
+    # CHECK: %[[COND2:.*]] = arith.cmpi ne{{.*}}
+    # CHECK: scf.if %[[COND2]]{{.*}}
+    if a:
+        # CHECK: memref.store {{.*}}
+        a = 2
+
+    # CHECK: %{{.*}} = arith.cmpi sgt{{.*}}
+    # CHECK: %[[COND3:.*]] = arith.andi {{.*}}
+    # CHECK: scf.if %[[COND3]]{{.*}}
+    if True and a > 10:
+        # CHECK: memref.store {{.*}}
+        a = 2
     return
 
 
@@ -121,10 +150,32 @@ def test_binops():
     # CHECK: %{{.*}} = arith.muli{{.*}}
     # CHECK: %{{.*}} = arith.subi{{.*}}
     a + b - a * b
+
+    # CHECK: %{{.*}} = arith.floordivsi{{.*}}
+    a // b
+
+    # CHECK: %{{.*}} = arith.remsi{{.*}}
+    a % b
+
+    # CHECK: %{{.*}} = arith.shrsi{{.*}}
+    a >> b
+
+    # CHECK: %{{.*}} = arith.shli{{.*}}
+    a << b
+
+    # CHECK: %{{.*}} = arith.andi{{.*}}
+    a & b
+
+    # CHECK: %{{.*}} = arith.ori{{.*}}
+    a | b
+
+    # CHECK: %{{.*}} = arith.xori{{.*}}
+    a ^ b
+
     return
 
 
-@ttkernel_compile()
+@ttkernel_compile(optimize=False)
 def test_compare_expr():
     # CHECK: module {
     # CHECK: func.func @
@@ -142,6 +193,34 @@ def test_compare_expr():
     a > b
     # CHECK: %{{.*}} = arith.cmpi sge{{.*}}
     a >= b
+    return
+
+
+@ttkernel_compile(optimize=False)
+def test_bool_ops():
+    # CHECK: module {
+    # CHECK: func.func @
+    a = 1
+    b = 2
+    # CHECK: %{{.*}} = arith.cmpi sge{{.*}}
+    # CHECK: %{{.*}} = arith.cmpi sle{{.*}}
+    # CHECK: %{{.*}} = arith.andi {{.*}}
+    a >= b and b <= a
+
+    # CHECK: %{{.*}} = arith.cmpi sgt{{.*}}
+    # CHECK: %{{.*}} = arith.cmpi ne{{.*}}
+    # CHECK: %{{.*}} = arith.andi {{.*}}
+    # CHECK: %{{.*}} = arith.cmpi ne{{.*}}
+    # CHECK: %{{.*}} = arith.ori {{.*}}
+    a or b and a > b
+
+    # CHECK: %{{.*}} = arith.cmpi slt{{.*}}
+    # CHECK: %{{.*}} = arith.andi {{.*}}
+    # CHECK: %{{.*}} = arith.ori {{.*}}
+    # CHECK: %{{.*}} = arith.ori {{.*}}
+    # CHECK: %{{.*}} = arith.andi {{.*}}
+    # CHECK: %{{.*}} = arith.ori {{.*}}
+    False and (a < b) or False and (True or False or False)
     return
 
 
@@ -180,4 +259,5 @@ test_ifstmt()
 test_for()
 test_binops()
 test_compare_expr()
+test_bool_ops()
 test_unary_ops()
