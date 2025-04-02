@@ -26,4 +26,5 @@ add_mlir_conversion_library(TTMLIRStableHLOToTTIR
   StablehloReferenceApi
   InterpreterPasses
   StablehloReferenceErrors
+  StablehloReferenceConfiguration
 )
