@@ -7,7 +7,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 namespace mlir::tt::ttmetal {
 

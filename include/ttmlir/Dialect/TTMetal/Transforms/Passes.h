@@ -7,6 +7,7 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
+
 namespace mlir::tt::ttmetal {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
