@@ -1866,8 +1866,6 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   assert(rootModule && "Expected ModuleOp as top level operation");
 
-  llvm::errs() << "inside ttnnToFlatbuffer\n";
-
   // If we have a nested module structure, we want to use nested module inside
   // DeviceModule for most conversions.
   ModuleOp module = rootModule;

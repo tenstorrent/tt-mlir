@@ -228,8 +228,7 @@ public:
   //
   // Tensor Cache Operations
   //
-  // Get the tensor cache
-  TensorCache &getCache() { return *externalCache; }
+  std::shared_ptr<TensorCache> getCache() { return externalCache; }
 
   // Get the input versions
   const std::vector<uint64_t> &getInputVersions() const {

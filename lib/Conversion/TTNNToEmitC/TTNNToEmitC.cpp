@@ -1496,6 +1496,63 @@ public:
 };
 } // namespace
 
+// LoadCached Op conversion pattern
+//
+// This is a stopgap to make const-eval code work by replacing the const-eval
+// subgraph load_cached op with a direct call to the subgraph func.  This will
+// not perform const-eval caching, but at least such programs won't get errors
+// from emitC.
+//
+namespace {
+class LoadCachedOpConversionPattern
+    : public OpConversionPattern<tt::LoadCachedOp> {
+
+public:
+  using OpConversionPattern<tt::LoadCachedOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::LoadCachedOp srcOp, tt::LoadCachedOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the callee function
+    auto callee = srcOp.getCallee();
+
+    // Get the input indices
+    auto inputIndices = srcOp.getInputIndices();
+
+    // Convert result types
+    SmallVector<Type> resultTypes;
+    for (auto type : srcOp.getResultTypes()) {
+      resultTypes.push_back(getTypeConverter()->convertType(type));
+    }
+
+    // Find the parent function to get access to its arguments
+    auto parentFunc = srcOp->getParentOfType<func::FuncOp>();
+    if (!parentFunc) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "LoadCachedOp must be inside a function");
+    }
+
+    // Collect the actual tensor arguments based on the input_indices
+    SmallVector<Value> callOperands;
+    for (uint32_t index : inputIndices) {
+      // Op verification should guarantee this.
+      assert(index < parentFunc.getNumArguments());
+
+      // Get the corresponding argument from the parent function
+      Value arg = parentFunc.getArgument(index);
+
+      // Add the argument to the call operands
+      callOperands.push_back(arg);
+    }
+
+    rewriter.replaceOpWithNewOp<func::CallOp>(srcOp, resultTypes, callee,
+                                              callOperands);
+
+    return success();
+  }
+};
+} // namespace
+
 // Module Op conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
@@ -1846,6 +1903,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<GetTupleElementOpConversionPattern>(typeConverter, ctx);
   patterns.add<TupleOpConversionPattern>(typeConverter, ctx);
+
+  // LoadCached op
+  //
+  patterns.add<LoadCachedOpConversionPattern>(typeConverter, ctx);
 
   // Module op
   //

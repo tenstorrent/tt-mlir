@@ -182,6 +182,10 @@ Tensor createTensor(std::shared_ptr<void> data,
   LOG_FATAL("runtime is not enabled");
 }
 
+void initCache(Device &device) {
+  device.cache = std::make_shared<TensorCache>();
+}
+
 void dirtyTensor(Tensor &tensor) {
   static std::atomic<uint64_t> version(0);
   tensor.version.store(version++);
@@ -517,12 +521,12 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputHandles,
-                           std::shared_ptr<TensorCache> tensorCache) {
+                           std::vector<Tensor> const &inputHandles) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
-                                       programIndex, inputHandles, tensorCache);
+                                       programIndex, inputHandles,
+                                       deviceHandle.cache);
   }
 #endif
 
@@ -532,13 +536,6 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   }
 #endif
   LOG_FATAL("runtime is not enabled");
-}
-
-std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
-                           std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputHandles) {
-  return submit(deviceHandle, executableHandle, programIndex, inputHandles,
-                nullptr);
 }
 
 Event submit(Device deviceHandle, Binary executableHandle,
