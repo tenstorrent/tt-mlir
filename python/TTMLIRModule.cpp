@@ -15,6 +15,7 @@ NB_MODULE(_ttmlir, m) {
         // Register all dialects + extensions.
         mlir::tt::registerAllDialects(registry);
         mlir::tt::registerAllExtensions(registry);
+        mlir::registerAllPasses();
 
         // Append registry to mlir context
         mlir::MLIRContext *mlirContext = unwrap(context);
