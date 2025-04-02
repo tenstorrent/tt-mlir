@@ -10,6 +10,7 @@ from typing import Callable, List, Optional, Tuple, Union
 from ttmlir.dialects import func
 from ttmlir.ir import *
 from ttmlir.passes import (
+    tt_populate_argument_types,
     ttir_to_ttnn_backend_pipeline,
     ttnn_to_flatbuffer_file,
     ttir_to_ttmetal_backend_pipeline,
@@ -177,6 +178,7 @@ def ttir_to_ttnn(
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
+    argument_types_string: str = None,
 ):
     """
     Converts TTIR module to TTNN module and optionally dumps to file.
@@ -195,6 +197,8 @@ def ttir_to_ttnn(
     -------
     MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
     """
+    if argument_types_string:
+        tt_populate_argument_types(module, argument_types_string)
 
     # Default to the `SYSTEM_DESC_PATH` envvar
     if system_desc_path is None:
@@ -206,6 +210,8 @@ def ttir_to_ttnn(
         options.append(f"system-desc-path={system_desc_path}")
     if mesh_shape and len(mesh_shape) == 2:
         options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+    if argument_types_string:
+        options.append("enable-const-eval=true")
 
     # Now, pass it through the TTIR to TTNN pipeline. Module gets
     # modified in place.
@@ -317,6 +323,7 @@ def compile_to_flatbuffer(
     targets: List[str] = ["ttmetal", "ttnn"],
     mesh_shape: Tuple[int, int] = None,
     module_dump: bool = False,
+    argument_types_string: str = None,
 ):
     """
     Decorator to run an e2e Python -> Flatbuffer test using the decorated
@@ -406,7 +413,11 @@ def compile_to_flatbuffer(
                 module_logger = MLIRModuleLogger()
                 module_logger.attach_context(module.context)
                 module = ttir_to_ttnn(
-                    module, module_dump, test_base + "_ttnn.mlir", mesh_shape=mesh_shape
+                    module,
+                    module_dump,
+                    test_base + "_ttnn.mlir",
+                    mesh_shape=mesh_shape,
+                    argument_types_string=argument_types_string,
                 )
                 ttnn_to_flatbuffer(
                     module, builder, test_base + ".ttnn", module_logger.module_log
@@ -415,3 +426,112 @@ def compile_to_flatbuffer(
         return wrapper
 
     return decorator
+
+
+# ----- Const-eval Testing Utilities -----
+def run_with_tensor_cache(
+    flatbuffer_path: str,
+    loops: int = 10,
+    dirty_input_index: int = -1,
+    dirty_after_iterations: int = 1,
+    expected_hits: Optional[int] = None,
+    expected_misses: Optional[int] = None,
+    init: str = "randn",
+    seed: int = 0,
+    program_index: int = 0,
+) -> dict:
+    """
+    Run a compiled flatbuffer with tensor cache enabled and verify cache stats.
+
+    Arguments
+    ---------
+    flatbuffer_path: str
+        Path to the compiled flatbuffer file
+
+    loops: int
+        Number of loops to run
+
+    dirty_input_index: int
+        Index of input tensor to dirty after specified iterations (-1 to disable)
+
+    dirty_after_iterations: int
+        Number of iterations after which to dirty the specified input tensor
+
+    expected_hits: Optional[int]
+        Expected number of cache hits, if None no verification is done
+
+    expected_misses: Optional[int]
+        Expected number of cache misses, if None no verification is done
+
+    init: str
+        Function to initialize tensors with
+
+    seed: int
+        Seed for random number generator
+
+    program_index: int
+        The program inside the fbb to run
+
+    Returns
+    -------
+    dict
+        Dictionary containing test results and cache stats
+    """
+    import subprocess
+    import json
+    import os
+
+    # Prepare the command
+    cmd = [
+        "ttrt",
+        "--binary",
+        flatbuffer_path,
+        "--loops",
+        str(loops),
+        "--enable-tensor-cache",
+        "True",
+        "--init",
+        init,
+        "--seed",
+        str(seed),
+        "--program-index",
+        str(program_index),
+    ]
+
+    # Add dirtying parameters if specified
+    if dirty_input_index >= 0:
+        cmd.extend(["--dirty-input-index", str(dirty_input_index)])
+        cmd.extend(["--dirty-after-iterations", str(dirty_after_iterations)])
+
+    # Run the command and capture output
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    # Parse the output to extract cache stats
+    cache_stats = {"hits": 0, "misses": 0}
+    for line in result.stdout.splitlines():
+        if "Tensor cache stats:" in line:
+            # Extract hits and misses from the line
+            stats_str = line.split("Tensor cache stats:")[1].strip()
+            hits_str = stats_str.split("hits=")[1].split(",")[0]
+            misses_str = stats_str.split("misses=")[1]
+            cache_stats["hits"] = int(hits_str)
+            cache_stats["misses"] = int(misses_str)
+
+    # Verify cache stats if expected values are provided
+    if expected_hits is not None:
+        assert (
+            cache_stats["hits"] == expected_hits
+        ), f"Expected {expected_hits} cache hits, got {cache_stats['hits']}"
+
+    if expected_misses is not None:
+        assert (
+            cache_stats["misses"] == expected_misses
+        ), f"Expected {expected_misses} cache misses, got {cache_stats['misses']}"
+
+    # Return the results
+    return {
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "returncode": result.returncode,
+        "cache_stats": cache_stats,
+    }
