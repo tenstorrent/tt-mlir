@@ -134,6 +134,7 @@ private:
   std::unique_ptr<ProgramContext> context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
+  void runMeshShardOperation(const ::tt::target::ttnn::MeshShardOp *op);
 };
 } // namespace
 
@@ -184,6 +185,14 @@ void ProgramExecutor::runEltwiseOperation(
   }
 
   LOG_FATAL("Unsupported Eltwise operation");
+}
+
+void ProgramExecutor::runMeshShardOperation(
+    const ::tt::target::ttnn::MeshShardOp *op) {
+  if (op->shard_type() == ::tt::target::ttnn::MeshShardType::Identity) {
+    return operations::ccl::mesh_shard::bypass(op, getContext());
+  }
+  return operations::ccl::run(op, getContext());
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
@@ -310,7 +319,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
                                 getContext());
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
-    return operations::ccl::run(op->type_as_MeshShardOp(), getContext());
+    return runMeshShardOperation(op->type_as_MeshShardOp());
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), getContext());
