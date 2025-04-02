@@ -45,7 +45,7 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
 struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static Hooks const &
-  get(std::string callbackKey = "post-op",
+  get(std::string callbackKey,
       std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
@@ -56,7 +56,7 @@ struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return callbackKey;
 #else
-    return "post-op";
+    return "";
 #endif
   }
 
@@ -71,7 +71,7 @@ struct Hooks {
 
   void unregisterHooks() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    callbackKey = "post-op";
+    callbackKey = "";
     operatorCallback = std::nullopt;
 #endif
   }
