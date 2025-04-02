@@ -40,7 +40,7 @@ def TTKernel_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTKernel_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, traits> {
-  let cppNamespace = "::mlir::tt::ttkernel::OpTrait";
+  let cppNamespace = "::mlir::tt::ttkernel";
 }
 
 def TTKernel_FPUOpTrait : TTKernel_Trait<"TTKernelFPUOpTrait", []>;

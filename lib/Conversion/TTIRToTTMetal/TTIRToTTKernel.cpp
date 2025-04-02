@@ -76,11 +76,10 @@ namespace {
 
 class TTIRComputeOpsRewriter
     : public OpTraitRewritePattern<
-          mlir::OpTrait::tt::ttir::TTIRGenericRegionComputeOpTrait> {
+          mlir::tt::ttir::TTIRGenericRegionComputeOpTrait> {
 public:
   using OpTraitRewritePattern<
-      mlir::OpTrait::tt::ttir::TTIRGenericRegionComputeOpTrait>::
-      OpTraitRewritePattern;
+      mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::OpTraitRewritePattern;
 
   static Value getLoadIndex(Value tile) {
     Operation *loadOp = tile.getDefiningOp();
@@ -92,8 +91,8 @@ public:
     bool computeFound = 0;
 
     block->walk([&](Operation *walkOp) {
-      if (walkOp->hasTrait<OpTrait::TTKernelFPUOpTrait>() ||
-          walkOp->hasTrait<OpTrait::TTKernelSFPUOpTrait>()) {
+      if (walkOp->hasTrait<TTKernelFPUOpTrait>() ||
+          walkOp->hasTrait<TTKernelSFPUOpTrait>()) {
         computeFound = 1;
       }
     });
@@ -151,7 +150,7 @@ public:
                   false, rewriter);
         lowerLoad(op->getOperand(2).getDefiningOp<memref::LoadOp>(), true,
                   false, rewriter);
-      } else if (newOp->hasTrait<OpTrait::TTKernelSFPUOpTrait>()) {
+      } else if (newOp->hasTrait<TTKernelSFPUOpTrait>()) {
         for (uint32_t i = 0; i < op->getNumOperands(); i++) {
           lowerLoad(op->getOperand(i).getDefiningOp<memref::LoadOp>(), true,
                     true, rewriter);
@@ -307,42 +306,59 @@ public:
                                .getValue()) &&
            "Expected src and dst memory spaces to be L1, failing.");
 
-    if (op.isSrcLocal() && op.isDstLocal() && !op.getDstCoreIndex().size()) {
-      Value srcL1Addr = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), index(getCbId(op.getSrc()), rewriter));
+    // Fully Index the Operands
+    while (op.getSrcIndices().size() !=
+           static_cast<size_t>(op.getSrc().getType().getRank())) {
+      op.getSrcIndicesMutable().append(index(0, rewriter));
+    }
+    while (op.getDstIndices().size() !=
+           static_cast<size_t>(op.getDst().getType().getRank())) {
+      op.getDstIndicesMutable().append(index(0, rewriter));
+    }
 
-      Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
+    auto applyMap = [](OpBuilder &builder, Location loc, AffineMap map,
+                       ValueRange index) {
+      auto apply = builder.create<affine::AffineApplyOp>(loc, map, index);
+      return apply;
+    };
+
+    if (op.isSrcLocal() && op.isDstLocal()) {
+      // local movmement, mcast
+      Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
+          op.getLoc(), index(getCbId(op.getSrc()), rewriter));
+      Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), index(getCbId(op.getDst()), rewriter));
+
+      // AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
+      // std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
+      //     getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
+
+      // auto srcOffset =
+      //     applyMap(rewriter, op.getLoc(), srcOffsetMap, op.getSrcIndices());
+      // auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
+      //     op.getLoc(), rewriter.getI32Type(), srcOffset);
+      // auto srcAddrInt =
+      //     rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
+      //     srcL1Start);
+
+      // AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
+      // std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
+      //     getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
+
+      // auto dstOffset =
+      //     applyMap(rewriter, op.getLoc(), dstOffsetMap, op.getDstIndices());
+      // auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
+      //     op.getLoc(), rewriter.getI32Type(), dstOffset);
+      // auto dstAddrInt = rewriter.create<arith::AddIOp>(op.getLoc(),
+      // dstOffsetInt, dstL1Start);
+
+      Value transferSize =
+          i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
       // local movement
-      Value transferSize =
-          i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
-      auto myY = rewriter.create<ttir::CoreIndexOp>(
-          op.getLoc(), rewriter.getIndexType(), rewriter.getI64IntegerAttr(0));
-      auto myX = rewriter.create<ttir::CoreIndexOp>(
-          op.getLoc(), rewriter.getIndexType(), rewriter.getI64IntegerAttr(1));
-      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, chipDescs.front(), ValueRange{myY, myX});
-      auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
-          op.getLoc(), virtX, virtY, dstL1Addr);
-      rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                 nocAddr, transferSize);
-    } else if (op.isSrcLocal() && op.isDstLocal()) {
-      // mcast & l1 to l1 single core remote
-
-      Value srcL1Addr = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), index(getCbId(op.getSrc()), rewriter));
-      Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
-          op.getLoc(), index(getCbId(op.getDst()), rewriter));
-      Value transferSize =
-          i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
-      assert(op.getDstCoreIndex().size() == 2 &&
-             "Expected 2 core indices for dst core index, failing.");
-
-      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, chipDescs.front(), op.getDstCoreIndex());
-
       if (op.isMcast()) {
         // mcast
+        auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+            rewriter, chipDescs.front(), op.getMcastStartIndex());
         auto [mcastEndY, mcastEndX] =
             getMcastEndCoords(rewriter, virtY, virtX, op.getMcastShape());
         auto numDestsIdx = rewriter.create<arith::MulIOp>(
@@ -350,77 +366,122 @@ public:
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
         auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
-            op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Addr,
+            op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
             nullptr);
         if (op.getSrc() == op.getDst()) {
           // no loopback
           auto numDestsLessOne = rewriter.create<arith::SubIOp>(
               op.getLoc(), numDests, i32(1, rewriter));
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Addr, mcastAddr, transferSize, numDestsLessOne,
+              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDestsLessOne,
               nullptr, nullptr, nullptr);
         } else {
           // loopback
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
-              op.getLoc(), srcL1Addr, mcastAddr, transferSize, numDests,
+              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         }
       } else {
-        // l1 to l1 single core "remote"
+        // local movement
+        auto myY = rewriter.create<ttir::CoreIndexOp>(
+            op.getLoc(), rewriter.getIndexType(),
+            rewriter.getI64IntegerAttr(0));
+        auto myX = rewriter.create<ttir::CoreIndexOp>(
+            op.getLoc(), rewriter.getIndexType(),
+            rewriter.getI64IntegerAttr(1));
+        auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+            rewriter, chipDescs.front(), ValueRange{myY, myX});
         auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
-            op.getLoc(), virtX, virtY, dstL1Addr);
-        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
+            op.getLoc(), virtX, virtY, dstL1Start);
+        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                    nocAddr, transferSize);
       }
-    } else if (!op.isSrcLocal() && op.isDstLocal()) {
-      // read l1 from l1 or l1 from dram
-      Value dstL1Addr = rewriter.create<ttkernel::GetWritePtrOp>(
-          op.getLoc(), index(getCbId(op.getDst()), rewriter));
+    } else if (op.isSrcLocal() && op.isDstRemote()) {
+      // local to remote dram/l1
+      if (!op.getOptNumElems()) {
+        op.setOptNumElems(getMemrefShardNumElems(op.getDst().getType()));
+      }
+      auto transferSize =
+          i32(op.getNumElems() * getElementSizeBytes(op.getDstMemRefType()),
+              rewriter);
 
-      // Fully Index the Operands
-      while (op.getSrcIndices().size() !=
-             static_cast<size_t>(op.getSrc().getType().getRank())) {
-        op.getSrcIndicesMutable().append(index(0, rewriter));
-      }
-      while (op.getDstIndices().size() !=
-             static_cast<size_t>(op.getDst().getType().getRank())) {
-        op.getDstIndicesMutable().append(index(0, rewriter));
-      }
+      Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
+          op.getLoc(), index(getCbId(op.getSrc()), rewriter));
+
+      // AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
+      // std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
+      //     getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
+
+      // auto srcOffset =
+      //     applyMap(rewriter, op.getLoc(), srcOffsetMap, op.getSrcIndices());
+      // auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
+      //     op.getLoc(), rewriter.getI32Type(), srcOffset);
+
+      // auto srcAddrInt =
+      //     rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
+      //     srcL1Start);
+
+      AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
+      std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
+          getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
+
+      auto dstGridY =
+          applyMap(rewriter, op.getLoc(), dstGridYMap, op.getDstIndices());
+      auto dstGridX =
+          applyMap(rewriter, op.getLoc(), dstGridXMap, op.getDstIndices());
+      auto dstOffset =
+          applyMap(rewriter, op.getLoc(), dstOffsetMap, op.getDstIndices());
+      auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
+          op.getLoc(), rewriter.getI32Type(), dstOffset);
+
+      auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, chipDescs.front(), ValueRange{dstGridY, dstGridX});
+      auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+          op.getLoc(), virtX, virtY, dstOffsetInt);
+      rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
+                                                 nocAddr, transferSize);
+    } else if (op.isSrcRemote() && op.isDstLocal()) {
       if (!op.getOptNumElems()) {
         op.setOptNumElems(getMemrefShardNumElems(op.getSrc().getType()));
       }
+      Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
+          op.getLoc(), index(getCbId(op.getDst()), rewriter));
+
+      // AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
+      // std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
+      //     getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
+
+      // auto dstOffset =
+      //     applyMap(rewriter, op.getLoc(), dstOffsetMap, op.getDstIndices());
+      // auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
+      //     op.getLoc(), rewriter.getI32Type(), dstOffset);
+      // auto dstAddrInt =
+      //     rewriter.create<arith::AddIOp>(op.getLoc(), dstOffsetInt,
+      //     dstL1Start);
 
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
           getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
 
-      auto applyMap = [](OpBuilder &builder, Location loc, AffineMap map,
-                         ValueRange index) {
-        auto apply = builder.create<affine::AffineApplyOp>(loc, map, index);
-        return apply;
-      };
-
-      auto loc = op.getLoc();
-      auto srcGridY = applyMap(rewriter, loc, srcGridYMap, op.getSrcIndices());
-      auto srcGridX = applyMap(rewriter, loc, srcGridXMap, op.getSrcIndices());
+      auto srcGridY =
+          applyMap(rewriter, op.getLoc(), srcGridYMap, op.getSrcIndices());
+      auto srcGridX =
+          applyMap(rewriter, op.getLoc(), srcGridXMap, op.getSrcIndices());
       auto srcOffset =
-          applyMap(rewriter, loc, srcOffsetMap, op.getSrcIndices());
+          applyMap(rewriter, op.getLoc(), srcOffsetMap, op.getSrcIndices());
       auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
-          loc, rewriter.getI32Type(), srcOffset);
+          op.getLoc(), rewriter.getI32Type(), srcOffset);
       auto size =
           i32(op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()),
               rewriter);
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, chipDescs.front(), ValueRange{srcGridY, srcGridX});
       auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
-          loc, virtX, virtY, srcOffsetInt);
-      rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
-                                                size);
-    } else if (op.isSrcLocal() && !op.isDstLocal()) {
-      // write l1 to dram
-      assert(false && "Unimplemented lowering l1 to dram write, failing.");
+          op.getLoc(), virtX, virtY, srcOffsetInt);
+      rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
+                                                dstL1Start, size);
     } else {
-      assert(false && "Illegal DMA op configuration.");
+      assert(false && "Illegal DMA configuration");
     }
 
     rewriter.eraseOp(op);
