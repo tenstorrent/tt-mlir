@@ -30,6 +30,7 @@
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
+#include "stablehlo/reference/InterpreterOps.h"
 
 #if TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/ir/register.h"
@@ -47,7 +48,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
       mlir::vector::VectorDialect, mlir::memref::MemRefDialect,
       mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect>();
+      mlir::LLVM::LLVMDialect, mlir::stablehlo::interpreter::InterpreterDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);

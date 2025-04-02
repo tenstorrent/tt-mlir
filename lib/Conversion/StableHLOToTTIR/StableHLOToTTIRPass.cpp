@@ -23,6 +23,7 @@
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "stablehlo/reference/InterpreterOps.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -99,6 +100,7 @@ struct ConvertStableHLOToTTIRPass
 
     target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
     target.addIllegalDialect<mlir::sdy::SdyDialect>();
+    target.addIllegalDialect<mlir::stablehlo::interpreter::InterpreterDialect>();
     target.addIllegalOp<mlir::tensor::EmptyOp>();
 
     target.addLegalDialect<ttir::TTIRDialect>();

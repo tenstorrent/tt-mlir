@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
+#include <iostream>
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -28,6 +29,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "stablehlo/dialect/StablehloOps.h"
+#include "stablehlo/reference/InterpreterOps.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -2127,6 +2129,28 @@ private:
 };
 } // namespace
 
+namespace {
+  class InterpreterToTTIROpPrintOpConversionPattern
+      : public OpConversionPattern<mlir::stablehlo::interpreter::ProbeOp> {
+  
+    using OpConversionPattern<mlir::stablehlo::interpreter::ProbeOp>::OpConversionPattern;
+  
+  public:
+    LogicalResult
+    matchAndRewrite(mlir::stablehlo::interpreter::ProbeOp srcOp,
+                    mlir::stablehlo::interpreter::ProbeOp::Adaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+      auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+  
+      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PrintOp>(rewriter, srcOp, outputType,
+                                                    adaptor.getOperands());
+
+      return success();
+    }
+  };
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -2354,6 +2378,13 @@ static void addPadOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
 }
 
+static void addPrintOpConversionPattern(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<InterpreterToTTIROpPrintOpConversionPattern>(typeConverter,
+                                                            ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -2381,6 +2412,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
+  addPrintOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

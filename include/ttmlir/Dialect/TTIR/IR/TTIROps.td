@@ -2149,4 +2149,11 @@ def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
     let hasVerifier = 1;
 }
 
+def TTIR_PrintOp: TTIR_ElementwiseUnaryOp<"print"> {
+    let summary = "Tensor print operation.";
+    let description = [{
+      Print the tensor to the standard output.
+      }];
+} 
+
 #endif
