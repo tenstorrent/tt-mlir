@@ -234,6 +234,11 @@ struct TTIRToTTNNBackendPipelineOptions
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
 
+// TTIR to SharedObject pipeline options.
+// Inherit from TTIRToEmitCPipelineOptions to reuse the options.
+//
+struct TTIRToSharedObjectPipelineOptions : public TTIRToEmitCPipelineOptions {};
+
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
@@ -269,6 +274,9 @@ void createTTIRToTTNNBackendPipeline(
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
+
+void createTTIRToSharedObjectPipeline(
+    OpPassManager &pm, const TTIRToSharedObjectPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".
