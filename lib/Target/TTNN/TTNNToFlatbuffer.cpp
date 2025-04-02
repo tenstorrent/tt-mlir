@@ -1850,7 +1850,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
   }
-  if (auto quantizeOp = dyn_cast<QuantizeOp>(op)) {
+  if (auto quantizeOp = dyn_cast<QuantizeOp>(op); quantizeOp) {
     return createOperation(cache, createNonDPSEltwiseOp(cache, quantizeOp),
                            debugString, locInfo);
   }

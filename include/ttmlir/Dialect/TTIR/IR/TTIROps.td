@@ -2157,7 +2157,7 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
       This type encapsulates the scale and zero-point metadata directly within the tensor type.
       The output tensor will be of type 'quant.uniform', where each element is computed as:
       ```
-      output[i] = (input[i] / scale) * zero_point
+      output[i] = (input[i] / scale) + zero_point
       ```
 
       Example:

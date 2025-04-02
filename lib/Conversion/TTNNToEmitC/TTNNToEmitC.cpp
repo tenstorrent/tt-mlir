@@ -549,7 +549,7 @@ public:
 };
 
 // Quantization ops conversion pattern
-
+//
 template <typename OpType>
 class QuantizationOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<OpType> {
@@ -562,13 +562,14 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     ttnn_to_emitc::EmitCTTNNEmitter<OpType> emitter(op, adaptor, rewriter);
 
-    llvm::SmallVector<mlir::Attribute> args;
-    args.push_back(emitter.emit(op.getInputs()[0]));
-    args.push_back(emitter.emit(op.getScale()));
-    args.push_back(emitter.emit(op.getZeroPoint()));
-    args.push_back(emitter.emit(op.getAxis()));
-    args.push_back(emitter.emit(op.getOutputDtype()));
-    args.push_back(emitter.emit(op.getMemoryConfig()));
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(op.getInputs()[0]),
+        emitter.emit(op.getScale()),
+        emitter.emit(op.getZeroPoint()),
+        emitter.emit(op.getAxis()),
+        emitter.emit(op.getOutputDtype()),
+        emitter.emit(std::nullopt) | emitter.emit(op.getMemoryConfig()),
+    };
 
     emitter.replaceOp(*this, args);
     return success();
@@ -588,15 +589,16 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<tt::ttnn::RequantizeOp> emitter(op, adaptor,
                                                                     rewriter);
 
-    llvm::SmallVector<mlir::Attribute> args;
-    args.push_back(emitter.emit(op.getInputs()[0]));
-    args.push_back(emitter.emit(op.getInScale()));
-    args.push_back(emitter.emit(op.getInZeroPoint()));
-    args.push_back(emitter.emit(op.getOutScale()));
-    args.push_back(emitter.emit(op.getOutZeroPoint()));
-    args.push_back(emitter.emit(op.getAxis()));
-    args.push_back(emitter.emit(op.getOutputDtype()));
-    args.push_back(emitter.emit(op.getMemoryConfig()));
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(op.getInputs()[0]),
+        emitter.emit(op.getInScale()),
+        emitter.emit(op.getInZeroPoint()),
+        emitter.emit(op.getOutScale()),
+        emitter.emit(op.getOutZeroPoint()),
+        emitter.emit(op.getAxis()),
+        emitter.emit(op.getOutputDtype()),
+        emitter.emit(std::nullopt) | emitter.emit(op.getMemoryConfig()),
+    };
 
     emitter.replaceOp(*this, args);
     return success();

@@ -1751,7 +1751,7 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
         - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
         - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
       ```
-      output[i] = (input[i] / scale) * zero_point
+      output[i] = (input[i] / scale) + zero_point
       ```
       Example:
       ```mlir

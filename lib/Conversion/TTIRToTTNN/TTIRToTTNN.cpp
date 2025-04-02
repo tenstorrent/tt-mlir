@@ -1508,30 +1508,30 @@ getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
   return {scaleAttr, zeroPointAttr};
 }
 
-// Utility function to get axis and data type for quantized types.
-static std::pair<mlir::IntegerAttr, DataTypeAttr>
-getAxisAndDataType(mlir::Operation *op, mlir::quant::QuantizedType elementType,
-                   ConversionPatternRewriter &rewriter,
-                   const TypeConverter *typeConverter) {
+// Utility function to get axis for quantized types.
+static IntegerAttr getAxis(mlir::quant::QuantizedType elementType,
+                           ConversionPatternRewriter &rewriter) {
   IntegerAttr axis;
   if (auto perChannelType =
           mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
               elementType)) {
     axis = rewriter.getI32IntegerAttr(perChannelType.getQuantizedDimension());
   }
+  return axis;
+}
 
+// Utility function to get data type for quantized types.
+static DataTypeAttr getDataType(mlir::Value val,
+                                ConversionPatternRewriter &rewriter,
+                                const TypeConverter *typeConverter) {
   ttnn::TTNNLayoutAttr outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-      mlir::cast<RankedTensorType>(
-          typeConverter->convertType(op->getResult(0).getType()))
+      mlir::cast<RankedTensorType>(typeConverter->convertType(val.getType()))
           .getEncoding());
   DataType dtype = outputLayoutAttr.getDataType();
-  DataTypeAttr outputDataType = DataTypeAttr::get(rewriter.getContext(), dtype);
-
-  return {axis, outputDataType};
-};
+  return DataTypeAttr::get(rewriter.getContext(), dtype);
+}
 
 namespace {
-
 template <typename OpTy, typename TTNNOpTy>
 class QuantizationOpConversionPatternBase : public OpConversionPattern<OpTy> {
 public:
@@ -1539,7 +1539,7 @@ public:
 
   LogicalResult
   matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+                  ConversionPatternRewriter &rewriter) const final {
     auto elementType = getQuantizedElementType(op);
     if (!elementType) {
       return failure();
@@ -1551,8 +1551,9 @@ public:
           op, "Only per tensor quantization is supported right now.");
     }
 
-    auto [axisAttr, outputDataType] =
-        getAxisAndDataType(op, elementType, rewriter, this->getTypeConverter());
+    auto axisAttr = getAxis(elementType, rewriter);
+    auto outputDataType =
+        getDataType(op.getResult(), rewriter, this->getTypeConverter());
 
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
@@ -1631,8 +1632,9 @@ public:
           op, "Only per tensor quantization is supported right now.");
     }
 
-    auto [axisAttr, outputDataType] = getAxisAndDataType(
-        op, inputElementType, rewriter, this->getTypeConverter());
+    auto axisAttr = getAxis(inputElementType, rewriter);
+    auto outputDataType =
+        getDataType(op.getResult(), rewriter, this->getTypeConverter());
 
     rewriter.replaceOpWithNewOp<ttnn::RequantizeOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
