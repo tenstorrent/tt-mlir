@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/debug.h"
+#include <set>
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
@@ -14,10 +15,15 @@ Env const &Env::get(bool loadKernelsFromDisk) {
 }
 
 Hooks const &Hooks::get(
-    std::string key,
+    std::optional<std::string> callbackKey,
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
         operatorCallback) {
-  static Hooks config(key, operatorCallback);
+  if (std::set<std::string> validKeys{"post-op", "pre-op", ""};
+      !validKeys.contains(callbackKey.value())) {
+    throw std::runtime_error("callbackKey must be 'post-op' or 'pre-op', got " +
+                             callbackKey.value());
+  }
+  static Hooks config(callbackKey, operatorCallback);
   return config;
 }
 

@@ -45,14 +45,14 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
 struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static Hooks const &
-  get(std::string callbackKey,
+  get(std::optional<std::string> callbackKey = "",
       std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
   constexpr static Hooks get() { return Hooks(); }
 #endif
 
-  std::string getCallbackKey() const {
+  std::optional<std::string> getCallbackKey() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return callbackKey;
 #else
@@ -78,12 +78,12 @@ struct Hooks {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  Hooks(std::string callbackKey,
+  Hooks(std::optional<std::string> callbackKey,
         std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
             operatorCallback)
       : callbackKey(callbackKey), operatorCallback(operatorCallback) {}
 
-  mutable std::string callbackKey;
+  mutable std::optional<std::string> callbackKey;
   mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
       operatorCallback;
 
@@ -95,7 +95,8 @@ private:
 inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
   os << "debug::Hooks{\n"
      << "\t"
-     << "callbackKey: " << static_cast<std::string>(hooks.getCallbackKey())
+     << "callbackKey: "
+     << static_cast<std::string>(hooks.getCallbackKey().value())
      << "operatorCallback: " << static_cast<bool>(hooks.getOperatorCallback())
      << ",\n"
      << "}";
@@ -105,3 +106,5 @@ inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
 } // namespace tt::runtime::debug
 
 #endif // TT_RUNTIME_DETAIL_DEBUG_H
+       //      << "callbackKey: " <<
+       //      static_cast<std::basic_ostream<char>>(hooks.getCallbackKey())
