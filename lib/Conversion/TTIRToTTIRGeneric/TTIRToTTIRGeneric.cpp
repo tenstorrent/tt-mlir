@@ -29,6 +29,9 @@ class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
 
+  TTIRNamedRewriterCommon(uint64_t deviceGridRank)
+      : deviceGridRank(deviceGridRank) {}
+
   // Common need to navigate DPS (<inputs>;<inits>) operand split:
   // note that this requires only 'getDpsInits()' to be available.
   template <typename ConcreteOp>
@@ -143,6 +146,7 @@ protected:
 
   static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
 
+  uint64_t deviceGridRank;
 }; // end of class
 } // namespace
 // ............................................................................
@@ -159,7 +163,7 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        deviceGridRank(deviceGridRank) {}
+        TTIRNamedRewriterCommon(deviceGridRank) {}
 
 private:
   LogicalResult
@@ -243,8 +247,6 @@ private:
                                               tt::IteratorType::Parallel);
     return SmallVector<mlir::Attribute>(rank, parallel);
   }
-
-  uint64_t deviceGridRank;
 }; // end of class
 } // namespace
 // ............................................................................
@@ -263,7 +265,7 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        deviceGridRank(deviceGridRank) {}
+        TTIRNamedRewriterCommon(deviceGridRank) {}
 
 private:
   LogicalResult
@@ -469,8 +471,6 @@ private:
       std::forward<F>(fn)(d, dims[d]);
     }
   }
-
-  uint64_t deviceGridRank;
 }; // end of class
 } // namespace
 // ............................................................................
@@ -488,7 +488,7 @@ public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
                      uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        deviceGridRank(deviceGridRank) {}
+        TTIRNamedRewriterCommon(deviceGridRank) {}
 
 private:
   LogicalResult
@@ -583,8 +583,6 @@ private:
                                        std::array<unsigned, 2> targets) {
     return mlir::AffineMap::getMultiDimMapWithTargets(3, targets, ctx);
   }
-
-  uint64_t deviceGridRank;
 }; // end of class
 } // namespace
 // ............................................................................

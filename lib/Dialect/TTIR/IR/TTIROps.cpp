@@ -313,31 +313,23 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 
 bool mlir::tt::ttir::ConstantOp::bufferizesToMemoryRead(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  // If the operand is an input, it is a bufferized to a memory read.
   return false;
 }
 
 bool mlir::tt::ttir::ConstantOp::bufferizesToMemoryWrite(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  // If the operand is an output, it is a bufferized to a memory write.
   return false;
 }
 
 mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options) {
-  auto moduleOp = getOperation()->getParentOfType<ModuleOp>();
-  assert(moduleOp && "ConstantOp must be in a module");
-  if (!moduleOp) {
-    return failure();
-  }
-
   ::llvm::SmallVector<mlir::Value> invocationStack;
   auto memrefType = mlir::cast<mlir::MemRefType>(
       *getBufferType(getResult(), options, invocationStack));
 
-  mlir::memref::GlobalOp global =
-      createGlobal(getOperation(), memrefType, getValue());
+  mlir::memref::GlobalOp global = createGlobal(
+      getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
       rewriter, *this, global.getType(), global.getName());
 
@@ -1965,7 +1957,7 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
 
-// ViewLayoutOp verification
+// ViewLayoutOp verificatin
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   return verifyLayoutOp(*this, getInput().getType(), getResult().getType(),
                         /*allowFormatChange*/ false,

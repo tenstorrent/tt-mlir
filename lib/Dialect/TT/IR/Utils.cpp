@@ -43,15 +43,10 @@ DeviceAttr lookupDevice(Operation *op, llvm::StringRef deviceName) {
   return deviceOp.getDeviceAttr();
 }
 
-mlir::memref::GlobalOp createGlobal(Operation *op, StringRef name,
+mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, StringRef name,
                                     mlir::MemRefType type, ElementsAttr value,
                                     bool constant, bool privateVisibility,
                                     size_t alignment) {
-  ModuleOp moduleOp = dyn_cast<ModuleOp>(op);
-  if (!moduleOp) {
-    moduleOp = op->getParentOfType<ModuleOp>();
-  }
-
   SymbolTable symbolTable(moduleOp);
 
   if (constant && privateVisibility) {
@@ -92,7 +87,7 @@ mlir::memref::GlobalOp createGlobal(Operation *op, StringRef name,
 
   OpBuilder builder(moduleOp);
   auto global = builder.create<memref::GlobalOp>(
-      op->getLoc(), symbolName,
+      moduleOp->getLoc(), symbolName,
       /*sym_visibility*/
       builder.getStringAttr(privateVisibility ? "private" : "public"), type,
       value, constant,
@@ -106,7 +101,7 @@ mlir::memref::GlobalOp createGlobal(Operation *op, StringRef name,
   return global;
 }
 
-mlir::memref::GlobalOp createGlobal(Operation *op, mlir::MemRefType type,
+mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, mlir::MemRefType type,
                                     ElementsAttr value, bool constant,
                                     bool privateVisibility, size_t alignment) {
   SmallString<64> symbolName;
@@ -117,9 +112,9 @@ mlir::memref::GlobalOp createGlobal(Operation *op, mlir::MemRefType type,
   if (constant) {
     os << "constant_";
   }
-  interleave(type.getShape(), os, "x");
+  llvm::interleave(type.getShape(), os, "x");
   os << "x" << type.getElementType();
-  return createGlobal(op, symbolName, type, value, constant, privateVisibility,
+  return createGlobal(moduleOp, symbolName, type, value, constant, privateVisibility,
                       alignment);
 }
 
