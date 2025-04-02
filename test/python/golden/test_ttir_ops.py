@@ -765,6 +765,19 @@ def test_embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
+        (1, 32, 64, 512),
+        (1, 32, 1, 512),
+        (1,),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.int32],
+    targets=["ttnn"],
+)
+def test_update_cache(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.update_cache(in0, in1, in2)
+
+
+@compile_to_flatbuffer(
+    [
         (32, 32),
         (32, 32),
         (32, 32),
