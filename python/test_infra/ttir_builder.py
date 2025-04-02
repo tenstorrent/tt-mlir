@@ -922,9 +922,6 @@ class TTIRBuilder:
             ttir_kwargs={"dim": dim, "output": in1},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            output_type=self.get_type_from_torch_dtype(
-                self._get_golden_tensor(in1).dtype
-            ),
         )
 
     def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
@@ -1314,7 +1311,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def clamp(
+    def clamp_scalar(
         self,
         in0: Operand,
         min_arg: Optional[float] = None,
@@ -1328,6 +1325,33 @@ class TTIRBuilder:
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def clamp_tensor(
+        self,
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        in3: Operand,
+    ) -> OpView:
+        return self.op_proxy(
+            torch.clamp,
+            ttir.ClampTensorOp,
+            [in0, in1, in2, in3],
+            golden_kwargs={
+                "input": self._get_golden_tensor(in0),
+                "min": self._get_golden_tensor(in1),
+                "max": self._get_golden_tensor(in2),
+                "out": self._get_golden_tensor(in3),
+            },
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                i[1],
+                i[2],
+                i[3],
+            ),
+            organize_golden_args=lambda i: 0,
         )
 
     def zeros(self, shapes: List[Shape], data_type: Optional[Type] = None) -> OpView:

@@ -124,9 +124,16 @@ def test_gelu(in0: Operand, builder: TTIRBuilder):
     return builder.gelu(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_clamp(in0: Operand, builder: TTIRBuilder):
-    return builder.clamp(in0, max_arg=1.0, min_arg=0.0)
+@compile_to_flatbuffer([(64, 128)], inputs_types=[torch.bfloat16], targets=["ttnn"])
+def test_clamp_scalar(in0: Operand, builder: TTIRBuilder):
+    return builder.clamp_scalar(in0, max_arg=3.0, min_arg=2.0)
+
+
+@compile_to_flatbuffer([(32, 64), (32, 64), (32, 64), (32, 64)], targets=["ttnn"])
+def test_clamp_tensor(
+    in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+):
+    return builder.clamp_tensor(in0, in1, in2, in3)
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
