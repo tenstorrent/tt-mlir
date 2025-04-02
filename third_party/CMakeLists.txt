@@ -81,6 +81,8 @@ endif()
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
+  CMAKE_ARGS
+    -DCMAKE_INSTALL_MESSAGE=LAZY
   CMAKE_GENERATOR Ninja
   CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
