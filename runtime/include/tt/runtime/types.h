@@ -159,8 +159,10 @@ struct Binary : public Flatbuffer {
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
 };
 
+class TensorCache;
 struct Device : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  std::shared_ptr<TensorCache> cache;
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {

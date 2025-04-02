@@ -235,6 +235,10 @@ Tensor createTensor(std::shared_ptr<void> data,
   LOG_FATAL("runtime is not enabled");
 }
 
+void initCache(Device &device) {
+  device.cache = std::make_shared<TensorCache>();
+}
+
 Tensor createOwnedMultiDeviceHostTensor(
     std::vector<void const *> const &data,
     std::vector<std::uint32_t> const &shape,
@@ -747,13 +751,6 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   }
 #endif
   LOG_FATAL("runtime is not enabled");
-}
-
-std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
-                           std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputHandles) {
-  return submit(deviceHandle, executableHandle, programIndex, inputHandles,
-                nullptr);
 }
 
 Event submit(Device deviceHandle, Binary executableHandle,

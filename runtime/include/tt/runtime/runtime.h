@@ -110,6 +110,8 @@ inline Tensor createOwnedHostTensor(void const *data, TensorDesc const &desc) {
                                               desc.itemsize, desc.dataType);
 }
 
+void initCache(Device &device);
+
 inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {
   return ::tt::runtime::createBorrowedHostTensor(data, desc.shape, desc.stride,
                                                  desc.itemsize, desc.dataType);
@@ -190,8 +192,7 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputs,
-                           std::shared_ptr<TensorCache> tensorCache);
+                           std::vector<Tensor> const &inputs);
 
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex, std::vector<Tensor> const &inputs,
