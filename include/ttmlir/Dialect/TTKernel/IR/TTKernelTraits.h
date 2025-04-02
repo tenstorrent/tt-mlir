@@ -5,10 +5,11 @@
 #ifndef TTMLIR_DIALECT_TTIR_IR_TTKERNELTRAITS_H
 #define TTMLIR_DIALECT_TTIR_IR_TTKERNELTRAITS_H
 
+#include "mlir/IR/OpDefinition.h"
+
 namespace mlir {
 namespace tt {
 namespace ttkernel {
-namespace OpTrait {
 
 template <typename ConcreteType>
 class TTKernelFPUOpTrait
@@ -22,7 +23,6 @@ template <typename ConcreteType>
 class TTKernelInitOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelInitOpTrait> {};
 
-} // namespace OpTrait
 } // namespace ttkernel
 } // namespace tt
 } // namespace mlir

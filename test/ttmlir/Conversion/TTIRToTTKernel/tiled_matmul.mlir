@@ -29,7 +29,7 @@ module attributes {tt.system_desc = #system_desc} {
         // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_multicast_addr"
         // CHECK: "ttkernel.noc_async_write_multicast"
-        %tx_0 = ttir.dma %arg0, %arg0, core[%core0, %c0] mcast[%c1, %c8] : (memref<1x3x!tt.tile<32x32, f32>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+        %tx_0 = ttir.dma %arg0, %arg0 core[%core0, %c0] mcast[%c1, %c8] : (memref<1x3x!tt.tile<32x32, f32>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_write_barrier"
         ttir.dma_wait %tx_0
         // ttir.semaphore_set %arg4, %c1, core[%core0, %c0] mcast[%c1, %c8]
