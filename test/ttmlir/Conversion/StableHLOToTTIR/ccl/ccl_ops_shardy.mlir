@@ -315,7 +315,7 @@ module @jit_neg_shardy7 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repl
 // -----
 
 // jax/pjrt sharding target 2x4 for t3k - Shardy all_reduce with automatic input sharding
-module @jit_matmul_shardy_automatic attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+module @jit_matmul_shardy_automatic_test1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   sdy.mesh @mesh = <["x"=2, "y"=4]>
   func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}, %arg1: tensor<784x16384xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {}]>}) -> (tensor<8192x16384xf32> {jax.result_info = ""}) {
     %0 = sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"x"}, {"y"}]>, <@mesh, [{"y"}, {}]>] out_shardings=[<@mesh, [{"x"}, {}]>] manual_axes={"x", "y"} (%arg2: tensor<4096x196xf32>, %arg3: tensor<196x16384xf32>) {
@@ -331,8 +331,8 @@ module @jit_matmul_shardy_automatic attributes {mhlo.num_partitions = 8 : i32, m
   }
 }
 // CHECK-LABEL @main
-// CHECK: %arg{{[0-9]+}}: tensor<8192x784xf32, #tt.mesh_sharding<"mesh" : [ 2(0),  4(1)]>>
-// CHECK-SAME: %arg{{[0-9]+}}: tensor<784x16384xf32, #tt.mesh_sharding<"mesh" : [ 4(1),  1]>>
+// CHECK: %arg{{[0-9]+}}: tensor<8192x784xf32, #tt.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
+// CHECK-SAME: %arg{{[0-9]+}}: tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>
 // CHECK-NOT: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<8192x16384xf32>
 
@@ -341,7 +341,7 @@ module @jit_matmul_shardy_automatic attributes {mhlo.num_partitions = 8 : i32, m
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 4>
 // CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<8192x784xf32, #tt.mesh_sharding<"mesh" : [ 2(0),  4(1)]>>
+// CHECK-SAME: tensor<8192x784xf32, #tt.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
 // CHECK-SAME: tensor<4096x196xf32, #tt.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<4096x196xf32, #tt.mesh_sharding<"mesh">>
 
@@ -350,7 +350,7 @@ module @jit_matmul_shardy_automatic attributes {mhlo.num_partitions = 8 : i32, m
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
 // CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<784x16384xf32, #tt.mesh_sharding<"mesh" : [ 4(1),  1]>>
+// CHECK-SAME: tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>
 // CHECK-SAME: tensor<196x16384xf32, #tt.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<196x16384xf32, #tt.mesh_sharding<"mesh">>
 
@@ -373,7 +373,7 @@ module @jit_matmul_shardy_automatic attributes {mhlo.num_partitions = 8 : i32, m
 // -----
 
 // jax/pjrt automatic input/output sharding tests
-module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
+module @jit_matmul_shardy_automatic_test2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   sdy.mesh @mesh = <["x"=2, "y"=4]>
   func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}, %arg1: tensor<784x16384xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {}]>}) -> (tensor<8192x16384xf32> {jax.result_info = "", sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {}]>}) {
     %0 = sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{"x"}, {"y"}]>, <@mesh, [{"y"}, {}]>] out_shardings=[<@mesh, [{"x"}, {}]>] manual_axes={"x", "y"} (%arg2: tensor<4096x196xf32>, %arg3: tensor<196x16384xf32>) {
@@ -389,16 +389,16 @@ module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
   }
 }
 // CHECK-LABEL @main
-// CHECK: %arg{{[0-9]+}}: tensor<8192x784xf32, #tt.mesh_sharding<"mesh" : [ 2(0),  4(1)]>>
-// CHECK-SAME: %arg{{[0-9]+}}: tensor<784x16384xf32, #tt.mesh_sharding<"mesh" : [ 4(1),  1]>>
-// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh" : [ 2(0),  1]>>
+// CHECK: %arg{{[0-9]+}}: tensor<8192x784xf32, #tt.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
+// CHECK-SAME: %arg{{[0-9]+}}: tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>
+// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh", [ 2(0),  1]>>
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, 1>
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 2, 4>
 // CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<8192x784xf32, #tt.mesh_sharding<"mesh" : [ 2(0),  4(1)]>>
+// CHECK-SAME: tensor<8192x784xf32, #tt.mesh_sharding<"mesh", [ 2(0),  4(1)]>>
 // CHECK-SAME: tensor<4096x196xf32, #tt.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<4096x196xf32, #tt.mesh_sharding<"mesh">>
 
@@ -407,7 +407,7 @@ module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 // CHECK-SAME: shard_direction = #tt.shard_direction<full_to_shard>
 // CHECK-SAME: shard_shape = array<i64: 4, 1>
 // CHECK-SAME: shard_type = #tt.shard_type<identity>
-// CHECK-SAME: tensor<784x16384xf32, #tt.mesh_sharding<"mesh" : [ 4(1),  1]>>
+// CHECK-SAME: tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>
 // CHECK-SAME: tensor<196x16384xf32, #tt.mesh_sharding<"mesh">>
 // CHECK-SAME: tensor<196x16384xf32, #tt.mesh_sharding<"mesh">>
 
@@ -422,5 +422,5 @@ module @jit_matmul_shardy1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_r
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
 // CHECK-SAME: shard_type = #tt.shard_type<identity>
 // CHECK-SAME: tensor<4096x16384xf32, #tt.mesh_sharding<"mesh">>
-// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh" : [ 2(0),  1]>>
-// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh" : [ 2(0),  1]>>
+// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh", [ 2(0),  1]>>
+// CHECK-SAME: tensor<8192x16384xf32, #tt.mesh_sharding<"mesh", [ 2(0),  1]>>

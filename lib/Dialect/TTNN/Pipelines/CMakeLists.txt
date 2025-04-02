@@ -18,5 +18,3 @@ add_mlir_dialect_library(MLIRTTNNPipelines
   MLIRPass
   MLIRTransforms
 )
-
-target_link_libraries(MLIRTTNNPipelines PUBLIC coverage_config)

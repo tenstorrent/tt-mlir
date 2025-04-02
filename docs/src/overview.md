@@ -83,7 +83,7 @@ hierarchy of an MLIR Module is as shown:
 ```
 module attributes {tt.system_desc = #tt.system_desc<[<#tt.arch<wormhole_b0>, #tt.grid<8x8>>], [0], [<pcie|host_mmio>], [<0, 0, 0, 0>]>} {
   func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    %0 = tensor.empty() : tensor<64x128xf32>
+    %0 = ttir.empty() : tensor<64x128xf32>
     %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     return %1 : tensor<64x128xf32>
   }
@@ -99,7 +99,7 @@ module attributes {tt.system_desc = #tt.system_desc<[<#tt.arch<wormhole_b0>, #tt
 -   Operations
 
     -   These operations are accessed with the . method, so you'll see
-        some examples like func.func or tensor.empty. Each operation
+        some examples like func.func or ttir.empty. Each operation
         also provides it's own assembly instructions but often strictly
         defines the type of result
 

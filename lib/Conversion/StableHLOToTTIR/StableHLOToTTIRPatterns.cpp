@@ -2,21 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <algorithm>
-#include <cmath>
-#include <limits>
-#include <vector>
-
-#include "mlir/Dialect/Traits.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinAttributeInterfaces.h"
-#include "mlir/IR/Region.h"
-#include "mlir/IR/Value.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/Mesh.h"
@@ -25,17 +13,28 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
-#include <llvm/ADT/APFloat.h>
-#include <llvm/ADT/STLExtras.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Func/Transforms/FuncConversions.h>
-#include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/IR/ValueRange.h>
-#include <mlir/Support/LogicalResult.h>
-#include <stablehlo/dialect/StablehloOps.h>
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Traits.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributeInterfaces.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Region.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <vector>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -248,7 +247,7 @@ private:
                                 ConversionPatternRewriter &rewriter) const {
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     // Can't reuse the original dimensions attribute because it uses i64 type.
@@ -852,7 +851,7 @@ public:
 
     SmallVector<Value> outputsVec;
     for (uint32_t i = 0; i < srcOp.getResults().size(); i++) {
-      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+      ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
           srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
       outputsVec.push_back(outputTensor);
     }
@@ -1440,9 +1439,9 @@ determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
   */
   auto replicaGroupsShape = replicaGroups.getType().getShape();
 
-  if (replicaGroupsShape.size() == 0) {
-    // Cannot have replicas of size 0, this means we are not performing the
-    // collective communication operation across any device.
+  if (replicaGroupsShape.size() != 2) {
+    // Can only have replica groups of size 2. Otherwise, this is an ill formed
+    // graph and needs to be asserted.
     return failure();
   }
 
@@ -1458,7 +1457,7 @@ determineClusterAxis(::mlir::DenseIntElementsAttr replicaGroups,
     return success();
   }
 
-  // Default to cluster axis 0
+  // If replicaGroupsShape[1] == 1, then the cluster axis should be set to 0.
   clusterAxis = 0;
   return success();
 }
@@ -1898,37 +1897,78 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    if (std::optional<float> minValue = getConstantValue(adaptor.getMin()),
-        maxValue = getConstantValue(adaptor.getMax());
-        minValue && maxValue) {
-      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
+    std::optional<float> minValue = getConstantValue(adaptor.getMin());
+    std::optional<float> maxValue = getConstantValue(adaptor.getMax());
+    if (minValue && maxValue) {
+      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(),
           mlir::APFloat(*minValue), mlir::APFloat(*maxValue));
 
       return success();
     }
 
-    ttir::MaximumOp maximumOp = ttmlir::utils::createDPSOp<ttir::MaximumOp>(
-        rewriter, srcOp->getLoc(), outputType, adaptor.getMin(),
-        adaptor.getOperand());
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::MinimumOp>(
-        rewriter, srcOp, outputType, maximumOp.getResult(0), adaptor.getMax());
+    mlir::Value minTensor;
+    LogicalResult legalityResult = ttmlir::utils::broadcastValue(
+        rewriter, adaptor.getMin(), outputType, minTensor, srcOp->getLoc(),
+        /*frontUnsqueeze=*/false);
+    if (!legalityResult.succeeded()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Min attribute cannot be broadcasted to provided dimensions.");
+    }
+
+    mlir::Value maxTensor;
+    legalityResult = ttmlir::utils::broadcastValue(
+        rewriter, adaptor.getMax(), outputType, maxTensor, srcOp->getLoc(),
+        /*frontUnsqueeze=*/false);
+    if (!legalityResult.succeeded()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Max attribute cannot be broadcasted to provided dimensions.");
+    }
+
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(), minTensor,
+        maxTensor);
 
     return success();
   }
 
 private:
   std::optional<float> getConstantValue(Value value) const {
-    if (auto constantOp = value.getDefiningOp<ttir::ConstantOp>()) {
-      auto attr = constantOp.getValueAttr();
-      if (!attr.isSplat()) {
-        return {};
-      }
-      return attr.getElementType().isInteger()
-                 ? static_cast<float>(attr.getSplatValue<int>())
-                 : attr.getSplatValue<float>();
+    Operation *op = value.getDefiningOp();
+    while (
+        isa_and_present<ttir::BroadcastOp, ttir::ReshapeOp, ttir::TypecastOp>(
+            op)) {
+      op = op->getOperand(0).getDefiningOp();
     }
-    return {};
+    if (!op) {
+      return std::nullopt;
+    }
+
+    auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
+
+    if (!constantOp) {
+      return std::nullopt;
+    }
+
+    mlir::ElementsAttr attr = constantOp.getValueAttr();
+    if (!attr.isSplat()) {
+      return std::nullopt;
+    }
+
+    mlir::Type elementType = attr.getElementType();
+    mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
+    if (isa<IntegerType>(elementType)) {
+      fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
+                                 attr.getElementType().isSignedInteger(),
+                                 llvm::RoundingMode::TowardZero);
+      return fillValue.convertToFloat();
+    }
+    if (isa<FloatType>(elementType)) {
+      return static_cast<float>(
+          attr.getSplatValue<mlir::APFloat>().convertToDouble());
+    }
+
+    return std::nullopt;
   }
 };
 } // namespace
@@ -2028,70 +2068,14 @@ public:
     auto indicesAreSorted = adaptor.getIndicesAreSorted();
     auto uniqueIndices = adaptor.getUniqueIndices();
 
-    auto newScatterOp = ttmlir::utils::createDPSOp<ttir::ScatterOp>(
-        rewriter, srcOp->getLoc(), outputType, operand, scatterIndices, update,
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
+        rewriter, srcOp, outputType, operand, scatterIndices, update,
         llvm::SmallVector<int32_t>(updateWindowsDims),
         llvm::SmallVector<int32_t>(insertedWindowDims),
         llvm::SmallVector<int32_t>(inputBatchingDims),
         llvm::SmallVector<int32_t>(scatterIndicesBatchingDims),
         llvm::SmallVector<int32_t>(scatterDimsToOperandDims), indexVectorDim,
         indicesAreSorted, uniqueIndices);
-
-    rewriter.replaceOp(srcOp, newScatterOp);
-
-    return success();
-  }
-
-private:
-  void changeRegionTypes(mlir::Region &region,
-                         const mlir::TypeConverter &typeConverter,
-                         mlir::PatternRewriter &rewriter) const {
-    Block &block = *region.getBlocks().begin();
-    llvm::SmallVector<mlir::BlockArgument, 4> oldArguments(
-        block.getArguments().begin(), block.getArguments().end());
-    llvm::SmallVector<mlir::Value, 4> newArguments;
-
-    // Add new arguments with updated types to the block.
-    for (auto arg : oldArguments) {
-      if (auto newType = typeConverter.convertType(arg.getType())) {
-        mlir::BlockArgument newArg = block.addArgument(newType, arg.getLoc());
-        newArguments.push_back(newArg);
-      } else {
-        newArguments.push_back(arg); // Type didn't change
-      }
-    }
-
-    for (auto it : llvm::zip(oldArguments, newArguments)) {
-      mlir::BlockArgument oldArg = std::get<0>(it);
-      mlir::Value newArg = std::get<1>(it);
-      if (oldArg != newArg) {
-        oldArg.replaceAllUsesWith(newArg);
-      }
-    }
-
-    for (auto arg : oldArguments) {
-      if (!llvm::is_contained(newArguments, arg)) {
-        block.eraseArgument(arg.getArgNumber());
-      }
-    }
-  }
-};
-} // namespace
-
-namespace {
-class StableHLOToTTIRReturnOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::ReturnOp> {
-
-  using OpConversionPattern<mlir::stablehlo::ReturnOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::ReturnOp srcOp,
-                  mlir::stablehlo::ReturnOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::YieldOp>(srcOp,
-                                                         srcOp.getResults());
 
     return success();
   }
@@ -2150,10 +2134,12 @@ public:
 
     mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
 
-    float value =
-        paddingValueAttr.getElementType().isInteger()
-            ? static_cast<float>(paddingValueAttr.getSplatValue<int>())
-            : paddingValueAttr.getSplatValue<float>();
+    float value;
+    if (paddingValueAttr.getElementType().isInteger()) {
+      value = paddingValueAttr.getSplatValue<APInt>().signedRoundToDouble();
+    } else {
+      value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
+    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
         srcOp,
@@ -2280,7 +2266,9 @@ addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::PowOp, mlir::tt::ttir::PowerOp>>(typeConverter, ctx);
+      mlir::stablehlo::PowOp, mlir::tt::ttir::PowOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::Atan2Op, mlir::tt::ttir::Atan2Op>>(typeConverter, ctx);
 }
 
 static void addReduceOpsConversionPatterns(MLIRContext *ctx,
@@ -2422,12 +2410,6 @@ static void addScatterOpConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
 }
 
-static void addReturnOpConversionPatterns(MLIRContext *ctx,
-                                          RewritePatternSet &patterns,
-                                          TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIRReturnOpConversionPattern>(typeConverter, ctx);
-}
-
 static void addReverseOpConversionPattern(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
                                           TypeConverter &typeConverter) {
@@ -2465,7 +2447,6 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
   addIotaOpConversionPattern(ctx, patterns, typeConverter);
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
-  addReturnOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
 }

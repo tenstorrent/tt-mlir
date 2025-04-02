@@ -13,6 +13,7 @@
 #include <optional>
 
 namespace tt::runtime::ttnn::operations::matmul {
+
 // ANCHOR: adding_an_op_matmul_runtime_operations
 void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -28,9 +29,12 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
 
+  std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+      matmulProgramConfig = utils::createMatmulProgramConfigIfNeeded(op);
+
   ::ttnn::Tensor output = ::ttnn::matmul(
       lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, /*program_config=*/std::nullopt,
+      outputDataType, matmulProgramConfig,
       /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);

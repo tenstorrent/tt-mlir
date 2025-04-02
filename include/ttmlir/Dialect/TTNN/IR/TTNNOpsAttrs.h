@@ -46,4 +46,25 @@ inline bool isMeshDeviceTensor(TensorMeshShardingAttr tensorMeshSharding) {
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrDefs.h.inc"
 
+namespace mlir::tt::ttnn {
+inline void printCoordBracketStyle(::mlir::AsmPrinter &printer,
+                                   CoreCoordAttr coreCoordAttr) {
+  printer << "(" << coreCoordAttr.getX() << "," << coreCoordAttr.getY() << ")";
+}
+
+inline ::mlir::ParseResult
+parseCoordBracketStyle(::mlir::AsmParser &parser,
+                       CoreCoordAttr &coreCoordAttr) {
+  int64_t x, y;
+
+  if (parser.parseLParen() || parser.parseInteger(x) || parser.parseComma() ||
+      parser.parseInteger(y) || parser.parseRParen()) {
+    return ::mlir::failure();
+  }
+
+  coreCoordAttr = CoreCoordAttr::get(parser.getContext(), x, y);
+  return ::mlir::success();
+}
+} // namespace mlir::tt::ttnn
+
 #endif // TTMLIR_DIALECT_TTNN_IR_TTNNOPSATTRS_H

@@ -97,6 +97,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         grid = #tt.grid<1x1>,                        // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
+        threads = [#ttir.thread<compute>],           // Thread types for the regions.
         operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
       ({
       ^bb0(%arg2: memref<64x128xf32, #l1_>,
@@ -111,10 +112,64 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types);
+                         TT_IteratorTypeArrayAttr:$iterator_types,
+                         TTIR_ThreadArrayAttr:$threads);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
+
+    let assemblyFormat = [{ attr-dict `\n`
+    ` ` ` ` ` ` ` ` `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` ` `  $regions (`:`  type($results)^ )?
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "ArrayAttr": $indexingMaps,
+                     "ArrayAttr": $iteratorTypes),
+      [{
+        assert(!indexingMaps.empty() && "expected non-empty indexing maps");
+        auto firstIndexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]).getValue();
+        auto grid = $_builder.getAttr<tt::GridAttr>(SmallVector<int64_t>(firstIndexingMap.getNumResults(), 1));
+        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(ThreadType::Compute));
+        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, indexingMaps, iteratorTypes, threads, 1);
+      }]>,
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "ArrayAttr": $indexingMaps,
+                     "ArrayAttr": $iteratorTypes,
+                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $computeRegionBuilder),
+      [{
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes);
+        llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
+          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+          return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
+        });
+        Region& region = *$_state.regions.front().get();
+        llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
+        OpBuilder::InsertionGuard guard($_builder);
+        Block* block = $_builder.createBlock(&region, region.end(), blockTypes, locs);
+        computeRegionBuilder($_builder, $_state.location, block->getArguments());
+      }]>,
+    ];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
+      unsigned getNumLoops();
+      unsigned getNumDims();
+      SmallVector<int64_t> getLoopBounds();
+      SmallVector<AffineMap> getIndexingMapsValue();
+      SmallVector<IteratorType> getIteratorTypesValue();
+      SmallVector<SmallVector<int64_t>> getOperandGridShapes();
+      ThreadType getRegionThreadType(unsigned regionIndex) {
+        return mlir::cast<ThreadAttr>(getThreads()[regionIndex]).getThreadType();
+      }
+      bool isAffineMapForm() { return !getIndexingMaps().empty(); }
+      bool isLoweredLoopForm() { return !isAffineMapForm(); }
+      bool isExternalSymbolForm() { return getRegions().empty(); }
+    }];
 }
 
 def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
@@ -296,8 +351,7 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)> {
-}
+    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)>;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
@@ -770,7 +824,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroa
 
 // TODO We need to add a broadcastable trait to this op.
 // See issue https://github.com/tenstorrent/tt-mlir/issues/2015
-def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
+def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -778,11 +832,27 @@ def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
 
       Example:
       ```
-        %result = "ttir.power"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+        %result = "ttir.pow"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
 
         %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
         %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
         %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
+      ```
+    }];
+}
+
+def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
+    let summary = "Eltwise atan2 OP.";
+    let description = [{
+      Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
+      tensor.
+
+      Example:
+      ```
+        // %lhs: [0.0, 1.0, -1.0]
+        // %rhs: [1.0, 0.0, 0.0]
+        %result = "ttir.atan2"(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
+        // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
       ```
     }];
 }
@@ -820,7 +890,7 @@ def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
     // Input tensor of shape (128, 28, 28)
     %input = ... : tensor<128x28x28xbf16>
 
-    %empty = tensor.empty() : tensor<128x28xi32>
+    %empty = ttir.empty() : tensor<128x28xi32>
     %argmax = "ttir.argmax"(%arg0, %0) <{dim_arg = [0: i32, 2 : i32], keep_dim = false}> : (tensor<128x28x28xbf16>, tensor<128x28xi32>) -> tensor<128x28xi32>
     ```
 
@@ -1069,7 +1139,7 @@ def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
     %input = ... : tensor<2x3xf32>
 
     // Repeat each dimension twice
-    %empty = tensor.empty() : tensor<4x6xf32>
+    %empty = ttir.empty() : tensor<4x6xf32>
     %repeated = "repeat"(%input, %empty) {repeat_dimensions = array<i64: 2, 2>} : (tensor<2x3xf32>, tensor<4x6xf32>) -> tensor<4x6xf32>
     ```
   }];
@@ -1152,7 +1222,7 @@ def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
 
       Example:
       // %arg0: tensor<1x1x32xf32>
-      %0 = tensor.empty() : tensor<1x16x32xf32>
+      %0 = ttir.empty() : tensor<1x16x32xf32>
       %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
 
       Note: Currently, when generating a TTNN executable, the broadcast and repeat operations share the same semantics due to the lack of tensor view support in TTNN.
@@ -1267,10 +1337,10 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
       - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
 
       Example:
-        %input = tensor.empty() : () -> tensor<3x8x8x256xbf16>
-        %weight = tensor.empty() : () -> tensor<256x256x3x3xbf16>
-        %bias = tensor.empty() : () -> tensor<1x1x1x256xbf16>
-        %output = tensor.empty() : () -> tensor<1x10x10x256xbf16>
+        %input = ttir.empty() : () -> tensor<3x8x8x256xbf16>
+        %weight = ttir.empty() : () -> tensor<256x256x3x3xbf16>
+        %bias = ttir.empty() : () -> tensor<1x1x1x256xbf16>
+        %output = ttir.empty() : () -> tensor<1x10x10x256xbf16>
         %0 = "ttir.conv_transpose2d"(%input, %weight, %bias, %output)
           <{
             stride = 1: i32,
@@ -1537,7 +1607,7 @@ def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ClampOp : TTIR_NamedOp<"clamp"> {
+def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar"> {
     let summary = "Clamp op.";
     let description = [{
       Clamp tensor values to a specified range.
@@ -1547,7 +1617,7 @@ def TTIR_ClampOp : TTIR_NamedOp<"clamp"> {
         input: [[0, 1, 2, 3, 4, 5, 6, 7]]
         max: 5.000000+00
 
-        "ttir.clamp"(%arg0) <{max = 2.000000e+00 : f32, min = 5.000000e+00 : f32}>
+        "ttir.clamp_scalar"(%arg0) <{max = 2.000000e+00 : f32, min = 5.000000e+00 : f32}>
         -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
     }];
 
@@ -1559,6 +1629,28 @@ def TTIR_ClampOp : TTIR_NamedOp<"clamp"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
+  let summary = "Clamp op.";
+  let description = [{
+    Clamp tensor values to a specified range using min/max as tensor.
+
+    Example:
+      min:   [[2, 2, 2, 3, 3, 3, 0, 0]]
+      input: [[0, 1, 2, 3, 4, 5, 6, 7]]
+      max:   [[5, 5, 5, 9, 9, 9, 6, 6]]
+
+      "ttir.clamp_tensor"(%input, %min, %max)
+      %out:  [[2, 2, 2, 3, 4, 5, 6, 6]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$min,
+                       AnyRankedTensor:$max,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_ArangeOp : TTIR_Op<"arange"> {
@@ -1603,7 +1695,14 @@ def TTIR_ArangeOp : TTIR_Op<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTIR_ZerosOp : TTIR_Op<"zeros"> {
+class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
+  TTIR_Op<mnemonic, traits> {
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
+def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.
@@ -1614,13 +1713,9 @@ def TTIR_ZerosOp : TTIR_Op<"zeros"> {
       %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
   }];
-
-  let arguments = (ins DenseI32ArrayAttr:$shape);
-
-  let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_OnesOp : TTIR_Op<"ones"> {
+def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     Tensor operation to create a tensor filled with ones.
@@ -1631,10 +1726,6 @@ def TTIR_OnesOp : TTIR_Op<"ones"> {
       %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
   }];
-
-  let arguments = (ins DenseI32ArrayAttr:$shape);
-
-  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
@@ -1669,6 +1760,37 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasCanonicalizer = 1;
 }
 
+def TTIR_EmptyOp : TTIR_Op<"empty",
+  [ Pure
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+    let summary = "Empty op.";
+    let description = [{
+      Tensor empty operation
+    }];
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType, "Attribute": $encoding),
+      [{
+        build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
+      }]>,
+      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType),
+      [{
+        build($_builder, $_state, shape, elementType, nullptr);
+      }]>
+    ];
+
+    let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
+}
+
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
                                            AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
@@ -1695,9 +1817,9 @@ def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
       Produces tensor filled with given fill value.
 
       Examples:
-        %0 = tensor.empty() : () -> tensor<2x3xi32>
+        %0 = ttir.empty() : () -> tensor<2x3xi32>
         %1 = "ttir.fill"(%0) {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
-        %2 = tensor.empty() : () -> tensor<2xf32>
+        %2 = ttir.empty() : () -> tensor<2xf32>
         %3 = "ttir.fill"(%2) {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
     }];
 
@@ -1713,10 +1835,10 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
       Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
 
       Example:
-        %a = tensor.empty() : () -> tensor<10x64x32xbf16>
-        %b = tensor.empty() : () -> tensor<32x128xbf16>
-        %bias = tensor.empty() : () -> tensor<128xbf16>
-        %output = tensor.empty() : () -> tensor<10x64x128xbf16>
+        %a = ttir.empty() : () -> tensor<10x64x32xbf16>
+        %b = ttir.empty() : () -> tensor<32x128xbf16>
+        %bias = ttir.empty() : () -> tensor<128xbf16>
+        %output = ttir.empty() : () -> tensor<10x64x128xbf16>
         %0 = "ttir.linear"(%a, %b, %bias, %output) : (tensor<10x64x32xbf16>, tensor<32x128xbf16>, tensor<128xbf16>, tensor<10x64x128xbf16>) -> tensor<10x64x128xbf16>
     }];
 
@@ -1764,8 +1886,8 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute"> {
         - `permutation` array<i64>: The permutation of the input tensor dimensions.
 
       Example:
-      %a = tensor.empty() : () -> tensor<2x3x4xi32>
-      %output = tensor.empty() : () -> tensor<3x4x2xi32>
+      %a = ttir.empty() : () -> tensor<2x3x4xi32>
+      %output = ttir.empty() : () -> tensor<3x4x2xi32>
       %0 = "ttir.permute"(%a, %output) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>, tensor<3x4x2xi32>) -> tensor<3x4x2xi32>
     }];
 
@@ -1791,8 +1913,8 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
       - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
 
       Example:
-        %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
-        %output = tensor.empty() : () -> tensor<10x128x128x3xbf16>
+        %a = ttir.empty() : () -> tensor<10x64x32x3xbf16>
+        %output = ttir.empty() : () -> tensor<10x128x128x3xbf16>
         %0 = "ttir.upsample2d"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128x3xbf16>
     }];
 

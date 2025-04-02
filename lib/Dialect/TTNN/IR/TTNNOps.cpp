@@ -40,7 +40,7 @@ namespace mlir::tt::ttnn {
 // ClampOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttnn::ClampOp::verify() {
+::mlir::LogicalResult mlir::tt::ttnn::ClampScalarOp::verify() {
   ::mlir::Operation::operand_range inputs = getInputs();
   ::mlir::Operation::result_range outputs = getResults();
 

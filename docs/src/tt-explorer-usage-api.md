@@ -1,6 +1,16 @@
 # TT-Explorer
 This section provides a details about the usage of TT-Explorer.
 
+## Input Models
+Currently TT-Explorer supports 3 types of models that can be executed/visualized.
+
+| Input Type | Execution Support | Visualization Support |
+| --- | --- | --- |
+| `.ttnn` Flatbuffers with Debug Info | ✔️ | ✔️ |
+| `.ttnn` Flatbuffers without Debug Info | ❌ | ❌ |
+| `.mlir` TTIR Modules | ✔️ | ✔️ |
+| `.mlir` TTNN Modules | ❌ | ✔️ |
+
 ## CLI
 The CLI for `tt-explorer` provides a simple suite of options to start the UI:
 
@@ -25,7 +35,13 @@ This command will start the TT-Explorer server on port 8000, accessible at the a
 For general reference of the UI, refer to the [model-explorer wiki](https://github.com/google-ai-edge/model-explorer/wiki). This section will highlight specific UI elements added to the Tenstorrent fork of model-explorer.
 
 ### Model Execution
-In the top right of the screen an additional element has been added to the top bar. It features the UI elements that invoke the execution functionality.
+In the top right of the screen an additional element has been added to the top bar. It features the UI elements that invoke the execution functionality. Once the model has executed, _overlays_ are also created. These overlays provide information on how the execution went.
+
+#### Performance Overlay
+The performance overlay is generated on **every** execution, it highlights the time it took to execute each node on the graph. This is visualized with a gradient from Yellow -> Red, with Yellow being the lowest time amongst all nodes on the graph, and Red being highest.
+
+#### Accuracy Overlay
+The accuracy overlay is _only_ generated when executing from a compatible flatbuffer (`.ttnn` file extension with Debug Info). The overlay consists of either Green or Red node overlays. Green if the node passed a "golden" test, Red if not. The value for the overlay is the actual Pearson Correlation Coefficient (PCC) value with the "golden" tensor subtracted by the expected PCC value. If the number is `< 0` we know it doesn't match the expected PCC, otherwise it is an accurate comparison.
 
 #### Opt. Policy
 This dropdown provides a list of **Optimization Policies** which will be used when the model is executed. These policies are applied when lowering from a `ttir` module to an executable `ttnn` module.

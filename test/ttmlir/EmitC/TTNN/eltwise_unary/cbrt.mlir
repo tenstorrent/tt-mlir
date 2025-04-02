@@ -7,7 +7,7 @@
 // Related issue: https://github.com/tenstorrent/tt-mlir/issues/2261
 
 func.func @cbrt(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-  %0 = tensor.empty() : tensor<64x128xf32>
+  %0 = ttir.empty() : tensor<64x128xf32>
   %1 = "ttir.cbrt"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }

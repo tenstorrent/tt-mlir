@@ -9,9 +9,9 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -22,9 +22,9 @@ namespace mlir::tt::ttmetal {
 //===----------------------------------------------------------------------===//
 
 void createTTIRBufferizationPipeline(OpPassManager &pm) {
-  pm.addPass(mlir::tt::ttir::createTTIRPrepareTensorsForBufferization());
+  pm.addPass(ttir::createTTIRPrepareTensorsForBufferization());
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
-  mlir::tt::ttir::initializeOneShotBufferizationOptions(bufferizationOptions);
+  ttir::initializeOneShotBufferizationOptions(bufferizationOptions);
   pm.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
   // TODO(#2246)
@@ -34,6 +34,14 @@ void createTTIRBufferizationPipeline(OpPassManager &pm) {
   //    pm, bufferDeallocationOptions);
 }
 
+void createOptimizationPasses(OpPassManager &pm) {
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  pm.addPass(mlir::createSCCPPass());
+  pm.addPass(mlir::createCSEPass());
+  pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
+}
+
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
   tt::TTRegisterDevicePassOptions registerDeviceOptions;
@@ -41,26 +49,29 @@ void createTTIRToTTMetalBackendPipeline(
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
-  pm.addPass(mlir::tt::createTTRegisterDevicePass(registerDeviceOptions));
-  pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
+  pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(ttir::createTTIRConstantAsFill());
   ttir::TTIRAttachMetalLayoutOptions attachMetalLayoutOptions;
-  pm.addPass(
-      mlir::tt::ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
-  pm.addPass(mlir::tt::ttir::createTTIRGeneralizeNamedOps());
+  pm.addPass(ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
+  pm.addPass(tt::createTTIRToTTIRGenericPass());
   ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
   {
     optimizeTensorLayoutOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
   }
-  pm.addPass(mlir::tt::ttir::createTTIROptimizeTensorLayout(
-      optimizeTensorLayoutOptions));
+  pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
   createTTIRBufferizationPipeline(pm);
   pm.addPass(ttir::createTTIRPlaceholderAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-  pm.addPass(mlir::tt::ttir::createTTIRGenericLinearizeMemref());
+  pm.addPass(ttir::createTTIRGenericLinearizeMemref());
   pm.addPass(mlir::createLowerAffinePass());
-  pm.addPass(mlir::tt::ttir::createTTIRGenericGenerateDatamovement());
+  pm.addPass(ttir::createTTIRGenericGenerateDatamovement());
+  pm.addPass(ttir::createTTIRGenericLowerDMAs());
+  pm.addPass(ttir::createTTIRGenericHWThreadSelection());
+  pm.addPass(ttir::createTTIRGenericGenerateLoops());
+  createOptimizationPasses(pm);
+  pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
 }
 
 //===----------------------------------------------------------------------===//

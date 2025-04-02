@@ -2,30 +2,28 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
+
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
-#include "mlir/Transforms/WalkPatternRewriteDriver.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
 #include <array>
 
 // ----------------------------------------------------------------------------
-namespace mlir::tt::ttir {
-
-#define GEN_PASS_DEF_TTIRGENERALIZENAMEDOPS
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+namespace mlir::tt {
 
 using namespace llvm;
 
 namespace {
-
 class TTIRNamedRewriterCommon {
 protected:
   using base = TTIRNamedRewriterCommon;
@@ -96,20 +94,21 @@ protected:
 }; // end of class
 } // namespace
 // ............................................................................
-namespace {
 // Rewrite elementwise ops by emitting a matching tile version of the op
 // into a ttir.generic/linang.generic nest.
+namespace {
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedElementwiseRewriter final
-    : public mlir::OpRewritePattern<ConcreteOp>,
+    : public mlir::OpConversionPattern<ConcreteOp>,
       TTIRNamedRewriterCommon {
 
 public:
-  using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern;
+  using mlir::OpConversionPattern<ConcreteOp>::OpConversionPattern;
 
 private:
-  LogicalResult matchAndRewrite(ConcreteOp op,
-                                mlir::PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
     checkPreconditions(op);
 
     mlir::MLIRContext *ctx = rewriter.getContext();
@@ -133,10 +132,9 @@ private:
         getIteratorTypesArray(rewriter, rank);
 
     // Create 'ttir.generic' accepting 'op's operands.
-    auto generic = rewriter.create<GenericOp>(
-        loc, mlir::TypeRange(outputs), inputs, outputs, grid,
-        rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
+    auto generic = rewriter.create<ttir::GenericOp>(
+        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     rewriter.startOpModification(generic);
@@ -216,22 +214,23 @@ private:
 }; // end of class
 } // namespace
 // ............................................................................
-namespace {
 // Rewriting reduction ops is similar to the elementwise group except for
 // ops whose tiled counterparts require a scaler operand ('weights', etc).
 // This rewriter will emit a single tile scaler operand that will be
 // broadcast across the lhs indexing space.
+namespace {
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedReductionRewriter final
-    : public mlir::OpRewritePattern<ConcreteOp>,
+    : public mlir::OpConversionPattern<ConcreteOp>,
       TTIRNamedRewriterCommon {
 
 public:
-  using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern;
+  using mlir::OpConversionPattern<ConcreteOp>::OpConversionPattern;
 
 private:
-  LogicalResult matchAndRewrite(ConcreteOp op,
-                                mlir::PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
     checkPreconditions(op);
 
     mlir::MLIRContext *ctx = rewriter.getContext();
@@ -267,10 +266,9 @@ private:
         getIteratorTypesArray(rewriter, op, rank);
 
     // Create 'ttir.generic' accepting extended operands.
-    auto generic = rewriter.create<GenericOp>(
-        loc, mlir::TypeRange(outputs), newInputs, outputs, grid,
-        rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
+    auto generic = rewriter.create<ttir::GenericOp>(
+        loc, newInputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     rewriter.startOpModification(generic);
@@ -416,10 +414,10 @@ private:
     mlir::DenseElementsAttr scalerValue =
         mlir::SplatElementsAttr::get(scalerType, one);
 
-    return builder.create<ConstantOp>(loc, scalerType, scalerValue);
+    return builder.create<ttir::ConstantOp>(loc, scalerType, scalerValue);
   }
 
-  static ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
+  static ttir::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
     // TODO(#2613) This implements a very simple case; more work is required
     // to decompose more than 2 right-most dims being reduced over.
     assert(rank <= 64 && "rank value too large for a 64-bit set");
@@ -432,11 +430,11 @@ private:
 
     switch (bits) {
     case 1:
-      return ReduceDim::R;
+      return ttir::ReduceDim::R;
     case 2:
-      return ReduceDim::C;
+      return ttir::ReduceDim::C;
     case 3:
-      return ReduceDim::RC;
+      return ttir::ReduceDim::RC;
     }
     llvm_unreachable("unexpected dimArg bit pattern");
   }
@@ -467,18 +465,20 @@ private:
 namespace {
 // At this time, matmul ops are rewritten into a ttir.generic without a nested
 // linagl.generic because we use metal counterpart op that is already "blocked".
-class TTIRMatmulRewriter final : public mlir::OpRewritePattern<MatmulOp>,
-                                 TTIRNamedRewriterCommon {
+class TTIRMatmulRewriter final
+    : public mlir::OpConversionPattern<ttir::MatmulOp>,
+      TTIRNamedRewriterCommon {
 
-  using ConcreteOp = MatmulOp;
-  using TileOp = TileMatmulBlockOp;
+  using ConcreteOp = ttir::MatmulOp;
+  using TileOp = ttir::TileMatmulBlockOp;
 
 public:
-  using mlir::OpRewritePattern<ConcreteOp>::OpRewritePattern;
+  using mlir::OpConversionPattern<ConcreteOp>::OpConversionPattern;
 
 private:
-  LogicalResult matchAndRewrite(ConcreteOp op,
-                                mlir::PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
     checkPreconditions(op);
 
     mlir::MLIRContext *ctx = rewriter.getContext();
@@ -504,10 +504,9 @@ private:
         getIteratorTypesArray(rewriter, rank);
 
     // Create 'ttir.generic' accepting 'op's operands.
-    auto generic = rewriter.create<GenericOp>(
-        loc, mlir::TypeRange(outputs), inputs, outputs, grid,
-        rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
+    auto generic = rewriter.create<ttir::GenericOp>(
+        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     rewriter.startOpModification(generic);
@@ -577,34 +576,24 @@ private:
 } // namespace
 // ............................................................................
 
-struct TTIRGeneralizeNamedOps final
-    : impl::TTIRGeneralizeNamedOpsBase<TTIRGeneralizeNamedOps> {
+void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+  // clang-format off
+  patterns.add<
+    // Elementwise.
+    TTIRNamedElementwiseRewriter<ttir::AddOp,       ttir::TileAddOp>,
+    TTIRNamedElementwiseRewriter<ttir::MultiplyOp,  ttir::TileMulOp>,
+    TTIRNamedElementwiseRewriter<ttir::ExpOp,       ttir::TileExpOp>,
+    TTIRNamedElementwiseRewriter<ttir::LogOp,       ttir::TileLogOp>,
+    // Reductions.
+    TTIRNamedReductionRewriter<ttir::SumOp,         ttir::TileReduceSumOp>,
+    TTIRNamedReductionRewriter<ttir::MaxOp,         ttir::TileReduceMaxOp>,
+    // Matmul.
+    TTIRMatmulRewriter
+  >(typeConverter, ctx);
+  // clang-format on
+}
 
-  void runOnOperation() final {
-    auto &ctx = getContext();
-
-    mlir::RewritePatternSet patterns(&ctx);
-    // clang-format off
-    {
-      patterns.add<
-        TTIRNamedElementwiseRewriter<AddOp,       TileAddOp>,
-        TTIRNamedElementwiseRewriter<MultiplyOp,  TileMulOp>,
-        TTIRNamedElementwiseRewriter<ExpOp,       TileExpOp>,
-        TTIRNamedElementwiseRewriter<LogOp,       TileLogOp>,
-
-        TTIRNamedReductionRewriter<SumOp,         TileReduceSumOp>,
-        TTIRNamedReductionRewriter<MaxOp,         TileReduceMaxOp>,
-
-        TTIRMatmulRewriter
-      >(&ctx);
-    }
-    // clang-format on
-    walkAndApplyPatterns(getOperation(), std::move(patterns));
-  }
-
-}; // end of class
-
-#undef GEN_PASS_DEF_TTIRGENERALIZENAMEDOPS
-
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt
 // ----------------------------------------------------------------------------

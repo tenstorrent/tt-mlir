@@ -5,7 +5,7 @@
 
 module attributes {} {
   func.func @forward(%arg0: tensor<3x8x8x256xbf16>, %arg1: tensor<256x256x3x3xbf16>, %arg2: tensor<1x1x1x256xbf16>) -> tensor<3x10x10x256xbf16> {
-    %0 = tensor.empty() : tensor<3x10x10x256xbf16>
+    %0 = ttir.empty() : tensor<3x10x10x256xbf16>
     // CHECK: = "ttnn.conv_transpose2d"
     %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
             <{
