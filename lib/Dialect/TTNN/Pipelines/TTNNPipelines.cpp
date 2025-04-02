@@ -16,6 +16,7 @@
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include <mlir/Pass/PassRegistry.h>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -174,6 +175,14 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
+void createTTIRToSharedObjectPipeline(
+    OpPassManager &pm, const TTIRToSharedObjectPipelineOptions &options) {
+  createTTIRToTTNNBackendPipeline(pm, options);
+  pm.addPass(tt::createTTUnwrapDeviceModulePass());
+  pm.addPass(createTTNNModifySignaturesForDylib());
+  pm.addPass(createConvertTTNNToEmitCPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -195,5 +204,15 @@ void registerTTNNPipelines() {
       "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
       "dialect to EmitC.",
       mlir::tt::ttnn::createTTIRToEmitCPipeline);
+
+  // TTIR to SharedObject pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTIRToSharedObjectPipelineOptions>(
+      "ttir-to-sharedobject-pipeline",
+      "Pipeline lowering TTIR to SharedObject. Under the hood, it runs "
+      "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
+      "dialect to EmitC, but geared towards SharedObject generation.",
+      mlir::tt::ttnn::createTTIRToSharedObjectPipeline);
 }
 } // namespace mlir::tt::ttnn
