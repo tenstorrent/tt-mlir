@@ -1458,6 +1458,17 @@ def TTNN_ArangeOp : TTNN_Op<"arange", [TT_CreationOpTrait]> {
   let hasVerifier = 1;
 }
 
+class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
+  TTNN_Op<mnemonic, !listconcat([HasMemoryConfigTrait], traits)> {
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TTNN_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
