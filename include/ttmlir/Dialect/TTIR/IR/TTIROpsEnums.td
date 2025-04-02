@@ -31,4 +31,15 @@ def TTIR_ReduceDim : I32EnumAttr<"ReduceDim", "TTIR ReduceDim", [
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_ThreadTypeCompute : I32EnumAttrCase<"Compute", 0, "compute">;
+def TTIR_ThreadTypeDatamovement : I32EnumAttrCase<"Datamovement", 1, "datamovement">;
+
+def TTIR_ThreadType : I32EnumAttr<"ThreadType", "TTIR ThreadType", [
+                                  TTIR_ThreadTypeCompute,
+                                  TTIR_ThreadTypeDatamovement,
+                                ]> {
+  let genSpecializedAttr = 1;
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 #endif

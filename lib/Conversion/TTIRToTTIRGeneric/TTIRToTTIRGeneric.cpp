@@ -133,9 +133,8 @@ private:
 
     // Create 'ttir.generic' accepting 'op's operands.
     auto generic = rewriter.create<ttir::GenericOp>(
-        loc, mlir::TypeRange(outputs), inputs, outputs, grid,
-        rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
+        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     rewriter.startOpModification(generic);
@@ -268,9 +267,8 @@ private:
 
     // Create 'ttir.generic' accepting extended operands.
     auto generic = rewriter.create<ttir::GenericOp>(
-        loc, mlir::TypeRange(outputs), newInputs, outputs, grid,
-        rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
+        loc, newInputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     rewriter.startOpModification(generic);
@@ -507,9 +505,8 @@ private:
 
     // Create 'ttir.generic' accepting 'op's operands.
     auto generic = rewriter.create<ttir::GenericOp>(
-        loc, mlir::TypeRange(outputs), inputs, outputs, grid,
-        rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes), /* regionsCount */ 1);
+        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
 
     // Create one bb in 'generic''s region and set its arguments.
     rewriter.startOpModification(generic);

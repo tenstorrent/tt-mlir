@@ -12,11 +12,13 @@
 func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
   // CHECK: ttir.empty() : tensor<1x1x8x1x!tt.tile<32x32, f32>, #layout1>
   %0 = ttir.empty() : tensor<256x32xf32, #layout2>
-  // CHECK: : (tensor<1x1x8x12x!tt.tile<32x32, f32>, #layout>, tensor<1x1x8x12x!tt.tile<32x32, f32>, #layout>, tensor<1x1x8x1x!tt.tile<32x32, f32>, #layout1>) -> tensor<1x1x8x1x!tt.tile<32x32, f32>, #layout1>
+  // CHECK: ins({{.*}} : tensor<1x1x8x12x!tt.tile<32x32, f32>, #layout>, tensor<1x1x8x12x!tt.tile<32x32, f32>, #layout>)
+  // CHECK-NEXT: outs({{.*}} : tensor<1x1x8x1x!tt.tile<32x32, f32>, #layout1>)
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
+        threads = [#ttir.thread<compute>],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
         ^bb0(%arg2: memref<8x12x!tt.tile<32x32, f32>, #l1_>,
@@ -41,11 +43,13 @@ func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32,
 func.func @main(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
   // CHECK: ttir.empty() : tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>
   %0 = ttir.empty() : tensor<256x32xf32, #layout2>
-  // CHECK: : (tensor<4x3x2x4x!tt.tile<32x32, f32>, #layout>, tensor<4x3x2x4x!tt.tile<32x32, f32>, #layout>, tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>) -> tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>
+  // CHECK: ins({{.*}} : tensor<4x3x2x4x!tt.tile<32x32, f32>, #layout>, tensor<4x3x2x4x!tt.tile<32x32, f32>, #layout>)
+  // CHECK-NEXT: outs({{.*}} : tensor<4x1x2x1x!tt.tile<32x32, f32>, #layout1>)
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<4x1>,
         indexing_maps = [#map1, #map1, #map2],
         iterator_types = [#parallel, #reduction],
+        threads = [#ttir.thread<compute>],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
         ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_>,

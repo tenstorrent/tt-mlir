@@ -641,7 +641,7 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp<"remainder"> {
     }];
 }
 
-def TTNN_PowerOp : TTNN_ElementwiseBinaryOp<"pow"> {
+def TTNN_PowOp : TTNN_ElementwiseBinaryOp<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -1229,6 +1229,14 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+            getBias() != nullptr
+        );
+      }
+    }];
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
@@ -1308,6 +1316,14 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+            getBias() != nullptr
+        );
+      }
+    }];
 }
 
 def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
@@ -1653,6 +1669,15 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
+            getInput().getType()
+          );
+      }
+    }];
 }
 
 def TTNN_UpsampleOp : TTNN_Op<"upsample"> {

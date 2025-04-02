@@ -55,3 +55,20 @@ module {
     return %2 : tensor<1x72x72x768xi32>
   }
 }
+
+module {
+  func.func public @main(%arg0: tensor<4x54x54x64xbf16> ) -> (tensor<4x54x54x68xbf16>) {
+    // CHECK: ttir.pad
+    // CHECK-SAME: padding = array<i32: 0, 0, 0, 0, 0, 0, 2, 2>
+    // CHECK-SAME: value = 0.000000e+00 : f32
+    // CHECK-SAME: (tensor<4x54x54x64xbf16>) -> tensor<4x54x54x68xbf16>
+    %cst = stablehlo.constant dense<0> : tensor<i32>
+    %0 = call @_pad(%arg0, %cst) : (tensor<4x54x54x64xbf16>, tensor<i32>) -> tensor<4x54x54x68xbf16>
+    return %0 : tensor<4x54x54x68xbf16>
+  }
+  func.func private @_pad(%arg0: tensor<4x54x54x64xbf16>, %arg1: tensor<i32>) -> tensor<4x54x54x68xbf16> {
+    %0 = stablehlo.convert %arg1 : (tensor<i32>) -> tensor<bf16>
+    %1 = stablehlo.pad %arg0, %0, low = [0, 0, 0, 2], high = [0, 0, 0, 2], interior = [0, 0, 0, 0] : (tensor<4x54x54x64xbf16>, tensor<bf16>) -> tensor<4x54x54x68xbf16>
+    return %1 : tensor<4x54x54x68xbf16>
+  }
+}

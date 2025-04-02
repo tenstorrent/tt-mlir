@@ -162,7 +162,7 @@ enum EltwiseOpType: uint32 {
   Scatter,
   Tan,
   Tanh,
-  Power,
+  Pow,
   Atan,
   Atan2
 }
