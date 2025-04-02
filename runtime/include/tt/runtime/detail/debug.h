@@ -45,7 +45,7 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
 struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static Hooks const &
-  get(std::optional<std::string> callbackKey = "",
+  get(std::optional<std::string> callbackKey = std::nullopt,
       std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
@@ -56,7 +56,7 @@ struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return callbackKey;
 #else
-    return "";
+    return std::nullopt;
 #endif
   }
 
@@ -71,7 +71,7 @@ struct Hooks {
 
   void unregisterHooks() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    callbackKey = "";
+    callbackKey = std::nullopt;
     operatorCallback = std::nullopt;
 #endif
   }
@@ -106,5 +106,3 @@ inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
 } // namespace tt::runtime::debug
 
 #endif // TT_RUNTIME_DETAIL_DEBUG_H
-       //      << "callbackKey: " <<
-       //      static_cast<std::basic_ostream<char>>(hooks.getCallbackKey())

@@ -18,7 +18,7 @@ Hooks const &Hooks::get(
     std::optional<std::string> callbackKey,
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
         operatorCallback) {
-  if (std::set<std::string> validKeys{"post-op", "pre-op", ""};
+  if (std::set<std::string> validKeys{"post-op", "pre-op"};
       !validKeys.contains(callbackKey.value())) {
     throw std::runtime_error("callbackKey must be 'post-op' or 'pre-op', got " +
                              callbackKey.value());
