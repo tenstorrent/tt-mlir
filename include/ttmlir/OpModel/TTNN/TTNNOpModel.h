@@ -15,6 +15,10 @@
 
 namespace mlir::tt::op_model::ttnn {
 
+// Checks if the tensor layout is legal for the given tensor shape.
+bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
+                                 mlir::tt::ttnn::TTNNLayoutAttr layout);
+
 //===----------------------------------------------------------------------===//
 // Device
 //===----------------------------------------------------------------------===//
@@ -40,6 +44,25 @@ getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
              llvm::ArrayRef<int64_t> outputShape,
              mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 }; // namespace ReluOpInterface
+
+//===----------------------------------------------------------------------===//
+// SqrtOp
+//===----------------------------------------------------------------------===//
+
+namespace SqrtOpInterface {
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+llvm::Expected<size_t>
+getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+             llvm::ArrayRef<int64_t> outputShape,
+             mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
+
+}; // namespace SqrtOpInterface
 
 //===----------------------------------------------------------------------===//
 // AddOp

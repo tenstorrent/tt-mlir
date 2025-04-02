@@ -2,12 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <numeric>
-
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
+
+#include <numeric>
 
 using namespace mlir::tt::ttnn;
 
@@ -237,11 +236,13 @@ llvm::SmallVector<int64_t> TTNNLayoutAttr::getScalarShardShape() const {
 // Get size of tensor in tiles
 //
 // This function returns the size of the tensor in tiles.
-// Size is calculate by pluging the tensor shape into the linear map.
-// This result is then divided by the tile shape.
-// Example: tensor shape (6x15x10), linear map (d0, d1, d2) -> (d0 * 15 + d1,
-// d2) and tile shape (32, 32) The result is (90, 10) which is then divided by
-// tile shape (32, 32) -> (3, 1)
+// Size is calculated by rounding up the last two dims of the tensor to tile
+// size and then plugging the tensor shape into the linear map. This result is
+// then divided by the tile shape. Example: tensor shape (6, 15, 10), linear map
+// (d0, d1, d2) -> (d0 * 32 + d1, d2) and tile shape (32, 32).
+//
+// The result is calculated: (6, 15, 10) -> (6, 32, 32) -> (6 * 32, 32) -> (192,
+// 32) which is then divided by tile shape (32, 32) -> (6, 1)
 //
 // param tensorShape The shape of the tensor
 // return The size of the tensor in tiles.
@@ -269,7 +270,8 @@ TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
           {y, y.floorDiv(tileH)}, {x, x.floorDiv(tileW)}});
 
   // Get tiled shape by evaluating the affine map with tensor shape.
-  return ttmlir::utils::evalShape(tiled, tensorShape);
+  return ttmlir::utils::evalShape(tiled,
+                                  utils::getTilePaddedShape(tensorShape));
 }
 
 // Get the size of shard in bytes
@@ -472,20 +474,30 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     TensorMemoryLayoutAttr memLayoutAttr,
     TensorMeshShardingAttr tensorMeshSharding,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+
+  llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
+                                              tensorShape.end());
+
+  // If the tensor is tiled the last two dims need to be rounded up to tile size
+  // before creating the affine map. E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
+  if (llvm::isa<TileType>(elementType)) {
+    physicalShape = utils::getTilePaddedShape(tensorShape);
+  }
+
   // Construct a new affine map which will be used to map from logical
   // space to physical space.
   AffineMap linear = collapsedLinearAffineMap(
-      context, tensorShape, grid.getShape(), collapseIntervals);
+      context, physicalShape, grid.getShape(), collapseIntervals);
 
   // Calculate shard shape
   mlir::SmallVector<int64_t> shardShape;
   if (bufferType == BufferType::L1 &&
       memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
     shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
-        tensorShape, elementType, linear, grid);
+        physicalShape, elementType, linear, grid);
   } else {
     shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
-        tensorShape, linear, grid);
+        physicalShape, linear, grid);
   }
 
   // Build memref type with the given parameters
@@ -544,4 +556,54 @@ MemoryConfigAttr::withMemoryLayout(::mlir::MLIRContext *context,
 
   // TODO(#2140): Once we complete #1628, we should add a verifier for
   // ShardSpecAttr. ShardSpecAttr is only valid if the buffer type is L1.
+}
+
+bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
+  bool thisEndsBeforeOtherStarts =
+      this->getEndCoord().getX() < other.getStartCoord().getX();
+  bool thisStartsAfterOtherEnds =
+      this->getStartCoord().getX() > other.getEndCoord().getX();
+  bool thisEndsBelowOtherStarts =
+      this->getEndCoord().getY() < other.getStartCoord().getY();
+  bool thisStartsAboveOtherEnds =
+      this->getStartCoord().getY() > other.getEndCoord().getY();
+
+  return !(thisEndsBeforeOtherStarts || thisStartsAfterOtherEnds ||
+           thisEndsBelowOtherStarts || thisStartsAboveOtherEnds);
+}
+
+::llvm::LogicalResult CoreRangeAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::tt::ttnn::CoreCoordAttr startCoord,
+    mlir::tt::ttnn::CoreCoordAttr endCoord) {
+  if (startCoord.getX() > endCoord.getX() ||
+      startCoord.getY() > endCoord.getY()) {
+    return emitError() << "Start coordinates " << startCoord
+                       << " must be less than or equal to end coordinates "
+                       << endCoord;
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult CoreRangeSetAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr> coreRanges) {
+  if (coreRanges.size() < 2) {
+    return ::llvm::success();
+  }
+
+  // Check each pair of core ranges for intersections
+  for (size_t i = 0; i < coreRanges.size() - 1; ++i) {
+    for (size_t j = i + 1; j < coreRanges.size(); ++j) {
+      CoreRangeAttr firstCoreRange = coreRanges[i];
+      CoreRangeAttr secondCoreRange = coreRanges[j];
+      if (firstCoreRange.intersects(secondCoreRange)) {
+        return emitError() << "Core ranges overlap: " << firstCoreRange
+                           << " and " << secondCoreRange;
+      }
+    }
+  }
+
+  return ::llvm::success();
 }

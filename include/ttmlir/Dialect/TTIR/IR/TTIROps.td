@@ -97,6 +97,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         grid = #tt.grid<1x1>,                        // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
+        threads = [#ttir.thread<compute>],           // Thread types for the regions.
         operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
       ({
       ^bb0(%arg2: memref<64x128xf32, #l1_>,
@@ -111,10 +112,48 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
                          Variadic<AnyRankedTensorOrMemRef>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types);
+                         TT_IteratorTypeArrayAttr:$iterator_types,
+                         TTIR_ThreadArrayAttr:$threads);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
+
+    let assemblyFormat = [{ attr-dict `\n`
+    ` ` ` ` ` ` ` ` `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` ` `  $regions (`:`  type($results)^ )?
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "ArrayAttr": $indexingMaps,
+                     "ArrayAttr": $iteratorTypes),
+      [{
+        assert(!indexingMaps.empty() && "expected non-empty indexing maps");
+        auto firstIndexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]).getValue();
+        auto grid = $_builder.getAttr<tt::GridAttr>(SmallVector<int64_t>(firstIndexingMap.getNumResults(), 1));
+        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(ThreadType::Compute));
+        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, indexingMaps, iteratorTypes, threads, 1);
+      }]>,
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "ArrayAttr": $indexingMaps,
+                     "ArrayAttr": $iteratorTypes,
+                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $computeRegionBuilder),
+      [{
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes);
+        llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
+          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+          return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
+        });
+        Region& region = *$_state.regions.front().get();
+        llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
+        OpBuilder::InsertionGuard guard($_builder);
+        Block* block = $_builder.createBlock(&region, region.end(), blockTypes, locs);
+        computeRegionBuilder($_builder, $_state.location, block->getArguments());
+      }]>,
+    ];
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
@@ -124,6 +163,12 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<IteratorType> getIteratorTypesValue();
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
+      ThreadType getRegionThreadType(unsigned regionIndex) {
+        return mlir::cast<ThreadAttr>(getThreads()[regionIndex]).getThreadType();
+      }
+      bool isAffineMapForm() { return !getIndexingMaps().empty(); }
+      bool isLoweredLoopForm() { return !isAffineMapForm(); }
+      bool isExternalSymbolForm() { return getRegions().empty(); }
     }];
 }
 
@@ -306,8 +351,7 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)> {
-}
+    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)>;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
@@ -780,7 +824,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder", [TTIR_PartiallyBroa
 
 // TODO We need to add a broadcastable trait to this op.
 // See issue https://github.com/tenstorrent/tt-mlir/issues/2015
-def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
+def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -788,11 +832,27 @@ def TTIR_PowerOp : TTIR_ElementwiseBinaryOp<"power"> {
 
       Example:
       ```
-        %result = "ttir.power"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+        %result = "ttir.pow"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
 
         %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
         %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
         %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
+      ```
+    }];
+}
+
+def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
+    let summary = "Eltwise atan2 OP.";
+    let description = [{
+      Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
+      tensor.
+
+      Example:
+      ```
+        // %lhs: [0.0, 1.0, -1.0]
+        // %rhs: [1.0, 0.0, 0.0]
+        %result = "ttir.atan2"(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
+        // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
       ```
     }];
 }
@@ -1635,7 +1695,14 @@ def TTIR_ArangeOp : TTIR_Op<"arange", [TT_CreationOpTrait]> {
   let hasVerifier = 1;
 }
 
-def TTIR_ZerosOp : TTIR_Op<"zeros", [TT_CreationOpTrait]> {
+class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
+  TTIR_Op<mnemonic, traits> {
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
+def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.
@@ -1646,13 +1713,9 @@ def TTIR_ZerosOp : TTIR_Op<"zeros", [TT_CreationOpTrait]> {
       %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
   }];
-
-  let arguments = (ins DenseI32ArrayAttr:$shape);
-
-  let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_OnesOp : TTIR_Op<"ones", [TT_CreationOpTrait]> {
+def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     Tensor operation to create a tensor filled with ones.
@@ -1663,10 +1726,6 @@ def TTIR_OnesOp : TTIR_Op<"ones", [TT_CreationOpTrait]> {
       %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
   }];
-
-  let arguments = (ins DenseI32ArrayAttr:$shape);
-
-  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
@@ -1701,7 +1760,16 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasCanonicalizer = 1;
 }
 
-def TTIR_EmptyOp : TTIR_Op<"empty", [Pure, TT_CreationOpTrait]> {
+def TTIR_EmptyOp : TTIR_Op<"empty",
+  [ Pure
+  , TT_CreationOpTrait
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation

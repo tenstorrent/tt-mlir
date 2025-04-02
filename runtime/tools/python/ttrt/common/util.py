@@ -55,6 +55,8 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
         return torch.uint8
     elif dtype == DataType.BFloat16:
         return torch.bfloat16
+    elif dtype == DataType.Int32:
+        return torch.int32
     else:
         raise ValueError(
             "Only F32, BF16, and unsigned integers are supported in the runtime"
@@ -524,7 +526,7 @@ class Flatbuffer:
         # temporary state value to check if test failed
         self.test_result = "pass"
 
-    def check_version(self):
+    def check_version(self, ignore: bool = False):
         package_name = "ttrt"
 
         try:
@@ -532,7 +534,7 @@ class Flatbuffer:
         except Exception as e:
             raise Exception(f"error retrieving version: {e} for {package_name}")
 
-        if package_version != self.version:
+        if package_version != self.version and not ignore:
             raise Exception(
                 f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
             )

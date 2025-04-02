@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Traits.h"
@@ -127,6 +128,53 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// EmptyOp
+//===----------------------------------------------------------------------===//
+
+bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is a bufferized to a memory read.
+  return false;
+}
+
+bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is a bufferized to a memory write.
+  return false;
+}
+
+mlir::LogicalResult mlir::tt::ttir::EmptyOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  if (getOperation()->getUses().empty()) {
+    rewriter.eraseOp(*this);
+    return success();
+  }
+
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
+      rewriter, *this,
+      mlir::cast<MemRefType>(
+          *getBufferType(getResult(), options, invocationStack)));
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::EmptyOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+      .getBufferType();
 }
 
 //===----------------------------------------------------------------------===//
@@ -2864,12 +2912,19 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
   if (!getGrid().getMapping().isEmpty()) {
-    return emitOpError("GenericOp grid mapping is not supported");
+    return emitOpError("grid mapping is not supported");
   }
 
   if (getOutputs().size() != 1) {
-    return emitOpError(
-        "GenericOp must currently have exactly one output operand");
+    return emitOpError("must currently have exactly one output operand");
+  }
+
+  if (getThreads().empty()) {
+    return emitOpError("must have at least one thread");
+  }
+
+  if (!getRegions().empty() && getRegions().size() != getThreads().size()) {
+    return emitOpError("number of regions must match the number of threads");
   }
 
   // Output grid shape must equal the GenericOp grid shape.
@@ -2896,7 +2951,7 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
     }
     if (opGridShape != outputGridShape) {
       return emitOpError(
-          "Output grid shape must match the GenericOp grid shape");
+          "output grid shape must match the generic op's grid shape");
     }
   }
 
@@ -2926,11 +2981,11 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
   auto *firstRegion = getRegions().begin();
   for (Region &region : getRegions()) {
     if (!region.hasOneBlock()) {
-      return emitOpError("GenericOp region must have a single block");
+      return emitOpError("region must have a single block");
     }
 
     if (region.getNumArguments() < this->getNumOperands()) {
-      return emitOpError("GenericOp region must have at least as many "
+      return emitOpError("region must have at least as many "
                          "arguments as the number of top-level operands");
     }
 
@@ -2951,7 +3006,7 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
     for (BlockArgument arg : memrefArguments) {
       auto blockMemref = mlir::dyn_cast<MemRefType>(arg.getType());
       if (!blockMemref) {
-        return emitOpError("GenericOp region arguments must be of MemRefType");
+        return emitOpError("region arguments must be of MemRefType");
       }
 
       Type operandType = operandTypes[arg.getArgNumber()];
@@ -2980,12 +3035,12 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
       }
 
       if (!isStream && expectedMemorySpace != blockMemref.getMemorySpace()) {
-        return emitOpError("GenericOp region argument memory space must match "
+        return emitOpError("region argument memory space must match "
                            "the memory space of the corresponding operand");
       }
 
       if (expectedShardShape != blockMemref.getShape()) {
-        return emitOpError("GenericOp region argument shape must match the "
+        return emitOpError("region argument shape must match the "
                            "shape of the corresponding operand");
       }
     }
@@ -2996,8 +3051,17 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
       bool supportedType = mlir::isa<SemaphoreType>(arg.getType());
       if (!supportedType) {
         return emitOpError(
-            "Additional GenericOp region arguments must be of SemaphoreType");
+            "additional region arguments must be of 'semaphore' type");
       }
+    }
+  }
+
+  if (isExternalSymbolForm()) {
+    if (llvm::any_of(getThreads(), [](Attribute thread) {
+          return !mlir::cast<ThreadAttr>(thread).getKernelSymbol();
+        })) {
+      return emitOpError("threads must have a kernel symbol in external symbol "
+                         "form (i.e. without regions)");
     }
   }
 
@@ -3109,15 +3173,14 @@ void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(
 
 void mlir::tt::ttir::GenericOp::getAsmBlockNames(
     function_ref<void(Block *, StringRef)> setNameFn) {
-  size_t numRegions = getNumRegions();
+  std::array<int, getMaxEnumValForThreadType() + 1> threadTypeCounts{};
   for (Region &region : getRegions()) {
-    // Right now the last region is implicitly the compute region.
-    if (region.getRegionNumber() < (numRegions - 1)) {
-      setNameFn(&region.front(),
-                "datamovement" + std::to_string(region.getRegionNumber()));
-    } else {
-      setNameFn(&region.front(), "compute");
-    }
+    auto type = getRegionThreadType(region.getRegionNumber());
+    setNameFn(&region.front(),
+              stringifyEnum(type).str() +
+                  Twine(threadTypeCounts[static_cast<
+                            std::underlying_type_t<ThreadType>>(type)]++)
+                      .str());
   }
 }
 
@@ -3155,7 +3218,7 @@ mlir::LogicalResult mlir::tt::ttir::GenericOp::bufferize(
   }
   auto bufferGeneric = rewriter.create<mlir::tt::ttir::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
-      getIndexingMaps(), getIteratorTypes(), getNumRegions());
+      getIndexingMaps(), getIteratorTypes(), getThreads(), getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));
   }
@@ -3368,10 +3431,14 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 
 ::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
   return operandsInRegionArguments(
-      getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
+      getOperation(),
+      ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
+          getOperation()));
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
   return operandsInRegionArguments(
-      getOperation(), getParentRegionOfType<GenericOp>(getOperation()));
+      getOperation(),
+      ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
+          getOperation()));
 }

@@ -154,17 +154,6 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                std::uint32_t programIndex,
                                std::vector<::ttnn::Tensor *> const &inputs);
 
-inline namespace legacy {
-Device
-openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
-           std::optional<size_t> l1SmallSize = std::nullopt,
-           std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
-           std::optional<bool> enableAsyncTTNN = std::nullopt,
-           std::optional<bool> enableProgramCache = std::nullopt);
-
-void closeDevice(Device device);
-} // namespace legacy
-
 } // namespace tt::runtime::ttnn
 
 #endif

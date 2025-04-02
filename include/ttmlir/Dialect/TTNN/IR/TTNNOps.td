@@ -367,7 +367,9 @@ def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     }];
 }
 
-def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
+def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Eltwise sqrt.";
     let description = [{
       Eltwise sqrt operation.
@@ -639,7 +641,7 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp<"remainder"> {
     }];
 }
 
-def TTNN_PowerOp : TTNN_ElementwiseBinaryOp<"pow"> {
+def TTNN_PowOp : TTNN_ElementwiseBinaryOp<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -652,6 +654,22 @@ def TTNN_PowerOp : TTNN_ElementwiseBinaryOp<"pow"> {
         %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
         %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
         %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
+      ```
+    }];
+}
+
+def TTNN_Atan2Op :  TTNN_ElementwiseBinaryOp<"atan2"> {
+    let summary = "Eltwise atan2 OP.";
+    let description = [{
+      Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
+      tensor.
+
+      Example:
+      ```
+        // %lhs: [0.0, 1.0, -1.0]
+        // %rhs: [1.0, 0.0, 0.0]
+        %result = "ttnn.atan2"(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
+        // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
       ```
     }];
 }
@@ -1120,7 +1138,13 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
-                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
+                         OptionalAttr<AnyAttrOf<[
+                            TTNN_MatmulMultiCoreReuseProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+                         ]>>:$matmul_program_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1205,6 +1229,14 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+            getBias() != nullptr
+        );
+      }
+    }];
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
@@ -1284,6 +1316,14 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+            getBias() != nullptr
+        );
+      }
+    }];
 }
 
 def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
@@ -1418,7 +1458,7 @@ def TTNN_ArangeOp : TTNN_Op<"arange", [TT_CreationOpTrait]> {
   let hasVerifier = 1;
 }
 
-def TTNN_ZerosOp : TTNN_Op<"zeros", [TT_CreationOpTrait]> {
+def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.
@@ -1429,17 +1469,9 @@ def TTNN_ZerosOp : TTNN_Op<"zeros", [TT_CreationOpTrait]> {
       %0 = "ttnn.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
   }];
-
-  let arguments = (ins TTNN_ShapeAttr:$shape,
-                       OptionalAttr<TT_DataTypeAttr>:$dtype,
-                       OptionalAttr<TTNN_LayoutAttr>:$layout,
-                       Optional<TTNN_Device>:$device,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
-
-  let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_OnesOp : TTNN_Op<"ones", [TT_CreationOpTrait]> {
+def TTNN_OnesOp : TTNN_NamedFullOp<"ones", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     Tensor operation to create a tensor filled with ones.
@@ -1450,14 +1482,6 @@ def TTNN_OnesOp : TTNN_Op<"ones", [TT_CreationOpTrait]> {
       %0 = "ttnn.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
   }];
-
-  let arguments = (ins TTNN_ShapeAttr:$shape,
-                       OptionalAttr<TT_DataTypeAttr>:$dtype,
-                       OptionalAttr<TTNN_LayoutAttr>:$layout,
-                       Optional<TTNN_Device>:$device,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
-
-  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_FullOp : TTNN_Op<"full", [TT_CreationOpTrait]> {
@@ -1634,6 +1658,15 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
+            getInput().getType()
+          );
+      }
+    }];
 }
 
 def TTNN_UpsampleOp : TTNN_Op<"upsample"> {

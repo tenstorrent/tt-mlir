@@ -494,14 +494,14 @@ def TT_TensorMeshShardingAttr : TT_Attr<"TensorMeshSharding", "mesh_sharding", [
 
       (ii) multi-device tensor with tensor mesh shard axis indicate all devices in "mesh"
           have sharded tensor defined by the TensorMeshShardingAxisAttr. e.g., 192x16384 for
-            tensor<784x16384xf32, #tt.mesh_sharding<"mesh" : [ 4(1),  1]>>.
+            tensor<784x16384xf32, #tt.mesh_sharding<"mesh", [ 4(1),  1]>>.
           Here, 4(1) indicates shard_shape(shard_dim), so 784 should be sharded by 4
           at "mesh"'s second hardware dimension. 1 indicates no sharding, so 16384 is not
           being sharded.
   }];
   let parameters = (ins "StringAttr":$name,
                         OptionalArrayRefParameter<"TensorMeshShardingAxisAttr">:$tensor_mesh_sharding_axis);
-  let assemblyFormat = "`<` $name (`:` `[`$tensor_mesh_sharding_axis^`]`)? `>`";
+  let assemblyFormat = "`<` $name (`,` `[` $tensor_mesh_sharding_axis^ `]` )? `>`";
 
   let extraClassDeclaration = [{
       static TensorMeshShardingAttr get(::mlir::MLIRContext *context, StringRef name) {
@@ -529,6 +529,16 @@ def TT_MeshesAttr : TT_Attr<"Meshes", "meshes"> {
   }];
   let parameters = (ins ArrayRefParameter<"MeshAttr">:$meshes);
   let assemblyFormat = "`<` `[` $meshes `]` `>`";
+  let extraClassDeclaration = [{
+      MeshAttr getMesh(StringRef name) {
+        for( auto mesh : getMeshes() ) {
+          if( mesh.getName() == name ) {
+            return mesh;
+          }
+        }
+        return nullptr;
+      }
+  }];
 }
 
 //===----------------------------------------------------------------------===//

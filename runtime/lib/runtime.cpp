@@ -650,47 +650,4 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor t) {
   LOG_FATAL("runtime is not enabled");
 }
 
-inline namespace legacy {
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize,
-                  std::optional<DispatchCoreType> dispatchCoreType,
-                  std::optional<bool> enableAsyncTTNN,
-                  std::optional<bool> enableProgramCache) {
-  LOG_WARNING("openDevice will be deprecated soon, use openMeshDevice instead");
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::legacy::openDevice(
-        deviceIds, numHWCQs, l1SmallSize, dispatchCoreType, enableAsyncTTNN,
-        enableProgramCache);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::legacy::openDevice(
-        deviceIds, numHWCQs, l1SmallSize, dispatchCoreType, enableAsyncTTNN,
-        enableProgramCache);
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-
-void closeDevice(Device device) {
-  LOG_WARNING(
-      "closeDevice will be deprecated soon, use closeMeshDevice instead");
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::closeDevice(device);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::closeDevice(device);
-  }
-#endif
-  LOG_FATAL("runtime is not enabled");
-}
-} // namespace legacy
-
 } // namespace tt::runtime

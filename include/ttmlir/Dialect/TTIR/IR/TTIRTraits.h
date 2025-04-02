@@ -11,12 +11,12 @@
 namespace mlir {
 namespace tt {
 namespace ttir {
-namespace OpTrait {
-
 namespace impl {
 bool verifyInvolution(mlir::Operation *op);
 bool verifyIdempotence(mlir::Operation *op);
 bool verifyBinaryIdempotence(mlir::Operation *op);
+mlir::LogicalResult verifyGenericRegionComputeOp(mlir::Operation *op);
+mlir::LogicalResult verifyGenericRegionDatamovementOp(mlir::Operation *op);
 mlir::OpFoldResult foldInvolution(mlir::Operation *op);
 mlir::OpFoldResult foldIdempotence(mlir::Operation *op);
 mlir::OpFoldResult foldBinaryIdempotence(mlir::Operation *op);
@@ -68,11 +68,22 @@ public:
 };
 
 template <typename ConcreteType>
-class TTIRGenericRegionOpTrait
-    : public mlir::OpTrait::TraitBase<ConcreteType, TTIRGenericRegionOpTrait> {
+struct TTIRGenericRegionComputeOpTrait
+    : public OpTrait::TraitBase<ConcreteType, TTIRGenericRegionComputeOpTrait> {
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return impl::verifyGenericRegionComputeOp(op);
+  }
 };
 
-} // namespace OpTrait
+template <typename ConcreteType>
+struct TTIRGenericRegionDatamovementOpTrait
+    : public OpTrait::TraitBase<ConcreteType,
+                                TTIRGenericRegionDatamovementOpTrait> {
+  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+    return impl::verifyGenericRegionDatamovementOp(op);
+  }
+};
+
 } // namespace ttir
 } // namespace tt
 } // namespace mlir

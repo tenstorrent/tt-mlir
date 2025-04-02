@@ -85,12 +85,11 @@ public:
                          SmallVector<Value> coreIndex = {},
                          SmallVector<Value> mcastShape = {}) {
     return builder
-        .create<ttir::DMAOp>(loc, builder.getType<MemTxType>(), src,
+        .create<ttir::DMAOp>(loc, src,
                              operandIndexingMap
                                  ? AffineMapAttr::get(*operandIndexingMap)
                                  : nullptr,
-                             ValueRange(), dst, nullptr, ValueRange(), nullptr,
-                             coreIndex, mcastShape)
+                             dst, coreIndex, mcastShape)
         .getResult();
   }
 
@@ -183,11 +182,12 @@ public:
         });
   }
 
-  static LogicalResult buildDatamovementBlock(
-      PatternRewriter &builder, Location loc, Value genericOperand,
-      Value blockOperand, GridAttr grid, DeviceAttr device,
-      AffineMap operandIndexingMap, AffineMap gridIndexingMap,
-      ArrayAttr iteratorTypes, bool isOutput, MutableArrayRef<Region> regions) {
+  static LogicalResult
+  buildDatamovementBlock(PatternRewriter &builder, Location loc,
+                         Value genericOperand, Value blockOperand,
+                         GridAttr grid, DeviceAttr device,
+                         AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
+                         bool isOutput, MutableArrayRef<Region> regions) {
     if (isOutput) {
       // Wait for compute.
       builder.create<ttir::AwaitOp>(loc, blockOperand);
@@ -227,10 +227,15 @@ public:
     // One per operand.
     auto numDataMovementRegions = generic.getNumOperands();
     auto numTotalRegions = generic.getNumRegions() + numDataMovementRegions;
+    SmallVector<Attribute> threads(
+        numDataMovementRegions,
+        rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
+    threads.append(generic.getThreads().begin(), generic.getThreads().end());
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(), generic.getIndexingMaps(),
-        generic.getIteratorTypes(), numTotalRegions);
+        generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
+        numTotalRegions);
 
     // Preinitialize all regions so that we can modify their signatures on the
     // fly. i.e. adding semaphore arguments.
@@ -247,11 +252,6 @@ public:
     // Insert the new data movement regions.
     unsigned outputOperandsIndex = generic.getOutputs().getBeginOperandIndex();
     unsigned outputOperandsLength = generic.getOutputs().size();
-    // The output and the grid indexing must always be aligned.
-    AffineMap gridIndexingMap =
-        mlir::cast<AffineMapAttr>(
-            generic.getIndexingMaps()[outputOperandsIndex])
-            .getValue();
     auto device = lookupDevice(generic);
     for (OpOperand &operand : generic->getOpOperands()) {
       Block *datamovementBlock =
@@ -267,7 +267,7 @@ public:
           rewriter, generic->getLoc(),
           generic->getOperand(operand.getOperandNumber()),
           datamovementBlock->getArgument(operand.getOperandNumber()),
-          generic.getGrid(), device, operandIndexingMap, gridIndexingMap,
+          generic.getGrid(), device, operandIndexingMap,
           generic.getIteratorTypes(), isOutput, newGeneric.getRegions());
       if (failed(result)) {
         return result;

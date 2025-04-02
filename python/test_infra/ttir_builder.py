@@ -8,7 +8,7 @@ import inspect
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, tt, tensor
+from ttmlir.dialects import ttir, tt, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 import torch
 import array
@@ -89,6 +89,24 @@ class Golden:
 
     def contiguous(self) -> Golden:
         return Golden(self.tensor.contiguous())
+
+
+@dataclass
+class TypeInfo:
+    """Encapsulates type information for quantized tensors.
+
+    Contains both the base data type and quantization parameters (scale and zero point)
+    required for quantized operations.
+
+    Attributes:
+        dtype: Base PyTorch data type (e.g. torch.float32, torch.qint32).
+        scale: Scaling factor for quantization. Required for quantized types.
+        zero_point: Zero point offset for quantization. Required for quantized types.
+    """
+
+    dtype: torch.dtype
+    scale: Optional[float] = None
+    zero_point: Optional[int] = None
 
 
 class TTIRBuilder:
@@ -176,11 +194,12 @@ class TTIRBuilder:
         golden_info = {}
         for name, golden_tensor in self.id_golden_map.items():
             golden_tensor = golden_tensor.contiguous()
+            data_type = self.get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
             golden_info[name] = GoldenTensor(
                 name,
                 list(golden_tensor.tensor.shape),
                 list(golden_tensor.tensor.stride()),
-                DataType.Float32,
+                data_type if data_type is not None else DataType.Float32,
                 golden_tensor.tensor.data_ptr(),
                 golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
             )
@@ -226,7 +245,6 @@ class TTIRBuilder:
         Generates random tensor of shape `shape`, with type `dtype`, using `seed` to seed torch
         random generator.
         """
-
         if dtype.is_floating_point:
             return torch.randn(shape, generator=torch.manual_seed(seed), dtype=dtype)
         else:
@@ -294,11 +312,41 @@ class TTIRBuilder:
 
     # ----- Utility Conversion ----
 
-    def get_type_from_torch_dtype(self, dtype: torch.dtype) -> Type:
+    def get_datatype_from_torch_dtype(self, dtype: torch.dtype) -> DataType:
         """
-        Returns a MLIR `Type` obj corresponding to `dtype`
+        Returns a MLIR `DataType` obj corresponding to `dtype`.
         """
         match dtype:
+            case torch.float16:
+                return DataType.Float16
+            case torch.bfloat16:
+                return DataType.BFloat16
+            case torch.float32:
+                return DataType.Float32
+            case torch.int32:
+                return DataType.Int32
+            case None:
+                return DataType.Float32
+
+    def get_type_from_torch_dtype(self, dtype: Union[torch.dtype, TypeInfo]) -> Type:
+        """Converts PyTorch dtype or TypeInfo to corresponding MLIR Type.
+
+        For quantized types (e.g. qint32), scale and zero_point must be provided via TypeInfo.
+        For non-quantized types, a plain torch.dtype can be used.
+
+        Args:
+            dtype: Either a torch.dtype or TypeInfo containing dtype and quantization params.
+
+        Returns:
+            MLIR Type corresponding to the input dtype.
+
+        Raises:
+            ValueError: If quantization parameters are missing for quantized types.
+            TypeError: If the dtype is not supported.
+        """
+        base_dtype = dtype.dtype if isinstance(dtype, TypeInfo) else dtype
+
+        match base_dtype:
             case torch.bfloat16:
                 return BF16Type.get(self._ctx)
             case torch.float16:
@@ -323,8 +371,22 @@ class TTIRBuilder:
                 return IntegerType.get_unsigned(32, self._ctx)
             case torch.uint64:
                 return IntegerType.get_unsigned(64, self._ctx)
+            case torch.qint32:
+                if not isinstance(dtype, TypeInfo):
+                    raise ValueError("TypeInfo required for qint32")
+                if dtype.scale is None or dtype.zero_point is None:
+                    raise ValueError("scale and zero_point required for qint32")
+                return quant.UniformQuantizedType.get(
+                    quant.UniformQuantizedType.FLAG_SIGNED,
+                    IntegerType.get_signless(32, self._ctx),
+                    F32Type.get(self._ctx),
+                    dtype.scale,
+                    dtype.zero_point,
+                    torch.iinfo(torch.qint32).min,
+                    torch.iinfo(torch.qint32).max,
+                )
             case _:
-                raise TypeError(f"Invalid Type {type}")
+                raise TypeError(f"Invalid Type {dtype}")
 
     # ----- Utility factories -----
 
@@ -398,6 +460,7 @@ class TTIRBuilder:
 
                 The list/tuple will then be unpacked as the positional arugments for the op_golden_function
         - output_shape (Optional[Shape]): An optional argument specifying the shape of the output of the OP.
+        - output_type (Optional[Type]): An optional argument specifying the type of the output of the OP.
         - golden_kwargs (dict): Additional keyword arguments for the `op_golden_function`.
         - ttir_kwargs (dict): Additional keyword arguments for the `op_ttir_function`.
 
@@ -444,8 +507,7 @@ class TTIRBuilder:
                 if not isinstance(golden_output, torch.Tensor)
                 else Golden(golden_output)
             )
-
-            # Use the golden output to determine proper output shape and type unless otherwise specified
+            # Use the golden output to determine proper output shape and type unless otherwise specified.
             output_shape = golden.tensor.shape if not output_shape else output_shape
             if not output_type and inputs:
                 output_type = self.get_type_from_torch_dtype(
@@ -485,7 +547,6 @@ class TTIRBuilder:
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
-
             return op
 
     def eltwise_proxy(
@@ -713,8 +774,8 @@ class TTIRBuilder:
     def remainder(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.remainder, ttir.RemainderOp, [in0, in1])
 
-    def power(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.pow, ttir.PowerOp, [in0, in1])
+    def pow(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.pow, ttir.PowOp, [in0, in1])
 
     # class TTIR_ReductionOp
 
@@ -861,9 +922,6 @@ class TTIRBuilder:
             ttir_kwargs={"dim": dim, "output": in1},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            output_type=self.get_type_from_torch_dtype(
-                self._get_golden_tensor(in1).dtype
-            ),
         )
 
     def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
@@ -1161,16 +1219,8 @@ class TTIRBuilder:
         )
 
     def pad(self, in0: Operand, padding: List[int], value: int) -> OpView:
-        golden_padding = []
-        # Reformatting padding dimensions for golden tensor:
-        if len(padding) == 4:
-            golden_padding = padding.copy()
-            golden_padding.reverse()
-        if len(padding) > 4:
-            for i in range(int(len(padding) / 2) - 4):
-                i = i + 4
-                golden_padding.append(padding[(2 * i) + 1])
-                golden_padding.append(padding[2 * i])
+        golden_padding = padding.copy()
+        golden_padding.reverse()
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
@@ -1242,7 +1292,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def clamp(
+    def clamp_scalar(
         self,
         in0: Operand,
         min_arg: Optional[float] = None,
@@ -1256,6 +1306,33 @@ class TTIRBuilder:
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def clamp_tensor(
+        self,
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        in3: Operand,
+    ) -> OpView:
+        return self.op_proxy(
+            torch.clamp,
+            ttir.ClampTensorOp,
+            [in0, in1, in2, in3],
+            golden_kwargs={
+                "input": self._get_golden_tensor(in0),
+                "min": self._get_golden_tensor(in1),
+                "max": self._get_golden_tensor(in2),
+                "out": self._get_golden_tensor(in3),
+            },
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                i[1],
+                i[2],
+                i[3],
+            ),
+            organize_golden_args=lambda i: 0,
         )
 
     def zeros(self, shapes: List[Shape], data_type: Optional[Type] = None) -> OpView:
@@ -1291,6 +1368,47 @@ class TTIRBuilder:
             ttir_kwargs={"dimensions": dims},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
+
+    def linear(
+        self,
+        in0: Operand,
+        in1: Operand,
+        bias: Optional[Operand] = None,
+        transpose_a: bool = False,
+        transpose_b: bool = False,
+    ) -> OpView:
+        kwargs = {"transpose_a": transpose_a, "transpose_b": transpose_b, "bias": bias}
+        return self.op_proxy(
+            self.linear_golden_function,
+            ttir.LinearOp,
+            [in0, in1],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+        )
+
+    def linear_golden_function(
+        self,
+        a: Operand,
+        b: Operand,
+        bias: Optional[Operand] = None,
+        transpose_a: bool = False,
+        transpose_b: bool = False,
+    ) -> OpView:
+        a = torch.transpose(a, 0, 1) if transpose_a else a
+        b = torch.transpose(b, 0, 1) if transpose_a else b
+        output = torch.matmul(a, b)
+        bias = (
+            torch.zeros(list(output.shape))
+            if not bias
+            else self._get_golden_tensor(bias)
+        )
+        bias = (
+            torch.broadcast_to(bias, list(output.shape))
+            if bias.shape != output.shape
+            else bias
+        )
+        return torch.add(output, bias)
 
     def matmul(
         self, in0: Operand, in1: Operand, bias: Optional[Operand] = None

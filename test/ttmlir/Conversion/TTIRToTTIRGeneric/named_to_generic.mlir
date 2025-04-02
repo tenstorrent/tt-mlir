@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-attach-metal-layout --ttir-generalize-named-ops %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-attach-metal-layout --ttir-to-ttir-generic %s | FileCheck %s
 
 !ttype = tensor<128x96xf32>
 
@@ -68,7 +68,7 @@ module {
 
   // CHECK-LABEL: func @named_contractions
   func.func @named_contractions(%lhs: !lhs, %rhs: !rhs, %out: !matmul_result) -> (!matmul_result) {
-    // CHECK: "ttir.generic"{{.+}}iterator_types = [#parallel, #parallel, #reduction]
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel, #reduction]
     // CHECK-NOT: linalg.generic
     // CHECK: ttir.tile_matmul_block
     %r = "ttir.matmul"(%lhs, %rhs, %out) : (!lhs, !rhs, !matmul_result) -> (!matmul_result)

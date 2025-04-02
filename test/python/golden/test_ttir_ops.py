@@ -124,9 +124,16 @@ def test_gelu(in0: Operand, builder: TTIRBuilder):
     return builder.gelu(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_clamp(in0: Operand, builder: TTIRBuilder):
-    return builder.clamp(in0, max_arg=1.0, min_arg=0.0)
+@compile_to_flatbuffer([(64, 128)], inputs_types=[torch.bfloat16], targets=["ttnn"])
+def test_clamp_scalar(in0: Operand, builder: TTIRBuilder):
+    return builder.clamp_scalar(in0, max_arg=3.0, min_arg=2.0)
+
+
+@compile_to_flatbuffer([(32, 64), (32, 64), (32, 64), (32, 64)], targets=["ttnn"])
+def test_clamp_tensor(
+    in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+):
+    return builder.clamp_tensor(in0, in1, in2, in3)
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
@@ -423,8 +430,21 @@ def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     ],
     targets=["ttnn"],
 )
-def test_power(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.power(in0, in1)
+def test_pow(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.pow(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (10, 64, 32),
+        (32, 128),
+        (128,),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_linear(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.linear(in0, in1, in2)
 
 
 @compile_to_flatbuffer(
@@ -513,12 +533,12 @@ def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
-        (2, 3),
+        (1, 32, 32),
     ],
     targets=["ttnn"],
 )
 def test_repeat(in0: Operand, builder: TTIRBuilder):
-    return builder.repeat(in0, [2, 2])
+    return builder.repeat(in0, [32, 1, 1])
 
 
 @compile_to_flatbuffer(
@@ -629,12 +649,13 @@ def test_max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
-        (32, 32),
+        (1, 1, 5, 5),
     ],
+    inputs_types=[torch.bfloat16],
     targets=["ttnn"],
 )
 def test_pad(in0: Operand, builder: TTIRBuilder):
-    return builder.pad(in0, padding=[0, 2, 1, 0], value=0)
+    return builder.pad(in0, padding=[0, 0, 0, 0, 1, 1, 1, 1], value=0)
 
 
 @compile_to_flatbuffer([(32, 64)], targets=["ttnn"])
