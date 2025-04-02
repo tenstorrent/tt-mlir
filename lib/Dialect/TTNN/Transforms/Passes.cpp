@@ -132,13 +132,79 @@ class TTNNClusterOps : public impl::TTNNClusterOpsBase<TTNNClusterOps> {
 public:
   using impl::TTNNClusterOpsBase<TTNNClusterOps>::TTNNClusterOpsBase;
 
+  static std::string locationToStr(const mlir::Location &loc) {
+    std::string locStr;
+    llvm::raw_string_ostream(locStr) << loc;
+    return locStr;
+  }
+
+  static std::tuple<std::string, std::vector<std::string>, std::string>
+  splitLocationIntoChunks(mlir::Location loc) {
+    const std::string &locationStr = locationToStr(loc);
+    std::string opName;
+    std::vector<std::string> components;
+    std::string fullPath;
+
+    // Find the opening quote of the op name
+    size_t opNameStart = locationStr.find('"');
+    if (opNameStart == std::string::npos) {
+      return std::make_tuple("", std::vector<std::string>{},
+                             ""); // Explicit vector type
+    }
+
+    // Find the closing quote of the op name
+    size_t opNameEnd = locationStr.find('"', opNameStart + 1);
+    if (opNameEnd == std::string::npos) {
+      return std::make_tuple("", std::vector<std::string>{},
+                             ""); // Explicit vector type
+    }
+
+    // Extract the op name
+    opName = locationStr.substr(opNameStart + 1, opNameEnd - opNameStart - 1);
+
+    // Find the start of the location path
+    size_t pathStart = locationStr.find("(\"", opNameEnd);
+    if (pathStart == std::string::npos) {
+      return std::make_tuple(opName, std::vector<std::string>{},
+                             ""); // Explicit vector type
+    }
+
+    // Find the end of the location path.
+    size_t pathEnd = locationStr.find("\":", pathStart);
+    if (pathEnd == std::string::npos) {
+      return std::make_tuple(opName, std::vector<std::string>{},
+                             ""); // Explicit vector type
+    }
+
+    std::string pathString =
+        locationStr.substr(pathStart + 2, pathEnd - pathStart - 2);
+
+    // Split the path string into components
+    std::stringstream ss(pathString);
+    std::string component;
+    while (std::getline(ss, component, '/')) {
+      components.push_back(component);
+      if (!fullPath.empty()) {
+        fullPath += "/";
+      }
+      fullPath += component;
+    }
+
+    // Add op name to components
+    //
+    components.push_back(opName);
+
+    return std::make_tuple(opName, components, fullPath);
+  }
+
   void runOnOperation() final {
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
 
     module->walk([&](func::FuncOp funcOp) {
+      auto isFixed = fixIRLocations(funcOp);
       auto x = processFunc(funcOp);
-      (void)x;
+      (void)x, (void)isFixed;
     });
 
     (void)module;
@@ -364,71 +430,6 @@ private:
     static size_t hashString(std::string str) {
       return std::hash<std::string>{}(str);
     }
-
-    std::string locationToStr(const mlir::Location &loc) {
-      std::string locStr;
-      llvm::raw_string_ostream(locStr) << loc;
-      return locStr;
-    }
-
-    std::tuple<std::string, std::vector<std::string>, std::string>
-    splitLocationIntoChunks(mlir::Location loc) {
-      const std::string &locationStr = locationToStr(loc);
-      std::string opName;
-      std::vector<std::string> components;
-      std::string fullPath;
-
-      // Find the opening quote of the op name
-      size_t opNameStart = locationStr.find('"');
-      if (opNameStart == std::string::npos) {
-        return std::make_tuple("", std::vector<std::string>{},
-                               ""); // Explicit vector type
-      }
-
-      // Find the closing quote of the op name
-      size_t opNameEnd = locationStr.find('"', opNameStart + 1);
-      if (opNameEnd == std::string::npos) {
-        return std::make_tuple("", std::vector<std::string>{},
-                               ""); // Explicit vector type
-      }
-
-      // Extract the op name
-      opName = locationStr.substr(opNameStart + 1, opNameEnd - opNameStart - 1);
-
-      // Find the start of the location path
-      size_t pathStart = locationStr.find("(\"", opNameEnd);
-      if (pathStart == std::string::npos) {
-        return std::make_tuple(opName, std::vector<std::string>{},
-                               ""); // Explicit vector type
-      }
-
-      // Find the end of the location path.
-      size_t pathEnd = locationStr.find("\":", pathStart);
-      if (pathEnd == std::string::npos) {
-        return std::make_tuple(opName, std::vector<std::string>{},
-                               ""); // Explicit vector type
-      }
-
-      std::string pathString =
-          locationStr.substr(pathStart + 2, pathEnd - pathStart - 2);
-
-      // Split the path string into components
-      std::stringstream ss(pathString);
-      std::string component;
-      while (std::getline(ss, component, '/')) {
-        components.push_back(component);
-        if (!fullPath.empty()) {
-          fullPath += "/";
-        }
-        fullPath += component;
-      }
-
-      // Add op name to components
-      //
-      components.push_back(opName);
-
-      return std::make_tuple(opName, components, fullPath);
-    }
   };
 
   // Should this take in region/body instead of whole func?
@@ -442,6 +443,18 @@ private:
     ocTree.printOpClusterTree(ocTree.rootNode);
 
     ocTree.runAnalysis();
+
+    return mlir::success();
+  }
+
+  mlir::LogicalResult fixIRLocations(func::FuncOp funcOp) {
+    funcOp->walk([&](mlir::Operation *op) {
+      auto [opName, components, fullPath] =
+          splitLocationIntoChunks(op->getLoc());
+
+      std::cout << "opName: " << opName << ", fullPath: " << fullPath
+                << std::endl;
+    });
 
     return mlir::success();
   }
