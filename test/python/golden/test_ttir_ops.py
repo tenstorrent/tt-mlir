@@ -436,6 +436,19 @@ def test_pow(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
+        (10, 64, 32),
+        (32, 128),
+        (128,),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_linear(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.linear(in0, in1, in2)
+
+
+@compile_to_flatbuffer(
+    [
         (32, 64),
         (64, 128),
     ],
