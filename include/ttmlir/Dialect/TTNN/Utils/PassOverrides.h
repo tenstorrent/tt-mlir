@@ -30,7 +30,6 @@ struct OptionNames {
 };
 
 struct Conv2dConfigOverrideParams {
-  // change metal to ttnn types
   std::optional<tt::DataType> dtype = std::nullopt;
   std::optional<tt::DataType> weightsDtype = std::nullopt;
   std::optional<std::string> activation = std::nullopt;
@@ -157,9 +156,12 @@ public:
   Conv2dConfigOverrideParser(llvm::cl::Option &opt)
       : llvm::cl::parser<llvm::StringMap<Conv2dConfigOverrideParams>>(opt) {}
 
+  // Parse override-conv2d-config string. If string format is invalid, return
+  // true, else return false.
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
              llvm::StringMap<Conv2dConfigOverrideParams> &value);
 
+  // Return override-conv2d-config string represenation.
   static std::string
   toString(const llvm::StringMap<Conv2dConfigOverrideParams> &);
 

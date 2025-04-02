@@ -4,8 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include <llvm/ADT/SmallVector.h>
-#include <mlir/Support/LLVM.h>
+#include "llvm/ADT/SmallVector.h"
 #include <numeric>
 
 namespace mlir::tt::ttnn {
@@ -26,8 +25,23 @@ parseGrid(StringRef param, char gridSeparator, llvm::cl::Option &opt) {
   }
   return std::nullopt;
 }
+
+std::optional<bool> parseBool(StringRef param, llvm::cl::Option &opt) {
+  if (param.equals_insensitive("true")) {
+    return true;
+  }
+  if (param.equals_insensitive("false")) {
+    return false;
+  }
+  opt.error("Invalid boolean value: " + param);
+  return std::nullopt;
+}
 } // namespace
 
+// Full Example:
+// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:input_channels_alignment#32:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false:enable_subblock_padding#false
+// Partial Example:
+// conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16
 bool Conv2dConfigOverrideParser::parse(
     llvm::cl::Option &opt, StringRef argName, StringRef arg,
     llvm::StringMap<Conv2dConfigOverrideParams> &value) {
@@ -43,240 +57,198 @@ bool Conv2dConfigOverrideParser::parse(
   constexpr char paramNameValueSeparator = '#';
 
   arg.split(opOverrideList, opSeparator);
-  for (const StringRef override : opOverrideList) {
+  for (const StringRef opOverrides : opOverrideList) {
     SmallVector<StringRef, kvPairSize> opOverrideParts;
-    override.split(opOverrideParts, opNameSeparator);
+    opOverrides.split(opOverrideParts, opNameSeparator);
     if (opOverrideParts.size() != kvPairSize) {
-      opt.error("Invalid format for overriding op " + override);
+      opt.error("Invalid override format " + opOverrides);
       return true;
     }
 
-    SmallVector<StringRef> conv2dParamParts;
-    opOverrideParts[iConv2dConfigOverrideParams].split(conv2dParamParts,
+    SmallVector<StringRef> conv2dConfigParams;
+    opOverrideParts[iConv2dConfigOverrideParams].split(conv2dConfigParams,
                                                        paramSeparator);
 
     Conv2dConfigOverrideParams params;
 
-    for (const StringRef &param : conv2dParamParts) {
-      SmallVector<StringRef> param_kv;
-      param.split(param_kv, paramNameValueSeparator);
-      StringRef param_name = param_kv[iConv2dConfigParamName];
-      StringRef param_value = param_kv[iConv2dConfigParamValue];
+    for (const StringRef &param : conv2dConfigParams) {
+      SmallVector<StringRef> paramKV;
+      param.split(paramKV, paramNameValueSeparator);
+      StringRef paramName = paramKV[iConv2dConfigParamName];
+      StringRef paramValue = paramKV[iConv2dConfigParamValue];
 
-      if (param_name == "dtype") {
-        auto dtype = mlir::tt::DataTypeStringToEnum(param_value);
+      if (paramName == "dtype") {
+        auto dtype = mlir::tt::DataTypeStringToEnum(paramValue);
         if (!dtype) {
-          opt.error("Invalid dtype: " + param_value);
+          opt.error("Invalid dtype: " + paramValue);
           return true;
         }
         if (params.dtype.has_value()) {
-          opt.error("Duplicate dtype: " + param_value);
+          opt.error("Duplicate dtype: " + paramValue);
           return true;
         }
         params.dtype = dtype;
-      } else if (param_name == "weights_dtype") {
-        auto weightsDtype = mlir::tt::DataTypeStringToEnum(param_value);
+      } else if (paramName == "weights_dtype") {
+        auto weightsDtype = mlir::tt::DataTypeStringToEnum(paramValue);
         if (!weightsDtype) {
-          opt.error("Invalid weights_dtype: " + param_value);
+          opt.error("Invalid weights_dtype: " + paramValue);
           return true;
         }
         if (params.weightsDtype.has_value()) {
-          opt.error("Duplicate weights_dtype: " + param_value);
+          opt.error("Duplicate weights_dtype: " + paramValue);
           return true;
         }
         params.weightsDtype = weightsDtype;
-      } else if (param_name == "activation") {
-        auto activation = param_value;
+      } else if (paramName == "activation") {
+        auto activation = paramValue;
         if (activation.empty()) {
-          opt.error("Invalid activation: " + param_value);
+          opt.error("Invalid activation: " + paramValue);
           return true;
         }
         if (!activation.equals_insensitive(StringRef("relu")) &&
             !activation.equals_insensitive(("none"))) {
-          opt.error("Invalid activation: " + param_value);
+          opt.error("Invalid activation: " + paramValue);
           return true;
         }
         if (params.activation.has_value()) {
-          opt.error("Duplicate activation: " + param_value);
+          opt.error("Duplicate activation: " + paramValue);
           return true;
         }
         params.activation = activation.str();
-      } else if (param_name == "input_channels_alignment") {
+      } else if (paramName == "input_channels_alignment") {
         uint32_t inputChannelsAlignment;
-        if (param_value.getAsInteger<uint32_t>(10, inputChannelsAlignment)) {
-          opt.error("Invalid input_channels_alignment: " + param_value);
+        if (paramValue.getAsInteger<uint32_t>(10, inputChannelsAlignment)) {
+          opt.error("Invalid input_channels_alignment: " + paramValue);
           return true;
         }
         if (params.inputChannelsAlignment.has_value()) {
-          opt.error("Duplicate input_channels_alignment: " + param_value);
+          opt.error("Duplicate input_channels_alignment: " + paramValue);
           return true;
         }
         params.inputChannelsAlignment = inputChannelsAlignment;
-      } else if (param_name == "deallocate_activation") {
-        if (params.deallocateActivation.has_value()) {
-          opt.error("Duplicate deallocate_activation: " + param_value);
-          return true;
+      } else if (paramName == "deallocate_activation") {
+        if (auto deallocateActivation = parseBool(paramValue, opt)) {
+          if (params.deallocateActivation.has_value()) {
+            opt.error("Duplicate deallocate_activation: " + paramValue);
+            return true;
+          }
+          params.deallocateActivation = deallocateActivation;
         }
-        if (param_value.equals_insensitive("true")) {
-          params.deallocateActivation = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.deallocateActivation = false;
-        } else {
-          opt.error("Invalid deallocate_activation: " + param_value);
-          return true;
+      } else if (paramName == "reallocate_halo_output") {
+        if (auto reallocateHaloOutput = parseBool(paramValue, opt)) {
+          if (params.reallocateHaloOutput.has_value()) {
+            opt.error("Duplicate reallocate_halo_output: " + paramValue);
+            return true;
+          }
+          params.reallocateHaloOutput = reallocateHaloOutput;
         }
-      } else if (param_name == "reallocate_halo_output") {
-        if (params.reallocateHaloOutput.has_value()) {
-          opt.error("Duplicate reallocate_halo_output: " + param_value);
-          return true;
-        }
-        if (param_value.equals_insensitive("true")) {
-          params.reallocateHaloOutput = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.reallocateHaloOutput = false;
-        } else {
-          opt.error("Invalid reallocate_halo_output: " + param_value);
-          return true;
-        }
-      } else if (param_name == "act_block_h_override") {
+      } else if (paramName == "act_block_h_override") {
         uint32_t actBlockHOverride;
-        if (param_value.getAsInteger<uint32_t>(10, actBlockHOverride)) {
-          opt.error("Invalid actBlockHOverride: " + param_value);
+        if (paramValue.getAsInteger<uint32_t>(10, actBlockHOverride)) {
+          opt.error("Invalid actBlockHOverride: " + paramValue);
           return true;
         }
         if (params.actBlockHOverride.has_value()) {
-          opt.error("Duplicate actBlockHOverride: " + param_value);
+          opt.error("Duplicate actBlockHOverride: " + paramValue);
           return true;
         }
         params.actBlockHOverride = actBlockHOverride;
-      } else if (param_name == "act_block_w_div") {
+      } else if (paramName == "act_block_w_div") {
         uint32_t actBlockWDiv;
-        if (param_value.getAsInteger<uint32_t>(10, actBlockWDiv)) {
-          opt.error("Invalid actBlockWDiv: " + param_value);
+        if (paramValue.getAsInteger<uint32_t>(10, actBlockWDiv)) {
+          opt.error("Invalid actBlockWDiv: " + paramValue);
           return true;
         }
         if (params.actBlockWDiv.has_value()) {
-          opt.error("Duplicate actBlockWDiv: " + param_value);
+          opt.error("Duplicate actBlockWDiv: " + paramValue);
           return true;
         }
         params.actBlockWDiv = actBlockWDiv;
-      } else if (param_name == "reshard_if_not_optimal") {
-        if (params.reshardIfNotOptimal.has_value()) {
-          opt.error("Duplicate reshard_if_not_optimal: " + param_value);
-          return true;
+      } else if (paramName == "reshard_if_not_optimal") {
+        if (auto reshardIfNotOptimal = parseBool(paramValue, opt)) {
+          if (params.reshardIfNotOptimal.has_value()) {
+            opt.error("Duplicate reshard_if_not_optimal: " + paramValue);
+            return true;
+          }
+          params.reshardIfNotOptimal = reshardIfNotOptimal;
         }
-        if (param_value.equals_insensitive("true")) {
-          params.reshardIfNotOptimal = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.reshardIfNotOptimal = false;
-        } else {
-          opt.error("Invalid reshard_if_not_optimal: " + param_value);
-          return true;
+      } else if (paramName == "override_sharding_config") {
+        if (auto overrideShardingConfig = parseBool(paramValue, opt)) {
+          if (params.overrideShardingConfig.has_value()) {
+            opt.error("Duplicate override_sharding_config: " + paramValue);
+            return true;
+          }
+          params.overrideShardingConfig = overrideShardingConfig;
         }
-      } else if (param_name == "override_sharding_config") {
-        if (params.overrideShardingConfig.has_value()) {
-          opt.error("Duplicate override_sharding_config: " + param_value);
-          return true;
-        }
-        if (param_value.equals_insensitive("true")) {
-          params.overrideShardingConfig = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.overrideShardingConfig = false;
-        } else {
-          opt.error("Invalid override_sharding_config: " + param_value);
-          return true;
-        }
-      } else if (param_name == "shard_layout") {
-        auto shardLayout = symbolizeTensorMemoryLayout(param_value);
+      } else if (paramName == "shard_layout") {
+        auto shardLayout = symbolizeTensorMemoryLayout(paramValue);
         if (!shardLayout) {
-          opt.error("Invalid shardLayout: " + param_value);
+          opt.error("Invalid shardLayout: " + paramValue);
           return true;
         }
         if (params.shardLayout.has_value()) {
-          opt.error("Duplicate shardLayout: " + param_value);
+          opt.error("Duplicate shardLayout: " + paramValue);
           return true;
         }
         params.shardLayout = shardLayout;
       }
       // TODO(vkovacevic): Parse core_grid
-      else if (param_name == "core_grid") {
+      else if (paramName == "core_grid") {
         continue;
-      } else if (param_name == "transpose_shards") {
-        if (params.transposeShards.has_value()) {
-          opt.error("Duplicate transpose_shards: " + param_value);
-          return true;
+      } else if (paramName == "transpose_shards") {
+        if (auto transposeShards = parseBool(paramValue, opt)) {
+          if (params.transposeShards.has_value()) {
+            opt.error("Duplicate transpose_shards: " + paramValue);
+            return true;
+          }
+          params.transposeShards = transposeShards;
         }
-        if (param_value.equals_insensitive("true")) {
-          params.transposeShards = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.transposeShards = false;
-        } else {
-          opt.error("Invalid transpose_shards: " + param_value);
-          return true;
-        }
-      } else if (param_name == "output_layout") {
-        auto outputLayout = symbolizeLayout(param_value);
+      } else if (paramName == "output_layout") {
+        auto outputLayout = symbolizeLayout(paramValue);
         if (!outputLayout) {
-          opt.error("Invalid outputLayout: " + param_value);
+          opt.error("Invalid outputLayout: " + paramValue);
           return true;
         }
         if (params.outputLayout.has_value()) {
-          opt.error("Duplicate outputLayout: " + param_value);
+          opt.error("Duplicate outputLayout: " + paramValue);
           return true;
         }
         params.outputLayout = outputLayout;
-      } else if (param_name == "enable_act_double_buffer") {
-        if (params.enableActDoubleBuffer.has_value()) {
-          opt.error("Duplicate enable_act_double_buffer: " + param_value);
-          return true;
+      } else if (paramName == "enable_act_double_buffer") {
+        if (auto enableActDoubleBuffer = parseBool(paramValue, opt)) {
+          if (params.enableActDoubleBuffer.has_value()) {
+            opt.error("Duplicate enable_act_double_buffer: " + paramValue);
+            return true;
+          }
+          params.enableActDoubleBuffer = enableActDoubleBuffer;
         }
-        if (param_value.equals_insensitive("true")) {
-          params.enableActDoubleBuffer = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.enableActDoubleBuffer = false;
-        } else {
-          opt.error("Invalid enable_act_double_buffer: " + param_value);
-          return true;
+      } else if (paramName == "enable_weights_double_buffer") {
+        if (auto enableWeightsDoubleBuffer = parseBool(paramValue, opt)) {
+          if (params.enableWeightsDoubleBuffer.has_value()) {
+            opt.error("Duplicate enable_weights_double_buffer: " + paramValue);
+            return true;
+          }
+          params.enableWeightsDoubleBuffer = enableWeightsDoubleBuffer;
         }
-      } else if (param_name == "enable_weights_double_buffer") {
-        if (params.enableWeightsDoubleBuffer.has_value()) {
-          opt.error("Duplicate enable_weights_double_buffer: " + param_value);
-          return true;
+      } else if (paramName == "enable_split_reader") {
+        if (auto enableSplitReader = parseBool(paramValue, opt)) {
+          if (params.enableSplitReader.has_value()) {
+            opt.error("Duplicate enable_split_reader: " + paramValue);
+            return true;
+          }
+          params.enableSplitReader = enableSplitReader;
         }
-        if (param_value.equals_insensitive("true")) {
-          params.enableWeightsDoubleBuffer = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.enableWeightsDoubleBuffer = false;
-        } else {
-          opt.error("Invalid enable_weights_double_buffer: " + param_value);
-          return true;
+      } else if (paramName == "enable_subblock_padding") {
+        if (auto enableSubblockPadding = parseBool(paramValue, opt)) {
+          if (params.enableSubblockPadding.has_value()) {
+            opt.error("Duplicate enable_subblock_padding: " + paramValue);
+            return true;
+          }
+          params.enableSubblockPadding = enableSubblockPadding;
         }
-      } else if (param_name == "enable_split_reader") {
-        if (params.enableSplitReader.has_value()) {
-          opt.error("Duplicate enable_split_reader: " + param_value);
-          return true;
-        }
-        if (param_value.equals_insensitive("true")) {
-          params.enableSplitReader = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.enableSplitReader = false;
-        } else {
-          opt.error("Invalid enable_split_reader: " + param_value);
-          return true;
-        }
-      } else if (param_name == "enable_subblock_padding") {
-        if (params.enableSubblockPadding.has_value()) {
-          opt.error("Duplicate enable_subblock_padding: " + param_value);
-          return true;
-        }
-        if (param_value.equals_insensitive("true")) {
-          params.enableSubblockPadding = true;
-        } else if (param_value.equals_insensitive("false")) {
-          params.enableSubblockPadding = false;
-        } else {
-          opt.error("Invalid enable_subblock_padding: " + param_value);
-          return true;
-        }
+      } else {
+        opt.error("Invalid override parameter: " + paramName);
+        return true;
       }
     }
 
@@ -379,7 +351,7 @@ std::string Conv2dConfigOverrideParser::toString(
 void Conv2dConfigOverrideParser::print(
     llvm::raw_ostream &os,
     const llvm::StringMap<Conv2dConfigOverrideParams> &value) {
-  os << "override-conv2d-config=";
+  os << OptionNames::overrideConv2dConfig << "=";
   os << Conv2dConfigOverrideParser::toString(value);
   os << "\n";
 }
@@ -397,11 +369,11 @@ bool OutputLayoutOverrideParser::parse(
   constexpr char gridSeparator = 'x';
 
   arg.split(opOverrideList, opSeparator);
-  for (const StringRef override : opOverrideList) {
+  for (const StringRef opOverrides : opOverrideList) {
     SmallVector<StringRef, kvPairSize> opOverrideParts;
-    override.split(opOverrideParts, opNameSeparator);
+    opOverrides.split(opOverrideParts, opNameSeparator);
     if (opOverrideParts.size() != kvPairSize) {
-      opt.error("Invalid format for override grid sizes: " + override);
+      opt.error("Invalid format for override: " + opOverrides);
       return true;
     }
 
@@ -509,7 +481,7 @@ std::string OutputLayoutOverrideParser::toString(
 void OutputLayoutOverrideParser::print(
     llvm::raw_ostream &os,
     const llvm::StringMap<OutputLayoutOverrideParams> &value) {
-  os << "override-output-layout=";
+  os << OptionNames::overrideOutputLayout << "=";
   os << OutputLayoutOverrideParser::toString(value);
   os << "\n";
 }
@@ -526,11 +498,11 @@ bool InputLayoutOverrideParser::parse(
   constexpr char opParamSeparator = ':';
 
   arg.split(opOverrideList, opSeparator);
-  for (const StringRef override : opOverrideList) {
+  for (const StringRef opOverrides : opOverrideList) {
     SmallVector<StringRef, kvPairSize> opOverrideParts;
-    override.split(opOverrideParts, opNameSeparator);
+    opOverrides.split(opOverrideParts, opNameSeparator);
     if (opOverrideParts.size() != kvPairSize) {
-      opt.error("Invalid format for input layouts override: " + override);
+      opt.error("Invalid format for input layouts override: " + opOverrides);
       return true;
     }
 
@@ -577,7 +549,7 @@ std::string InputLayoutOverrideParser::toString(
 void InputLayoutOverrideParser::print(
     llvm::raw_ostream &os,
     const llvm::StringMap<InputLayoutOverrideParams> &value) {
-  os << "insert-memreconfig=";
+  os << OptionNames::overrideInputLayout << "=";
   os << InputLayoutOverrideParser::toString(value);
   os << "\n";
 }
