@@ -118,7 +118,7 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, 
       %tx = ttir.dma %stream<#map1>, %cb0 : (memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 24576 + d3 * 4096)>, #l1_>, memref<4x6x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem0, %c3 reset %c0
-      %tx_3 = ttir.dma %cb0, %cb0, core[%core0, %c0] mcast[%c1, %c4] : (memref<4x6x!tt.tile<32x32, f32>, #l1_>, memref<4x6x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx_3 = ttir.dma %cb0, %cb0 core[%core0, %c0] mcast[%c1, %c4] : (memref<4x6x!tt.tile<32x32, f32>, #l1_>, memref<4x6x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx_3
       ttir.semaphore_set %sem1, %c1, core[%core0, %c0] mcast[%c1, %c4]
     } else {
@@ -144,7 +144,7 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, 
       %tx = ttir.dma %stream_2<#map2>, %cb1 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 32768 + d3 * 4096)>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem2, %c1 reset %c0
-      %tx_3 = ttir.dma %cb1, %cb1, core[%c0, %core1] mcast[%c2, %c1] : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx_3 = ttir.dma %cb1, %cb1 core[%c0, %core1] mcast[%c2, %c1] : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx_3
       ttir.semaphore_set %sem3, %c1, core[%c0, %core1] mcast[%c2, %c1]
     } else {
@@ -189,7 +189,7 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!tt.tile<32x32, f
       %tx = ttir.dma %stream<#map1>, %cb0 : (memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 24576 + d3 * 4096)>, #l1_>, memref<4x6x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem0, %c3 reset %c0
-      %tx_3 = ttir.dma %cb0, %cb0, core[%core0, %c0] mcast[%c1, %c4] : (memref<4x6x!tt.tile<32x32, f32>, #l1_>, memref<4x6x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx_3 = ttir.dma %cb0, %cb0 core[%core0, %c0] mcast[%c1, %c4] : (memref<4x6x!tt.tile<32x32, f32>, #l1_>, memref<4x6x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx_3
       ttir.semaphore_set %sem1, %c1, core[%core0, %c0] mcast[%c1, %c4]
     } else {
@@ -215,7 +215,7 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!tt.tile<32x32, f
       %tx = ttir.dma %stream_2<#map2>, %cb1 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 32768 + d3 * 4096)>, #dram>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx
       ttir.semaphore_wait %sem2, %c1 reset %c0
-      %tx_3 = ttir.dma %cb1, %cb1, core[%c0, %core1] mcast[%c2, %c1] : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx_3 = ttir.dma %cb1, %cb1 core[%c0, %core1] mcast[%c2, %c1] : (memref<6x8x!tt.tile<32x32, f32>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ttir.dma_wait %tx_3
       ttir.semaphore_set %sem3, %c1, core[%c0, %core1] mcast[%c2, %c1]
     } else {
