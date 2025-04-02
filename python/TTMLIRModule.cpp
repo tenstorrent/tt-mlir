@@ -10,12 +10,16 @@ NB_MODULE(_ttmlir, m) {
   m.def(
       "register_dialect",
       [](MlirContext context, bool load) {
+        // Register all Passes
+        mlir::registerAllPasses();
+        // Currently not working due to Linalg -> LLVM registration conflict
+        // mlir::tt::registerAllPasses();
+
         mlir::DialectRegistry registry;
 
         // Register all dialects + extensions.
         mlir::tt::registerAllDialects(registry);
         mlir::tt::registerAllExtensions(registry);
-        mlir::registerAllPasses();
 
         // Append registry to mlir context
         mlir::MLIRContext *mlirContext = unwrap(context);
@@ -26,6 +30,22 @@ NB_MODULE(_ttmlir, m) {
         }
       },
       nb::arg("context"), nb::arg("load") = true);
+
+  // This is a special function used by the python site initialize
+  // It registers all of the passes and dialects, making them pervasive using
+  // MLIR's API This site initializer handler will take care of appending the
+  // registry to the context
+  m.def(
+      "register_dialects",
+      [](MlirDialectRegistry _registry) {
+        mlir::registerAllPasses();
+
+        mlir::DialectRegistry *registry = unwrap(_registry);
+
+        mlir::tt::registerAllDialects(*registry);
+        mlir::tt::registerAllExtensions(*registry);
+      },
+      nb::arg("dialectRegistry"));
 
   auto tt_ir = m.def_submodule("tt_ir", "TT IR Bindings");
   mlir::ttmlir::python::populateTTModule(tt_ir);

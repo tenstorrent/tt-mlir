@@ -117,7 +117,6 @@ class TTKernelCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.supported_nodes = get_supported_nodes()
-        ttkernel.register_dialect(self.ctx)
 
         self.cb_args = args
         self.rt_args = None
