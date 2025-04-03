@@ -8,7 +8,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_ELEMENTTYPENORMALIZATION
@@ -54,10 +54,7 @@ struct ElementTypeNormalization
     RewritePatternSet patterns(&getContext());
     ElementTypeConverter converter(enableFP32);
     patterns.add<UniformTypeRewriter>(converter, &getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-      return;
-    }
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
 } // namespace
