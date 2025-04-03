@@ -19,6 +19,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
@@ -87,6 +88,7 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
   mlir::tt::llvm_util::registerPasses();
+  mlir::tt::transforms::registerPasses();
 
   // Register pipelines.
   mlir::tt::ttir::registerTTIRPipelines();

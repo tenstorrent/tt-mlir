@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "4acdb8b52797aa34b6c4bba1f8212deeefa0f68c")
+set(TT_METAL_VERSION "636094054d73552b36166a596e4deb79c5756a2f")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -81,6 +81,8 @@ endif()
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
+  CMAKE_ARGS
+    -DCMAKE_INSTALL_MESSAGE=LAZY
   CMAKE_GENERATOR Ninja
   CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
