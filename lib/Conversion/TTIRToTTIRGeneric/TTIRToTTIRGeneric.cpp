@@ -34,17 +34,15 @@ protected:
 
   // Common need to navigate DPS (<inputs>;<inits>) operand split:
   // note that this requires only 'getDpsInits()' to be available.
-  template <typename ConcreteOp>
+  template <typename Adaptor>
   static std::array<mlir::SmallVector<Value>, 2>
-  splitDpsSignature(ConcreteOp op) {
-    // 'DPS inits' (for tensor semantics, tied 1:1 with 'DPS results').
-    mlir::ValueRange inits = op.getDpsInits();
-
-    assert(inits.size() <= op->getNumOperands());
-    mlir::ValueRange inputs =
-        op->getOperands().take_front(op->getNumOperands() - inits.size());
-
-    return {inputs, inits};
+  splitDpsSignature(Adaptor adaptor, size_t numDPSInits) {
+    auto numOperands = adaptor.getOperands().size();
+    assert(numDPSInits <= numOperands && "expected numDPSInits <= numOperands");
+    auto numInputs = numOperands - numDPSInits;
+    mlir::ValueRange inputs = adaptor.getOperands().take_front(numInputs);
+    mlir::ValueRange outputs = adaptor.getOperands().drop_front(numInputs);
+    return {inputs, outputs};
   }
 
   static std::function<Value(Value)>
@@ -79,13 +77,13 @@ protected:
                                                       tiled, memorySpace))};
   }
 
-  template <typename ConcreteOp>
+  template <typename Adaptor>
   static std::array<mlir::SmallVector<Value>, 2>
-  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter, ConcreteOp op,
-                   uint64_t deviceGridRank, bool tiled,
+  toLayoutOperands(mlir::ConversionPatternRewriter &rewriter, Adaptor adaptor,
+                   size_t numDPSInits, uint64_t deviceGridRank, bool tiled,
                    MemorySpace memorySpace = MemorySpace::DeviceL1) {
-    return toLayoutOperands(rewriter, splitDpsSignature(op), deviceGridRank,
-                            tiled, memorySpace);
+    return toLayoutOperands(rewriter, splitDpsSignature(adaptor, numDPSInits),
+                            deviceGridRank, tiled, memorySpace);
   }
 
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
@@ -173,7 +171,8 @@ private:
     mlir::Location loc = op->getLoc();
 
     auto [inputs, outputs] =
-        toLayoutOperands(rewriter, op, deviceGridRank, /*tiled*/ true);
+        toLayoutOperands(rewriter, adaptor, op.getDpsInits().size(),
+                         deviceGridRank, /*tiled*/ true);
 
     std::size_t const numInputs = inputs.size();
     std::size_t const numOutputs = outputs.size();
@@ -276,7 +275,8 @@ private:
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
-    auto [origInputs, origOutputs] = splitDpsSignature(op);
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
     SmallVector<mlir::Value> newInputs(origInputs.begin(), origInputs.end());
     newInputs.emplace_back(createScaler(
         rewriter, loc,
@@ -500,7 +500,8 @@ private:
     mlir::Location loc = op->getLoc();
 
     auto [inputs, outputs] =
-        toLayoutOperands(rewriter, op, deviceGridRank, /*tiled*/ true);
+        toLayoutOperands(rewriter, adaptor, op.getDpsInits().size(),
+                         deviceGridRank, /*tiled*/ true);
 
     std::size_t const numInputs = inputs.size();
     std::size_t const numOutputs = outputs.size();
