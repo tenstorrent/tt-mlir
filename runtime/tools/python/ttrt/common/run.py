@@ -6,7 +6,10 @@ import os
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.callback import get_callback_fn, CallbackRuntimeConfig
+from ttrt.common.callback import (
+    get_callback_fn,
+    CallbackRuntimeConfig,
+)
 
 
 class Run:
@@ -457,8 +460,8 @@ class Run:
                 self["--debugger"],
             )
 
-            callback_env = ttrt.runtime.DebugHooks.get(
-                get_callback_fn(callback_runtime_config)
+            post_op_callback_env = ttrt.runtime.DebugHooks.get(
+                "post-op", get_callback_fn(callback_runtime_config)
             )
 
             try:

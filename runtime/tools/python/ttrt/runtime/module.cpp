@@ -287,9 +287,10 @@ PYBIND11_MODULE(_C, m) {
 
   py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
       .def_static("get",
-                  [](py::function func) {
+                  [](std::string callbackKey, py::function func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
                     tt::runtime::debug::Hooks::get(
+                        callbackKey,
                         [func](tt::runtime::Binary binary,
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
