@@ -43,6 +43,11 @@ void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
   ::ttnn::MeshDevice &meshDevice = context.getParentMesh();
   const ::tt::target::Dim2d *subMeshShape = op->mesh();
   const ::flatbuffers::Vector<uint32_t> *deviceIds = op->chip_ids();
+  std::cerr << "-------IDS--------"<< std::endl;
+  for (uint32_t deviceId : *deviceIds) {
+    std::cerr << deviceId << std::endl;
+  }
+  std::cerr << "-------IDS--------"<< std::endl;
   std::unordered_set<uint32_t> desiredDeviceIds(deviceIds->begin(),
                                                 deviceIds->end());
   LOG_ASSERT(desiredDeviceIds.size() == deviceIds->size(),
