@@ -28,8 +28,12 @@ public:
       // support uint8.
       if (bitWidth == 1) {
         elementType = BFloat16Type::get(context);
-      } else if (enableFP32 && isa<FloatType>(elementType) && bitWidth >= 32) {
-        elementType = Float32Type::get(context);
+      } else if (isa<FloatType>(elementType) && bitWidth >= 32) {
+        if (enableFP32) {
+          elementType = Float32Type::get(context);
+        } else {
+          elementType = BFloat16Type::get(context);
+        }
       } else {
         elementType =
             dataTypeToElementType(context, elementTypeToDataType(elementType));
