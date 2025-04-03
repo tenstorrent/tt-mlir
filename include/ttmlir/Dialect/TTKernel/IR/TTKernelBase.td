@@ -56,14 +56,14 @@ def TTKernel_InitOpTrait : TTKernel_Trait<"TTKernelInitOpTrait", []>;
 class TTKernel_Op<string mnemonic, list<Trait> traits = []> :
         Op<TTKernel_Dialect, mnemonic, traits>;
 
-class TTKernel_FPUOp<string mnemonic, list<Trait> traits = [TTKernel_FPUOpTrait]> :
-        TTKernel_Op<mnemonic, traits>;
+class TTKernel_FPUOp<string mnemonic, list<Trait> traits = []> :
+        TTKernel_Op<mnemonic, [TTKernel_FPUOpTrait] # traits>;
 
-class TTKernel_SFPUOp<string mnemonic, list<Trait> traits = [TTKernel_SFPUOpTrait]> :
-        TTKernel_Op<mnemonic, traits>;
+class TTKernel_SFPUOp<string mnemonic, list<Trait> traits = []> :
+        TTKernel_Op<mnemonic, [TTKernel_SFPUOpTrait] # traits>;
 
-class TTKernel_InitOp<string mnemonic, list<Trait> traits = [TTKernel_InitOpTrait]> :
-        TTKernel_Op<mnemonic, traits>;
+class TTKernel_InitOp<string mnemonic, list<Trait> traits = []> :
+        TTKernel_Op<mnemonic, [TTKernel_InitOpTrait] # traits>;
 
 
 #endif
