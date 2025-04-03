@@ -2143,8 +2143,8 @@ namespace {
       auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
   
-      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PrintOp>(rewriter, srcOp, outputType,
-                                                    adaptor.getOperands());
+      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PrintOp>(
+          rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getProbeId());
 
       return success();
     }
