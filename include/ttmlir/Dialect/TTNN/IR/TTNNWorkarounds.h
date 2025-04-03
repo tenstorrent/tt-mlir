@@ -265,8 +265,7 @@ public:
 
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
-  createBinaryOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
-                                    mlir::Operation *op);
+  createBinaryOpOperandsWorkarounds(mlir::Operation *op);
 
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();

@@ -147,11 +147,8 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getOperands();
-        mlir::Operation *op = getOperation();
         return
-          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
-                                                                        inputs, op);
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
       }
     }];
 }
