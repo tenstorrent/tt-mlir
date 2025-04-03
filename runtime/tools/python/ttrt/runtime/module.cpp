@@ -114,6 +114,10 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
+  py::enum_<tt::runtime::debug::CallbackKey>(m, "CallbackKey")
+      .value("PreOp", ::tt::runtime::debug::CallbackKey::PreOp)
+      .value("PostOp", ::tt::runtime::debug::CallbackKey::PostOp)
+      .value("None", ::tt::runtime::debug::CallbackKey::Null);
   py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
       .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
       .value("L1", tt::runtime::MemoryBufferType::L1)
@@ -286,20 +290,20 @@ PYBIND11_MODULE(_C, m) {
       });
 
   py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
-      .def_static("get",
-                  [](std::string callbackKey, py::function func) {
+      .def_static(
+          "get",
+          [](tt::runtime::debug::CallbackKey callbackKey, py::function func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-                    tt::runtime::debug::Hooks::get(
-                        callbackKey,
-                        [func](tt::runtime::Binary binary,
-                               tt::runtime::CallbackContext programContext,
-                               tt::runtime::OpContext opContext) {
-                          func(binary, programContext, opContext);
-                        });
+            tt::runtime::debug::Hooks::get(
+                callbackKey, [func](tt::runtime::Binary binary,
+                                    tt::runtime::CallbackContext programContext,
+                                    tt::runtime::OpContext opContext) {
+                  func(binary, programContext, opContext);
+                });
 #else
             tt::runtime::debug::Hooks::get();
 #endif
-                  })
+          })
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;

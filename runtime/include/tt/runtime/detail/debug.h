@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <ostream>
+#include <unordered_set>
 
 #include "tt/runtime/types.h"
 
@@ -42,21 +43,23 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   return os;
 }
 
+enum class CallbackKey { PreOp, PostOp, Null };
+
 struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static Hooks const &
-  get(std::optional<std::string> callbackKey = std::nullopt,
+  get(std::optional<CallbackKey> callbackKey = CallbackKey::Null,
       std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
   constexpr static Hooks get() { return Hooks(); }
 #endif
 
-  std::optional<std::string> getCallbackKey() const {
+  std::optional<CallbackKey> getCallbackKey() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return callbackKey;
 #else
-    return std::nullopt;
+    return CallbackKey::Null
 #endif
   }
 
@@ -69,21 +72,27 @@ struct Hooks {
 #endif
   }
 
+  const std::unordered_set<CallbackKey> &getValidCallbackKeys() {
+    static const std::unordered_set<CallbackKey> validKeys = {
+        CallbackKey::PreOp, CallbackKey::PostOp, CallbackKey::Null};
+    return validKeys;
+  }
+
   void unregisterHooks() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    callbackKey = std::nullopt;
+    callbackKey = CallbackKey::Null;
     operatorCallback = std::nullopt;
 #endif
   }
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  Hooks(std::optional<std::string> callbackKey,
+  Hooks(std::optional<CallbackKey> callbackKey,
         std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
             operatorCallback)
       : callbackKey(callbackKey), operatorCallback(operatorCallback) {}
 
-  mutable std::optional<std::string> callbackKey;
+  mutable std::optional<CallbackKey> callbackKey;
   mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
       operatorCallback;
 
