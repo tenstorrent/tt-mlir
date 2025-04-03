@@ -26,6 +26,7 @@ union OpType {
   MeshShardOp,
   ReduceScatterOp,
   GetDeviceOp,
+  PrepareConv2dWeightsOp,
   Conv2dOp,
   ConvTranspose2dOp,
   CpuOp,
