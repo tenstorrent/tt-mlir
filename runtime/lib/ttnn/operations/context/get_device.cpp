@@ -36,6 +36,9 @@ createSubMeshDevice(::ttnn::MeshDevice &parentMesh,
   MeshShape meshShape(subMeshShape->y(), subMeshShape->x());
   MeshCoordinate coordinate =
       calculateMeshCoordinate(parentMesh, desiredDeviceIds, subMeshShape);
+  std::cerr << "-------COORDS--------"<< std::endl;
+  std::cerr << coordinate[0] << " " << coordinate[1] << std::endl;
+  std::cerr << "-------COORDS--------"<< std::endl;
   return parentMesh.create_submesh(meshShape, coordinate);
 }
 
