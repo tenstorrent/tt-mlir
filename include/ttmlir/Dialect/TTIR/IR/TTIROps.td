@@ -1652,6 +1652,8 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
 
   let results = (outs AnyRankedTensor:$result);
 
+  let hasVerifier = 1;
+
   let hasCanonicalizer = 1;
 }
 

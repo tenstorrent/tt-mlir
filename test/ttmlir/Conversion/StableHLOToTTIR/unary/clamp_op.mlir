@@ -9,7 +9,6 @@ module @jit_clamp attributes {} {
     %cst_0 = stablehlo.constant dense<3.000000e+00> : tensor<4xf32>
     // CHECK: %[[EMPTY:.*]] = ttir.empty() : [[TENSOR:tensor<4xf32>]]
     // CHECK: "ttir.clamp_tensor"(%arg0, %[[MIN]], %[[MAX]], %[[EMPTY]])
-    // CHECaK-SAME: max = 3.000000e+00 : f32, min = 2.000000e+00 : f32
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]], [[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
     %0 = stablehlo.clamp %cst, %arg0, %cst_0 : tensor<4xf32>
     return %0 : tensor<4xf32>

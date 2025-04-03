@@ -82,9 +82,10 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
-// ClampOp
+// ClampScalarOp
 //===----------------------------------------------------------------------===//
 
+// ClampScalarOp verifier
 ::mlir::LogicalResult mlir::tt::ttir::ClampScalarOp::verify() {
   const RankedTensorType inputTensorType =
       mlir::cast<RankedTensorType>(getInput().getType());
@@ -99,7 +100,38 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   return success();
 }
 
-// ClampTensorOp canonicalization
+//===----------------------------------------------------------------------===//
+// ClampTensorOp
+//===----------------------------------------------------------------------===//
+
+// ClampTensorOp verifier
+::mlir::LogicalResult mlir::tt::ttir::ClampTensorOp::verify() {
+  llvm::ArrayRef<int64_t> minShape = getMin().getType().getShape();
+
+  llvm::ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+
+  llvm::SmallVector<int64_t, 4> broadcastedShape;
+  if (!mlir::OpTrait::util::getBroadcastedShape(minShape, outputShape,
+                                                broadcastedShape)) {
+    return emitOpError("Min attribute shape (" +
+                       ttmlir::utils::join(minShape, ",") +
+                       ") cannot be broadcasted to output shape (" +
+                       ttmlir::utils::join(outputShape, ",") + ").");
+  }
+
+  llvm::ArrayRef<int64_t> maxShape = getMax().getType().getShape();
+  if (!mlir::OpTrait::util::getBroadcastedShape(maxShape, outputShape,
+                                                broadcastedShape)) {
+    return emitOpError("Max attribute shape (" +
+                       ttmlir::utils::join(maxShape, ",") +
+                       ") cannot be broadcasted to output shape (" +
+                       ttmlir::utils::join(outputShape, ",") + ").");
+  }
+
+  return success();
+}
+
+// Helper function to extract constant value.
 static std::optional<float> getConstantValue(mlir::Value value) {
   mlir::Operation *op = value.getDefiningOp();
   while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
@@ -107,12 +139,8 @@ static std::optional<float> getConstantValue(mlir::Value value) {
                                mlir::tt::ttir::TypecastOp>(op)) {
     op = op->getOperand(0).getDefiningOp();
   }
-  if (!op) {
-    return std::nullopt;
-  }
 
-  auto constantOp = mlir::dyn_cast<mlir::tt::ttir::ConstantOp>(op);
-
+  auto constantOp = mlir::dyn_cast_if_present<mlir::tt::ttir::ConstantOp>(op);
   if (!constantOp) {
     return std::nullopt;
   }
@@ -138,12 +166,12 @@ static std::optional<float> getConstantValue(mlir::Value value) {
   return std::nullopt;
 }
 
+// ClampTensorOp canonicalization
 void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   patterns.add(+[](mlir::tt::ttir::ClampTensorOp op,
                    mlir::PatternRewriter &rewriter) {
-    RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(op.getResult().getType());
+    RankedTensorType outputType = op.getResult().getType();
 
     std::optional<float> minValue = getConstantValue(op.getMin());
     std::optional<float> maxValue = getConstantValue(op.getMax());
@@ -165,19 +193,15 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     LogicalResult legalityResult = ttmlir::utils::broadcastValue(
         rewriter, op.getMin(), outputType, minTensor, loc,
         /*frontUnsqueeze=*/false);
-    if (!legalityResult.succeeded()) {
-      return rewriter.notifyMatchFailure(
-          op, "Min attribute cannot be broadcasted to provided dimensions.");
-    }
+    assert(legalityResult.succeeded() &&
+           "Min attribute cannot be broadcasted to provided dimensions.");
 
     mlir::Value maxTensor;
     legalityResult = ttmlir::utils::broadcastValue(rewriter, op.getMax(),
                                                    outputType, maxTensor, loc,
                                                    /*frontUnsqueeze=*/false);
-    if (!legalityResult.succeeded()) {
-      return rewriter.notifyMatchFailure(
-          op, "Max attribute cannot be broadcasted to provided dimensions.");
-    }
+    assert(legalityResult.succeeded() &&
+           "Max attribute cannot be broadcasted to provided dimensions.");
 
     ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
         rewriter, op, outputType, op.getInput(), minTensor, maxTensor);
