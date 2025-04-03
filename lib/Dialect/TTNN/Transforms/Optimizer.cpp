@@ -21,6 +21,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 
@@ -345,7 +346,7 @@ public:
           if (isa<ttnn::Conv2dOp>(op)) {
             if (opConfigAnalysis.getResult().at(op).config) {
               Attribute config = opConfigAnalysis.getResult().at(op).config;
-              if (mlir::isa<ttnn::Conv2dConfigAttr>(config)) {
+              if (isa<ttnn::Conv2dConfigAttr>(config)) {
                 ttnn::Conv2dOp conv2dOp = mlir::cast<ttnn::Conv2dOp>(op);
                 conv2dOp.setConv2dConfigAttr(
                     mlir::cast<ttnn::Conv2dConfigAttr>(config));
@@ -374,8 +375,10 @@ public:
 private:
   void assertOverridesValid() {
     // Check if each overriden op exists in the graph.
+    // Check if each conv2d config override is applied only to conv2d op.
     //
     llvm::StringMap<bool> overridenOpExists;
+    llvm::StringMap<bool> overrideConv2dOp;
     for (auto &opOverride : overrideOutputLayout) {
       overridenOpExists[opOverride.first()] = false;
     }
@@ -384,6 +387,7 @@ private:
     }
     for (auto &opOverride : overrideConv2dConfig) {
       overridenOpExists[opOverride.first()] = false;
+      overrideConv2dOp[opOverride.first()] = false;
     }
 
     ModuleOp moduleOp = getOperation();
@@ -395,6 +399,14 @@ private:
       StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
       if (overridenOpExists.contains(opLocName)) {
         overridenOpExists[opLocName] = true;
+      }
+      if (!isa<ttnn::Conv2dOp>(op)) {
+        if (overrideConv2dOp.contains(opLocName)) {
+          llvm::errs() << "Trying to override conv2d config on non-conv2d op: "
+                       << op->getName() << "\n";
+          assert(false &&
+                 "Trying to override conv2d config on non-conv2d op: ");
+        }
       }
     });
 
@@ -534,9 +546,11 @@ private:
         Layout outputLayoutEnum = consumerOpOutputLayout.getLayout();
         LayoutAttr outputLayout =
             LayoutAttr::get(consumerOp->getContext(), outputLayoutEnum);
+        Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
+                                                           "_mem_reconfig");
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
-            consumerOp->getLoc(), newTensorType, producerOp->getResult(0),
-            outputLayout, outputDataType, outputMemConfigAttr,
+            loc, newTensorType, producerOp->getResult(0), outputLayout,
+            outputDataType, outputMemConfigAttr,
             getOrCreateDeviceOpValue(consumerOp, builder));
 
         consumerOp->setOperand(edge.operandIndex,
@@ -576,8 +590,10 @@ private:
           dramLayout.getMemLayout());
 
       builder.setInsertionPointAfter(op);
+      Location loc =
+          ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          op->getLoc(), newTensorType, op->getResult(0), newLayout, dataType,
+          loc, newTensorType, op->getResult(0), newLayout, dataType,
           memConfigAttr, getOrCreateDeviceOpValue(op, builder));
 
       for (auto &use : op->getResult(0).getUses()) {

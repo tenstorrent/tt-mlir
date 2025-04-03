@@ -62,7 +62,7 @@ static void revertOutputLayout(wa::TTNNWorkaroundInterface &op,
       workaroundResults.tensorLayoutResult.previousValue,
       workaroundResults.tensorBufferTypeResult.previousValue,
       workaroundResults.tensorMemoryLayoutResult.previousValue,
-      workaroundResults.tensorDataTypeResult.previousValue);
+      workaroundResults.tensorDataTypeResult.previousValue, "_workaround");
 
   // Replace the new output result with the casted output result.
   rewriter.replaceUsesWithIf(
@@ -100,7 +100,7 @@ static bool workaroundInputOperand(
       inputWorkaroundResults.tensorLayoutResult.targetValue,
       inputWorkaroundResults.tensorBufferTypeResult.targetValue,
       inputWorkaroundResults.tensorMemoryLayoutResult.targetValue,
-      inputWorkaroundResults.tensorDataTypeResult.targetValue);
+      inputWorkaroundResults.tensorDataTypeResult.targetValue, "_workaround");
 
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
