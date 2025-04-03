@@ -962,7 +962,7 @@ private:
 // For example, instead of calling `emit<std::variant<int32_t, float>>(attr)`,
 // one can call `emit<int32_t>(attr) | emit<float>(attr)`.
 inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {
-  static const mlir::Attribute nulloptAttr = emitc::OpaqueAttr::get(
+  const mlir::Attribute nulloptAttr = emitc::OpaqueAttr::get(
       lhs.getContext(), tt::ttnn_to_emitc::TypeNameV<std::nullopt_t>);
   if (!lhs || lhs == nulloptAttr) {
     return rhs;
