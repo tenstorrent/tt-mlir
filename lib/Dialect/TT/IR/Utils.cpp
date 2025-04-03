@@ -114,8 +114,8 @@ mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, mlir::MemRefType type,
   }
   llvm::interleave(type.getShape(), os, "x");
   os << "x" << type.getElementType();
-  return createGlobal(moduleOp, symbolName, type, value, constant, privateVisibility,
-                      alignment);
+  return createGlobal(moduleOp, symbolName, type, value, constant,
+                      privateVisibility, alignment);
 }
 
 } // namespace mlir::tt
