@@ -1025,7 +1025,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
             organize_golden_args=lambda i: 0,
         )
-         
+
     def update_cache(
         self, in0: Operand, in1: Operand, in2: Operand, batch_offset: int = 0
     ) -> OpView:
