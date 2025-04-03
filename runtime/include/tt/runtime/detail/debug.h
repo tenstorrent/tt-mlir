@@ -95,8 +95,7 @@ private:
 inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
   os << "debug::Hooks{\n"
      << "\t"
-     << "callbackKey: "
-     << static_cast<std::string>(hooks.getCallbackKey().value())
+     << "callbackKey: " << static_cast<bool>(hooks.getCallbackKey())
      << "operatorCallback: " << static_cast<bool>(hooks.getOperatorCallback())
      << ",\n"
      << "}";
