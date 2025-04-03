@@ -20,6 +20,9 @@ calculateMeshCoordinate(const ::ttnn::MeshDevice &parentMesh,
   for (uint32_t row = 0; row < parentMesh.shape()[0]; row++) {
     for (uint32_t col = 0; col < parentMesh.shape()[1]; col++) {
       const ::ttnn::IDevice *currDevice = parentMesh.get_device({row, col});
+      std::cerr << "-------DEVICE--------"<< std::endl;
+      std::cerr << "row=" << row << " col=" << col << " id=" << currDevice->id() << std::endl;
+      std::cerr << "-------DEVICE--------"<< std::endl;
       if (desiredDeviceIds.contains(currDevice->id())) {
         return MeshCoordinate(row, col);
       }
