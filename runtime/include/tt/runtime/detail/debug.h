@@ -59,7 +59,7 @@ struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return callbackKey;
 #else
-    return CallbackKey::Null
+    return CallbackKey::Null;
 #endif
   }
 
