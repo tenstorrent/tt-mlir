@@ -545,10 +545,6 @@ static ::mlir::LogicalResult namedOpVerify(Op op) {
   return namedOpVerify(*this);
 }
 
-//===----------------------------------------------------------------------===//
-// OnesOp
-//===----------------------------------------------------------------------===//
-
 ::mlir::LogicalResult mlir::tt::ttnn::OnesOp::verify() {
   return namedOpVerify(*this);
 }
