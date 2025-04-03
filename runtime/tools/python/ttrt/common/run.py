@@ -6,7 +6,10 @@ import os
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.callback import get_callback_fn, CallbackRuntimeConfig
+from ttrt.common.callback import (
+    get_callback_fn,
+    CallbackRuntimeConfig,
+)
 
 
 class Run:
@@ -457,8 +460,8 @@ class Run:
                 self["--debugger"],
             )
 
-            callback_env = ttrt.runtime.DebugHooks.get(
-                get_callback_fn(callback_runtime_config)
+            post_op_callback_env = ttrt.runtime.DebugHooks.get(
+                "post-op", get_callback_fn(callback_runtime_config)
             )
 
             try:
@@ -696,8 +699,57 @@ class Run:
                                     callback_runtime_config.save_golden_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
                                     )
-
+                                # check operation level golden comparison result.
                                 callback_runtime_config.check_pcc()
+
+                                # compare program level golden.
+                                self.logging.debug(
+                                    "executing program level golden comparison"
+                                )
+                                for idx in range(0, len(program.output_tensors)):
+                                    golden_tensor = bin.fbb.get_debug_info_golden(
+                                        f"output_{idx}"
+                                    )
+                                    if golden_tensor is None:
+                                        self.logging.debug(
+                                            f"Skip comparing program level golden for output_{idx}"
+                                        )
+                                        continue
+                                    golden_tensor_torch = torch.frombuffer(
+                                        golden_tensor,
+                                        dtype=ttrt_datatype_to_torch_dtype(
+                                            golden_tensor.dtype
+                                        ),
+                                    ).reshape(golden_tensor.shape)
+
+                                    for loop in range(self["--loops"]):
+                                        output_tensor = total_outputs[loop][idx]
+                                        output_tensor_torch = torch.frombuffer(
+                                            bytearray(output_tensor.get_data_buffer()),
+                                            dtype=ttrt_datatype_to_torch_dtype(
+                                                output_tensor.get_dtype()
+                                            ),
+                                        ).reshape(output_tensor.get_shape())
+                                        if (
+                                            golden_tensor_torch.shape
+                                            != output_tensor_torch.shape
+                                        ):
+                                            self.logging.error(
+                                                f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
+                                            )
+                                            raise Exception(
+                                                f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
+                                            )
+                                        _, _, cal_pcc, _ = get_atol_rtol_pcc(
+                                            golden_tensor_torch, output_tensor_torch
+                                        )
+                                        if cal_pcc < callback_runtime_config.pcc:
+                                            raise PCCErrorException(
+                                                f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={callback_runtime_config.pcc}"
+                                            )
+                                    self.logging.debug(
+                                        f"Finished comparing program level golden for output_{idx}"
+                                    )
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:

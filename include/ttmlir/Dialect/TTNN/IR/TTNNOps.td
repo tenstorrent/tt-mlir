@@ -1467,6 +1467,8 @@ class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros", [TT_CreationOpTrait]> {

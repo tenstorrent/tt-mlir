@@ -145,6 +145,9 @@ void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
   pm.addPass(tt::createTTWrapDeviceModulePass());
+  ttir::ElementTypeNormalizationOptions normalizationOptions{
+      options.enableFP32};
+  pm.addPass(ttir::createElementTypeNormalization(normalizationOptions));
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 

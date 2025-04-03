@@ -518,6 +518,38 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// NamedFullOp
+//===----------------------------------------------------------------------===//
+
+template <typename Op>
+static ::mlir::LogicalResult namedOpVerify(Op op) {
+  RankedTensorType output = op.getResult().getType();
+  if (op.getDtype()) {
+    if (op.getDtype() != elementTypeToDataType(output.getElementType())) {
+      return op.emitOpError("Data type mismatch between op and output tensor.");
+    }
+  }
+
+  ArrayRef<int64_t> shape = op.getShape().getShape();
+  ArrayRef<int64_t> outputShape = output.getShape();
+
+  if (shape != outputShape) {
+    return op.emitOpError("Output tensor shape must be ")
+           << shape << ", but got " << outputShape;
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::ZerosOp::verify() {
+  return namedOpVerify(*this);
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::OnesOp::verify() {
+  return namedOpVerify(*this);
+}
+
+//===----------------------------------------------------------------------===//
 // EmptyOp
 //===----------------------------------------------------------------------===//
 

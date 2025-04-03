@@ -9,7 +9,84 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-namespace mlir::tt::ttnn {
+using namespace mlir::tt::ttnn;
+
+MlirAttribute ttmlirTTNNCoreCoordAttrGet(MlirContext ctx, uint64_t y,
+                                         uint64_t x) {
+  return wrap(CoreCoordAttr::get(unwrap(ctx), y, x));
+}
+
+MlirAttribute ttmlirTTNNCoreRangeSetAttrGet(MlirContext ctx,
+                                            MlirAttribute *coreRangesAttrs,
+                                            size_t coreRangesAttrsSize) {
+  std::vector<CoreRangeAttr> rangeVec;
+  rangeVec.reserve(coreRangesAttrsSize);
+  for (size_t i = 0; i < coreRangesAttrsSize; ++i) {
+    rangeVec.push_back(mlir::cast<CoreRangeAttr>(unwrap(coreRangesAttrs[i])));
+  }
+  return wrap(CoreRangeSetAttr::get(unwrap(ctx), rangeVec));
+}
+
+MlirAttribute ttmlirTTNNUnaryWithParamAttr(MlirContext ctx, uint32_t opTypeEnum,
+                                           MlirAttribute *params,
+                                           size_t paramsSize) {
+  std::vector<mlir::FloatAttr> paramsVec;
+  paramsVec.reserve(paramsSize);
+  for (size_t i = 0; i < paramsSize; ++i) {
+    paramsVec.push_back(mlir::cast<mlir::FloatAttr>(unwrap(params[i])));
+  }
+  return wrap(UnaryWithParamAttr::get(
+      unwrap(ctx), static_cast<UnaryOpType>(opTypeEnum), paramsVec));
+}
+
+MlirAttribute ttmlirTTNNMatmulMultiCoreReuseProgramConfigAttr(
+    MlirContext ctx, MlirAttribute computeWithStorageGridSize,
+    uint64_t in0BlockW, uint64_t outSubblockH, uint64_t outSubblockW,
+    uint64_t perCoreM, uint64_t perCoreN) {
+  return wrap(MatmulMultiCoreReuseProgramConfigAttr::get(
+      unwrap(ctx),
+      mlir::cast<CoreCoordAttr>(unwrap(computeWithStorageGridSize)), in0BlockW,
+      outSubblockH, outSubblockW, perCoreM, perCoreN));
+}
+
+MlirAttribute ttmlirTTNNMatmulMultiCoreReuseMultiCastProgramConfigAttr(
+    MlirContext ctx, MlirAttribute computeWithStorageGridSize,
+    uint64_t in0BlockW, uint64_t outSubblockH, uint64_t outSubblockW,
+    uint64_t outBlockH, uint64_t outBlockW, uint64_t perCoreM,
+    uint64_t perCoreN, bool transposeMcast, MlirAttribute fusedActivation,
+    bool fuseBatch) {
+  return wrap(MatmulMultiCoreReuseMultiCastProgramConfigAttr::get(
+      unwrap(ctx),
+      mlir::cast<CoreCoordAttr>(unwrap(computeWithStorageGridSize)), in0BlockW,
+      outSubblockH, outSubblockW, outBlockH, outBlockW, perCoreM, perCoreN,
+      transposeMcast, mlir::cast<UnaryWithParamAttr>(unwrap(fusedActivation)),
+      fuseBatch));
+}
+
+MlirAttribute ttmlirTTNNMatmulMultiCoreReuseMultiCast1DProgramConfigAttrGet(
+    MlirContext ctx, MlirAttribute computeWithStorageGridSize,
+    uint64_t in0BlockW, uint64_t outSubblockH, uint64_t outSubblockW,
+    uint64_t outBlockH, uint64_t outBlockW, uint64_t perCoreM,
+    uint64_t perCoreN, bool fuseBatch, MlirAttribute fusedActivation,
+    bool mcastIn0, bool gatherIn0, MlirAttribute hopCores,
+    uint64_t numGlobalCbReceivers) {
+  return wrap(MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
+      unwrap(ctx),
+      mlir::cast<CoreCoordAttr>(unwrap(computeWithStorageGridSize)), in0BlockW,
+      outSubblockH, outSubblockW, outBlockH, outBlockW, perCoreM, perCoreN,
+      fuseBatch, mlir::cast<UnaryWithParamAttr>(unwrap(fusedActivation)),
+      mcastIn0, gatherIn0, mlir::cast<CoreRangeSetAttr>(unwrap(hopCores)),
+      numGlobalCbReceivers));
+}
+
+MlirAttribute
+ttmlirTTNNMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttrGet(
+    MlirContext ctx, uint64_t in0BlockW, uint64_t perCoreM, uint64_t perCoreN,
+    MlirAttribute fusedActivation) {
+  return wrap(MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr::get(
+      unwrap(ctx), in0BlockW, perCoreM, perCoreN,
+      mlir::cast<UnaryWithParamAttr>(unwrap(fusedActivation))));
+}
 
 MlirAttribute ttmlirTTNNCoreRangeAttrGet(MlirContext ctx,
                                          MlirAttribute startCoord,
@@ -26,7 +103,7 @@ MlirAttribute ttmlirTTNNCoreRangeArrayAttrGet(MlirContext ctx,
   for (size_t i = 0; i < coreRangeAttrsSize; i++) {
     coreRanges.push_back(mlir::cast<CoreRangeAttr>(unwrap(coreRangeAttrs[i])));
   }
-  return wrap(ArrayAttr::get(unwrap(ctx), coreRanges));
+  return wrap(mlir::ArrayAttr::get(unwrap(ctx), coreRanges));
 }
 
 MlirAttribute ttmlirTTNNLayoutAttrGet(MlirContext ctx, uint32_t layout) {
@@ -87,11 +164,9 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
         unwrap(ctx), static_cast<TensorMemoryLayout>(*memLayout));
   }
 
-  TensorMeshShardingAttr tensorMeshShardingAttr;
+  mlir::tt::TensorMeshShardingAttr tensorMeshShardingAttr;
   return wrap(TTNNLayoutAttr::get(unwrap(ctx), affineMap,
-                                  mlir::cast<GridAttr>(unwrap(grid)),
-                                  mlir::cast<MemRefType>(unwrap(memref)),
+                                  mlir::cast<mlir::tt::GridAttr>(unwrap(grid)),
+                                  mlir::cast<mlir::MemRefType>(unwrap(memref)),
                                   memLayoutAttr, tensorMeshShardingAttr));
 }
-
-} // namespace mlir::tt::ttnn
