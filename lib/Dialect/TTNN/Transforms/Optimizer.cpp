@@ -343,11 +343,13 @@ public:
 
           // Set specific Conv2d Op configuration.
           if (isa<ttnn::Conv2dOp>(op)) {
-            Attribute config = opConfigAnalysis.getResult().at(op).config;
-            if (isa<ttnn::Conv2dConfigAttr>(config)) {
-              ttnn::Conv2dOp conv2dOp = mlir::cast<ttnn::Conv2dOp>(op);
-              conv2dOp.setConv2dConfigAttr(
-                  mlir::cast<ttnn::Conv2dConfigAttr>(config));
+            if (opConfigAnalysis.getResult().at(op).config) {
+              Attribute config = opConfigAnalysis.getResult().at(op).config;
+              if (mlir::isa<ttnn::Conv2dConfigAttr>(config)) {
+                ttnn::Conv2dOp conv2dOp = mlir::cast<ttnn::Conv2dOp>(op);
+                conv2dOp.setConv2dConfigAttr(
+                    mlir::cast<ttnn::Conv2dConfigAttr>(config));
+              }
             }
           }
         }
