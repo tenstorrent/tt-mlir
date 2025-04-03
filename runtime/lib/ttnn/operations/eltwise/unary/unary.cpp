@@ -130,7 +130,8 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sigmoid);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
+                                                ::ttnn::sigmoid);
     break;
   }
 
