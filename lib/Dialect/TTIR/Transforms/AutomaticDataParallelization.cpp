@@ -335,11 +335,10 @@ public:
     // Iterate through the entire graph
     // Remove any operations that are no longer being used (should just be emptyops since we inserted new ops in its place)
     SmallVector<Operation *> opsToDelete;
-
     for (auto &op : rootModule.getBody()->getOperations()) {
       if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
           funcOp.walk([&](Operation *currOp) {
-            if (isa<func::FuncOp>(currOp) || isa<func::ReturnOp>(currOp) || !currOp->hasTrait<OpTrait::IsPure>()) {
+            if (isa<func::FuncOp>(currOp) || isa<func::ReturnOp>(currOp)) {
               return;
             }
 
