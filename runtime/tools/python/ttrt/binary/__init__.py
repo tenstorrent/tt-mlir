@@ -19,6 +19,7 @@ def as_dict(bin):
     tmp = bin.as_json()
     # Flatbuffers emits 'nan' and 'inf'
     # But Python's JSON accepts only 'NaN' and 'Infinity' and nothing else
-    tmp = tmp.replace("nan", "NaN")
-    tmp = tmp.replace("inf", "Infinity")
+    # We include the comma to avoid replacing 'inf' in contexts like 'info'
+    tmp = tmp.replace("nan,", "NaN,")
+    tmp = tmp.replace("inf,", "Infinity,")
     return json.loads(tmp)
