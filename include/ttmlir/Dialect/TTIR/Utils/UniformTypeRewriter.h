@@ -36,7 +36,7 @@ public:
 
   bool convertFuncType(Operation *op, PatternRewriter &rewriter) const {
     auto funcOp = dyn_cast<func::FuncOp>(op);
-    if (not funcOp) {
+    if (!funcOp) {
       return false;
     }
     SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
@@ -52,6 +52,10 @@ public:
       return false;
     }
     funcOp.setFunctionType(newType);
+
+    if (funcOp.isDeclaration()) {
+      return true;
+    }
 
     Block &entryBlock = funcOp.getBody().front();
     for (unsigned i = 0; i < entryBlock.getNumArguments(); ++i) {

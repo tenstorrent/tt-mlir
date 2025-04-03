@@ -767,6 +767,17 @@ def test_embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer(
     [
         (1, 32, 64, 512),
+        (1, 32, 3, 512),
+    ],
+    targets=["ttnn"],
+)
+def test_fill_cache(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.fill_cache(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 32, 64, 512),
         (1, 32, 1, 512),
         (1,),
     ],

@@ -60,6 +60,7 @@ struct Hooks {
     return callbackKey;
 #else
     return CallbackKey::Null
+
 #endif
   }
 

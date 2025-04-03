@@ -413,4 +413,22 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
   let dependentDialects = ["::mlir::tt::TTDialect"];
 }
 
+def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
+{
+  let summary = "Normalize element types into list of supported types.";
+  let description = [{
+    "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
+        to a target that only supports a subset of the element types.
+  }];
+
+  let options = [
+    Option<"enableFP32", "enable-fp32",
+          "bool",
+          /*default=*/"true",
+          "Enables fp32 type.">
+  ];
+
+  let dependentDialects = ["::mlir::tt::TTDialect",  "::mlir::tt::ttir::TTIRDialect", "::mlir::func::FuncDialect"];
+}
+
 #endif

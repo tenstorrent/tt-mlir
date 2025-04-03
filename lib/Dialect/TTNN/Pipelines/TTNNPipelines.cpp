@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -144,6 +145,9 @@ void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
   pm.addPass(tt::createTTWrapDeviceModulePass());
+  ttir::ElementTypeNormalizationOptions normalizationOptions{
+      options.enableFP32};
+  pm.addPass(ttir::createElementTypeNormalization(normalizationOptions));
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());
 
@@ -154,6 +158,9 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
   createTTNNPipelineLoweringPasses(devicePm, options);
   createTTNNPipelineWorkaroundPass(devicePm, options);
+  if (options.enableConstEval) {
+    devicePm.addPass(transforms::createConstEvalHoistTransform());
+  }
   createTTNNPipelineAnalysisPasses(devicePm, options);
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
   createTTNNPipelineDeallocPass(devicePm, options);
