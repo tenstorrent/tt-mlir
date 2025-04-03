@@ -21,7 +21,7 @@ class AtLeastRegion<int numBlocks> : Region<
   CPred<"$_self.getBlocks().size() >= " # numBlocks>,
   "region with " # numBlocks # " blocks">;
 
-def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOpInterface, AttrSizedOperandSegments, NoTerminator]> {
+def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
     let summary = "Enqueue program op.";
     let description = [{
       Enqueue program operation

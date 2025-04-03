@@ -63,10 +63,9 @@ public:
                                 PatternRewriter &rewriter) const final {
     auto cbId = index(getCbId(op.getMemref()), rewriter);
     auto storeIdx = op.getIndices().front();
-    rewriter.create<ttkernel::PackTileOp>(op.getLoc(), index(0, rewriter), cbId,
-                                          storeIdx, rewriter.getBoolAttr(true));
+    rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
+        op, index(0, rewriter), cbId, storeIdx, rewriter.getBoolAttr(true));
 
-    rewriter.eraseOp(op);
     return success();
   };
 };
@@ -82,9 +81,12 @@ public:
       mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::OpTraitRewritePattern;
 
   static Value getLoadIndex(Value tile) {
-    Operation *loadOp = tile.getDefiningOp();
-    assert(mlir::isa<memref::LoadOp>(loadOp) && "Expected load op, failing.");
-    return mlir::cast<memref::LoadOp>(loadOp).getIndices().front();
+    memref::LoadOp loadOp =
+        mlir::dyn_cast<memref::LoadOp>(tile.getDefiningOp());
+    assert(loadOp && "Expected load op, failing.");
+    assert(loadOp.getIndices().size() == 1 &&
+           "Expected single index in load op, failing.");
+    return loadOp.getIndices().front();
   }
 
   static bool computeOpInBlock(Block *block) {
@@ -123,8 +125,7 @@ public:
       newOp = rewriter.create<ttkernel::MaxTilesOp>(
           op->getLoc(), i32(0, rewriter), i32(1, rewriter));
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
-      auto dstIdx = rewriter.create<arith::ConstantOp>(
-          op->getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(0));
+      auto dstIdx = index(0, rewriter);
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(),
           index(getCbId(op->getOperand(0)
@@ -548,11 +549,10 @@ public:
   LogicalResult matchAndRewrite(ttir::DMAWaitOp op,
                                 PatternRewriter &rewriter) const final {
     if (!op.getMemTx().getDefiningOp<ttir::DMAOp>().isSrcLocal()) {
-      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+      rewriter.replaceOpWithNewOp<ttkernel::NocAsyncReadBarrierOp>(op);
     } else {
-      rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+      rewriter.replaceOpWithNewOp<ttkernel::NocAsyncWriteBarrierOp>(op);
     }
-    rewriter.eraseOp(op);
     return success();
   }
 };
