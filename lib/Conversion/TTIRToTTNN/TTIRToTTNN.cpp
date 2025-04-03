@@ -1454,6 +1454,27 @@ public:
 } // namespace
 
 namespace {
+  class PrintOpConversionPattern : public OpConversionPattern<ttir::PrintOp> {
+  public:
+    using OpConversionPattern<ttir::PrintOp>::OpConversionPattern;
+  
+    LogicalResult
+    matchAndRewrite(ttir::PrintOp op, OpAdaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+      // The ttnn interface has the inverse inputs of the TTIR dialect op (which
+      // matches torch ops).
+      auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+  
+      rewriter.replaceOpWithNewOp<ttnn::PrintOp>(op, outputType, adaptor.getInput(),
+                                                   adaptor.getProbeId());
+  
+      return success();
+    }
+  };
+  } // namespace
+
+namespace {
 class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
 public:
   using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
@@ -1581,6 +1602,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllReduceOpConversionPattern,
            AllGatherOpConversionPattern,
            ReduceScatterOpConversionPattern,
+           PrintOpConversionPattern,
            CollectivePermuteOpConversionPattern,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,

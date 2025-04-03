@@ -472,6 +472,19 @@ def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add",
     }];
 }
 
+def TTNN_PrintOp : TTNN_Op<"print"> {
+
+    let summary = "TTNN print op.";
+    let description = [{
+      Print operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                     DefaultValuedAttr<StrAttr, "\"probe_id\"">:$probe_id);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_DivideOp : TTNN_ElementwiseBinaryOp<"divide"> {
     let summary = "Eltwise divide.";
     let description = [{
