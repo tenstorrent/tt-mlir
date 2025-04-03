@@ -9,9 +9,6 @@ NB_MODULE(_ttmlir, m) {
 
   // Create specialized register_dialects function to be called on site
   // initialize
-  // TODO: Currently we will maintain the register_dialect function to match the
-  // syntax presented in other MLIR projects However, the function will not be
-  // exposed anywhere except for the _ttmlir so.
   m.def(
       "register_dialects",
       [](MlirDialectRegistry _registry) {
@@ -24,6 +21,9 @@ NB_MODULE(_ttmlir, m) {
       },
       nb::arg("dialectRegistry"));
 
+  // Currently we will maintain the register_dialect function to match the
+  // syntax presented in other MLIR projects However, the function will not be
+  // exposed anywhere except for the _ttmlir so.
   m.def(
       "register_dialect",
       [](MlirContext context, bool load) {
