@@ -89,35 +89,17 @@ public:
     return loadOp.getIndices().front();
   }
 
-  static bool computeOpInBlock(Block *block) {
-    bool computeFound = 0;
-
-    block->walk([&](Operation *walkOp) {
-      if (walkOp->hasTrait<TTKernelFPUOpTrait>() ||
-          walkOp->hasTrait<TTKernelSFPUOpTrait>()) {
-        computeFound = 1;
-      }
-    });
-
-    return computeFound;
-  }
-
-  static void lowerLoad(memref::LoadOp op, bool copyToDst, bool cbIndices,
-                        PatternRewriter &rewriter) {
-    if (copyToDst) {
-      rewriter.setInsertionPoint(op);
-      auto cbId = index(getCbId(op.getMemref()), rewriter);
-      rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
-      rewriter.create<ttkernel::CopyTileOp>(
-          op.getLoc(), cbId, op.getIndices().front(),
-          cbIndices ? cbId : i32(0, rewriter));
-    }
-    rewriter.eraseOp(op);
+  static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
+                                  PatternRewriter &rewriter) {
+    auto cbId = index(getCbId(op.getMemref()), rewriter);
+    rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
+    rewriter.create<ttkernel::CopyTileOp>(
+        op.getLoc(), cbId, op.getIndices().front(),
+        cbIdxAsDstIdx ? cbId : index(0, rewriter));
   }
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const final {
-    auto isComputeOpInBlock = computeOpInBlock(op->getBlock());
     Operation *newOp;
 
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
@@ -142,25 +124,14 @@ public:
       return failure();
     }
 
-    // Lower memref loads if this is the first compute op to be lowered.
-    if (!isComputeOpInBlock) {
-      if (mlir::isa<ttkernel::MatmulTilesOp>(newOp)) {
-        lowerLoad(op->getOperand(0).getDefiningOp<memref::LoadOp>(), false,
-                  false, rewriter);
-        lowerLoad(op->getOperand(1).getDefiningOp<memref::LoadOp>(), false,
-                  false, rewriter);
-        lowerLoad(op->getOperand(2).getDefiningOp<memref::LoadOp>(), true,
-                  false, rewriter);
-      } else if (newOp->hasTrait<TTKernelSFPUOpTrait>()) {
-        for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-          lowerLoad(op->getOperand(i).getDefiningOp<memref::LoadOp>(), true,
-                    true, rewriter);
-        }
-      } else {
-        for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-          lowerLoad(op->getOperand(i).getDefiningOp<memref::LoadOp>(), false,
-                    false, rewriter);
-        }
+    rewriter.setInsertionPoint(newOp);
+    if (mlir::isa<ttkernel::MatmulTilesOp>(newOp)) {
+      lowerLoadToCopyTile(op->getOperand(2).getDefiningOp<memref::LoadOp>(),
+                          false, rewriter);
+    } else if (newOp->hasTrait<TTKernelSFPUOpTrait>()) {
+      for (uint32_t i = 0; i < op->getNumOperands(); i++) {
+        lowerLoadToCopyTile(op->getOperand(i).getDefiningOp<memref::LoadOp>(),
+                            true, rewriter);
       }
     }
 

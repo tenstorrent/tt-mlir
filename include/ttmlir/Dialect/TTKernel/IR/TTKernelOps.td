@@ -103,7 +103,7 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
       engine.
     }];
 
-    let arguments = (ins Index:$cb0, Index:$tile_index_cb, I32:$tile_index_dst);
+    let arguments = (ins Index:$cb0, Index:$tile_index_cb, Index:$tile_index_dst);
 }
 
 //===----------------------------------------------------------------------===//
