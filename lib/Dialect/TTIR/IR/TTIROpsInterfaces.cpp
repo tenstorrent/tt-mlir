@@ -11,6 +11,7 @@
 #include <llvm/ADT/ArrayRef.h>
 #include <mlir/IR/ValueRange.h>
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
@@ -51,7 +52,8 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
 
 mlir::LogicalResult
 mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
-  return op->getParentOfType<ttir::GenericOp>()
+  return (op->getParentOfType<ttir::GenericOp>() ||
+          op->getParentOfType<func::FuncOp>())
              ? success()
              : op->emitOpError(
                    "TTIR Generic Ops must be inside a generic region");

@@ -263,11 +263,34 @@ class TTKernelCompiler(ast.NodeVisitor):
         # NOTE: else-if blocks are not supported in SCF dialect
         # NOTE: Only handling Compare for if statements right now
         # TODO: if cond can be: Name, Expr, Compare, Call, UnaryOp, BoolOp
-        assert isinstance(
-            node.test, ast.Compare
-        ), "Only Compare supported in if statements"
+        # assert isinstance(
+        #     node.test, ast.Compare
+        # ), "Only Compare supported in if statements"
         if_cond = self.visit(node.test)
-        # if not if_cond.result.type.width == 1 or not if_cond.result.type.is_signless:
+        cond_type = None
+
+        if hasattr(if_cond, "result"):
+            if_cond = if_cond.result
+
+        if hasattr(if_cond, "type") and isinstance(if_cond.type, memref.MemRefType):
+            if_cond = memref.LoadOp(
+                if_cond, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+            cond_type = if_cond.type
+        elif hasattr(if_cond, "type") and isinstance(if_cond.type, IntegerType):
+            cond_type = if_cond.type
+        elif isinstance(if_cond, arith.ConstantOp):
+            cond_type = if_cond.type
+
+        # Create C-Style comparison if cond_type is not None
+        if cond_type is None or not isinstance(cond_type, IntegerType):
+            raise ValueError("Cannot Compare Non-Integer Values")
+
+        if cond_type.width != 1:
+            # Turn into comparison to make sure value is not 0
+            if_cond = arith.cmpi(
+                arith.CmpIPredicate.ne, if_cond, arith.ConstantOp(cond_type, 0)
+            )
         # if_cond = arith.TruncIOp(IntegerType.get_signless(1), if_cond) # temporary since expr not implemented yet
         if_exp = scf.IfOp(cond=if_cond, hasElse=bool(node.orelse))
 
@@ -423,12 +446,44 @@ class TTKernelCompiler(ast.NodeVisitor):
             var = memref.alloca(memref_type, [], [])
             sym_table[var_name] = var
         else:
-            assert isinstance(var, MemRefType), "Can not AugAssign to non-memref types"
+            assert isinstance(var, MemRefType), "Can not AnnAssign to non-memref types"
 
         memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     def visit_AugAssign(self, node):
-        raise NotImplementedError("AugAssign not supported yet")
+        target = self.visit(node.target)
+
+        # Target must already be defined in the scope of the symbol table
+        if not target:
+            raise ValueError(
+                "AugAssign can only Assign to values that have been defined"
+            )
+
+        value = self.visit(node.value)
+        sym_table = self.symbol_tables[-1]
+
+        if not isinstance(target.type, memref.MemRefType):
+            raise ValueError("Can not AugAssign to non-memref types")
+
+        _target = memref.LoadOp(
+            target, arith.ConstantOp(IndexType.get(self.ctx), 0)
+        ).result
+
+        # Determine the operation based on the type of AugAssign
+        match node.op:
+            case ast.Add():
+                result = arith.AddIOp(_target, value)
+            case ast.Sub():
+                result = arith.SubIOp(_target, value)
+            case ast.Mult():
+                result = arith.MulIOp(_target, value)
+            case _:
+                raise NotImplementedError(
+                    f"AugAssign operation {type(node.op).__name__} not supported"
+                )
+
+        # Store the result back to the target
+        memref.StoreOp(result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
 
     # Function calls
     def visit_Call(self, node):
@@ -458,6 +513,59 @@ class TTKernelCompiler(ast.NodeVisitor):
         # NOTE: will catch function calls and expressions where return values not used.
         return self.visit(node.value)
 
+    def visit_BoolOp(self, node):
+        values = [self.visit(arg) for arg in node.values]
+
+        # Make sure that each of the values are booleans
+        for i in range(len(values)):
+            value = values[i]
+            value_type = None
+            if hasattr(value, "type") and isinstance(value.type, memref.MemRefType):
+                value = memref.LoadOp(
+                    value, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                ).result
+                value_type = value.type
+            elif hasattr(value, "type") and isinstance(value.type, IntegerType):
+                value_type = value.type
+            elif isinstance(value, arith.ConstantOp):
+                value_type = value.type
+
+            if value_type is None:
+                raise ValueError(
+                    "BoolOp values must be MemRef, ConstantOp, or IntegerType"
+                )
+
+            if not isinstance(value_type, IntegerType):
+                raise ValueError(
+                    "BoolOp values must be MemRef or ConstantOp of IntegerType"
+                )
+
+            if value_type.width != 1:
+                # Set the value to 1 if not equal to 0, otherwise 0. This is the C-style way
+                values[i] = arith.cmpi(
+                    arith.CmpIPredicate.ne, value, arith.ConstantOp(value_type, 0)
+                )
+
+        # Chain all of the comparisons together
+        def _match_bool_op(lhs, rhs):
+            # We will know and assume LHS and RHS are booleans
+            match (node.op):
+                case ast.And():
+                    return arith.andi(lhs, rhs)
+                case ast.Or():
+                    return arith.ori(lhs, rhs)
+                case _:
+                    raise NotImplementedError(f"BoolOp {node.op} not supported")
+
+        # Atleast 2 Ops must exist in BoolOp
+        chained_op = _match_bool_op(values[0], values[1])
+
+        # Chain all of the remaining values
+        for i in range(2, len(values)):
+            chained_op = _match_bool_op(chained_op, values[i])
+
+        return chained_op
+
     def visit_BinOp(self, node):
         # TODO: need to load MemRef types when using variables
         # TODO: need to handle float, unsigned, and signed operations
@@ -482,6 +590,20 @@ class TTKernelCompiler(ast.NodeVisitor):
                 return arith.subi(lhs, rhs)
             case ast.Mult():
                 return arith.muli(lhs, rhs)
+            case ast.FloorDiv():
+                return arith.floordivsi(lhs, rhs)
+            case ast.Mod():
+                return arith.remsi(lhs, rhs)
+            case ast.LShift():
+                return arith.shli(lhs, rhs)
+            case ast.RShift():
+                return arith.shrsi(lhs, rhs)
+            case ast.BitOr():
+                return arith.ori(lhs, rhs)
+            case ast.BitAnd():
+                return arith.andi(lhs, rhs)
+            case ast.BitXor():
+                return arith.xori(lhs, rhs)
             # case ast.Div(): # only worried about integers right now
             # return arith.divf(lhs, rhs)
             case _:
@@ -592,7 +714,9 @@ class TTKernelCompiler(ast.NodeVisitor):
         if any(
             isinstance(node, supported_node) for supported_node in self.supported_nodes
         ):
-            if self.verbose and isinstance(node, (ast.Assign, ast.AnnAssign)):
+            if self.verbose and isinstance(
+                node, (ast.Assign, ast.AnnAssign, ast.AugAssign)
+            ):
                 # Create a verbatim Op here to store the comment
                 source_code = self.get_source_comment(node)
                 emitc.verbatim(source_code)
@@ -601,7 +725,7 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise NotImplementedError(f"visit {type(node).__name__} not supported")
 
 
-def ttkernel_compile(kernel_type=None, verbose: bool = False):
+def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = True):
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
@@ -620,8 +744,9 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False):
             b.module.operation.verify()
 
             # Run the PyKernel Compile Pipeline to fit model for Translation
-            pykernel_compile_pipeline(b.module)
-            print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
+            if optimize:
+                pykernel_compile_pipeline(b.module)
+                print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
             if kernel_type:
                 assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
@@ -634,9 +759,9 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False):
     return _decorator
 
 
-def ttkernel_tensix_compile(verbose: bool = False):
-    return ttkernel_compile(kernel_type="tensix", verbose=verbose)
+def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = True):
+    return ttkernel_compile(kernel_type="tensix", verbose=verbose, optimize=optimize)
 
 
-def ttkernel_noc_compile(verbose: bool = False):
-    return ttkernel_compile(kernel_type="noc", verbose=verbose)
+def ttkernel_noc_compile(verbose: bool = False, optimize: bool = True):
+    return ttkernel_compile(kernel_type="noc", verbose=verbose, optimize=optimize)

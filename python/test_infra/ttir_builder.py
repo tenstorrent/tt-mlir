@@ -209,6 +209,24 @@ class TTIRBuilder:
     def set_mesh_shape(self, mesh_shape: Tuple[int, int]):
         self.mesh_shape = mesh_shape
 
+    def set_graph_input_output(
+        self, inputs: List[torch.Tensor], outputs: Optional[List[torch.Tensor]] = None
+    ) -> None:
+        """
+        Records the input and output tensors for the graph.
+        """
+        for index, tensor in enumerate(inputs):
+            input_key = f"input_{index}"
+            if input_key in self.id_golden_map:
+                assert self.id_golden_map[input_key].tensor.shape == tensor.shape
+                assert self.id_golden_map[input_key].tensor.dtype == tensor.dtype
+            self.id_golden_map[input_key] = Golden(tensor)
+
+        if outputs is not None:
+            for index, tensor in enumerate(outputs):
+                output_key = f"output_{index}"
+                self.id_golden_map[output_key] = Golden(tensor)
+
     # ----- Private helpers -----
 
     @staticmethod
@@ -774,8 +792,8 @@ class TTIRBuilder:
     def remainder(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.remainder, ttir.RemainderOp, [in0, in1])
 
-    def power(self, in0: Operand, in1: Operand) -> OpView:
-        return self.eltwise_proxy(torch.pow, ttir.PowerOp, [in0, in1])
+    def pow(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.pow, ttir.PowOp, [in0, in1])
 
     # class TTIR_ReductionOp
 
@@ -922,9 +940,6 @@ class TTIRBuilder:
             ttir_kwargs={"dim": dim, "output": in1},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            output_type=self.get_type_from_torch_dtype(
-                self._get_golden_tensor(in1).dtype
-            ),
         )
 
     def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
@@ -991,6 +1006,43 @@ class TTIRBuilder:
             output_type=self.get_type_from_torch_dtype(
                 self._get_golden_tensor(in1).dtype
             ),
+        )
+
+    def fill_cache(self, in0: Operand, in1: Operand, batch_offset: int = 0) -> OpView:
+        cache_tensor = self._get_golden_tensor(in0)
+        input_tensor = self._get_golden_tensor(in1)
+        a = torch.Tensor.repeat(
+            self._get_golden_tensor(in1),
+            [1, 1, cache_tensor.size()[2] // input_tensor.size()[2], 1],
+        )
+        b = input_tensor[:, :, 0 : (cache_tensor.size()[2] % input_tensor.size()[2]), :]
+        return self.op_proxy(
+            torch.cat,
+            ttir.FillCacheOp,
+            [in0, in1],
+            golden_kwargs={"tensors": (a, b), "dim": 2},
+            ttir_kwargs={"batch_offset": batch_offset},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            organize_golden_args=lambda i: 0,
+        )
+
+    def update_cache(
+        self, in0: Operand, in1: Operand, in2: Operand, batch_offset: int = 0
+    ) -> OpView:
+        cache = self._get_golden_tensor(in0)
+        input_tensor = self._get_golden_tensor(in1)
+        index = torch.clamp(self._get_golden_tensor(in2), 0, cache.size()[2])
+        a = cache[:, :, : index[0], :]
+        b = cache[:, :, : (cache.size()[2] - index[0] - 1), :]
+
+        return self.op_proxy(
+            torch.cat,
+            ttir.UpdateCacheOp,
+            [in0, in1, in2],
+            golden_kwargs={"tensors": (a, input_tensor, b), "dim": 2},
+            ttir_kwargs={"batch_offset": batch_offset},
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
+            organize_golden_args=lambda i: 0,
         )
 
     def broadcast(
@@ -1222,16 +1274,8 @@ class TTIRBuilder:
         )
 
     def pad(self, in0: Operand, padding: List[int], value: int) -> OpView:
-        golden_padding = []
-        # Reformatting padding dimensions for golden tensor:
-        if len(padding) == 4:
-            golden_padding = padding.copy()
-            golden_padding.reverse()
-        if len(padding) > 4:
-            for i in range(int(len(padding) / 2) - 4):
-                i = i + 4
-                golden_padding.append(padding[(2 * i) + 1])
-                golden_padding.append(padding[2 * i])
+        golden_padding = padding.copy()
+        golden_padding.reverse()
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
@@ -1303,7 +1347,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def clamp(
+    def clamp_scalar(
         self,
         in0: Operand,
         min_arg: Optional[float] = None,
@@ -1317,6 +1361,33 @@ class TTIRBuilder:
             ttir_kwargs=kwargs,
             golden_kwargs=kwargs,
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
+        )
+
+    def clamp_tensor(
+        self,
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        in3: Operand,
+    ) -> OpView:
+        return self.op_proxy(
+            torch.clamp,
+            ttir.ClampTensorOp,
+            [in0, in1, in2, in3],
+            golden_kwargs={
+                "input": self._get_golden_tensor(in0),
+                "min": self._get_golden_tensor(in1),
+                "max": self._get_golden_tensor(in2),
+                "out": self._get_golden_tensor(in3),
+            },
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                i[1],
+                i[2],
+                i[3],
+            ),
+            organize_golden_args=lambda i: 0,
         )
 
     def zeros(self, shapes: List[Shape], data_type: Optional[Type] = None) -> OpView:
@@ -1352,6 +1423,47 @@ class TTIRBuilder:
             ttir_kwargs={"dimensions": dims},
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
+
+    def linear(
+        self,
+        in0: Operand,
+        in1: Operand,
+        bias: Optional[Operand] = None,
+        transpose_a: bool = False,
+        transpose_b: bool = False,
+    ) -> OpView:
+        kwargs = {"transpose_a": transpose_a, "transpose_b": transpose_b, "bias": bias}
+        return self.op_proxy(
+            self.linear_golden_function,
+            ttir.LinearOp,
+            [in0, in1],
+            golden_kwargs=kwargs,
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+        )
+
+    def linear_golden_function(
+        self,
+        a: Operand,
+        b: Operand,
+        bias: Optional[Operand] = None,
+        transpose_a: bool = False,
+        transpose_b: bool = False,
+    ) -> OpView:
+        a = torch.transpose(a, 0, 1) if transpose_a else a
+        b = torch.transpose(b, 0, 1) if transpose_a else b
+        output = torch.matmul(a, b)
+        bias = (
+            torch.zeros(list(output.shape))
+            if not bias
+            else self._get_golden_tensor(bias)
+        )
+        bias = (
+            torch.broadcast_to(bias, list(output.shape))
+            if bias.shape != output.shape
+            else bias
+        )
+        return torch.add(output, bias)
 
     def matmul(
         self, in0: Operand, in1: Operand, bias: Optional[Operand] = None

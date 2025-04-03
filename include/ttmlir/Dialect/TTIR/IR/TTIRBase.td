@@ -58,7 +58,7 @@ def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
 def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
 
 class TTIR_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, traits> {
-  let cppNamespace = "::mlir::tt::ttir::OpTrait";
+  let cppNamespace = "::mlir::tt::ttir";
 }
 
 // Involution is property of an operation where applying the operation twice results in the original value.
@@ -70,8 +70,10 @@ def TTIR_Idempotence : TTIR_Trait<"TTIRIdempotence", [DestinationStyleOpInterfac
 // BinaryIdempotence is property of a binary operation where applying the operation on the same value results in the same value.
 // Example: and(x, x) == x
 def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationStyleOpInterface, ThreeOperands, NoMemoryEffect]>;
-// GenericRegionOpTrait is a trait that acts as a label for all generic region operations.
-def TTIR_GenericRegionOpTrait : TTIR_Trait<"TTIRGenericRegionOpTrait", []>;
+// GenericRegionComputeOpTrait is a trait that verifies that the operation is inside a compute thread.
+def TTIR_GenericRegionComputeOpTrait : TTIR_Trait<"TTIRGenericRegionComputeOpTrait">;
+// GenericRegionDatamovementOpTrait is a trait that verifies that the operation is inside a datamovement thread.
+def TTIR_GenericRegionDatamovementOpTrait : TTIR_Trait<"TTIRGenericRegionDatamovementOpTrait">;
 
 //===----------------------------------------------------------------------===//
 // TTIR common types.

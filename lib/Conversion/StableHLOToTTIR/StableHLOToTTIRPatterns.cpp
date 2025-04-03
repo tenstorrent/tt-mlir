@@ -1897,78 +1897,10 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    std::optional<float> minValue = getConstantValue(adaptor.getMin());
-    std::optional<float> maxValue = getConstantValue(adaptor.getMax());
-    if (minValue && maxValue) {
-      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-          rewriter, srcOp, outputType, adaptor.getOperand(),
-          mlir::APFloat(*minValue), mlir::APFloat(*maxValue));
-
-      return success();
-    }
-
-    mlir::Value minTensor;
-    LogicalResult legalityResult = ttmlir::utils::broadcastValue(
-        rewriter, adaptor.getMin(), outputType, minTensor, srcOp->getLoc(),
-        /*frontUnsqueeze=*/false);
-    if (!legalityResult.succeeded()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Min attribute cannot be broadcasted to provided dimensions.");
-    }
-
-    mlir::Value maxTensor;
-    legalityResult = ttmlir::utils::broadcastValue(
-        rewriter, adaptor.getMax(), outputType, maxTensor, srcOp->getLoc(),
-        /*frontUnsqueeze=*/false);
-    if (!legalityResult.succeeded()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Max attribute cannot be broadcasted to provided dimensions.");
-    }
-
     ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
-        rewriter, srcOp, outputType, adaptor.getOperand(), minTensor,
-        maxTensor);
-
+        rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getMin(),
+        adaptor.getMax());
     return success();
-  }
-
-private:
-  std::optional<float> getConstantValue(Value value) const {
-    Operation *op = value.getDefiningOp();
-    while (
-        isa_and_present<ttir::BroadcastOp, ttir::ReshapeOp, ttir::TypecastOp>(
-            op)) {
-      op = op->getOperand(0).getDefiningOp();
-    }
-    if (!op) {
-      return std::nullopt;
-    }
-
-    auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
-
-    if (!constantOp) {
-      return std::nullopt;
-    }
-
-    mlir::ElementsAttr attr = constantOp.getValueAttr();
-    if (!attr.isSplat()) {
-      return std::nullopt;
-    }
-
-    mlir::Type elementType = attr.getElementType();
-    mlir::APFloat fillValue(mlir::APFloat::IEEEsingle());
-    if (isa<IntegerType>(elementType)) {
-      fillValue.convertFromAPInt(attr.getSplatValue<llvm::APInt>(),
-                                 attr.getElementType().isSignedInteger(),
-                                 llvm::RoundingMode::TowardZero);
-      return fillValue.convertToFloat();
-    }
-    if (isa<FloatType>(elementType)) {
-      return static_cast<float>(
-          attr.getSplatValue<mlir::APFloat>().convertToDouble());
-    }
-
-    return std::nullopt;
   }
 };
 } // namespace
@@ -2266,7 +2198,9 @@ addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::PowOp, mlir::tt::ttir::PowerOp>>(typeConverter, ctx);
+      mlir::stablehlo::PowOp, mlir::tt::ttir::PowOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::Atan2Op, mlir::tt::ttir::Atan2Op>>(typeConverter, ctx);
 }
 
 static void addReduceOpsConversionPatterns(MLIRContext *ctx,

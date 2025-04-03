@@ -682,8 +682,42 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
       getOperandThroughDPSOps(op.getB()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
+
+  using MatmulConfigType = ::tt::target::ttnn::MatmulProgramConfig;
+  MatmulConfigType matmulProgramConfigType = MatmulConfigType::NONE;
+  ::flatbuffers::Offset<void> matmulProgramConfigDesc;
+  if (auto matmulProgramConfig = op.getMatmulProgramConfigAttr()) {
+    if (auto config =
+            mlir::dyn_cast<ttnn::MatmulMultiCoreReuseProgramConfigAttr>(
+                matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (auto config = mlir::dyn_cast<
+                   ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+                   matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseMultiCastProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (auto config = mlir::dyn_cast<
+                   ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+                   matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseMultiCast1DProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (
+        auto config = mlir::dyn_cast<
+            ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+            matmulProgramConfig)) {
+      matmulProgramConfigType = MatmulConfigType::
+          MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    }
+  }
+
   return ::tt::target::ttnn::CreateMatmulOp(
-      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
+      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB(),
+      matmulProgramConfigType, matmulProgramConfigDesc);
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
@@ -1131,8 +1165,10 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Tanh;
   } else if constexpr (std::is_same_v<EltwiseOp, AtanOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Atan;
-  } else if constexpr (std::is_same_v<EltwiseOp, PowerOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Power;
+  } else if constexpr (std::is_same_v<EltwiseOp, Atan2Op>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Atan2;
+  } else if constexpr (std::is_same_v<EltwiseOp, PowOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Pow;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -1643,8 +1679,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, leakyReluOp),
                            debugString, locInfo);
   }
-  if (auto powerOp = dyn_cast<PowerOp>(op); powerOp) {
-    return createOperation(cache, createEltwiseOp(cache, powerOp), debugString,
+  if (auto powOp = dyn_cast<PowOp>(op); powOp) {
+    return createOperation(cache, createEltwiseOp(cache, powOp), debugString,
                            locInfo);
   }
   if (auto linearOp = dyn_cast<LinearOp>(op); linearOp) {
@@ -1799,6 +1835,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto atanOp = dyn_cast<AtanOp>(op); atanOp) {
     return createOperation(cache, createEltwiseOp(cache, atanOp), debugString,
+                           locInfo);
+  }
+  if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
+    return createOperation(cache, createEltwiseOp(cache, atan2Op), debugString,
                            locInfo);
   }
   if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {
