@@ -448,69 +448,78 @@ struct GatherToEmbeddingConversionPattern
    *
    * Enforces constraints on Gather operation to ensure valid embedding
    * transformation:
-   * - Output tensor shape: Multi-dimensional with last dimension as embedding
-   * size/ hiddenDim
-   * - Slice sizes: Must be [1, hiddenDim], where hiddenDim matches last output
-   * dimension
-   * - Offset dimensions: Strictly [2]
-   * - Collapsed slice dimensions: Strictly [0]
-   * - Start indices shape: Must be compatible with output shape
-   *   - startIndices.size() < output.size()
-   *   - if startIndices.size() == output.size(), then startIndices[-1] == 1
-   *   - Last dimension of start indices can be reduced by reshape op.
-   *   - This is due to embedding weights requiring to have smaller size than
-   * output shape
-   *
+   * - indexVectorDim is the last dimension of startIndices (with possibly some
+   * others that are 1 and can be reshaped away)
+   * - startIndices tensor has at most two non-unit dimensions
+   * - operandBatchingDims and startIndicesBatchingDims are none
+   * - startIndexMap is [0]
+   * - sliceSizes is [1,...fullDim,...] where ... can be more slice sizes of
+   * size 1, but only for dimensions of size 1
+   * - offsetDims is of any length but has form [index_vector_dim,
+   * index_vector_dim + 1...]
    */
 
   LogicalResult checkBasicLegality(ttir::GatherOp op,
                                    PatternRewriter &rewriter) const {
 
-    // variables for embedding pattern matching checks
-    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
-    auto shape = outputType.getShape();
+    // Get input, start indices and output tensor shape.
+    auto inputShape = op.getInput().getType().getShape();
+    auto startIndicesShape = op.getStartIndices().getType().getShape();
 
-    // start indices of the gather op:
-    auto startIndices = op.getStartIndices();
-    auto startIndicesType =
-        mlir::cast<RankedTensorType>(startIndices.getType());
-
-    // slice sizes of the gather op
+    // Get attributes needed for embedding op pattern matching checks.
     auto sliceSizes = op.getSliceSizes();
+    auto startIndexMap = op.getStartIndexMap();
+    auto indexVectorDim = op.getIndexVectorDim();
     auto offsetDims = op.getOffsetDims();
-    // collapsed slice dims of the gather op
-    auto collapsedSliceDims = op.getCollapsedSliceDims();
 
-    if (shape.size() > 1) {
-      auto hiddenDim = shape[shape.size() - 1];
-      // check if sliceSizes has more than one element
-      if (sliceSizes.size() <= 1) {
-        return rewriter.notifyMatchFailure(op, "Did not satisfy sliceSizes");
-      }
-      // check if sliceSizes is [1, hiddenDim]
-      if (sliceSizes[0] != 1 || sliceSizes[1] != hiddenDim) {
-        return rewriter.notifyMatchFailure(op, "Did not satisfy sliceSizes");
+    // Check if the index dimension is essentially the last one.
+    for (size_t i = indexVectorDim; i < startIndicesShape.size(); i++) {
+      if (startIndicesShape[i] != 1) {
+        return rewriter.notifyMatchFailure(op,
+                                           "Did not satisfy indexVectorDim");
       }
     }
 
-    // check if offsetDims is [2]
-    if (offsetDims.size() > 1 || offsetDims[0] != 2) {
-      return rewriter.notifyMatchFailure(op, "Did not satisfy offsetDims");
+    // Check if start indices tensor can be reshaped to 1D or 2D.
+    size_t newNumStartIndicesDims = 0;
+    for (auto i : startIndicesShape) {
+      if (i > 1 && ++newNumStartIndicesDims > 2) {
+        return rewriter.notifyMatchFailure(op,
+                                           "Did not satisfy startIndicesShape");
+      }
     }
 
-    // check if collapsedSliceDims is [0]
-    if (collapsedSliceDims.size() > 1 || collapsedSliceDims[0] != 0) {
-      return rewriter.notifyMatchFailure(op,
-                                         "Did not satisfy collapsedSliceDims");
+    // Check if there are no batching dimensions.
+    if (!op.getOperandBatchingDims().empty() ||
+        !op.getStartIndicesBatchingDims().empty()) {
+      return rewriter.notifyMatchFailure(op, "Did not satisfy batching");
     }
 
-    // check if startIndices and output have same shape, if not, check if
-    // reshape is possible can reshape startIndices to remove the last dimension
-    // if it is 1
-    if (shape.size() == startIndicesType.getShape().size() &&
-        startIndicesType.getShape()[shape.size() - 1] != 1) {
-      return rewriter.notifyMatchFailure(op,
-                                         "Did not satisfy startIndicesType");
+    // Check if we are indexing only the first input tensor dimension.
+    if (startIndexMap.size() != 1 || startIndexMap[0] != 0) {
+      return rewriter.notifyMatchFailure(op, "Did not satisfy startIndexMap");
+    }
+
+    // Check if slice sizes are [1,...fullDim,...].
+    if (sliceSizes.size() < 1 || sliceSizes[0] != 1) {
+      return rewriter.notifyMatchFailure(op, "Did not satisfy sliceSizes");
+    }
+    size_t newNumInputDims = 1;
+    for (size_t i = 1; i < sliceSizes.size(); i++) {
+      if (inputShape[i] == 1) {
+        continue;
+      }
+      if (sliceSizes[i] != inputShape[i] || ++newNumInputDims > 2) {
+        return rewriter.notifyMatchFailure(op, "Did not satisfy sliceSizes");
+      }
+    }
+
+    // Check if offset dims are [index_vector_dim, index_vector_dim + 1...].
+    auto expectedOffsetDim = indexVectorDim;
+    for (auto i : offsetDims) {
+      if (i != expectedOffsetDim++) {
+        return rewriter.notifyMatchFailure(op, "Did not satisfy OffsetDim");
+      }
     }
 
     return success();
@@ -519,64 +528,96 @@ struct GatherToEmbeddingConversionPattern
   /**
    * Lowers Gather Op into Embedding Op (and applies Reshape Op, if necessary)
    *
-   * - There is no TTNN Gather support.
-   *
-   * - TTIR Gather Op is lowered into TTIR Embedding Op. Torch embeddings are
-   * lowered into Gather Op. Most models use Gather Op to implement simple
-   * embeddings.
-   *
-   * - If encountered more complicated Gather Op implementations, they can be
+   * There is no TTNN Gather support.
+   * TTIR Gather Op is lowered into TTIR Embedding Op.
+   * Torch embeddings are lowered into Gather Op.
+   * Most models use Gather Op to implement simple embeddings.
+   * If encountered more complicated Gather Op implementations, they can be
    * lowered into slice/ concat/ etc.
    *
-   * - Start Indices of Gather Op are expected to match Weight for Embeddings.
-   * startIndices.size() < weight.size() however, if
-   * startIndices.size() == weight.size() && startIndices[-1] == 1,
-   * we can apply Reshape Op to reduce the last dimension.
+   * TTIR Embedding Op expects:
+   * - input (weights) to be strictly 2D. Indices from start indices apply to
+   * first dimension, and slices from the second dimension are gathered.
+   * - start indices tensor can be 1D or 2D, and the index dimension
+   * (indexVectorDim) of size 1 isn't included
+   * - output shape is the shape of startIndices with the last dimension of the
+   * input appended
    *
+   * We confirm that dimensions are in the right order, so we may only need to
+   * reshape away unit dimensions. We also reshape output to restore unit
+   * dimensions that were removed.
    */
 
   LogicalResult
   matchAndRewrite(ttir::GatherOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // GatherOp can be used to implement embedding lookup, check for that case
+    // GatherOp can be used to implement embedding lookup, check for that case.
     LogicalResult err = checkBasicLegality(op, rewriter);
     if (not err.succeeded()) {
       return err;
     }
-    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
-    auto shape = outputType.getShape();
 
-    // start indices of the gather op
-    auto startIndices = op.getStartIndices();
-    auto startIndicesType =
-        mlir::cast<RankedTensorType>(startIndices.getType());
+    auto inputShape = op.getInput().getType().getShape();
+    auto startIndicesShape = op.getStartIndices().getType().getShape();
+    auto outputShape = op.getResult().getType().getShape();
 
-    // check if start indices need to be reshaped
-    ::mlir::Value input = op.getStartIndices();
-    if (shape.size() == startIndicesType.getShape().size() &&
-        startIndicesType.getShape()[shape.size() - 1] == 1) {
-      // reduce weight tensor dimension
-      // insert reshape op to remove the last dimension of start indices
-      // before gather/ embedding op
-      std::vector<int64_t> newShapeI64(startIndicesType.getShape().begin(),
-                                       startIndicesType.getShape().end() - 1);
-
-      ttir::ReshapeOp reshapeOp =
-          createReshapeOp(rewriter, op.getLoc(), startIndices, newShapeI64);
-
-      assert(reshapeOp && "Failed to create reshape op");
-      reshapeOp->moveBefore(op);
-      input = reshapeOp.getResult();
+    // Calculate a new shape for input: first dim is one we are indexing, and
+    // other dims stay if they have size greater than 1.
+    std::vector<int64_t> newInputShape = {inputShape[0]};
+    for (size_t i = 1; i < inputShape.size(); i++) {
+      if (inputShape[i] > 1) {
+        newInputShape.push_back(inputShape[i]);
+      }
+    }
+    if (newInputShape.size() == 1) {
+      newInputShape.push_back(1);
     }
 
-    // convert gather to embedding, use reshaped input if needed
+    // Calculate a new shape for start indices: take only dims that have size
+    // greater than one, unless there aren't any (1x1x1 -> 1).
+    std::vector<int64_t> newStartIndicesShape;
+    if (startIndicesShape.size() < 3) {
+      newStartIndicesShape = startIndicesShape;
+    } else {
+      for (auto i : startIndicesShape) {
+        if (i > 1) {
+          newStartIndicesShape.push_back(i);
+        }
+      }
+      if (newStartIndicesShape.empty()) {
+        newStartIndicesShape.push_back(1);
+      }
+    }
+
+    // Calculate a new shape for output: this is new start indices shape + last
+    // dim of input shape.
+    std::vector<int64_t> newOutputShape = newStartIndicesShape;
+    newOutputShape.push_back(newInputShape[1]);
+
+    // If needed, apply reshape op to input, startIndices and output.
+    ::mlir::Value input =
+        createReshapeOp(rewriter, op->getLoc(), op.getInput(), newInputShape)
+            .getResult();
+    ::mlir::Value startIndices =
+        createReshapeOp(rewriter, op->getLoc(), op.getStartIndices(),
+                        newStartIndicesShape)
+            .getResult();
+    ::mlir::Value output =
+        createReshapeOp(rewriter, op->getLoc(), op.getOutput(), newOutputShape)
+            .getResult();
+
+    // Convert gather to embedding, use reshaped input if needed
     ttir::EmbeddingOp embeddingOp = rewriter.create<ttir::EmbeddingOp>(
-        op.getLoc(), op.getResult().getType(), input, op.getOperands()[0],
-        op.getOutput());
+        op.getLoc(), output.getType(), startIndices, input, output);
 
     assert(embeddingOp != nullptr && "Failed to create embedding op");
-    rewriter.replaceOp(op, embeddingOp);
+
+    // Reshape output to match what gather op expects.
+    ttir::ReshapeOp reshapeOp = createReshapeOp(
+        rewriter, op.getLoc(), embeddingOp.getResult(), outputShape);
+
+    rewriter.replaceOp(op, reshapeOp);
 
     return success();
   }
