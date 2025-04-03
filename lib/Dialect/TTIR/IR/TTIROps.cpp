@@ -321,7 +321,10 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   uint32_t dimensionIndex = getDimension();
   uint32_t dimSize = inputTensorType.getShape()[dimensionIndex];
 
-  return mlir::DenseElementsAttr::get<uint32_t>(getType(), dimSize);
+  auto resultElType = IntegerType::get(
+      getContext(), 32, IntegerType::SignednessSemantics::Unsigned);
+  auto resultType = RankedTensorType::get(/*shape=*/{1}, resultElType);
+  return mlir::DenseElementsAttr::get<uint32_t>(resultType, dimSize);
 }
 
 //===----------------------------------------------------------------------===//
