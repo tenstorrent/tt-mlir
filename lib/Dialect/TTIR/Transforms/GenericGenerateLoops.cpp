@@ -68,7 +68,7 @@ public:
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(),
         /* indexing_maps */ rewriter.getArrayAttr({}),
-        /* iterator_types */ rewriter.getArrayAttr({}),
+        /* iterator_types */ rewriter.getArrayAttr({}), generic.getThreads(),
         generic.getNumRegions());
 
     SmallVector<int64_t> loopBounds = generic.getLoopBounds();

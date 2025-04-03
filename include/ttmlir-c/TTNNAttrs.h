@@ -12,11 +12,8 @@
 extern "C" {
 #endif
 
-MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNCoreRangeAttrGet(MlirContext ctx,
-                                                            int64_t *offset,
-                                                            size_t offsetSize,
-                                                            int64_t *size,
-                                                            size_t sizeSize);
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNCoreRangeAttrGet(
+    MlirContext ctx, MlirAttribute startCoord, MlirAttribute endCoord);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNCoreRangeArrayAttrGet(
     MlirContext ctx, MlirAttribute *coreRangeAttrs, size_t coreRangeAttrsSize);
