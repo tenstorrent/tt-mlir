@@ -123,23 +123,8 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-
-class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-    }];
-}
-
-class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, traits> {
-
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-}
-
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([OneOperand], traits)> {
+    TTNN_Op<mnemonic, traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -150,7 +135,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
+    TTNN_Op<mnemonic, traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -172,7 +157,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
+    TTNN_Op<mnemonic, traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
