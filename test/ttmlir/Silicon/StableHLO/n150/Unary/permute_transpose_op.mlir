@@ -7,13 +7,13 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module {
-  func.func public @test_permute_transpose(%arg0: tensor<1x32x64x128xf32>) -> tensor<1x128x32x64xf32> {
+  func.func public @test_permute_transpose(%arg0: tensor<1x32x64x128xbf16>) -> tensor<1x128x32x64xbf16> {
     // CHECK-LABEL: func.func public @test_permute_transpose
     // CHECK: %[[VAL:[0-9]+]] = "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
-    // CHECK-SAME: tensor<1x32x64x128xf32,
-    // CHECK-SAME: -> tensor<1x128x32x64xf32,
-    %0 = stablehlo.transpose %arg0, dims = [0, 3, 1, 2] : (tensor<1x32x64x128xf32>) -> tensor<1x128x32x64xf32>
-    return %0 : tensor<1x128x32x64xf32>
+    // CHECK-SAME: tensor<1x32x64x128xbf16,
+    // CHECK-SAME: -> tensor<1x128x32x64xbf16,
+    %0 = stablehlo.transpose %arg0, dims = [0, 3, 1, 2] : (tensor<1x32x64x128xbf16>) -> tensor<1x128x32x64xbf16>
+    return %0 : tensor<1x128x32x64xbf16>
   }
 }

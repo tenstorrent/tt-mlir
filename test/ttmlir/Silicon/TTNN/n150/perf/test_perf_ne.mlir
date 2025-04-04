@@ -2,13 +2,13 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module attributes {} {
-  func.func @not_equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
-    %0 = ttir.empty() : tensor<13x31xf32>
-    %1 = "ttir.ne"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
+  func.func @not_equal(%arg0: tensor<13x31xbf16>, %arg1: tensor<13x31xbf16>) -> tensor<13x31xbf16> {
+    %0 = ttir.empty() : tensor<13x31xbf16>
+    %1 = "ttir.ne"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xbf16>, tensor<13x31xbf16>, tensor<13x31xbf16>) -> tensor<13x31xbf16>
     // CHECK: "ttnn.ne"
-    // CHECK-SAME: tensor<13x31xf32
-    // CHECK-SAME: tensor<13x31xf32
-    // CHECK-SAME: -> tensor<13x31xf32
-    return %1 : tensor<13x31xf32>
+    // CHECK-SAME: tensor<13x31xbf16
+    // CHECK-SAME: tensor<13x31xbf16
+    // CHECK-SAME: -> tensor<13x31xbf16
+    return %1 : tensor<13x31xbf16>
   }
 }

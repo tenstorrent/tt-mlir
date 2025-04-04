@@ -7,70 +7,70 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module @jit_concat attributes {} {
-  func.func public @test_concat_0(%arg0: tensor<32x32xf32>, %arg1: tensor<64x32xf32>) -> tensor<96x32xf32> {
+  func.func public @test_concat_0(%arg0: tensor<32x32xbf16>, %arg1: tensor<64x32xbf16>) -> tensor<96x32xbf16> {
     // CHECK-LABEL: func.func public @test_concat_0
     // CHECK: ttnn.concat
     // CHECK-SAME: dim = 0
-    // CHECK-SAME: tensor<32x32xf32,
-    // CHECK-SAME: tensor<64x32xf32,
-    // CHECK-SAME: -> tensor<96x32xf32,
+    // CHECK-SAME: tensor<32x32xbf16,
+    // CHECK-SAME: tensor<64x32xbf16,
+    // CHECK-SAME: -> tensor<96x32xbf16,
     %0 = "stablehlo.concatenate"(%arg0, %arg1) {
     dimension = 0 : i64
-    } : (tensor<32x32xf32>, tensor<64x32xf32>) -> tensor<96x32xf32>
-    return %0 : tensor<96x32xf32>
+    } : (tensor<32x32xbf16>, tensor<64x32xbf16>) -> tensor<96x32xbf16>
+    return %0 : tensor<96x32xbf16>
   }
 
-  func.func public @test_concat_1(%arg0: tensor<32x32xf32>, %arg1: tensor<32x64xf32>) -> tensor<32x96xf32> {
+  func.func public @test_concat_1(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x64xbf16>) -> tensor<32x96xbf16> {
     // CHECK-LABEL: func.func public @test_concat_1
     // CHECK: ttnn.concat
     // CHECK-SAME: dim = 1
-    // CHECK-SAME: tensor<32x32xf32,
-    // CHECK-SAME: tensor<32x64xf32,
-    // CHECK-SAME: -> tensor<32x96xf32,
+    // CHECK-SAME: tensor<32x32xbf16,
+    // CHECK-SAME: tensor<32x64xbf16,
+    // CHECK-SAME: -> tensor<32x96xbf16,
     %0 = "stablehlo.concatenate"(%arg0, %arg1) {
     dimension = 1 : i64
-    } : (tensor<32x32xf32>, tensor<32x64xf32>) -> tensor<32x96xf32>
-    return %0 : tensor<32x96xf32>
+    } : (tensor<32x32xbf16>, tensor<32x64xbf16>) -> tensor<32x96xbf16>
+    return %0 : tensor<32x96xbf16>
   }
 
 
-  func.func public @test_concat_2(%arg0: tensor<128x64xf32>, %arg1: tensor<128x96xf32>) -> tensor<128x160xf32> {
+  func.func public @test_concat_2(%arg0: tensor<128x64xbf16>, %arg1: tensor<128x96xbf16>) -> tensor<128x160xbf16> {
     // CHECK-LABEL: func.func public @test_concat_2
     // CHECK: ttnn.concat
     // CHECK-SAME: dim = 1
-    // CHECK-SAME: tensor<128x64xf32,
-    // CHECK-SAME: tensor<128x96xf32,
-    // CHECK-SAME: -> tensor<128x160xf32,
+    // CHECK-SAME: tensor<128x64xbf16,
+    // CHECK-SAME: tensor<128x96xbf16,
+    // CHECK-SAME: -> tensor<128x160xbf16,
     %0 = "stablehlo.concatenate"(%arg0, %arg1) {
       dimension = 1 : i64
-    } : (tensor<128x64xf32>, tensor<128x96xf32>) -> tensor<128x160xf32>
-    return %0 : tensor<128x160xf32>
+    } : (tensor<128x64xbf16>, tensor<128x96xbf16>) -> tensor<128x160xbf16>
+    return %0 : tensor<128x160xbf16>
   }
 
-  func.func public @test_concat_3(%arg0: tensor<64x32xf32>, %arg1: tensor<64x64xf32>) -> tensor<64x96xf32> {
+  func.func public @test_concat_3(%arg0: tensor<64x32xbf16>, %arg1: tensor<64x64xbf16>) -> tensor<64x96xbf16> {
     // CHECK-LABEL: func.func public @test_concat_3
     // CHECK: ttnn.concat
     // CHECK-SAME: dim = 1
-    // CHECK-SAME: tensor<64x32xf32,
-    // CHECK-SAME: tensor<64x64xf32,
-    // CHECK-SAME: -> tensor<64x96xf32,
+    // CHECK-SAME: tensor<64x32xbf16,
+    // CHECK-SAME: tensor<64x64xbf16,
+    // CHECK-SAME: -> tensor<64x96xbf16,
     %0 = "stablehlo.concatenate"(%arg0, %arg1) {
       dimension = 1 : i64
-    } : (tensor<64x32xf32>, tensor<64x64xf32>) -> tensor<64x96xf32>
-    return %0 : tensor<64x96xf32>
+    } : (tensor<64x32xbf16>, tensor<64x64xbf16>) -> tensor<64x96xbf16>
+    return %0 : tensor<64x96xbf16>
   }
 
-  func.func public @test_concat_4(%arg0: tensor<32x32x32x32xf32>, %arg1: tensor<32x32x32x64xf32>) -> tensor<32x32x32x96xf32> {
+  func.func public @test_concat_4(%arg0: tensor<32x32x32x32xbf16>, %arg1: tensor<32x32x32x64xbf16>) -> tensor<32x32x32x96xbf16> {
     // CHECK-LABEL: func.func public @test_concat_4
     // CHECK: ttnn.concat
     // CHECK-SAME: dim = 3
-    // CHECK-SAME: tensor<32x32x32x32xf32,
-    // CHECK-SAME: tensor<32x32x32x64xf32,
-    // CHECK-SAME: -> tensor<32x32x32x96xf32,
+    // CHECK-SAME: tensor<32x32x32x32xbf16,
+    // CHECK-SAME: tensor<32x32x32x64xbf16,
+    // CHECK-SAME: -> tensor<32x32x32x96xbf16,
     %0 = "stablehlo.concatenate"(%arg0, %arg1) {
       dimension = 3 : i64
-    } : (tensor<32x32x32x32xf32>, tensor<32x32x32x64xf32>) -> tensor<32x32x32x96xf32>
-    return %0 : tensor<32x32x32x96xf32>
+    } : (tensor<32x32x32x32xbf16>, tensor<32x32x32x64xbf16>) -> tensor<32x32x32x96xbf16>
+    return %0 : tensor<32x32x32x96xbf16>
   }
 
   func.func public @test_concat_5(%arg0: tensor<1x53xi64>, %arg1: tensor<1x1xi64>) -> tensor<1x54xi64> {

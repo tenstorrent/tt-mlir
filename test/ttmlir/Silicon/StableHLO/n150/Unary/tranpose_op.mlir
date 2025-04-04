@@ -7,13 +7,13 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module @jit_transpose attributes {} {
-  func.func public @test_transpose(%arg0: tensor<64x128xf32>) -> tensor<128x64xf32> {
+  func.func public @test_transpose(%arg0: tensor<64x128xbf16>) -> tensor<128x64xbf16> {
     // CHECK-LABEL: func.func public @test_transpose
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 1, 0>
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: -> tensor<128x64xf32,
-    %0 = stablehlo.transpose %arg0, dims = [1,0] : (tensor<64x128xf32>) -> tensor<128x64xf32>
-    return %0 : tensor<128x64xf32>
+    // CHECK-SAME: tensor<64x128xbf16,
+    // CHECK-SAME: -> tensor<128x64xbf16,
+    %0 = stablehlo.transpose %arg0, dims = [1,0] : (tensor<64x128xbf16>) -> tensor<128x64xbf16>
+    return %0 : tensor<128x64xbf16>
   }
 }

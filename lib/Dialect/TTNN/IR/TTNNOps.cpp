@@ -1221,6 +1221,21 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// TypecastOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::TypecastOp::verify() {
+  const DataType dtype = getDtype();
+  Type outputElTy = getResult().getType().getElementType();
+  if (dtype != elementTypeToDataType(outputElTy)) {
+    return emitOpError(
+        "Data type between dtype attribute and output element type.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 

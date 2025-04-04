@@ -7,12 +7,12 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module @jit_eltwise_sqrt attributes {} {
-  func.func public @test_sqrt(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  func.func public @test_sqrt(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK-LABEL: func.func public @test_sqrt
     // CHECK: ttnn.sqrt
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: -> tensor<64x128xf32,
-    %0 = stablehlo.sqrt %arg0 : tensor<64x128xf32>
-    return %0 : tensor<64x128xf32>
+    // CHECK-SAME: tensor<64x128xbf16,
+    // CHECK-SAME: -> tensor<64x128xbf16,
+    %0 = stablehlo.sqrt %arg0 : tensor<64x128xbf16>
+    return %0 : tensor<64x128xbf16>
   }
 }

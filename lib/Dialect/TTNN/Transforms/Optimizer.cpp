@@ -273,7 +273,10 @@ public:
         //
         if (opConfigAnalysis.getResult().contains(op)) {
           RankedTensorType newTensorType = RankedTensorType::get(
-              tensorShape, tensorType.getElementType(),
+              tensorShape,
+              opConfigAnalysis.getResult()
+                  .at(op)
+                  .outputLayout.getScalarElementType(),
               opConfigAnalysis.getResult().at(op).outputLayout);
 
           // Update the memory space and layout of the op.
@@ -466,7 +469,7 @@ private:
       // layout and other inputs.
       //
       RankedTensorType newTensorType = RankedTensorType::get(
-          producerOpTensorShape, producerOpTensorType.getElementType(),
+          producerOpTensorShape, consumerOpOutputLayout.getScalarElementType(),
           producerOpLayout
               .withElementType(consumerOp->getContext(),
                                consumerOpOutputLayout.getElementType(),

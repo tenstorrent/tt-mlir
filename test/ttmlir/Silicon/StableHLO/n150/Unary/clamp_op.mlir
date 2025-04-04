@@ -7,16 +7,16 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module @test_clamp attributes {} {
-  func.func public @test_clamp_constant(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  func.func public @test_clamp_constant(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK-LABEL: func.func public @test_clamp_constant(
     // CHECK: ttnn.clamp_scalar
     // CHECK-SAME: {max = 3.000000e+00 : f32, min = 2.000000e+00 : f32}
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: -> tensor<64x128xf32,
-    %cst = stablehlo.constant dense<2.000000e+00> : tensor<64x128xf32>
-    %cst_0 = stablehlo.constant dense<3.000000e+00> : tensor<64x128xf32>
-    %0 = stablehlo.clamp %cst, %arg0, %cst_0 : tensor<64x128xf32>
-    return %0 : tensor<64x128xf32>
+    // CHECK-SAME: tensor<64x128xbf16,
+    // CHECK-SAME: -> tensor<64x128xbf16,
+    %cst = stablehlo.constant dense<2.000000e+00> : tensor<64x128xbf16>
+    %cst_0 = stablehlo.constant dense<3.000000e+00> : tensor<64x128xbf16>
+    %0 = stablehlo.clamp %cst, %arg0, %cst_0 : tensor<64x128xbf16>
+    return %0 : tensor<64x128xbf16>
   }
 
   func.func public @test_clamp_indirect_constant_reshape(%arg0: tensor<1x16xbf16>) -> tensor<1x16xbf16> {

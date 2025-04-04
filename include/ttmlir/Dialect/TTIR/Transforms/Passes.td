@@ -424,7 +424,7 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
   let options = [
     Option<"enableFP32", "enable-fp32",
           "bool",
-          /*default=*/"true",
+          /*default=*/"false",
           "Enables fp32 type.">
   ];
 

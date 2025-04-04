@@ -177,7 +177,7 @@ struct TTIRToTTNNBackendPipelineOptions
 
   Option<bool> enableFP32{*this, "enable-fp32",
                           llvm::cl::desc("Enable fp32 type."),
-                          llvm::cl::init(true)};
+                          llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

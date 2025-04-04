@@ -7,15 +7,15 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module @test_clamp_tensor attributes {} {
-  func.func public @test_clamp_tensor(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>, %arg2: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  func.func public @test_clamp_tensor(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %arg2: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK-LABEL: func.func public @test_clamp_tensor(
     // CHECK: %{{[0-9]+}} = "ttnn.clamp_tensor"(%arg0, %arg1, %arg2)
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: -> tensor<64x128xf32,
-    %0 = stablehlo.clamp %arg1, %arg0, %arg2 : tensor<64x128xf32>
-    return %0 : tensor<64x128xf32>
+    // CHECK-SAME: tensor<64x128xbf16,
+    // CHECK-SAME: tensor<64x128xbf16,
+    // CHECK-SAME: tensor<64x128xbf16,
+    // CHECK-SAME: -> tensor<64x128xbf16,
+    %0 = stablehlo.clamp %arg1, %arg0, %arg2 : tensor<64x128xbf16>
+    return %0 : tensor<64x128xbf16>
   }
 
   func.func public @test_clamp_tensor_constant(%arg0: tensor<32x32xbf16>, %arg1: tensor<bf16>) -> tensor<32x32xbf16> {

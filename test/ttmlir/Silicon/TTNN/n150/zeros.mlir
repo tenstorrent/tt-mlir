@@ -21,9 +21,9 @@ module {
     return %0 : tensor<13x24x56x42xbf16>
   }
 
-  func.func @zeros_f32() -> tensor<32x64x128xf32> {
-    // CHECK: {{.*}} = "ttnn.zeros"({{.*}}) {{.*}} -> tensor<32x64x128xf32{{.*}}>
-    %0 = "ttir.zeros"() <{shape = array<i32:32, 64, 128>}> : () -> tensor<32x64x128xf32>
-    return %0 : tensor<32x64x128xf32>
+  func.func @zeros_f32() -> tensor<32x64x128xbf16> {
+    // CHECK: {{.*}} = "ttnn.zeros"({{.*}}) {{.*}} -> tensor<32x64x128xbf16{{.*}}>
+    %0 = "ttir.zeros"() <{shape = array<i32:32, 64, 128>}> : () -> tensor<32x64x128xbf16>
+    return %0 : tensor<32x64x128xbf16>
   }
 }

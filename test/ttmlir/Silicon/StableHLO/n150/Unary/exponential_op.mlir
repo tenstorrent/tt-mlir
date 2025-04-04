@@ -7,12 +7,12 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module @jit_eltwise_exp attributes {} {
-  func.func public @test_exp(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  func.func public @test_exp(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK-LABEL: func.func public @test_exp
     // CHECK: ttnn.exp
-    // CHECK-SAME: tensor<64x128xf32,
-    // CHECK-SAME: -> tensor<64x128xf32,
-    %0 = stablehlo.exponential %arg0 : tensor<64x128xf32>
-    return %0 : tensor<64x128xf32>
+    // CHECK-SAME: tensor<64x128xbf16,
+    // CHECK-SAME: -> tensor<64x128xbf16,
+    %0 = stablehlo.exponential %arg0 : tensor<64x128xbf16>
+    return %0 : tensor<64x128xbf16>
   }
 }

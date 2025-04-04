@@ -1,4 +1,4 @@
-// RUN: not ttmlir-opt --ttir-to-ttnn-backend-pipeline --split-input-file %s 2>&1 | FileCheck %s
+// RUN: not ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-fp32=true" --split-input-file %s 2>&1 | FileCheck %s
 // Negative tests for reduce(prod) op
 
 // CHECK: error: failed to legalize operation 'ttir.prod'

@@ -3,28 +3,28 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 #loc = loc("Dealloc":4294967295:0)
 module @"dealloc_test" attributes {} {
-  func.func @main(%arg0: tensor<1x784xf32> loc("Dealloc":4294967295:0), %arg1: tensor<1x10xf32> loc("Dealloc":4294967295:0), %arg2: tensor<256x10xf32> loc("Dealloc":4294967295:0), %arg3: tensor<1x256xf32> loc("Dealloc":4294967295:0), %arg4: tensor<784x256xf32> loc("Dealloc":4294967295:0)) -> tensor<1x10xf32> {
-    %0 = ttir.empty() : tensor<1x256xf32> loc(#loc8)
-    %1 = "ttir.matmul"(%arg0, %arg4, %0) : (tensor<1x784xf32>, tensor<784x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc8)
-    // CHECK: %[[MATMUL1:.*]] = "ttnn.matmul"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x256xf32, {{.+}}>
-    %2 = ttir.empty() : tensor<1x256xf32> loc(#loc9)
-    %3 = "ttir.add"(%1, %arg3, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x256xf32>, tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc9)
-    // CHECK: %{{.+}} = "ttnn.add"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x256xf32, {{.+}}>
-    // CHECK: "ttnn.deallocate"(%[[MATMUL1]]) {{.+}} : (tensor<1x256xf32, {{.+}}>) -> ()
-    %4 = ttir.empty() : tensor<1x256xf32> loc(#loc10)
-    %5 = "ttir.relu"(%3, %4) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc10)
-    // CHECK: %{{.+}} = "ttnn.relu"([[I1:%.+]]) {{.+}} -> tensor<1x256xf32, {{.+}}>
-    %6 = ttir.empty() : tensor<1x10xf32> loc(#loc11)
-    %7 = "ttir.matmul"(%5, %arg2, %6) : (tensor<1x256xf32>, tensor<256x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc11)
-    // CHECK: %[[MATMUL2:.*]] = "ttnn.matmul"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x10xf32, {{.+}}>
-    %8 = ttir.empty() : tensor<1x10xf32> loc(#loc12)
-    %9 = "ttir.add"(%7, %arg1, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x10xf32>, tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc12)
-    // CHECK: %{{.+}} = "ttnn.add"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x10xf32,{{.+}}>
-    // CHECK: "ttnn.deallocate"(%[[MATMUL2]]) {{.+}} : (tensor<1x10xf32, {{.+}}>) -> ()
-    %10 = ttir.empty() : tensor<1x10xf32> loc(#loc13)
-    %11 = "ttir.softmax"(%9, %10) <{dimension = 1 : si32}> : (tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc13)
-    // CHECK: %{{.+}} = "ttnn.softmax"([[I1:%.+]]) {{.+}} -> tensor<1x10xf32, {{.+}}>
-    return %11 : tensor<1x10xf32> loc(#loc7)
+  func.func @main(%arg0: tensor<1x784xbf16> loc("Dealloc":4294967295:0), %arg1: tensor<1x10xbf16> loc("Dealloc":4294967295:0), %arg2: tensor<256x10xbf16> loc("Dealloc":4294967295:0), %arg3: tensor<1x256xbf16> loc("Dealloc":4294967295:0), %arg4: tensor<784x256xbf16> loc("Dealloc":4294967295:0)) -> tensor<1x10xbf16> {
+    %0 = ttir.empty() : tensor<1x256xbf16> loc(#loc8)
+    %1 = "ttir.matmul"(%arg0, %arg4, %0) : (tensor<1x784xbf16>, tensor<784x256xbf16>, tensor<1x256xbf16>) -> tensor<1x256xbf16> loc(#loc8)
+    // CHECK: %[[MATMUL1:.*]] = "ttnn.matmul"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x256xbf16, {{.+}}>
+    %2 = ttir.empty() : tensor<1x256xbf16> loc(#loc9)
+    %3 = "ttir.add"(%1, %arg3, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x256xbf16>, tensor<1x256xbf16>, tensor<1x256xbf16>) -> tensor<1x256xbf16> loc(#loc9)
+    // CHECK: %{{.+}} = "ttnn.add"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x256xbf16, {{.+}}>
+    // CHECK: "ttnn.deallocate"(%[[MATMUL1]]) {{.+}} : (tensor<1x256xbf16, {{.+}}>) -> ()
+    %4 = ttir.empty() : tensor<1x256xbf16> loc(#loc10)
+    %5 = "ttir.relu"(%3, %4) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1x256xbf16>, tensor<1x256xbf16>) -> tensor<1x256xbf16> loc(#loc10)
+    // CHECK: %{{.+}} = "ttnn.relu"([[I1:%.+]]) {{.+}} -> tensor<1x256xbf16, {{.+}}>
+    %6 = ttir.empty() : tensor<1x10xbf16> loc(#loc11)
+    %7 = "ttir.matmul"(%5, %arg2, %6) : (tensor<1x256xbf16>, tensor<256x10xbf16>, tensor<1x10xbf16>) -> tensor<1x10xbf16> loc(#loc11)
+    // CHECK: %[[MATMUL2:.*]] = "ttnn.matmul"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x10xbf16, {{.+}}>
+    %8 = ttir.empty() : tensor<1x10xbf16> loc(#loc12)
+    %9 = "ttir.add"(%7, %arg1, %8) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x10xbf16>, tensor<1x10xbf16>, tensor<1x10xbf16>) -> tensor<1x10xbf16> loc(#loc12)
+    // CHECK: %{{.+}} = "ttnn.add"([[I1:%.+]], [[I2:%.+]]) {{.+}} -> tensor<1x10xbf16,{{.+}}>
+    // CHECK: "ttnn.deallocate"(%[[MATMUL2]]) {{.+}} : (tensor<1x10xbf16, {{.+}}>) -> ()
+    %10 = ttir.empty() : tensor<1x10xbf16> loc(#loc13)
+    %11 = "ttir.softmax"(%9, %10) <{dimension = 1 : si32}> : (tensor<1x10xbf16>, tensor<1x10xbf16>) -> tensor<1x10xbf16> loc(#loc13)
+    // CHECK: %{{.+}} = "ttnn.softmax"([[I1:%.+]]) {{.+}} -> tensor<1x10xbf16, {{.+}}>
+    return %11 : tensor<1x10xbf16> loc(#loc7)
   } loc(#loc)
 } loc(#loc)
 #loc1 = loc("Dealloc":4294967295:10)
