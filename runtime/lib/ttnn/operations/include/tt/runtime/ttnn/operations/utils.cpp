@@ -245,10 +245,15 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
 
 ::ttnn::operations::conv::conv2d::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg) {
-  std::optional<::ttnn::TensorMemoryLayout> shardLayout = std::nullopt;
+  std::optional<::ttnn::TensorMemoryLayout> shardLayout;
   if (memcfg->shard_layout()) {
     shardLayout = ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
         memcfg->shard_layout().value());
+  }
+  std::optional<::ttnn::CoreRangeSet> coreGrid;
+  if (memcfg->core_grid()) {
+    coreGrid =
+        ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*memcfg->core_grid());
   }
 
   ::ttnn::operations::conv::conv2d::Conv2dConfig conv2dConfig = {
@@ -264,10 +269,16 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg) {
       .reshard_if_not_optimal = memcfg->reshard_if_not_optimal(),
       .override_sharding_config = memcfg->override_sharding_config(),
       .shard_layout = shardLayout,
-      .core_grid = std::nullopt,
+      .core_grid = coreGrid,
       .transpose_shards = memcfg->transpose_shards(),
       .output_layout =
           ::tt::runtime::ttnn::utils::toTTNNLayout(memcfg->output_layout()),
+      .preprocess_weights_on_device = memcfg->preprocess_weights_on_device(),
+      .always_preprocess_weights = memcfg->always_preprocess_weights(),
+      .enable_act_double_buffer = memcfg->enable_act_double_buffer(),
+      .enable_weights_double_buffer = memcfg->enable_weights_double_buffer(),
+      .enable_split_reader = memcfg->enable_split_reader(),
+      .enable_subblock_padding = memcfg->enable_subblock_padding(),
   };
 
   return conv2dConfig;

@@ -375,43 +375,50 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
 
   let parameters = (ins
                         "DataType":$dtype,
-                        "DataType":$weightsDtype,
+                        "DataType":$weights_dtype,
                         "StringAttr":$activation,
-                        "IntegerAttr":$inputChannelsAlignment,
-                        "BoolAttr":$deallocateActivation,
-                        "BoolAttr":$reallocateHaloOutput,
-                        "IntegerAttr":$actBlockHOverride,
-                        "IntegerAttr":$actBlockWDiv,
-                        "BoolAttr":$reshardIfNotOptimal,
-                        "BoolAttr":$overrideShardingConfig,
-                        OptionalParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$shardLayout,
-                        // TODO: Finish adding this attribute https://github.com/tenstorrent/tt-mlir/issues/2130
-                        OptionalParameter<"Attribute", "TTNN core grid">:$coreGrid,
-                        "BoolAttr":$transposeShards,
-                        "Layout":$outputLayout,
-                        "BoolAttr":$enableActDoubleBuffer,
-                        "BoolAttr":$enableWeightsDoubleBuffer,
-                        "BoolAttr":$enableSplitReader,
-                        "BoolAttr":$enableSubblockPadding);
+                        "uint32_t":$input_channels_alignment,
+                        "bool":$deallocate_activation,
+                        "bool":$reallocate_halo_output,
+                        "uint32_t":$act_block_h_override,
+                        "uint32_t":$act_block_w_div,
+                        "bool":$reshard_if_not_optimal,
+                        "bool":$override_sharding_config,
+                        OptionalParameter<"TensorMemoryLayoutAttr">:$shard_layout,
+                        OptionalParameter<"CoreRangeSetAttr">:$core_grid,
+                        "bool":$transpose_shards,
+                        "Layout":$output_layout,
+                        "bool":$preprocess_weights_on_device,
+                        "bool":$always_preprocess_weights,
+                        "bool":$enable_act_double_buffer,
+                        "bool":$enable_weights_double_buffer,
+                        "bool":$enable_split_reader,
+                        "bool":$enable_subblock_padding);
 
-let assemblyFormat = "`<` `dtype` `=` $dtype `,` "
-                     "`weightsDtype` `=` $weightsDtype `,` "
-                     "`activation` `=` $activation `,` "
-                     "`inputChannelsAlignment` `=` $inputChannelsAlignment `,` "
-                     "`deallocateActivation` `=` $deallocateActivation `,` "
-                     "`reallocateHaloOutput` `=` $reallocateHaloOutput `,` "
-                     "`actBlockHOverride` `=` $actBlockHOverride `,` "
-                     "`actBlockWDiv` `=` $actBlockWDiv `,` "
-                     "`reshardIfNotOptimal` `=` $reshardIfNotOptimal `,` "
-                     "`overrideShardingConfig` `=` $overrideShardingConfig `,` "
-                     "(`shardLayout` `=` $shardLayout^ `,`)? "
-                     "(`coreGrid` `=` $coreGrid^ `,`)? "
-                     "`transposeShards` `=` $transposeShards `,` "
-                     "`outputLayout` `=` $outputLayout `,` "
-                     "`enableActDoubleBuffer` `=` $enableActDoubleBuffer `,` "
-                     "`enableWeightsDoubleBuffer` `=` $enableWeightsDoubleBuffer `,` "
-                     "`enableSplitReader` `=` $enableSplitReader `,` "
-                     "`enableSubblockPadding` `=` $enableSubblockPadding `>`";
+  let assemblyFormat = [{
+    `<` struct(
+      qualified($dtype),
+      qualified($weights_dtype),
+      $activation,
+      $input_channels_alignment,
+      $deallocate_activation,
+      $reallocate_halo_output,
+      $act_block_h_override,
+      $act_block_w_div,
+      $reshard_if_not_optimal,
+      $override_sharding_config,
+      qualified($shard_layout),
+      qualified($core_grid),
+      $transpose_shards,
+      qualified($output_layout),
+      $preprocess_weights_on_device,
+      $always_preprocess_weights,
+      $enable_act_double_buffer,
+      $enable_weights_double_buffer,
+      $enable_split_reader,
+      $enable_subblock_padding
+    ) `>`
+  }];
 }
 
 def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {

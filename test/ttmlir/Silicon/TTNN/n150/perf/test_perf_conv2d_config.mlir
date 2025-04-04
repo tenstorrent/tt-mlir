@@ -12,22 +12,25 @@
 
 #conv2d_config = #ttnn.conv2d_config<
   dtype = bf16,
-  weightsDtype = bf16,
+  weights_dtype = bf16,
   activation = "",
-  inputChannelsAlignment = 32 : i32,
-  deallocateActivation = false,
-  reallocateHaloOutput = true,
-  actBlockHOverride = 0 : i32,
-  actBlockWDiv = 1 : i32,
-  reshardIfNotOptimal = false,
-  overrideShardingConfig = false,
-  shardLayout = #ttnn.tensor_memory_layout<height_sharded>,
-  transposeShards = true,
-  outputLayout = tile,
-  enableActDoubleBuffer = false,
-  enableWeightsDoubleBuffer = false,
-  enableSplitReader = false,
-  enableSubblockPadding = false
+  input_channels_alignment = 32,
+  deallocate_activation = false,
+  reallocate_halo_output = true,
+  act_block_h_override = 0,
+  act_block_w_div = 1,
+  reshard_if_not_optimal = false,
+  override_sharding_config = false,
+  shard_layout = #ttnn.tensor_memory_layout<height_sharded>,
+  core_grid = #ttnn.core_range_set<>,
+  transpose_shards = true,
+  output_layout = tile,
+  preprocess_weights_on_device = true,
+  always_preprocess_weights = true,
+  enable_act_double_buffer = false,
+  enable_weights_double_buffer = false,
+  enable_split_reader = false,
+  enable_subblock_padding = false
 >
 
 module attributes {} {

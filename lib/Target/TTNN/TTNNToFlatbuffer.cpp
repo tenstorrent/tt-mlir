@@ -48,37 +48,6 @@ static OpType findOpAtTopLevel(mlir::ModuleOp module) {
   return nullptr;
 }
 
-::tt::target::ttnn::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &,
-             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
-  switch (memLayoutAttr.getValue()) {
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return ::tt::target::ttnn::TensorMemoryLayout::SingleBank;
-  case ttnn::TensorMemoryLayout::Interleaved:
-    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
-  case ttnn::TensorMemoryLayout::HeightSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
-  case ttnn::TensorMemoryLayout::WidthSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
-  case ttnn::TensorMemoryLayout::BlockSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
-  }
-}
-
-::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
-                                       ttnn::BufferType bufferType) {
-  switch (bufferType) {
-  case ttnn::BufferType::SystemMemory:
-    return ::tt::target::MemorySpace::System;
-  case ttnn::BufferType::DRAM:
-    return ::tt::target::MemorySpace::DeviceDRAM;
-  case ttnn::BufferType::L1:
-    return ::tt::target::MemorySpace::DeviceL1;
-  default:
-    llvm_unreachable("unhandled buffer type");
-  }
-}
-
 } // namespace mlir::tt
 
 namespace mlir::tt::ttnn {
@@ -168,44 +137,6 @@ memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
       ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
                                              bufferType, shardSpec);
   return memoryConfig;
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
-conv2dConfigToFlatbuffer(FlatbufferObjectCache &cache,
-                         ::mlir::tt::ttnn::Conv2dConfigAttr conv2dConfig) {
-  ::tt::target::DataType dtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(conv2dConfig.getDtype());
-  ::tt::target::DataType weightsDtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(conv2dConfig.getWeightsDtype());
-  ::flatbuffers::Offset<::flatbuffers::String> activation =
-      toFlatbuffer(cache, conv2dConfig.getActivation().getValue());
-  ::flatbuffers::Optional<::tt::target::ttnn::TensorMemoryLayout> shardLayout =
-      conv2dConfig.getShardLayout()
-          ? std::optional{::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
-                conv2dConfig.getShardLayout().getValue())}
-          : std::nullopt;
-  ::flatbuffers::Optional<bool> coreGrid = std::nullopt;
-  ::tt::target::TensorLayout outputLayout =
-      ::tt::mlir::ttnn::utils::toTargetTensorLayout(
-          conv2dConfig.getOutputLayout());
-
-  ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig> conv2dConfigDesc =
-      ::tt::target::ttnn::CreateConv2dConfig(
-          *cache.fbb, dtype, weightsDtype, activation,
-          conv2dConfig.getInputChannelsAlignment().getInt(),
-          conv2dConfig.getDeallocateActivation().getValue(),
-          conv2dConfig.getReallocateHaloOutput().getValue(),
-          conv2dConfig.getActBlockHOverride().getInt(),
-          conv2dConfig.getActBlockWDiv().getInt(),
-          conv2dConfig.getReshardIfNotOptimal().getValue(),
-          conv2dConfig.getOverrideShardingConfig().getValue(), shardLayout,
-          coreGrid, conv2dConfig.getTransposeShards().getValue(), outputLayout,
-          conv2dConfig.getEnableActDoubleBuffer().getValue(),
-          conv2dConfig.getEnableWeightsDoubleBuffer().getValue(),
-          conv2dConfig.getEnableSplitReader().getValue(),
-          conv2dConfig.getEnableSubblockPadding().getValue());
-
-  return conv2dConfigDesc;
 }
 
 flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
@@ -766,10 +697,10 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       toFlatbuffer(cache, op.getDilation());
 
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
-      conv2dConfig =
-          op.getConv2dConfig() ? std::optional{conv2dConfigToFlatbuffer(
-                                     cache, *op.getConv2dConfig())}
-                               : std::nullopt;
+      conv2dConfig;
+  if (auto config = op.getConv2dConfig()) {
+    conv2dConfig = toFlatbuffer(cache, *config);
+  }
 
   return ::tt::target::ttnn::CreateConv2dOp(
       *cache.fbb, input, weight, bias, output,

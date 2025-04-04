@@ -94,9 +94,11 @@ table Conv2dConfig {
   reshard_if_not_optimal: bool;
   override_sharding_config: bool;
   shard_layout: TensorMemoryLayout = null;
-  core_grid: bool = null;
+  core_grid: CoreRangeSet;
   transpose_shards: bool;
   output_layout: TensorLayout;
+  preprocess_weights_on_device: bool;
+  always_preprocess_weights: bool;
   enable_act_double_buffer: bool;
   enable_weights_double_buffer: bool;
   enable_split_reader: bool;
