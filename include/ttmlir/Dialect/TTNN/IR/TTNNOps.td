@@ -1738,4 +1738,112 @@ def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]>
     let hasVerifier = 1;
 }
 
+def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
+    let summary = "Quantize operation.";
+    let description = [{
+      Applies quantization to the input tensor.
+
+      Inputs:
+        - `input` Variadic<AnyRankedTensor>: The input tensor to be quantized.
+        - `scale` f32: The scale factor.
+        - `zero_point` i32: The zero point value.
+        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
+        - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
+      ```
+      output[i] = (input[i] / scale) + zero_point
+      ```
+      Example:
+      ```mlir
+      %input = ttir.empty() : () -> tensor<64x128xf32>
+      %output = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      %quantized = "ttir.quantize"(%input, %output) : (tensor<64x128xf32>, tensor<64x128x!quant.uniform<i32:f32, 0.1>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      ```
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         F32Attr:$scale,
+                         I32Attr:$zero_point,
+                         OptionalAttr<I32Attr>:$axis,
+                         OptionalAttr<TT_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs Variadic<AnyRankedTensor>:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
+    let summary = "Dequantize operation.";
+    let description = [{
+      Applies dequantization to the input tensor.
+
+      Inputs:
+        - `input` Variadic<AnyRankedTensor>: The input tensor to be dequantized.
+        - `scale` f32: The scale factor.
+        - `zero_point` i32: The zero point value.
+        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
+        - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
+      ```
+      output[i] = (input[i] - zero_point) * scale
+      ```
+      Example:
+      ```mlir
+      %input = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      %output = ttir.empty() : () -> tensor<64x128xf32>
+      %dequantized = "ttnn.dequantize"(%input, %output) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>, tensor<64x128xf32>) -> tensor<64x128xf32>
+      ```
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         F32Attr:$scale,
+                         I32Attr:$zero_point,
+                         OptionalAttr<I32Attr>:$axis,
+                         OptionalAttr<TT_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs Variadic<AnyRankedTensor>:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
+    let summary = "Requantize operation.";
+    let description = [{
+      Applies requantization to the input tensor.
+
+      Inputs:
+        - `input` Variadic<AnyRankedTensor>: The input tensor to be requantized.
+        - `in_scale` f32: The input scale factor.
+        - `in_zero_point` i32: The input zero point value.
+        - `out_scale` f32: The output scale factor.
+        - `out_zero_point` i32: The output zero point value.
+        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
+        - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
+      ```
+      output[i] = round((input[i] - input_zero_point) * (input_scale / output_scale)) + output_zero_point
+      ```
+      Example:
+      ```mlir
+      %input = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      %output = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
+      %requantized = "ttnn.requantize"(%input, %output) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>, tensor<64x128x!quant.uniform<i32:f32, 0.2>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
+      ```
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         F32Attr:$in_scale,
+                         I32Attr:$in_zero_point,
+                         F32Attr:$out_scale,
+                         I32Attr:$out_zero_point,
+                         OptionalAttr<I32Attr>:$axis,
+                         OptionalAttr<TT_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs Variadic<AnyRankedTensor>:$result);
+
+    let hasVerifier = 1;
+}
 #endif
