@@ -734,8 +734,8 @@ private:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperand());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperand());
 
     return success();
   }
@@ -762,7 +762,7 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
         rewriter, srcOp, outputType, adaptor.getOperand());
 
     return success();

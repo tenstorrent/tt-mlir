@@ -364,9 +364,9 @@ flatten(FirstTy &&first, RestTy &&...rest) {
       (std::is_convertible_v<detail::get_value_type_t<FirstTy>, TrueReturnTy> &&
        ... &&
        std::is_convertible_v<detail::get_value_type_t<RestTy>, TrueReturnTy>));
-  llvm::SmallVector<ReturnTy> result;
-  append(result, std::forward<FirstTy>(first));
-  (append(result, std::forward<RestTy>(rest)), ...);
+  llvm::SmallVector<TrueReturnTy> result;
+  detail::append(result, std::forward<FirstTy>(first));
+  (detail::append(result, std::forward<RestTy>(rest)), ...);
   return result;
 }
 
