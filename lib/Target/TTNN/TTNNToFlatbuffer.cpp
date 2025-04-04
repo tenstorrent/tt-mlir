@@ -1916,7 +1916,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   size_t programIdx = 0;
   module->walk([&](func::FuncOp func) {
-    llvm::outs() << func.getSymName().str() << " : " << programIdx << "\n";
+    // llvm::outs() << func.getSymName().str() << " : " << programIdx << "\n";
     programIdxMap[func.getSymName().str()] = programIdx++;
   });
 

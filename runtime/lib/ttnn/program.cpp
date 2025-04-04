@@ -74,6 +74,7 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 using executor::ProgramExecutor;
 
 void ProgramExecutor::runCallback(
+    const std::string &callbackKey, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (auto callback = debug::Hooks::get().getOperatorCallback();
@@ -83,7 +84,7 @@ void ProgramExecutor::runCallback(
     std::shared_ptr<void> opContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(
             const_cast<::tt::target::ttnn::Operation *>(opContext));
-    (*callback)(programContext->getExecutableHandle(),
+    (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
   }

@@ -163,7 +163,7 @@ def TT_LoadCachedOp : TT_Op<"load_cached", []> {
   );
 
   let assemblyFormat = [{
-    `(` $callee `,` `[` $input_indices `]` `)` attr-dict `:` type($results)
+    `(` $callee `,` $input_indices `)` attr-dict `:` type($results)
   }];
 
   let hasVerifier = 1;
