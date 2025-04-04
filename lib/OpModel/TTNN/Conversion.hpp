@@ -13,10 +13,10 @@
 namespace mlir::tt::op_model::ttnn {
 namespace conversion {
 ::tt::tt_metal::DataType getDataType(const DataType dataType);
-
-::tt::tt_metal::DataType getDataType(mlir::tt::DataType dtype);
+tt::DataType getDataType(const ::tt::tt_metal::DataType dataType);
 
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape);
+llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape shape);
 
 const std::array<uint32_t, 2>
 getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
@@ -34,9 +34,13 @@ getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
 ::tt::tt_metal::BufferType
 getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+mlir::tt::ttnn::BufferType
+getBufferType(const ::tt::tt_metal::BufferType bufferType);
 
 ::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
     const mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr);
+mlir::tt::ttnn::TensorMemoryLayout
+getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
@@ -65,6 +69,13 @@ std::array<To, N> convertLLVMArrayRefToStdArray(::llvm::ArrayRef<From> vec) {
   std::copy(vec.begin(), vec.end(), stdArray.begin());
   return stdArray;
 }
+
+mlir::tt::ttnn::TTNNLayoutAttr
+getLayoutAttrFromTensorSpec(MLIRContext *context,
+                            const ::ttnn::TensorSpec &tensorSpec);
+
+mlir::tt::ttnn::TTNNLayoutAttr getLayoutAttrFromTensorSpec(
+    MLIRContext *context, const std::optional<::ttnn::TensorSpec> &tensorSpec);
 
 } // namespace conversion
 } // namespace mlir::tt::op_model::ttnn

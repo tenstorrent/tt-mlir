@@ -10,6 +10,7 @@
 
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
 
 #include "llvm/ADT/ArrayRef.h"
 
@@ -40,6 +41,29 @@ namespace conversion {
   }
 }
 
+tt::DataType getDataType(const ::tt::tt_metal::DataType dataType) {
+  switch (dataType) {
+  case ::tt::tt_metal::DataType::FLOAT32:
+    return tt::DataType::Float32;
+  case ::tt::tt_metal::DataType::BFLOAT16:
+    return tt::DataType::BFloat16;
+  case ::tt::tt_metal::DataType::BFLOAT8_B:
+    return tt::DataType::BFP_BFloat8;
+  case ::tt::tt_metal::DataType::BFLOAT4_B:
+    return tt::DataType::BFP_BFloat4;
+  case ::tt::tt_metal::DataType::UINT32:
+    return tt::DataType::UInt32;
+  case ::tt::tt_metal::DataType::UINT16:
+    return tt::DataType::UInt16;
+  case ::tt::tt_metal::DataType::UINT8:
+    return tt::DataType::UInt8;
+  case ::tt::tt_metal::DataType::INT32:
+    return tt::DataType::Int32;
+  default:
+    throw std::runtime_error("Invalid element type");
+  }
+}
+
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
   ::tt::stl::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
@@ -47,6 +71,14 @@ namespace conversion {
   }
 
   return ::ttnn::Shape(small_vector_shape);
+}
+
+llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape shape) {
+  llvm::SmallVector<int64_t> llvmShape;
+  for (auto it = shape.cbegin(); it < shape.cend(); ++it) {
+    llvmShape.push_back(static_cast<uint64_t>(*it));
+  }
+  return llvmShape;
 }
 
 const std::array<uint32_t, 2>
@@ -123,6 +155,22 @@ getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   }
 }
 
+mlir::tt::ttnn::BufferType
+getBufferType(const ::tt::tt_metal::BufferType bufferType) {
+  switch (bufferType) {
+  case ::tt::tt_metal::BufferType::DRAM:
+    return mlir::tt::ttnn::BufferType::DRAM;
+  case ::tt::tt_metal::BufferType::L1:
+    return mlir::tt::ttnn::BufferType::L1;
+  case ::tt::tt_metal::BufferType::SYSTEM_MEMORY:
+    return mlir::tt::ttnn::BufferType::SystemMemory;
+  case ::tt::tt_metal::BufferType::L1_SMALL:
+    return mlir::tt::ttnn::BufferType::L1Small;
+  case ::tt::tt_metal::BufferType::TRACE:
+    return mlir::tt::ttnn::BufferType::Trace;
+  }
+}
+
 ::tt::tt_metal::TensorMemoryLayout getTensorMemoryLayout(
     const mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
   auto tensorMemoryLayout = memLayoutAttr.getValue();
@@ -138,6 +186,21 @@ getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
     return ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED;
   case mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
     return ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
+  }
+}
+mlir::tt::ttnn::TensorMemoryLayout
+getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
+  switch (memLayout) {
+  case ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED:
+    return mlir::tt::ttnn::TensorMemoryLayout::Interleaved;
+  case ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK:
+    return mlir::tt::ttnn::TensorMemoryLayout::SingleBank;
+  case ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED:
+    return mlir::tt::ttnn::TensorMemoryLayout::HeightSharded;
+  case ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED:
+    return mlir::tt::ttnn::TensorMemoryLayout::WidthSharded;
+  case ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED:
+    return mlir::tt::ttnn::TensorMemoryLayout::BlockSharded;
   }
 }
 
@@ -206,6 +269,86 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
   config.enable_subblock_padding = conv2dConfig->getEnableSubblockPadding();
 
   return config;
+}
+
+llvm::SmallVector<int64_t>
+GetTensorShapeInTiles(const llvm::ArrayRef<int64_t> &tensorShape) {
+  llvm::SmallVector<int64_t> shapeInTiles;
+  for (const auto &dim : tensorShape) {
+    shapeInTiles.push_back(ttmlir::utils::alignUp(dim, 32L));
+  }
+  return shapeInTiles;
+}
+
+llvm::SmallVector<int64_t> GetVirtualGridShape(
+    const llvm::ArrayRef<int64_t> &tensorShape,
+    const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
+    const llvm::ArrayRef<int64_t> &gridPhyCores = {8, 8}) {
+
+  // Usually tensors are of rank 2, but in case of MaxPool2D or Conv2D ops, it
+  // is 4. Anyway this tensor will be flattened to {1, 1, Y, X} shape.
+  assert(tensorShape.size() >= 2);
+  for (size_t i = 0; i < tensorShape.size() - 2; i++) {
+    assert(tensorShape[i] == 1);
+  }
+  int32_t tensorRank = tensorShape.size();
+  int64_t tensorSizeX = tensorShape[tensorRank - 1];
+  int64_t tensorSizeY = tensorShape[tensorRank - 2];
+
+  llvm::SmallVector<int64_t> tensorShapeTiles =
+      GetTensorShapeInTiles({tensorSizeY, tensorSizeX});
+
+  int64_t tensorTiles = 1;
+  for (const auto &dim : tensorShapeTiles) {
+    tensorTiles *= dim;
+  }
+
+  switch (tensorMemoryLayout) {
+  case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
+    return {1, std::min(tensorTiles, gridPhyCores[0] * gridPhyCores[1])};
+  case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
+    return {std::min(tensorTiles, gridPhyCores[0] * gridPhyCores[1]), 1};
+  case mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
+    assert(tensorShapeTiles.size() == 2);
+    return {std::min(gridPhyCores[0], tensorShapeTiles[0]),
+            std::min(gridPhyCores[1], tensorShapeTiles[1])};
+  default:
+    return {gridPhyCores[0], gridPhyCores[1]};
+  }
+}
+
+mlir::tt::ttnn::TTNNLayoutAttr
+getLayoutAttrFromTensorSpec(MLIRContext *context,
+                            const ::ttnn::TensorSpec &tensorSpec) {
+  llvm::SmallVector<int64_t> shape = getShape(tensorSpec.logical_shape());
+  Type elementType;
+  if (tensorSpec.layout() == ::tt::tt_metal::Layout::TILE) {
+    elementType = mlir::tt::TileType::get(
+        context,
+        {tensorSpec.page_config().get_tile().get_height(),
+         tensorSpec.page_config().get_tile().get_width()},
+        getDataType(tensorSpec.data_type()));
+  } else {
+    elementType =
+        dataTypeToElementType(context, getDataType(tensorSpec.data_type()));
+  }
+  mlir::tt::ttnn::BufferType bufferType =
+      getBufferType(tensorSpec.memory_config().buffer_type);
+  auto memoryLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+      context, getTensorMemoryLayout(tensorSpec.memory_config().memory_layout));
+  GridAttr grid = mlir::tt::GridAttr::get(
+      context, GetVirtualGridShape(shape, memoryLayoutAttr.getValue()),
+      ::mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
+          context, memoryLayoutAttr.getValue(), {8, 8}));
+
+  return mlir::tt::ttnn::TTNNLayoutAttr::get(
+      context, shape, elementType, bufferType, grid, memoryLayoutAttr);
+}
+
+mlir::tt::ttnn::TTNNLayoutAttr getLayoutAttrFromTensorSpec(
+    MLIRContext *context, const std::optional<::ttnn::TensorSpec> &tensorSpec) {
+  return tensorSpec ? getLayoutAttrFromTensorSpec(context, tensorSpec.value())
+                    : nullptr;
 }
 
 } // namespace conversion

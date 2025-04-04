@@ -19,7 +19,7 @@ namespace mlir::tt::ttnn {
 
 class OpModelBase : public OpModelFixture {
 public:
-  llvm::Expected<std::tuple<size_t, size_t, size_t>>
+  llvm::Expected<std::tuple<size_t, size_t, size_t, TTNNLayoutAttr>>
   getOpConstraints(Operation *op) {
     if (OpModel backend = dyn_cast<OpModel>(op)) {
       return backend.getOpConstraints(getInputLayouts(op), getOutputLayout(op));
@@ -108,7 +108,7 @@ TEST_F(OpModelBase, ReluOpInterface) {
   auto constraintsExp = getOpConstraints(relu.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
+    const auto [cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 8192);
     EXPECT_EQ(peak_size, 2048);
     EXPECT_EQ(output_size, 2048);
@@ -139,7 +139,7 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   auto constraintsExp = getOpConstraints(relu.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
+    const auto [cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 8192);
     EXPECT_EQ(peak_size, 2048);
     EXPECT_EQ(output_size, 2048);
@@ -170,7 +170,7 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
   auto constraintsExp = getOpConstraints(softmax.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
+    const auto [cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 137216);
     EXPECT_EQ(peak_size, 2048);
     EXPECT_EQ(output_size, 2048);
@@ -202,7 +202,7 @@ TEST_F(OpModelBase, AddOpInterface) {
   auto constraintsExp = getOpConstraints(add.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
+    const auto [cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 12288);
     EXPECT_EQ(peak_size, 2048);
     EXPECT_EQ(output_size, 2048);
@@ -235,7 +235,7 @@ TEST_F(OpModelBase, MultiplyOpInterface) {
   auto constraintsExp = getOpConstraints(multiply.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
+    const auto [cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 12288);
     EXPECT_EQ(peak_size, 2048);
     EXPECT_EQ(output_size, 2048);
@@ -269,7 +269,7 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   auto constraintsExp = getOpConstraints(matmul.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
+    const auto &[cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 786432);
     EXPECT_EQ(peak_size, 131072);
     EXPECT_EQ(output_size, 131072);
@@ -304,7 +304,7 @@ TEST_F(OpModelBase, MeanOpInterface) {
   auto constraintsExp = getOpConstraints(mean.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
+    const auto &[cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 12288);
     EXPECT_EQ(peak_size, 2048);
     EXPECT_EQ(output_size, 2048);
@@ -338,7 +338,7 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
+    const auto &[cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 262144);
     EXPECT_EQ(peak_size, 4096);
     EXPECT_EQ(output_size, 2048);
@@ -390,7 +390,7 @@ TEST_F(OpModelBase, toLayoutOp) {
       std::vector{layoutDRAMRowMajor}, layoutDRAMTiled);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
+    const auto &[cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 131072);
     EXPECT_EQ(peak_size, 0);
     EXPECT_EQ(output_size, 0);
@@ -423,7 +423,7 @@ TEST_F(OpModelBase, transposeOp) {
   auto constraintsExp = getOpConstraints(transpose.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
+    const auto &[cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 8192);
     EXPECT_EQ(peak_size, 2048);
     EXPECT_EQ(output_size, 2048);
@@ -461,7 +461,7 @@ TEST_F(OpModelBase, typecastOp) {
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
+    const auto &[cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_EQ(cb_size, 12288);
     EXPECT_EQ(peak_size, 4096);
     EXPECT_EQ(output_size, 4096);
@@ -479,9 +479,6 @@ TEST_F(OpModelBase, typecastOp) {
 }
 
 TEST_F(OpModelBase, Conv2dInterface) {
-  // Enable test once #2588 is fixed.
-  GTEST_SKIP();
-
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
@@ -506,9 +503,16 @@ TEST_F(OpModelBase, Conv2dInterface) {
 
   // test Conv2dOp interface
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
-  // TODO(odjuricic): This will change to EXPECT_TRUE once a fix lands in metal.
-  EXPECT_FALSE(static_cast<bool>(constraintsExp));
-  llvm::consumeError(constraintsExp.takeError());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cb_size, peak_size, output_size, outputLayout] = l1;
+    EXPECT_EQ(cb_size, 229440);
+    EXPECT_EQ(peak_size, 190568);
+    EXPECT_EQ(output_size, 26624);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
@@ -566,7 +570,7 @@ TEST_F(OpModelBase, maxPool2DOp) {
              << llvm::toString(constraintsExp.takeError()) << std::endl;
     }
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
+    const auto &[cb_size, peak_size, output_size, outputLayout] = l1;
     EXPECT_GT(cb_size, 0);
     EXPECT_GT(peak_size, 0);
     EXPECT_GT(output_size, 0);
