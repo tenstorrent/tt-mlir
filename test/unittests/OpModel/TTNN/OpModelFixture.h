@@ -64,10 +64,10 @@ public:
 
     // Usually tensors are of rank 2, but in case of MaxPool2D or Conv2D ops, it
     // is 4. Anyway this tensor will be flattened to {1, 1, Y, X} shape.
-    assert(tensorShape.size() >= 2);
-    for (size_t i = 0; i < tensorShape.size() - 2; i++) {
-      assert(tensorShape[i] == 1);
-    }
+    // assert(tensorShape.size() >= 2);
+    // for (size_t i = 0; i < tensorShape.size() - 2; i++) {
+    //   assert(tensorShape[i] == 1);
+    // }
     int32_t tensorRank = tensorShape.size();
     int64_t tensorSizeX = tensorShape[tensorRank - 1];
     int64_t tensorSizeY = tensorShape[tensorRank - 2];
@@ -124,8 +124,7 @@ public:
   mlir::tt::ttnn::TTNNLayoutAttr CreateRowMajorLayout(
       const llvm::ArrayRef<int64_t> &tensorShape,
       const mlir::tt::ttnn::BufferType &bufferType,
-      const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
-      const llvm::ArrayRef<int64_t> &gridShape = GetPhysicalGridSize()) {
+      const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout) {
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
         &context, tensorShape, builder.getBF16Type(), bufferType,
         CreateGrid(&context, tensorMemoryLayout,

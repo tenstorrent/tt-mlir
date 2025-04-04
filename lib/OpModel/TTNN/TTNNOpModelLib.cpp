@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.h"
+#include <ttnn/tensor/tensor.hpp>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -49,7 +50,12 @@ llvm::Expected<std::tuple<size_t, size_t, size_t>>
 getOpConstraints(std::string_view name, Callable &callable) {
   ::ttnn::graph::ConstraintQueryResponse query;
   try {
+    // Measure execution time
+    auto start = std::chrono::high_resolution_clock::now();
     query = callable();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    std::cout << "[TIMING] Callable execution took " << duration.count() << " microseconds" << std::endl;
   } catch (const std::exception &e) {
     // We expect that query will handle exceptions and set error message. If
     // not, we should not continue.
@@ -64,6 +70,8 @@ getOpConstraints(std::string_view name, Callable &callable) {
     return llvm::createStringError(
         query.error_message.value_or("<error message not set>"));
   }
+
+  std::cout << std::endl << std::endl << query.output_tensor_spec->logical_shape() << std::endl <<std::endl ;
 
   return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
                          query.resource_usage.l1_buffers_peak_per_core,
@@ -962,18 +970,36 @@ Conv2dOpInterface::getOpConstraints(
 
   auto conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
+  auto prepare_fn = &::ttnn::operations::conv::conv2d::prepare_conv_weights<::tt::tt_metal::IDevice>;
+
+  // const auto [inputSpec, weightSpec, outputSpec] = specs;
+  // auto weightTensor = ::tt::tt_metal::create_device_tensor(weightSpec, device);
+  // std::string format = "OIHW";
+  // auto mem_config = inputSpec.memory_config();
+
+  // auto output = ::ttnn::operations::conv::conv2d::prepare_conv_weights<::tt::tt_metal::IDevice>(
+  //       weightTensor, mem_config, inputSpec.layout(), format, in_channels,
+  //       out_channels, batch_size, input_height, input_width,
+  //       conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
+  //       conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+  //       conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+  //       conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation), /*has_bias*/ false,
+  //       groups, device, conv2dConfigConverted, std::nullopt);
+
+
+  
+
   // Create query closure
   auto conv2dOpQuery = [=]() {
     const auto [inputSpec, weightSpec, outputSpec] = specs;
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::conv2d, device, inputSpec, weightSpec, device, in_channels,
+        prepare_fn, device, weightSpec, inputSpec.memory_config(), inputSpec.layout(), "OIHW", in_channels,
         out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, biasTensor, conv2dConfigConverted, std::nullopt,
-        outputSpec.tensor_layout().get_memory_config());
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation), /*has_bias*/ false,
+        groups, device, conv2dConfigConverted, std::nullopt);
   };
 
   return operation::getOpConstraints("Conv2dOpInterface", conv2dOpQuery);
@@ -981,6 +1007,51 @@ Conv2dOpInterface::getOpConstraints(
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
+
+
+// template <typename T>
+// ttnn::Tensor prepare_conv_weights(
+//     const ttnn::Tensor& weight_tensor,
+//     const ttnn::MemoryConfig& input_memory_config,
+//     Layout input_tensor_layout,
+//     const std::string& weights_format,
+//     uint32_t in_channels,
+//     uint32_t out_channels,
+//     uint32_t batch_size,
+//     uint32_t input_height,
+//     uint32_t input_width,
+//     std::array<uint32_t, 2> kernel_size,
+//     std::array<uint32_t, 2> stride,
+//     std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding,
+//     std::array<uint32_t, 2> dilation,
+//     const bool has_bias,
+//     uint32_t groups,
+//     T* device,
+//     const std::optional<const Conv2dConfig>& conv_config_,
+//     const std::optional<const DeviceComputeKernelConfig>& compute_config_);
+
+
+// template <typename T>
+// Result conv2d(
+//     const ttnn::Tensor& input_tensor,
+//     const ttnn::Tensor& weight_tensor,
+//     T* device,
+//     uint32_t in_channels,
+//     uint32_t out_channels,
+//     uint32_t batch_size,
+//     uint32_t input_height,
+//     uint32_t input_width,
+//     std::array<uint32_t, 2> kernel_size,
+//     std::array<uint32_t, 2> stride,
+//     std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding,
+//     std::array<uint32_t, 2> dilation,
+//     uint32_t groups,
+//     std::optional<const ttnn::Tensor> bias_tensor = std::nullopt,
+//     const std::optional<const Conv2dConfig>& conv_config_ = std::nullopt,
+//     const std::optional<const DeviceComputeKernelConfig>& compute_config_ = std::nullopt,
+//     const std::optional<const MemoryConfig>& memory_config = std::nullopt);
+
+
 
 llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape,
