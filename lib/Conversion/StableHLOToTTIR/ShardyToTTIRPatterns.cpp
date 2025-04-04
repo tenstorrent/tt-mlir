@@ -505,15 +505,12 @@ analyzeSingleOpAndFixWrongTensorAnnotation(mlir::tt::MeshesAttr meshes,
 
         builder.setInsertionPoint(srcOp);
 
-        // TODO(wooseoklee): update code to use createDPSOp API with OpBuilder
-        // once it is ready. https://github.com/tenstorrent/tt-mlir/issues/2767
-        auto emptyOp = builder.create<mlir::tt::ttir::EmptyOp>(
-            srcOp->getLoc(), shape, elementType);
-        auto meshShardOp = builder.create<mlir::tt::ttir::MeshShardOp>(
-            srcOp->getLoc(), mlir::RankedTensorType::get(shape, elementType),
-            arg, emptyOp, meshSharding.getShardType(),
-            meshSharding.getShardDirection(), meshSharding.getShardShape(),
-            meshSharding.getShardDims());
+        auto meshShardOp =
+            mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+                builder, srcOp->getLoc(),
+                mlir::RankedTensorType::get(shape, elementType), arg,
+                meshSharding.getShardType(), meshSharding.getShardDirection(),
+                meshSharding.getShardShape(), meshSharding.getShardDims());
 
         srcOp->replaceUsesOfWith(arg, meshShardOp.getResult());
       }
