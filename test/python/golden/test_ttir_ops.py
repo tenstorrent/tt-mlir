@@ -9,7 +9,7 @@ import torch
 import numpy as np
 
 from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
-from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
+from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr, TypeInfo
 from ttmlir.dialects import ttir
 from ttmlir.ir import *
 from ttmlir.passes import GoldenTensor, DataType
@@ -820,6 +820,32 @@ def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
         unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
         use_zeros=True,
     )
+
+
+@compile_to_flatbuffer(
+    [(128, 128)],
+    targets=["ttnn"],
+)
+def test_quantize(in0: Operand, builder: TTIRBuilder):
+    return builder.quantize(in0, scale=0.1, zero_point=0, dtype=torch.qint32)
+
+
+@compile_to_flatbuffer(
+    [(128, 128)],
+    targets=["ttnn"],
+    inputs_types=[TypeInfo(dtype=torch.qint32, scale=0.1, zero_point=0)],
+)
+def test_dequantize(in0: Operand, builder: TTIRBuilder):
+    return builder.dequantize(in0, scale=0.1, zero_point=0, dtype=torch.float32)
+
+
+@compile_to_flatbuffer(
+    [(128, 128)],
+    targets=["ttnn"],
+    inputs_types=[TypeInfo(dtype=torch.qint32, scale=0.1, zero_point=0)],
+)
+def test_requantize(in0: Operand, builder: TTIRBuilder):
+    return builder.requantize(in0, scale=0.2, zero_point=0, dtype=torch.qint32)
 
 
 def test_provided_graph_input_output():
