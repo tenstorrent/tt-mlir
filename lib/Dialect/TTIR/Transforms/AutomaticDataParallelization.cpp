@@ -27,6 +27,51 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRAUTOMATICDATAPARALLELIZATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
+/*
+ttir.constant
+ttir.convolution
+ttir.broadcast
+ttir.pooling
+ttir.typecast
+ttir.dot_general
+ttir.max
+ttir.sum
+(done) ttir.reshape
+(done) ttir.exp
+(done) ttir.log
+(done) ttir.add
+(done) ttir.multiply
+(done) ttir.subtract
+(done) ttir.maximum
+*/
+static ::mlir::LogicalResult ReshapeOpInferReturnTypes(
+  ::mlir::MLIRContext *context, ::std::optional<::mlir::Location> location,
+  ::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes,
+  ::mlir::OpaqueProperties properties, ::mlir::RegionRange regions,
+  ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes) {
+    auto first = mlir::dyn_cast<mlir::RankedTensorType>(operands[0].getType());
+    mlir::OperationName operationName(ttir::ReshapeOp::getOperationName(), context);
+    auto shapeAttr = attributes.get(ttir::ReshapeOp::getShapeAttrName(operationName));
+
+    if (!shapeAttr) {
+      return ::mlir::failure();
+    }
+
+    mlir::ArrayAttr shapeArrayAttr = mlir::dyn_cast<mlir::ArrayAttr>(shapeAttr);
+    llvm::SmallVector<int64_t> reshapedTensorShape;
+
+    for (mlir::Attribute attr : shapeArrayAttr) {
+      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+        reshapedTensorShape.push_back(intAttr.getInt());
+      }
+    }
+
+    mlir::RankedTensorType outputType = mlir::RankedTensorType::get(reshapedTensorShape, first.getElementType());
+    inferredReturnTypes.push_back(outputType);
+
+    return mlir::success();
+}
+
 static ::mlir::LogicalResult ElementwiseUnaryInferReturnTypes(::mlir::MLIRContext *context,
 ::std::optional<::mlir::Location> location,
 ::mlir::ValueRange operands,
@@ -77,11 +122,11 @@ static ::mlir::LogicalResult SoftmaxOpInferReturnTypes(
     return mlir::success();
 }
 
-::mlir::LogicalResult MatmulOpInferReturnTypes(
-  ::mlir::MLIRContext *context, ::std::optional<::mlir::Location> location,
-  ::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes,
-  ::mlir::OpaqueProperties properties, ::mlir::RegionRange regions,
-  ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes) {
+static ::mlir::LogicalResult MatmulOpInferReturnTypes(
+::mlir::MLIRContext *context, ::std::optional<::mlir::Location> location,
+::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes,
+::mlir::OpaqueProperties properties, ::mlir::RegionRange regions,
+::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes) {
   ::mlir::RankedTensorType inputAType =
       mlir::dyn_cast<mlir::RankedTensorType>(operands[0].getType());
   ::mlir::RankedTensorType inputBType =
@@ -182,7 +227,6 @@ public:
   using impl::TTIRAutomaticDataParallelizationBase<TTIRAutomaticDataParallelization>::TTIRAutomaticDataParallelizationBase;
 
   void runOnOperation() final {
-    return;
     mlir::ModuleOp rootModule = getOperation();
     MLIRContext* context = rootModule.getContext();
     mlir::PatternRewriter rewriter(context);
@@ -406,7 +450,7 @@ public:
           if(ttir::AddOp addOp = llvm::dyn_cast<ttir::AddOp>(op)) {
             builder.setInsertionPoint(addOp);
 
-            // Acquire paramters to infer return shape and type of add op
+            // Acquire paramters to infer return shape and type of op
             auto loc = addOp.getLoc();
             llvm::SmallVector<mlir::Value> operands = {addOp->mlir::Operation::getOperand(0), addOp->mlir::Operation::getOperand(1)};
             ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
@@ -422,7 +466,7 @@ public:
             llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
             ttir::AddOp newAddOp = builder.create<ttir::AddOp>(loc, outputTypes, operands, addOp->getAttrs());
 
-            // Replace all users of the old add op with this new add op
+            // Replace all users of the old add op with this new op
             for (unsigned i = 0; i < addOp.getNumResults(); ++i) {
               addOp.getResult(i).replaceAllUsesWith(newAddOp.getResult(i));
             }
@@ -432,7 +476,7 @@ public:
           else if(ttir::ReluOp reluOp = llvm::dyn_cast<ttir::ReluOp>(op)) {
             builder.setInsertionPoint(reluOp);
 
-            // Acquire paramters to infer return shape and type of add op
+            // Acquire paramters to infer return shape and type of op
             auto loc = reluOp.getLoc();
             llvm::SmallVector<mlir::Value> operands = {reluOp->mlir::Operation::getOperand(0)};
             ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
@@ -448,7 +492,7 @@ public:
             llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
             ttir::ReluOp newReluOp = builder.create<ttir::ReluOp>(loc, outputTypes, operands, reluOp->getAttrs());
 
-            // Replace all users of the old add op with this new add op
+            // Replace all users of the old add op with this new op
             for (unsigned i = 0; i < reluOp.getNumResults(); ++i) {
               reluOp.getResult(i).replaceAllUsesWith(newReluOp.getResult(i));
             }
@@ -458,7 +502,7 @@ public:
           else if(ttir::MatmulOp matmulOp = llvm::dyn_cast<ttir::MatmulOp>(op)) {
             builder.setInsertionPoint(matmulOp);
 
-            // Acquire paramters to infer return shape and type of add op
+            // Acquire paramters to infer return shape and type of op
             auto loc = matmulOp.getLoc();
             llvm::SmallVector<mlir::Value> operands = {matmulOp->mlir::Operation::getOperand(0), matmulOp->mlir::Operation::getOperand(1)};
             ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
@@ -474,14 +518,14 @@ public:
             llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
             ttir::MatmulOp newMatmulOp = builder.create<ttir::MatmulOp>(loc, outputTypes, operands, matmulOp->getAttrs());
 
-            // Replace all users of the old add op with this new add op
+            // Replace all users of the old add op with this new op
             matmulOp.getResult().replaceAllUsesWith(newMatmulOp.getResult());
             matmulOp->erase();
           }
           else if(ttir::SoftmaxOp softmaxOp = llvm::dyn_cast<ttir::SoftmaxOp>(op)) {
             builder.setInsertionPoint(softmaxOp);
 
-            // Acquire paramters to infer return shape and type of add op
+            // Acquire paramters to infer return shape and type of op
             auto loc = softmaxOp.getLoc();
             llvm::SmallVector<mlir::Value> operands = {softmaxOp->mlir::Operation::getOperand(0)};
             ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
@@ -497,9 +541,162 @@ public:
             llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
             ttir::SoftmaxOp newSoftmaxOp = builder.create<ttir::SoftmaxOp>(loc, outputTypes, operands, softmaxOp->getAttrs());
 
-            // Replace all users of the old add op with this new add op
+            // Replace all users of the old add op with this new op
             softmaxOp.getResult().replaceAllUsesWith(newSoftmaxOp.getResult());
             softmaxOp->erase();
+          }
+          else if(ttir::SubtractOp subtractOp = llvm::dyn_cast<ttir::SubtractOp>(op)) {
+            builder.setInsertionPoint(subtractOp);
+
+            // Acquire paramters to infer return shape and type of op
+            auto loc = subtractOp.getLoc();
+            llvm::SmallVector<mlir::Value> operands = {subtractOp->mlir::Operation::getOperand(0), subtractOp->mlir::Operation::getOperand(1)};
+            ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
+            mlir::DictionaryAttr dictionaryAttr = DictionaryAttr::get(context, subtractOp->getAttrs());
+            if(mlir::failed(ElementwiseBinaryInferReturnTypes(context, loc, operands, dictionaryAttr, OpaqueProperties(nullptr), RegionRange(), inferredReturnTypes))) {
+              assert(false && "could not infer output shape of op");
+            }
+
+            // Create empty output op
+            mlir::RankedTensorType newOutputType = mlir::dyn_cast<mlir::RankedTensorType>(inferredReturnTypes[0]);
+            ttir::EmptyOp emptyOp = builder.create<ttir::EmptyOp>(loc, newOutputType.getShape(), newOutputType.getElementType());
+            operands.push_back(emptyOp);
+            llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
+            ttir::SubtractOp newSubtractOp = builder.create<ttir::SubtractOp>(loc, outputTypes, operands, subtractOp->getAttrs());
+
+            // Replace all users of the old add op with this new op
+            for (unsigned i = 0; i < subtractOp.getNumResults(); ++i) {
+              subtractOp.getResult(i).replaceAllUsesWith(newSubtractOp.getResult(i));
+            }
+
+            subtractOp->erase();
+          }
+          else if(ttir::MultiplyOp multiplyOp = llvm::dyn_cast<ttir::MultiplyOp>(op)) {
+            builder.setInsertionPoint(multiplyOp);
+
+            // Acquire paramters to infer return shape and type of op
+            auto loc = multiplyOp.getLoc();
+            llvm::SmallVector<mlir::Value> operands = {multiplyOp->mlir::Operation::getOperand(0), multiplyOp->mlir::Operation::getOperand(1)};
+            ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
+            mlir::DictionaryAttr dictionaryAttr = DictionaryAttr::get(context, multiplyOp->getAttrs());
+            if(mlir::failed(ElementwiseBinaryInferReturnTypes(context, loc, operands, dictionaryAttr, OpaqueProperties(nullptr), RegionRange(), inferredReturnTypes))) {
+              assert(false && "could not infer output shape of op");
+            }
+
+            // Create empty output op
+            mlir::RankedTensorType newOutputType = mlir::dyn_cast<mlir::RankedTensorType>(inferredReturnTypes[0]);
+            ttir::EmptyOp emptyOp = builder.create<ttir::EmptyOp>(loc, newOutputType.getShape(), newOutputType.getElementType());
+            operands.push_back(emptyOp);
+            llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
+            ttir::MultiplyOp newMultiplyOp = builder.create<ttir::MultiplyOp>(loc, outputTypes, operands, multiplyOp->getAttrs());
+
+            // Replace all users of the old add op with this new op
+            for (unsigned i = 0; i < multiplyOp.getNumResults(); ++i) {
+              multiplyOp.getResult(i).replaceAllUsesWith(newMultiplyOp.getResult(i));
+            }
+
+            multiplyOp->erase();
+          }
+          else if(ttir::LogOp logOp = llvm::dyn_cast<ttir::LogOp>(op)) {
+            builder.setInsertionPoint(logOp);
+
+            // Acquire paramters to infer return shape and type of op
+            auto loc = logOp.getLoc();
+            llvm::SmallVector<mlir::Value> operands = {logOp->mlir::Operation::getOperand(0)};
+            ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
+            mlir::DictionaryAttr dictionaryAttr = DictionaryAttr::get(context, logOp->getAttrs());
+            if(mlir::failed(ElementwiseUnaryInferReturnTypes(context, loc, operands, dictionaryAttr, OpaqueProperties(nullptr), RegionRange(), inferredReturnTypes))) {
+              assert(false && "could not infer output shape of op");
+            }
+
+            // Create empty output op
+            mlir::RankedTensorType newOutputType = mlir::dyn_cast<mlir::RankedTensorType>(inferredReturnTypes[0]);
+            ttir::EmptyOp emptyOp = builder.create<ttir::EmptyOp>(loc, newOutputType.getShape(), newOutputType.getElementType());
+            operands.push_back(emptyOp);
+            llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
+            ttir::LogOp newLogOp = builder.create<ttir::LogOp>(loc, outputTypes, operands, logOp->getAttrs());
+
+            // Replace all users of the old add op with this new op
+            for (unsigned i = 0; i < logOp.getNumResults(); ++i) {
+              logOp.getResult(i).replaceAllUsesWith(newLogOp.getResult(i));
+            }
+
+            logOp->erase();
+          }
+          else if(ttir::ExpOp expOp = llvm::dyn_cast<ttir::ExpOp>(op)) {
+            builder.setInsertionPoint(expOp);
+
+            // Acquire paramters to infer return shape and type of op
+            auto loc = expOp.getLoc();
+            llvm::SmallVector<mlir::Value> operands = {expOp->mlir::Operation::getOperand(0)};
+            ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
+            mlir::DictionaryAttr dictionaryAttr = DictionaryAttr::get(context, expOp->getAttrs());
+            if(mlir::failed(ElementwiseUnaryInferReturnTypes(context, loc, operands, dictionaryAttr, OpaqueProperties(nullptr), RegionRange(), inferredReturnTypes))) {
+              assert(false && "could not infer output shape of op");
+            }
+
+            // Create empty output op
+            mlir::RankedTensorType newOutputType = mlir::dyn_cast<mlir::RankedTensorType>(inferredReturnTypes[0]);
+            ttir::EmptyOp emptyOp = builder.create<ttir::EmptyOp>(loc, newOutputType.getShape(), newOutputType.getElementType());
+            operands.push_back(emptyOp);
+            llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
+            ttir::ExpOp newExpOp = builder.create<ttir::ExpOp>(loc, outputTypes, operands, expOp->getAttrs());
+
+            // Replace all users of the old add op with this new op
+            for (unsigned i = 0; i < expOp.getNumResults(); ++i) {
+              expOp.getResult(i).replaceAllUsesWith(newExpOp.getResult(i));
+            }
+
+            expOp->erase();
+          }
+          else if(ttir::MaximumOp maximumOp = llvm::dyn_cast<ttir::MaximumOp>(op)) {
+            builder.setInsertionPoint(maximumOp);
+
+            // Acquire paramters to infer return shape and type of op
+            auto loc = maximumOp.getLoc();
+            llvm::SmallVector<mlir::Value> operands = {maximumOp->mlir::Operation::getOperand(0), maximumOp->mlir::Operation::getOperand(1)};
+            ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
+            mlir::DictionaryAttr dictionaryAttr = DictionaryAttr::get(context, maximumOp->getAttrs());
+            if(mlir::failed(ElementwiseBinaryInferReturnTypes(context, loc, operands, dictionaryAttr, OpaqueProperties(nullptr), RegionRange(), inferredReturnTypes))) {
+              assert(false && "could not infer output shape of op");
+            }
+
+            // Create empty output op
+            mlir::RankedTensorType newOutputType = mlir::dyn_cast<mlir::RankedTensorType>(inferredReturnTypes[0]);
+            ttir::EmptyOp emptyOp = builder.create<ttir::EmptyOp>(loc, newOutputType.getShape(), newOutputType.getElementType());
+            operands.push_back(emptyOp);
+            llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
+            ttir::MaximumOp newMaximumOp = builder.create<ttir::MaximumOp>(loc, outputTypes, operands, maximumOp->getAttrs());
+
+            // Replace all users of the old add op with this new op
+            for (unsigned i = 0; i < maximumOp.getNumResults(); ++i) {
+              maximumOp.getResult(i).replaceAllUsesWith(newMaximumOp.getResult(i));
+            }
+
+            maximumOp->erase();
+          }
+          else if(ttir::ReshapeOp reshapeOp = llvm::dyn_cast<ttir::ReshapeOp>(op)) {
+            builder.setInsertionPoint(reshapeOp);
+
+            // Acquire paramters to infer return shape and type of op
+            auto loc = reshapeOp.getLoc();
+            llvm::SmallVector<mlir::Value> operands = {reshapeOp->mlir::Operation::getOperand(0)};
+            ::llvm::SmallVector<::mlir::Type> inferredReturnTypes;
+            mlir::DictionaryAttr dictionaryAttr = DictionaryAttr::get(context, reshapeOp->getAttrs());
+            if(mlir::failed(ReshapeOpInferReturnTypes(context, loc, operands, dictionaryAttr, OpaqueProperties(nullptr), RegionRange(), inferredReturnTypes))) {
+              assert(false && "could not infer output shape of op");
+            }
+
+            // Create empty output op
+            mlir::RankedTensorType newOutputType = mlir::dyn_cast<mlir::RankedTensorType>(inferredReturnTypes[0]);
+            ttir::EmptyOp emptyOp = builder.create<ttir::EmptyOp>(loc, newOutputType.getShape(), newOutputType.getElementType());
+            operands.push_back(emptyOp);
+            llvm::SmallVector<mlir::Type> outputTypes = {newOutputType};
+            ttir::ReshapeOp newReshapeOp = builder.create<ttir::ReshapeOp>(loc, outputTypes, operands, reshapeOp->getAttrs());
+
+            // Replace all users of the old add op with this new op
+            reshapeOp.getResult().replaceAllUsesWith(newReshapeOp.getResult());
+            reshapeOp->erase();
           }
         }
       }
