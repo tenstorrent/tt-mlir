@@ -27,7 +27,7 @@
 namespace mlir::tt::ttnn {
 
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
-constexpr bool DEBUG = false;
+constexpr bool DEBUG = true;
 
 ShardSolver::ShardSolver(
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
@@ -686,7 +686,7 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
     //
     auto deviceAttr = mlir::tt::lookupDevice(consumerOp);
     assert(deviceAttr);
-    auto workerGrid = deviceAttr.getWorkerGrid();
+    // auto workerGrid = deviceAttr.getWorkerGrid();
 
     // Map consumer operands to DRAM interleave or provided producerLayout
     // only one operand can be mapped to producerLayout, it's picked as first
@@ -713,6 +713,10 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
         continue;
       }
 
+      if (!mlir::isa<RankedTensorType>(operand.getType())) {
+        continue;
+      }
+
       RankedTensorType input = mlir::cast<RankedTensorType>(operand.getType());
 
       // TODO(odjuricic): Hardcode other operands to TILE DRAM INTERLEAVED for
@@ -723,11 +727,10 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
             TileType::get(consumerOp->getContext(), input.getElementType());
       }
 
-      inputLayouts.push_back(TTNNLayoutAttr::get(
-          consumerOp->getContext(), input.getShape(), elementType,
-          BufferType::DRAM, workerGrid,
-          TensorMemoryLayoutAttr::get(consumerOp->getContext(),
-                                      TensorMemoryLayout::Interleaved)));
+      TTNNLayoutAttr inputLayout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
+      llvm::errs() << "Input layout: ";
+      inputLayout.dump();
+      inputLayouts.push_back(inputLayout);
     }
 
     assert(inputUnderCheckFound && "Input under check not found");

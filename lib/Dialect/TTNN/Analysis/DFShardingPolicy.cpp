@@ -77,6 +77,11 @@ void DFShardingPolicy::run() {
           }
         }
 
+        llvm::outs() << "\nCurrent op: " << currentOp->getName() << "\n";
+        currentOp->print(llvm::outs());
+        llvm::outs() << "\nNext op: " << nextOp->getName() << "\n";
+        nextOp->print(llvm::outs());
+
         if (nextOp) {
 
           // V0 Before adding to shard chain config check that currentOp is not
@@ -104,10 +109,6 @@ void DFShardingPolicy::run() {
             validForSharding = false;
           }
           if (llvm::isa<ttnn::TransposeOp>(currentOp)) {
-            validForSharding = false;
-          }
-          // TODO(#2588): Blocked by graph capture issue.
-          if (llvm::isa<ttnn::Conv2dOp>(currentOp)) {
             validForSharding = false;
           }
 

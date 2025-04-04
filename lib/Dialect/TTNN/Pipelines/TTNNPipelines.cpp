@@ -44,19 +44,17 @@ void createTTNNPipelineTTIRPasses(
 
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  if (options.optimizerPassEnabled) {
-    ttnn::TTNNOptimizerOptions optimizerOptions;
-    optimizerOptions.overrideInputLayout = options.overrideInputLayout;
-    optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
-    optimizerOptions.memoryLayoutAnalysisEnabled =
-        options.memoryLayoutAnalysisEnabled;
-    optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
-    optimizerOptions.memoryLayoutAnalysisPolicy =
-        options.memoryLayoutAnalysisPolicy;
-    optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
-    optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
-    pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-  }
+  ttnn::TTNNOptimizerOptions optimizerOptions;
+  optimizerOptions.overrideInputLayout = options.overrideInputLayout;
+  optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
+  optimizerOptions.memoryLayoutAnalysisEnabled =
+      options.memoryLayoutAnalysisEnabled;
+  optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
+  optimizerOptions.memoryLayoutAnalysisPolicy =
+      options.memoryLayoutAnalysisPolicy;
+  optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
+  optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
+  pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
 }
 
 void createTTNNPipelineLoweringPasses(
@@ -153,8 +151,12 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineTTIRPasses(devicePm, options);
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
   createTTNNPipelineLoweringPasses(devicePm, options);
-  createTTNNPipelineWorkaroundPass(devicePm, options);
-  createTTNNPipelineAnalysisPasses(devicePm, options);
+  if (options.optimizerPassEnabled) {
+    createTTNNPipelineAnalysisPasses(devicePm, options);
+  } else {
+    // Optimizer constraints make sure that all ops are valid.
+    createTTNNPipelineWorkaroundPass(devicePm, options);
+  }
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
   createTTNNPipelineDeallocPass(devicePm, options);
 
