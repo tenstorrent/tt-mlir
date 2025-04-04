@@ -371,7 +371,8 @@ private:
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
         std::move(analysisResults.subgraphs);
-    llvm::SmallVector<Operation *, 1> sharedOps = std::move(analysisResults.sharedOps);
+    llvm::SmallVector<Operation *, 1> sharedOps =
+        std::move(analysisResults.sharedOps);
 
     if (subgraphs.empty()) {
       return;
@@ -471,6 +472,8 @@ private:
     for (size_t i = 0; i < inputs.size(); ++i) {
       inputIdxs[i] = inputs[i].getArgNumber();
     }
+    // Keep input index order consistent.
+    std::sort(inputIdxs.begin(), inputIdxs.end());
     // Create the LoadCachedOp with the correct argument order
     auto callOp = builder.create<tt::LoadCachedOp>(
         originalFunc.getLoc(), // Location

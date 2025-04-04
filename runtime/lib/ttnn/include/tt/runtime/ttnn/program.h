@@ -25,7 +25,7 @@ public:
                   const Binary &executableHandle,
                   const std::vector<::ttnn::Tensor *> &programInputs,
                   ::ttnn::MeshDevice *meshDevice)
-      : program(program) {
+      : program(program), executableHandle(executableHandle) {
     LOG_ASSERT(program, "Program must be provided for execution");
 
     std::vector<uint32_t> programInputIds;
@@ -59,7 +59,7 @@ public:
                   ::ttnn::MeshDevice *meshDevice,
                   std::shared_ptr<TensorCache> externalCache,
                   std::vector<uint64_t> &&inputVersions)
-      : program(program) {
+      : program(program), executableHandle(executableHandle) {
     LOG_ASSERT(program, "Program must be provided for execution");
 
     std::vector<uint32_t> programInputIds;
@@ -86,7 +86,8 @@ public:
         externalCache, std::move(inputVersions), program->name()->str());
   }
 
-  void runCallback(const ::tt::target::ttnn::Operation *opContext,
+  void runCallback(const std::string &callbackKey, Binary &executableHandle,
+                   const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
   void execute() {
@@ -94,8 +95,9 @@ public:
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
+      runCallback("pre-op", executableHandle, op, context.get());
       runOperation(op);
-      runCallback(op, context.get());
+      runCallback("post-op", executableHandle, op, context.get());
     }
   }
 
@@ -118,6 +120,7 @@ public:
 
 private:
   const ::tt::target::ttnn::Program *program;
+  Binary executableHandle;
   std::unique_ptr<ProgramContext> context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
