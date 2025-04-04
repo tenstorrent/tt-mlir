@@ -448,6 +448,12 @@ table UpsampleOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table PrintOp {
+  in: tt.target.ttnn.TensorRef;
+  probe_id: string;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table CpuOp {
   ins: [tt.target.ttnn.TensorRef];
   out: tt.target.ttnn.TensorRef;
@@ -501,6 +507,7 @@ union OpType {
   PermuteOp,
   RepeatOp,
   UpsampleOp,
+  PrintOp,
   PadOp,
   CpuOp,
   ConstantOp,

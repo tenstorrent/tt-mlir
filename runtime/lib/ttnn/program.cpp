@@ -37,6 +37,7 @@
 #include "operations/layout/to_device.h"
 #include "operations/layout/to_dtype.h"
 #include "operations/layout/to_layout.h"
+#include "operations/print/print.h"
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
@@ -114,7 +115,7 @@ public:
 
   void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-      LOG_DEBUG(LogType::LogRuntimeTTNN,
+      LOG_INFO(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
       runOperation(op);
@@ -329,6 +330,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     return operations::creation::run(op->type_as_ConstantOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrintOp: {
+    return operations::print::run(op->type_as_PrintOp(), getContext());
   }
   default: {
     LOG_FATAL("Unsupported operation type");

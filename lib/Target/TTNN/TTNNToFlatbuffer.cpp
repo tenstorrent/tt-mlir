@@ -958,6 +958,19 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
       *cache.fbb, input, scaleType, scaleFactor, mode, memoryConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PrintOp>
+createOp(FlatbufferObjectCache &cache, PrintOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+  flatbuffers::Offset<flatbuffers::String> probe_id =
+        toFlatbuffer(cache, op.getProbeId());
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> output = cache.getOrCreate(
+          op.getResult(), tensorValueToFlatbuffer, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreatePrintOp(
+    *cache.fbb, input, probe_id, output);
+}
+
 template <typename EltwiseOp, typename EltwiseOpParams>
 ::flatbuffers::Offset<EltwiseOpParams>
 createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
@@ -1855,6 +1868,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
     return createOperation(cache, createOp(cache, upsampleOp), debugString,
+                           locInfo);
+  }
+  if (auto printOp = dyn_cast<PrintOp>(op); printOp) {
+    return createOperation(cache, createOp(cache, printOp), debugString,
                            locInfo);
   }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {

@@ -1714,6 +1714,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                NamedFullOpConversionPattern<tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<tt::ttnn::OnesOp>,
                DefaultOpConversionPattern<tt::ttnn::FullOp>,
+               DefaultOpConversionPattern<tt::ttnn::PrintOp>,
                DefaultOpConversionPattern<tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<tt::ttnn::ConstantOp>>(typeConverter, ctx);
   // clang-format on
