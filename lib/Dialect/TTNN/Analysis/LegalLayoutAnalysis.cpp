@@ -86,8 +86,8 @@ bool cantChangeOutputLayout(Operation *op) {
   return false;
 }
 
-bool applyConv2dConfigOverrides(
-    Operation *op, Conv2dConfigOverrideParams &conv2dConfigOverrides,
+void applyConv2dConfigOverrides(
+    Operation *op, const Conv2dConfigOverrideParams &conv2dConfigOverrides,
     std::vector<OpConfig> &analysisResult) {
   // Apply conv2d config overrides to all legal (layout) configurations of
   // current op.
@@ -122,10 +122,8 @@ bool applyConv2dConfigOverrides(
       context, conv2dConfigOverrides.overrideShardingConfig.value_or(false));
   ttnn::TensorMemoryLayoutAttr newShardLayout;
   if (conv2dConfigOverrides.shardLayout.has_value()) {
-    TensorMemoryLayoutAttr::get(context,
-                                conv2dConfigOverrides.shardLayout.value());
-  } else {
-    newShardLayout = TensorMemoryLayoutAttr();
+    newShardLayout = TensorMemoryLayoutAttr::get(
+        context, conv2dConfigOverrides.shardLayout.value());
   }
   Attribute newCoreGrid = conv2dConfigOverrides.coreGrid.value_or(Attribute());
   BoolAttr newTransposeShards = BoolAttr::get(
@@ -153,8 +151,6 @@ bool applyConv2dConfigOverrides(
         newEnableActDoubleBuffer, newEnableWeightsDoubleBuffer,
         newEnableSplitReader, newEnableSubblockPadding);
   }
-
-  return false;
 }
 
 bool LegalLayoutAnalysis::applyOverrides() {

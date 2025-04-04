@@ -15,13 +15,13 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
-#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 
@@ -342,15 +342,13 @@ public:
                 tensorMemoryLayoutAttr));
           }
 
-          // Set specific Conv2d Op configuration.
-          if (isa<ttnn::Conv2dOp>(op)) {
-            if (opConfigAnalysis.getResult().at(op).config) {
-              Attribute config = opConfigAnalysis.getResult().at(op).config;
-              if (isa<ttnn::Conv2dConfigAttr>(config)) {
-                ttnn::Conv2dOp conv2dOp = mlir::cast<ttnn::Conv2dOp>(op);
-                conv2dOp.setConv2dConfigAttr(
-                    mlir::cast<ttnn::Conv2dConfigAttr>(config));
-              }
+          // Set specific Conv2d Op configuration if it is exists.
+          //
+          if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
+            if (auto conv2dConfig =
+                    mlir::dyn_cast_if_present<ttnn::Conv2dConfigAttr>(
+                        opConfigAnalysis.getResult().at(op).config)) {
+              conv2dOp.setConv2dConfigAttr(conv2dConfig);
             }
           }
         }

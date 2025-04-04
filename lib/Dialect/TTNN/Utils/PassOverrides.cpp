@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+
 #include "llvm/ADT/SmallVector.h"
+
 #include <numeric>
 
 namespace mlir::tt::ttnn {
@@ -26,15 +29,19 @@ parseGrid(StringRef param, char gridSeparator, llvm::cl::Option &opt) {
   return std::nullopt;
 }
 
-std::optional<bool> parseBool(StringRef param, llvm::cl::Option &opt) {
+// Parse bool ("true" or "false") from string. If the string is not "true" or
+// "false", returns true to signify the error.
+//
+bool parseBool(StringRef param, bool &result) {
   if (param.equals_insensitive("true")) {
-    return true;
-  }
-  if (param.equals_insensitive("false")) {
+    result = true;
     return false;
   }
-  opt.error("Invalid boolean value: " + param);
-  return std::nullopt;
+  if (param.equals_insensitive("false")) {
+    result = false;
+    return false;
+  }
+  return true;
 }
 } // namespace
 
@@ -49,15 +56,13 @@ bool Conv2dConfigOverrideParser::parse(
   constexpr size_t kvPairSize = 2;
   constexpr size_t iOpName = 0;
   constexpr size_t iConv2dConfigOverrideParams = 1;
-  constexpr size_t iConv2dConfigParamName = 0;
-  constexpr size_t iConv2dConfigParamValue = 1;
   constexpr char opSeparator = ',';
   constexpr char opNameSeparator = '=';
   constexpr char paramSeparator = ':';
   constexpr char paramNameValueSeparator = '#';
 
   arg.split(opOverrideList, opSeparator);
-  for (const StringRef opOverrides : opOverrideList) {
+  for (StringRef opOverrides : opOverrideList) {
     SmallVector<StringRef, kvPairSize> opOverrideParts;
     opOverrides.split(opOverrideParts, opNameSeparator);
     if (opOverrideParts.size() != kvPairSize) {
@@ -71,11 +76,8 @@ bool Conv2dConfigOverrideParser::parse(
 
     Conv2dConfigOverrideParams params;
 
-    for (const StringRef &param : conv2dConfigParams) {
-      SmallVector<StringRef> paramKV;
-      param.split(paramKV, paramNameValueSeparator);
-      StringRef paramName = paramKV[iConv2dConfigParamName];
-      StringRef paramValue = paramKV[iConv2dConfigParamValue];
+    for (StringRef param : conv2dConfigParams) {
+      auto [paramName, paramValue] = param.split(paramNameValueSeparator);
 
       if (paramName == "dtype") {
         auto dtype = mlir::tt::DataTypeStringToEnum(paramValue);
@@ -101,12 +103,8 @@ bool Conv2dConfigOverrideParser::parse(
         params.weightsDtype = weightsDtype;
       } else if (paramName == "activation") {
         auto activation = paramValue;
-        if (activation.empty()) {
-          opt.error("Invalid activation: " + paramValue);
-          return true;
-        }
-        if (!activation.equals_insensitive(StringRef("relu")) &&
-            !activation.equals_insensitive(("none"))) {
+        if (!activation.equals_insensitive("relu") &&
+            !activation.equals_insensitive("none")) {
           opt.error("Invalid activation: " + paramValue);
           return true;
         }
@@ -127,21 +125,27 @@ bool Conv2dConfigOverrideParser::parse(
         }
         params.inputChannelsAlignment = inputChannelsAlignment;
       } else if (paramName == "deallocate_activation") {
-        if (auto deallocateActivation = parseBool(paramValue, opt)) {
-          if (params.deallocateActivation.has_value()) {
-            opt.error("Duplicate deallocate_activation: " + paramValue);
-            return true;
-          }
-          params.deallocateActivation = deallocateActivation;
+        bool deallocateActivation;
+        if (parseBool(paramValue, deallocateActivation)) {
+          opt.error("Invalid deallocate_activation: " + paramValue);
+          return true;
         }
+        if (params.deallocateActivation.has_value()) {
+          opt.error("Duplicate deallocate_activation: " + paramValue);
+          return true;
+        }
+        params.deallocateActivation = deallocateActivation;
       } else if (paramName == "reallocate_halo_output") {
-        if (auto reallocateHaloOutput = parseBool(paramValue, opt)) {
-          if (params.reallocateHaloOutput.has_value()) {
-            opt.error("Duplicate reallocate_halo_output: " + paramValue);
-            return true;
-          }
-          params.reallocateHaloOutput = reallocateHaloOutput;
+        bool reallocateHaloOutput;
+        if (parseBool(paramValue, reallocateHaloOutput)) {
+          opt.error("Invalid reallocate_halo_output: " + paramValue);
+          return true;
         }
+        if (params.reallocateHaloOutput.has_value()) {
+          opt.error("Duplicate reallocate_halo_output: " + paramValue);
+          return true;
+        }
+        params.reallocateHaloOutput = reallocateHaloOutput;
       } else if (paramName == "act_block_h_override") {
         uint32_t actBlockHOverride;
         if (paramValue.getAsInteger<uint32_t>(10, actBlockHOverride)) {
@@ -165,21 +169,27 @@ bool Conv2dConfigOverrideParser::parse(
         }
         params.actBlockWDiv = actBlockWDiv;
       } else if (paramName == "reshard_if_not_optimal") {
-        if (auto reshardIfNotOptimal = parseBool(paramValue, opt)) {
-          if (params.reshardIfNotOptimal.has_value()) {
-            opt.error("Duplicate reshard_if_not_optimal: " + paramValue);
-            return true;
-          }
-          params.reshardIfNotOptimal = reshardIfNotOptimal;
+        bool reshardIfNotOptimal;
+        if (parseBool(paramValue, reshardIfNotOptimal)) {
+          opt.error("Invalid reshard_if_not_optimal: " + paramValue);
+          return true;
         }
+        if (params.reshardIfNotOptimal.has_value()) {
+          opt.error("Duplicate reshard_if_not_optimal: " + paramValue);
+          return true;
+        }
+        params.reshardIfNotOptimal = reshardIfNotOptimal;
       } else if (paramName == "override_sharding_config") {
-        if (auto overrideShardingConfig = parseBool(paramValue, opt)) {
-          if (params.overrideShardingConfig.has_value()) {
-            opt.error("Duplicate override_sharding_config: " + paramValue);
-            return true;
-          }
-          params.overrideShardingConfig = overrideShardingConfig;
+        bool overrideShardingConfig;
+        if (parseBool(paramValue, overrideShardingConfig)) {
+          opt.error("Invalid override_sharding_config: " + paramValue);
+          return true;
         }
+        if (params.overrideShardingConfig.has_value()) {
+          opt.error("Duplicate override_sharding_config: " + paramValue);
+          return true;
+        }
+        params.overrideShardingConfig = overrideShardingConfig;
       } else if (paramName == "shard_layout") {
         auto shardLayout = symbolizeTensorMemoryLayout(paramValue);
         if (!shardLayout) {
@@ -197,13 +207,16 @@ bool Conv2dConfigOverrideParser::parse(
         assert(false && "overriding core_grid is not supported yet");
         continue;
       } else if (paramName == "transpose_shards") {
-        if (auto transposeShards = parseBool(paramValue, opt)) {
-          if (params.transposeShards.has_value()) {
-            opt.error("Duplicate transpose_shards: " + paramValue);
-            return true;
-          }
-          params.transposeShards = transposeShards;
+        bool transposeShards;
+        if (parseBool(paramValue, transposeShards)) {
+          opt.error("Invalid transpose_shards: " + paramValue);
+          return true;
         }
+        if (params.transposeShards.has_value()) {
+          opt.error("Duplicate transpose_shards: " + paramValue);
+          return true;
+        }
+        params.transposeShards = transposeShards;
       } else if (paramName == "output_layout") {
         auto outputLayout = symbolizeLayout(paramValue);
         if (!outputLayout) {
@@ -216,37 +229,49 @@ bool Conv2dConfigOverrideParser::parse(
         }
         params.outputLayout = outputLayout;
       } else if (paramName == "enable_act_double_buffer") {
-        if (auto enableActDoubleBuffer = parseBool(paramValue, opt)) {
-          if (params.enableActDoubleBuffer.has_value()) {
-            opt.error("Duplicate enable_act_double_buffer: " + paramValue);
-            return true;
-          }
-          params.enableActDoubleBuffer = enableActDoubleBuffer;
+        bool enableActDoubleBuffer;
+        if (parseBool(paramValue, enableActDoubleBuffer)) {
+          opt.error("Invalid enable_act_double_buffer: " + paramValue);
+          return true;
         }
+        if (params.enableActDoubleBuffer.has_value()) {
+          opt.error("Duplicate enable_act_double_buffer: " + paramValue);
+          return true;
+        }
+        params.enableActDoubleBuffer = enableActDoubleBuffer;
       } else if (paramName == "enable_weights_double_buffer") {
-        if (auto enableWeightsDoubleBuffer = parseBool(paramValue, opt)) {
-          if (params.enableWeightsDoubleBuffer.has_value()) {
-            opt.error("Duplicate enable_weights_double_buffer: " + paramValue);
-            return true;
-          }
-          params.enableWeightsDoubleBuffer = enableWeightsDoubleBuffer;
+        bool enableWeightsDoubleBuffer;
+        if (parseBool(paramValue, enableWeightsDoubleBuffer)) {
+          opt.error("Invalid enable_weights_double_buffer: " + paramValue);
+          return true;
         }
+        if (params.enableWeightsDoubleBuffer.has_value()) {
+          opt.error("Duplicate enable_weights_double_buffer: " + paramValue);
+          return true;
+        }
+        params.enableWeightsDoubleBuffer = enableWeightsDoubleBuffer;
       } else if (paramName == "enable_split_reader") {
-        if (auto enableSplitReader = parseBool(paramValue, opt)) {
-          if (params.enableSplitReader.has_value()) {
-            opt.error("Duplicate enable_split_reader: " + paramValue);
-            return true;
-          }
-          params.enableSplitReader = enableSplitReader;
+        bool enableSplitReader;
+        if (parseBool(paramValue, enableSplitReader)) {
+          opt.error("Invalid enable_split_reader: " + paramValue);
+          return true;
         }
+        if (params.enableSplitReader.has_value()) {
+          opt.error("Duplicate enable_split_reader: " + paramValue);
+          return true;
+        }
+        params.enableSplitReader = enableSplitReader;
       } else if (paramName == "enable_subblock_padding") {
-        if (auto enableSubblockPadding = parseBool(paramValue, opt)) {
-          if (params.enableSubblockPadding.has_value()) {
-            opt.error("Duplicate enable_subblock_padding: " + paramValue);
-            return true;
-          }
-          params.enableSubblockPadding = enableSubblockPadding;
+        bool enableSubblockPadding;
+        if (parseBool(paramValue, enableSubblockPadding)) {
+          opt.error("Invalid enable_subblock_padding: " + paramValue);
+          return true;
         }
+        if (params.enableSubblockPadding.has_value()) {
+          opt.error("Duplicate enable_subblock_padding: " + paramValue);
+          return true;
+        }
+        params.enableSubblockPadding = enableSubblockPadding;
       } else {
         opt.error("Invalid override parameter: " + paramName);
         return true;
@@ -370,7 +395,7 @@ bool OutputLayoutOverrideParser::parse(
   constexpr char gridSeparator = 'x';
 
   arg.split(opOverrideList, opSeparator);
-  for (const StringRef opOverrides : opOverrideList) {
+  for (StringRef opOverrides : opOverrideList) {
     SmallVector<StringRef, kvPairSize> opOverrideParts;
     opOverrides.split(opOverrideParts, opNameSeparator);
     if (opOverrideParts.size() != kvPairSize) {
@@ -384,7 +409,7 @@ bool OutputLayoutOverrideParser::parse(
 
     OutputLayoutOverrideParams params;
 
-    for (const StringRef &param : layoutParamParts) {
+    for (StringRef param : layoutParamParts) {
       if (auto grid = parseGrid(param, gridSeparator, opt)) {
         if (params.grid.has_value()) {
           opt.error("Multiple grid parameters provided: " + param);
@@ -499,7 +524,7 @@ bool InputLayoutOverrideParser::parse(
   constexpr char opParamSeparator = ':';
 
   arg.split(opOverrideList, opSeparator);
-  for (const StringRef opOverrides : opOverrideList) {
+  for (StringRef opOverrides : opOverrideList) {
     SmallVector<StringRef, kvPairSize> opOverrideParts;
     opOverrides.split(opOverrideParts, opNameSeparator);
     if (opOverrideParts.size() != kvPairSize) {
@@ -512,7 +537,7 @@ bool InputLayoutOverrideParser::parse(
 
     // Parse operand indexes.
     opOverrideParts[iOperands].split(operandIndexParts, opParamSeparator);
-    for (const StringRef operandIndexPart : operandIndexParts) {
+    for (StringRef operandIndexPart : operandIndexParts) {
       int64_t operandIndexValue;
       if (operandIndexPart.getAsInteger(10 /*Radix*/, operandIndexValue)) {
         opt.error("Invalid operand index: " + operandIndexPart);
