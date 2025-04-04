@@ -8,65 +8,13 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
-#include "ttmlir/OpModel//TTNN/TTNNOpModel.h"
+
+#include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn {
-
-bool mockIsOutputTensorLegalForOp(Operation *op, TTNNLayoutAttr layout) {
-  // Placeholder, needs to be replaced with a call the the TTNN op interface.
-  return true;
-}
-
-bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
-  // These constraints are implemented seperatelly in every TTNN op.
-  // Almost nothing seems to be shared between EVERY op, so is hard to have any
-  // logic here without the risk of discarding a valid configuraiton or modeling
-  // the constraint for each op.
-
-  // For now just check if we have enough tiles to shard the tensor to the
-  // desired grid. This is a safe heuristic that should be valid for all ops.
-  if (!layout.hasShardedTensorMemoryLayout()) {
-    return true;
-  }
-
-  RankedTensorType tensorType =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
-
-  if (!op_model::ttnn::isLayoutLegalForTensorShape(tensorShape, layout)) {
-    return false;
-  }
-
-  // TODO(rpavlovic): Revisit this logic now that we are able to check validity
-  // through op model interface.
-  if (layout.isTiled()) {
-    llvm::SmallVector<int64_t, 2> tiledShape =
-        layout.getTiledShape(tensorShape);
-    llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
-
-    assert(tiledShape.size() == gridShape.size() &&
-           "Tiled tensor shape and grid shape must have the same rank");
-
-    for (size_t i = 0; i < tiledShape.size(); i++) {
-      // We need to have at least as many tiles as the grid size.
-      // Could also experiment with tiledShape[i] % gridShape[i] == 0, but need
-      // more context.
-      if (tiledShape[i] < gridShape[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  // TODO(odjuricic): For row major there are no constraints on how the tensor
-  // can be sharded. We need some kind of a heuristic to reduce the search
-  // space.
-  return true;
-}
 
 bool cantChangeOutputLayout(Operation *op) {
   // Check if OP belongs to TTNN dialect.
@@ -269,7 +217,6 @@ void LegalLayoutAnalysis::analysisImplementation() {
   // Get output tensor type.
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
   TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   // Return existing layout if it is not possible to change it.
@@ -295,9 +242,6 @@ void LegalLayoutAnalysis::analysisImplementation() {
     }
   }
 
-  Type tileElementType = TileType::get(op->getContext(), scalarElementType);
-  std::vector<TTNNLayoutAttr> shardedResults;
-
   bool rowMajorAllowed = analysisInput.rowMajorEnabled;
   if (override.has_value() && override->memoryLayout.has_value() &&
       override->memoryLayout.value() == Layout::RowMajor) {
@@ -305,111 +249,15 @@ void LegalLayoutAnalysis::analysisImplementation() {
     rowMajorAllowed = true;
   }
 
-  // Generate both TILE and ROW_MAJOR layouts.
-  for (Type elementType : {scalarElementType, tileElementType}) {
-    if (!rowMajorAllowed && elementType == scalarElementType) {
-      continue;
-    }
-    // DRAM
-    analysisResult.push_back(TTNNLayoutAttr::get(
-        op->getContext(), tensorShape, elementType, BufferType::DRAM,
-        analysisInput.maxGrid,
-        TensorMemoryLayoutAttr::get(op->getContext(),
-                                    TensorMemoryLayout::Interleaved)));
+  std::vector<TTNNLayoutAttr> generatedLayouts =
+      optimizer_utils::generateAllPossibleLayouts(
+          op->getContext(), tensorType, analysisInput.maxGrid,
+          scalarElementType,
+          /*onlyShardedLayouts=*/false, analysisInput.maxShardedConfigs,
+          rowMajorAllowed);
 
-    // L1 Interleaved - It must be tiled.
-    // TODO(odjuricic): Check that this is always the case.
-    if (elementType == tileElementType) {
-      analysisResult.push_back(TTNNLayoutAttr::get(
-          op->getContext(), tensorShape, elementType, BufferType::L1,
-          analysisInput.maxGrid,
-          TensorMemoryLayoutAttr::get(op->getContext(),
-                                      TensorMemoryLayout::Interleaved)));
-    }
-
-    // L1 Sharded
-    TTNNLayoutAttr shardedBase =
-        layout.withBufferType(op->getContext(), BufferType::L1)
-            .withMemoryLayout(op->getContext(),
-                              TensorMemoryLayout::BlockSharded)
-            .withElementType(op->getContext(), elementType, tensorShape);
-
-    assert(analysisInput.maxGrid.getShape().size() == 2 &&
-           "Max device grid is expected to be 2D.");
-    // Block Sharded
-    auto affineMapBs =
-        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
-            op->getContext(), TensorMemoryLayout::BlockSharded,
-            analysisInput.maxGrid.getShape());
-    for (int height = 1; height <= analysisInput.maxGrid.getShape()[0];
-         ++height) {
-      for (int width = 1; width <= analysisInput.maxGrid.getShape()[1];
-           ++width) {
-        shardedResults.push_back(
-            shardedBase
-                .withGrid(op->getContext(), tensorType,
-                          GridAttr::get(op->getContext(), {height, width},
-                                        affineMapBs))
-                .withMemoryLayout(op->getContext(),
-                                  TensorMemoryLayout::BlockSharded));
-      }
-    }
-
-    int64_t numCores = analysisInput.maxGrid.getGridVolume();
-    // Height Sharded
-    auto affineMapHs =
-        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
-            op->getContext(), TensorMemoryLayout::HeightSharded,
-            analysisInput.maxGrid.getShape());
-
-    for (int height = 1; height <= numCores; ++height) {
-      shardedResults.push_back(
-          shardedBase
-              .withGrid(
-                  op->getContext(), tensorType,
-                  GridAttr::get(op->getContext(), {height, 1}, affineMapHs))
-              .withMemoryLayout(op->getContext(),
-                                TensorMemoryLayout::HeightSharded));
-    }
-
-    // Width Sharded
-    auto affineMapWs =
-        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
-            op->getContext(), TensorMemoryLayout::WidthSharded,
-            analysisInput.maxGrid.getShape());
-    for (int width = 1; width <= numCores; ++width) {
-      shardedResults.push_back(
-          shardedBase
-              .withGrid(
-                  op->getContext(), tensorType,
-                  GridAttr::get(op->getContext(), {1, width}, affineMapWs))
-              .withMemoryLayout(op->getContext(),
-                                TensorMemoryLayout::WidthSharded));
-    }
-  }
-
-  // Filter layouts based on output tensor legality for current op.
-  shardedResults.erase(
-      std::remove_if(shardedResults.begin(), shardedResults.end(),
-                     [this](TTNNLayoutAttr layout) {
-                       return !tensorShapeCompatibleWithShard(op, layout) ||
-                              !mockIsOutputTensorLegalForOp(op, layout);
-                     }),
-      shardedResults.end());
-
-  // Pick top largest sharded grids.
-  // This becomes a problem when we introduce row_major since an 8x8 tensor can
-  // be sharded onto a 8x8 grid.
-  std::sort(shardedResults.begin(), shardedResults.end(),
-            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
-              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
-            });
-
-  analysisResult.insert(
-      analysisResult.end(), shardedResults.begin(),
-      shardedResults.begin() +
-          std::min(analysisInput.maxShardedConfigs,
-                   static_cast<int64_t>(shardedResults.size())));
+  analysisResult.insert(analysisResult.end(), generatedLayouts.begin(),
+                        generatedLayouts.end());
 
   // Apply partial layout overrides. Remove layouts that conflict with at least
   // one overriden param.
