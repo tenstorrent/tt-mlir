@@ -124,7 +124,7 @@ public:
       runCallback("pre-op", executableHandle, op, context.get());
       runOperation(op);
       runCallback("post-op", executableHandle, op, context.get());
-      if (dump_op_counter == 100) {
+      if (dump_op_counter == 1000) {
         for (::ttnn::IDevice *ttnnDevice : meshDevice->get_devices()) {
           ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
         }
