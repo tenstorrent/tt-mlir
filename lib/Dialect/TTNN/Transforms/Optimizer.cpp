@@ -400,13 +400,10 @@ private:
       if (overridenOpExists.contains(opLocName)) {
         overridenOpExists[opLocName] = true;
       }
-      if (!isa<ttnn::Conv2dOp>(op)) {
-        if (overrideConv2dOp.contains(opLocName)) {
-          llvm::errs() << "Trying to override conv2d config on non-conv2d op: "
-                       << op->getName() << "\n";
-          assert(false &&
-                 "Trying to override conv2d config on non-conv2d op: ");
-        }
+      if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocName)) {
+        llvm::errs() << "Trying to override conv2d config on non-conv2d op: "
+                     << op->getName() << "\n";
+        assert(false && "Trying to override conv2d config on non-conv2d op: ");
       }
     });
 

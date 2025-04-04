@@ -194,6 +194,7 @@ bool Conv2dConfigOverrideParser::parse(
       }
       // TODO(vkovacevic): Parse core_grid
       else if (paramName == "core_grid") {
+        assert(false && "overriding core_grid is not supported yet");
         continue;
       } else if (paramName == "transpose_shards") {
         if (auto transposeShards = parseBool(paramValue, opt)) {

@@ -142,6 +142,8 @@ bool applyConv2dConfigOverrides(
       context, conv2dConfigOverrides.enableSubblockPadding.value_or(false));
 
   for (auto &opConfig : analysisResult) {
+    assert(!opConfig.config &&
+           "OpConfig should not have a config set before applying overrides");
     opConfig.config = Conv2dConfigAttr::get(
         context, newDtype, newWeightsDtype, newActivation,
         newInputChannelsAlignment, newDeallocateActivation,
@@ -210,14 +212,12 @@ bool LegalLayoutAnalysis::applyOverrides() {
                                   layoutOverride.tensorMemoryLayout.value())));
 
   // Apply conv2d config overrides if they exist and op is Conv2d.
-  if (analysisInput.conv2dConfigOverrides) {
-    if (isa<ttnn::Conv2dOp>(op)) {
-      auto overrideConv2dIt =
-          analysisInput.conv2dConfigOverrides->find(opLocName);
-      if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
-        applyConv2dConfigOverrides(op, overrideConv2dIt->getValue(),
-                                   analysisResult);
-      }
+  if (analysisInput.conv2dConfigOverrides && isa<ttnn::Conv2dOp>(op)) {
+    auto overrideConv2dIt =
+        analysisInput.conv2dConfigOverrides->find(opLocName);
+    if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
+      applyConv2dConfigOverrides(op, overrideConv2dIt->getValue(),
+                                 analysisResult);
     }
   }
   return true;
@@ -429,14 +429,12 @@ void LegalLayoutAnalysis::analysisImplementation() {
   // Apply conv2d config overrides if they exist and op is Conv2d.
   if (isa<NameLoc>(op->getLoc())) {
     StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-    if (analysisInput.conv2dConfigOverrides) {
-      if (isa<ttnn::Conv2dOp>(op)) {
-        auto overrideConv2dIt =
-            analysisInput.conv2dConfigOverrides->find(opLocName);
-        if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
-          applyConv2dConfigOverrides(op, overrideConv2dIt->getValue(),
-                                     analysisResult);
-        }
+    if (analysisInput.conv2dConfigOverrides && isa<ttnn::Conv2dOp>(op)) {
+      auto overrideConv2dIt =
+          analysisInput.conv2dConfigOverrides->find(opLocName);
+      if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
+        applyConv2dConfigOverrides(op, overrideConv2dIt->getValue(),
+                                   analysisResult);
       }
     }
   }
