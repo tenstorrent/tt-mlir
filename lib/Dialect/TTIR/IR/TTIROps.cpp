@@ -3543,13 +3543,8 @@ mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getLoopBounds() {
 
   // Eval the affine map to get the loop bounds.
   SmallVector<SmallVector<int64_t>> operandGridShapes = getOperandGridShapes();
-  SmallVector<SmallVector<int64_t>> operandGridShapesReversed =
-      llvm::to_vector(llvm::reverse(operandGridShapes));
-
-  SmallVector<int64_t> flattenedGridShapes;
-  for (auto &shape : operandGridShapesReversed) {
-    flattenedGridShapes.append(shape);
-  }
+  SmallVector<int64_t> flattenedGridShapes(
+      ttmlir::utils::flatten(llvm::reverse(operandGridShapes)));
 
   // Divide out the compute grid dims and re-eval
   ArrayRef<int64_t> computeGrid = getGrid().getShape();
