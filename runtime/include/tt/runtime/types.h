@@ -7,7 +7,6 @@
 
 #include <cassert>
 #include <memory>
-#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -26,7 +25,6 @@ MemoryBlockTable is a list of memory blocks in the following format:
 */
 using MemoryBlockTable =
     std::vector<std::unordered_map<std::string, std::string>>;
-using DeviceIds = std::vector<int>;
 
 enum class MemoryBufferType {
   DRAM,
@@ -97,24 +95,7 @@ struct TensorDesc {
   ::tt::target::DataType dataType;
 };
 
-struct MemoryView {
-  std::uint64_t numBanks = 0;
-  size_t totalBytesPerBank = 0;
-  size_t totalBytesAllocatedPerBank = 0;
-  size_t totalBytesFreePerBank = 0;
-  size_t largestContiguousBytesFreePerBank = 0;
-  MemoryBlockTable blockTable;
-};
-
-struct MeshDeviceOptions {
-  std::vector<uint32_t> meshOffset{0, 0};
-  std::vector<int> deviceIds{};
-  size_t numHWCQs = 1;
-  bool enableAsyncTTNN = false;
-  bool enableProgramCache = false;
-  std::optional<size_t> l1SmallSize = std::nullopt;
-  std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
-};
+using DeviceIds = std::vector<int>;
 
 struct Flatbuffer : public detail::ObjectImpl {
   using detail::ObjectImpl::ObjectImpl;
@@ -182,6 +163,15 @@ struct CallbackContext : public detail::RuntimeCheckedObjectImpl {
 
 struct OpContext : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
+struct MemoryView {
+  std::uint64_t numBanks = 0;
+  size_t totalBytesPerBank = 0;
+  size_t totalBytesAllocatedPerBank = 0;
+  size_t totalBytesFreePerBank = 0;
+  size_t largestContiguousBytesFreePerBank = 0;
+  MemoryBlockTable blockTable;
 };
 
 } // namespace tt::runtime

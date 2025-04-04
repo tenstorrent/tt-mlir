@@ -121,27 +121,24 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150,   name: "run",  suite: "unit",              image: "speedy", type: "unit",    container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: nXX0,   name: "run",  suite: "unit",              image: "tracy",  type: "unit",    container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "perf", suite: "optimizer",         image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "emitc",             image: "tracy",  type: "ttrt",    path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: nXX0,   name: "run",  suite: "async",             image: "speedy", type: "ttrt",    path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "run",  suite: "op_model",          image: "speedy", type: "ttrt",    path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: nXX0,   name: "run",  suite: "runtime_debug",     image: "tracy",  type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300,   name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300,   name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: llmbox, name: "run",  suite: "run",               image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          {runs-on: llmbox, name: "perf", suite: "perf",              image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          # {runs-on: tg,     name: "run",  suite: "run",             image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          # {runs-on: tg,     name: "perf", suite: "perf",            image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
-          {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "pytest",  path: "runtime/tools/python/test", container-options: "--device /dev/tenstorrent/0"},
-          # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
-          # Therefore running these tests on n150 specifically
-          {runs-on: n150,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n150,   name: "perf", suite: "explorer",          image: "tracy",  type: "pytest",  path: "tools/explorer/test/run_tests.py", container-options: "--device /dev/tenstorrent/0"},
-          {runs-on: n300,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/multi_device", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "unit",          image: "speedy", type: "unit", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: nXX0,   name: "run",  suite: "unit",          image: "tracy",  type: "unit", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "perf", suite: "optimizer",     image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n150/optimizer", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "emitc",         image: "tracy",  type: "ttrt", path: "EmitC", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: nXX0,   name: "run",  suite: "async",         image: "speedy", type: "ttrt", path: "Silicon/TTNN", ttrt_flags: "--non-zero --enable-async-ttnn", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "op_model",      image: "speedy", type: "ttrt", path: "Silicon/TTNN/n150/optimizer", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: nXX0,   name: "run",  suite: "runtime_debug", image: "tracy",  type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300,   name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/n300/perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: llmbox, name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: llmbox, name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/llmbox/perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: tg,     name: "run",  suite: "run",           image: "speedy", type: "ttrt", path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          # {runs-on: tg,     name: "perf", suite: "perf",          image: "tracy",  type: "ttrt", path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: n150,   name: "perf", suite: "perf",          image: "tracy",  type: "pytest", path: "runtime/tools/python/test", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "run",           image: "speedy", type: "pytest", path: "runtime/test/python/ttnn/test_runtime_api.py", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "perf", suite: "explorer",      image: "tracy",  type: "pytest", path: "tools/explorer/test/run_tests.py", container-options: "--device /dev/tenstorrent/0"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type}})"
 

@@ -104,7 +104,8 @@ static Tensor createNullTensor() {
 
 static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
   if (meshDevice.num_devices() == 1) {
-    return std::ref(*(meshDevice.get_device(::ttnn::MeshCoordinate(0, 0))));
+    return std::ref(*(meshDevice.get_device(
+        ::tt::tt_metal::distributed::MeshCoordinate(0, 0))));
   }
   return std::ref(meshDevice);
 }
@@ -203,88 +204,49 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openMeshDevice(const std::vector<uint32_t> &meshShape,
-                      const MeshDeviceOptions &options) {
-  LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
-  ::ttnn::MeshShape shape(meshShape);
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
+                  std::optional<size_t> l1SmallSize,
+                  std::optional<DispatchCoreType> dispatchCoreType,
+                  std::optional<bool> enableAsyncTTNN,
+                  std::optional<bool> enableProgramCache) {
 
-  LOG_ASSERT(options.meshOffset.size() == 2, "Mesh offset must be 2D for now");
-  ::ttnn::MeshCoordinate offset(options.meshOffset);
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
 
-  size_t l1SmallSize =
-      options.l1SmallSize.value_or(::tt::constants::L1_SMALL_SIZE);
-  ::tt::tt_metal::DispatchCoreType dispatchCoreTypeValue =
-      tt::runtime::common::getDispatchCoreType(options.dispatchCoreType);
+  LOG_ASSERT(deviceIds.size(), "No devices specified");
 
-  ::ttnn::MeshDeviceConfig meshConfig(shape, offset, options.deviceIds);
-
+  ::tt::tt_metal::distributed::MeshShape grid{
+      1, static_cast<uint32_t>(deviceIds.size())};
+  size_t l1SmallSizeValue = l1SmallSize.value_or(tt::constants::L1_SMALL_SIZE);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
-      meshConfig, l1SmallSize, DEFAULT_TRACE_REGION_SIZE, options.numHWCQs,
-      dispatchCoreTypeValue);
+      ::tt::tt_metal::distributed::MeshDeviceConfig(grid), l1SmallSizeValue,
+      DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
 
-  meshDevice->enable_async(options.enableAsyncTTNN);
-  if (options.enableProgramCache) {
-    meshDevice->enable_program_cache();
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
+
+  bool enableAsyncValue = enableAsyncTTNN.value_or(false);
+  bool enableProgramCacheValue = enableProgramCache.value_or(false);
+  for (::ttnn::IDevice *device : meshDevice->get_devices()) {
+    device->enable_async(enableAsyncValue);
+    if (enableProgramCacheValue) {
+      device->enable_program_cache();
+    }
   }
-
-  LOG_DEBUG("Device grid size = { ",
-            meshDevice->compute_with_storage_grid_size().x, ", ",
-            meshDevice->compute_with_storage_grid_size().y, " }");
 
   return Device(std::static_pointer_cast<void>(meshDevice),
                 DeviceRuntime::TTNN);
 }
 
-void closeMeshDevice(Device parentMesh) {
+void closeDevice(Device device) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
-      parentMesh.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
-  LOG_ASSERT(ttnnMeshDevice.is_parent_mesh(),
-             "Mesh device must be a parent mesh");
-
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  if (uint32_t numSubMeshes = ttnnMeshDevice.get_submeshes().size()) {
-    LOG_WARNING("Calling close on parent mesh device ", ttnnMeshDevice,
-                " that has ", numSubMeshes, " unreleased submeshes.");
-  }
-#endif
-
+      device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
   }
 #endif
-  ttnnMeshDevice.close();
-}
-
-Device createSubMeshDevice(
-    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
-    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset) {
-  ::ttnn::MeshDevice &parentMeshDevice =
-      parentMesh.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  LOG_ASSERT(parentMeshDevice.is_parent_mesh(),
-             "Mesh device must be a parent mesh");
-
-  ::ttnn::MeshShape shape{meshShape.first, meshShape.second};
-
-  std::optional<::ttnn::MeshCoordinate> offset = std::nullopt;
-  if (meshOffset.has_value()) {
-    offset = ::ttnn::MeshCoordinate{meshOffset.value().first,
-                                    meshOffset.value().second};
-  }
-
-  std::shared_ptr<::ttnn::MeshDevice> subMeshDevice =
-      parentMeshDevice.create_submesh(shape, offset);
-
-  return Device(std::static_pointer_cast<void>(subMeshDevice),
-                DeviceRuntime::TTNN);
-}
-
-void releaseSubMeshDevice(Device subMesh) {
-  ::ttnn::MeshDevice &ttnnMeshDevice =
-      subMesh.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
-  LOG_ASSERT(!ttnnMeshDevice.is_parent_mesh(), "Mesh device must be a submesh");
 
   ttnnMeshDevice.close();
 }
@@ -314,14 +276,14 @@ getMemoryView(Device deviceHandle, int deviceID) {
 
   auto *device = meshDevice.get_device(deviceID);
 
-  auto dramMemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::DRAM);
-  auto l1MemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::L1);
+  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::DRAM);
+  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::L1);
   auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      device, ::ttnn::BufferType::L1_SMALL);
-  auto traceMemoryView =
-      ::tt::tt_metal::detail::GetMemoryView(device, ::ttnn::BufferType::TRACE);
+      device, tt::tt_metal::BufferType::L1_SMALL);
+  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::TRACE);
 
   memoryMap[tt::runtime::MemoryBufferType::DRAM] =
       createMemoryView(dramMemoryView);
@@ -405,8 +367,8 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout) {
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   DeviceVariant targetDevice = getTargetDevice(meshDevice);
   if (workaround::Env::get().toLayoutAPIAssumeSingleChip) {
-    targetDevice =
-        std::ref(*meshDevice.get_device(::ttnn::MeshCoordinate(0, 0)));
+    targetDevice = std::ref(*meshDevice.get_device(
+        ::tt::tt_metal::distributed::MeshCoordinate(0, 0)));
   }
   LayoutConverter converter(inputLayoutDesc, outputLayoutDesc);
   std::shared_ptr<::ttnn::Tensor> out = std::make_shared<::ttnn::Tensor>(
