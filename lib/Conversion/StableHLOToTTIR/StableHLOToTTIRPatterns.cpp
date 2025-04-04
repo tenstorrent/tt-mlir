@@ -824,7 +824,7 @@ public:
 
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
         rewriter, srcOp, outputType, adaptor.getOperand());
-
+    ttir::AddOp addOp;
     return success();
   }
 

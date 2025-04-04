@@ -310,6 +310,12 @@ getQuadrupleOfInteger(mlir::Attribute attr) {
   }
 }
 
+// Removes const, volatile, and reference qualifiers from a type.
+// The same as C++20's std::remove_cvref_t.
+//
+// Example:
+//   remove_cvref_t<const int&> -> int
+//   remove_cvref_t<volatile float&&> -> float
 template <typename T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
@@ -324,6 +330,12 @@ struct is_leaf_type<T, std::void_t<decltype(std::declval<T>().begin())>>
 template <typename T>
 constexpr bool is_leaf_type_v = is_leaf_type<T>::value;
 
+// Type trait that recursively extracts the underlying element type from a
+// container.
+//
+// For non-container types (leaf types), it simply removes const, volatile, and
+// reference qualifiers. For container types, it recursively traverses the
+// container hierarchy to find the underlying element type.
 template <typename T, typename = void>
 struct get_value_type {
   using type = remove_cvref_t<T>;
@@ -350,10 +362,24 @@ append(llvm::SmallVector<U> &result, T &&value) {
 }
 } // namespace detail
 
+// Returns `FirstTy` if it's not `void`, otherwise returns `FallbackTy`.
 template <typename FirstTy, typename FallbackTy>
 using type_or_fallback_t =
     std::conditional_t<std::is_void_v<FirstTy>, FallbackTy, FirstTy>;
 
+// Flattens an arbitrary number of containers and elements into a single
+// SmallVector.
+//
+// This function recursively traverses nested containers and collects all
+// elements into a single flat vector. It works with any combination of
+// containers (vectors, arrays, ranges) and individual elements, as long as the
+// underlying element types are convertible to the return type.
+//
+// Example:
+//   flatten(1, 2, 3) -> [1, 2, 3]
+//   flatten(std::vector{1, 2}, 3, std::array{4, 5}) -> [1, 2, 3, 4, 5]
+//   flatten(std::vector{std::vector{1, 2}, std::vector{3}}, 4) -> [1, 2, 3, 4]
+//   flatten<float>(1, 2.5) -> [1.0f, 2.5f]
 template <typename ReturnTy = void, typename FirstTy, typename... RestTy>
 llvm::SmallVector<
     type_or_fallback_t<ReturnTy, detail::get_value_type_t<FirstTy>>>
