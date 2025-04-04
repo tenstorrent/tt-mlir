@@ -525,7 +525,7 @@ broadcastValue(mlir::PatternRewriter &rewriter, mlir::Value input,
                mlir::RankedTensorType desiredType, mlir::Value &output,
                mlir::Location loc, bool frontUnsqueeze) {
   auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-  auto inputShape = inputType.getShape();
+  llvm::SmallVector<int64_t> inputShape(inputType.getShape());
   llvm::SmallVector<int64_t, 4> broadcastedShape;
   if (!mlir::OpTrait::util::getBroadcastedShape(
           inputShape, desiredType.getShape(), broadcastedShape)) {
