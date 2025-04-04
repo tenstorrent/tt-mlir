@@ -461,7 +461,8 @@ class Run:
             )
 
             post_op_callback_env = ttrt.runtime.DebugHooks.get(
-                "post-op", get_callback_fn(callback_runtime_config)
+                ttrt.runtime.CallbackKey.PostOp,
+                get_callback_fn(callback_runtime_config),
             )
 
             try:
