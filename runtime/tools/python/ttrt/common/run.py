@@ -246,18 +246,12 @@ class Run:
                 artifacts_folder_path=self["--artifact-dir"],
             )
         )
-        self.query = Query(
-            {"--quiet": True, "--disable-eth-dispatch": self["--disable-eth-dispatch"]},
-            self.logger,
-            self.artifacts,
-        )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.results = Results(self.logger, self.file_manager)
 
     def preprocess(self):
         self.logging.debug(f"------preprocessing run API")
-        self.query()
 
         if self["--clean-artifacts"]:
             self.artifacts.clean_artifacts()
@@ -297,23 +291,6 @@ class Run:
                 self.results.add_result(test_result)
                 continue
 
-            try:
-                bin.check_system_desc(self.query)
-            except Exception as e:
-                test_result = {
-                    "file_path": path,
-                    "result": "skip",
-                    "exception": str(e),
-                    "log_file": self.logger.file_name,
-                    "artifacts": self.artifacts.artifacts_folder_path,
-                    "program_index": self["--program-index"],
-                }
-                self.logging.warning(
-                    f"SKIP: test={path} was skipped with exception={str(e)}"
-                )
-                self.results.add_result(test_result)
-                continue
-
             if self["--program-index"] != "all":
                 if not bin.check_program_index_exists(int(self["--program-index"])):
                     message = f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
@@ -338,23 +315,6 @@ class Run:
             bin = Binary(self.logger, self.file_manager, path)
             try:
                 bin.check_version(ignore=self["--ignore-version"])
-            except Exception as e:
-                test_result = {
-                    "file_path": path,
-                    "result": "skip",
-                    "exception": str(e),
-                    "log_file": self.logger.file_name,
-                    "artifacts": self.artifacts.artifacts_folder_path,
-                    "program_index": self["--program-index"],
-                }
-                self.logging.warning(
-                    f"SKIP: test={path} was skipped with exception={str(e)}"
-                )
-                self.results.add_result(test_result)
-                continue
-
-            try:
-                bin.check_system_desc(self.query)
             except Exception as e:
                 test_result = {
                     "file_path": path,
@@ -431,14 +391,14 @@ class Run:
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_runtime()
-            self.logging.debug(f"opening devices={self.query.device_ids}")
+            device_ids = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
             dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
 
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
             device = ttrt.runtime.open_device(
-                self.query.device_ids,
+                device_ids,
                 dispatch_core_type=dispatch_core_type,
                 enable_async_ttnn=self["--enable-async-ttnn"],
             )
@@ -793,10 +753,10 @@ class Run:
 
         if self["--save-artifacts"]:
             for bin in self.ttnn_binaries:
-                self.artifacts.save_binary(bin, self.query)
+                self.artifacts.save_binary(bin)
 
             for bin in self.ttmetal_binaries:
-                self.artifacts.save_binary(bin, self.query)
+                self.artifacts.save_binary(bin)
 
         for bin in self.ttnn_binaries:
             if bin.test_result == "pass":
