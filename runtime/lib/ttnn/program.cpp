@@ -128,8 +128,9 @@ public:
         for (::ttnn::IDevice *ttnnDevice : meshDevice->get_devices()) {
           ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
         }
-        LOG_DEBUG(LogType::LogRuntimeTTNN,
-                  "Dumping Log after " + dump_op_counter + " operations");
+        LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping Log after " +
+                                               std::to_string(dump_op_counter) +
+                                               " operations");
         dump_op_counter = 0;
       }
     }
