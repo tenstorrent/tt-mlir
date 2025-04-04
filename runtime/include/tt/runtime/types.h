@@ -161,6 +161,7 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
   Event event;
+
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),

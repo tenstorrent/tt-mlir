@@ -7,7 +7,7 @@ import ttrt
 import ttrt.runtime
 import torch
 from ttrt.common.util import *
-from ..utils import TT_MLIR_HOME, Helper, DeviceContext, assert_pcc
+from ..utils import Helper, DeviceContext, assert_pcc, get_runtime_tensor_from_torch
 
 
 @pytest.mark.parametrize("shape", [(64, 128)])
@@ -45,6 +45,16 @@ def test_tensor_buffer_api(shape, dtype):
     assert len(rt_bytes) == rt_vol * rt_elem_size
     reconstructed_tensor = torch.frombuffer(rt_bytes, dtype=rt_dtype).reshape(rt_shape)
     assert torch.equal(torch_tensor, reconstructed_tensor)
+
+
+@pytest.mark.parametrize("should_retain", [True, False])
+def test_tensor_retain_api(helper: Helper, should_retain, request):
+    helper.initialize(request.node.name)
+    helper.check_constraints()
+    torch_tensor = torch.randn((64, 128))
+    runtime_tensor = get_runtime_tensor_from_torch(torch_tensor)
+    runtime_tensor.set_retain(should_retain)
+    assert runtime_tensor.get_retain() == should_retain
 
 
 @pytest.mark.parametrize("shape", [(64, 128)])

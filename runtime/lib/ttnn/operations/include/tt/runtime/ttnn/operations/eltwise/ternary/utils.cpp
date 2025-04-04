@@ -13,9 +13,9 @@ void getEltwiseTernaryOpInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
                                      ::ttnn::Tensor **second,
                                      ::ttnn::Tensor **third) {
   LOG_ASSERT(op->ins()->size() == 3, "Expected 3 inputs");
-  *first = &(tensorPool.getAndValidate(op->ins()->Get(0)));
-  *second = &(tensorPool.getAndValidate(op->ins()->Get(1)));
-  *third = &(tensorPool.getAndValidate(op->ins()->Get(2)));
+  *first = &(tensorPool.getTTNNTensorAndValidate(op->ins()->Get(0)));
+  *second = &(tensorPool.getTTNNTensorAndValidate(op->ins()->Get(1)));
+  *third = &(tensorPool.getTTNNTensorAndValidate(op->ins()->Get(2)));
 }
 
 } // namespace tt::runtime::ttnn::operations::ternary

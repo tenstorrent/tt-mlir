@@ -5,7 +5,7 @@
 #include "operations/layout/to_memory_config.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -14,7 +14,8 @@ void run(const ::tt::target::ttnn::ToMemoryConfigOp *op,
          ProgramContext &context) {
 
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &inputTensor = tensorPool.getAndValidate(op->in0());
+  const ::ttnn::Tensor &inputTensor =
+      tensorPool.getTTNNTensorAndValidate(op->in0());
   LOG_ASSERT(!::tt::runtime::ttnn::utils::inSystemMemory(op->out()),
              "Should not be converting memory config for host tensor");
   LOG_ASSERT(op->memcfg(), "ToMemoryConfigOp must have memory config");
@@ -25,6 +26,6 @@ void run(const ::tt::target::ttnn::ToMemoryConfigOp *op,
   ::ttnn::Tensor out =
       ::ttnn::to_memory_config(inputTensor, memoryConfig.value(), std::nullopt);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::layout

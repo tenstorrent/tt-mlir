@@ -5,7 +5,7 @@
 #include "operations/pool/upsample.h"
 
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -13,7 +13,7 @@ namespace tt::runtime::ttnn::operations::pool {
 void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  ::ttnn::Tensor &input = tensorPool.getAndValidate(op->in());
+  ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::variant<int32_t, std::array<uint32_t, 2>> scaleFactor;
   if (op->scale_factor_type() == ::tt::target::ttnn::Scale2D::UniformScale2D) {
@@ -37,6 +37,6 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
   ::ttnn::Tensor output =
       ::ttnn::upsample(input, scaleFactor, mode, memoryConfig);
 
-  tensorPool.insertAndValidate(op->out(), output);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::pool
