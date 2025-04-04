@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
@@ -42,7 +43,7 @@ class L1ChainConfig {
 private:
   std::vector<OpL1MemSpec> opL1MemSpecs;
   llvm::DenseSet<Operation *> l1ChainedOps;
-  std::unordered_set<Edge> memReconfigEdges;
+  MemReconfigEntryMap memReconfigEntryMap;
   L1ChainState state = L1ChainState::InBuild;
 
 public:
@@ -51,11 +52,11 @@ public:
   ShardSolver resolveWithSolver(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges);
+      const llvm::DenseSet<Edge> &overrideReshardEdges);
   void resolve();
   void build();
   void complete(const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,
-                std::unordered_set<Edge> &memReconfigEdges);
+                MemReconfigEntryMap &memReconfigEntryMap);
   void complete();
 
   bool isEmpty() { return opL1MemSpecs.empty(); }
@@ -68,8 +69,8 @@ public:
     return opL1MemSpecs;
   }
   L1ChainState getState() const { return state; }
-  const std::unordered_set<Edge> &getMemReconfigEdges() const {
-    return memReconfigEdges;
+  const MemReconfigEntryMap &getMemReconfigEntryMap() const {
+    return memReconfigEntryMap;
   }
 
   uint64_t size() const { return opL1MemSpecs.size(); }

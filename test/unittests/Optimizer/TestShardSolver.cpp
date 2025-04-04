@@ -4,15 +4,6 @@
 
 #include <gtest/gtest.h>
 
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
-#include "llvm/ADT/SmallVector.h"
-
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/MLIRContext.h"
-
 #include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -20,6 +11,15 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -151,7 +151,7 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   std::vector<OpL1MemSpec> opL1MemSpecs;
   llvm::DenseSet<mlir::Operation *> l1ChainedOps;
   constexpr unsigned usableL1CacheSize = 1024 * 1024;
-  std::unordered_set<Edge> overrideReshardEdges;
+  llvm::DenseSet<Edge> overrideReshardEdges;
 
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);

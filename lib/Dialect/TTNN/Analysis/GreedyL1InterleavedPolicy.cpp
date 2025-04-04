@@ -6,8 +6,11 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Scheduler/Scheduler.h"
+
+#include "llvm/ADT/DenseMap.h"
 
 namespace mlir::tt::ttnn {
 
@@ -291,7 +294,7 @@ void GreedyL1InterleavedPolicy::run() {
     }
     l1ChainConfigs->back().build();
     l1ChainConfigs->back().resolve();
-    std::unordered_set<Edge> memReconfigEdges;
+    MemReconfigEntryMap memReconfigEdges;
     l1ChainConfigs->back().complete(selectedOpConfig, memReconfigEdges);
   }
 }

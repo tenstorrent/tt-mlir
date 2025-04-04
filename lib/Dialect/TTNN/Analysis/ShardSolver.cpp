@@ -9,16 +9,23 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Support/LLVM.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <unordered_set>
+#include <llvm/ADT/StringExtras.h>
+#include <utility>
+#include <vector>
 
 namespace mlir::tt::ttnn {
 
@@ -30,7 +37,7 @@ ShardSolver::ShardSolver(
     const std::vector<OpL1MemSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize,
-    const std::unordered_set<Edge> &overrideReshardEdges,
+    const llvm::DenseSet<Edge> &overrideReshardEdges,
     std::function<bool(Value, TTNNLayoutAttr, Operation *, OpConfig)>
         customCheckShardCompatible)
     : legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
@@ -239,27 +246,18 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
 }
 
 // We need to check if first op requires sharded inputs and if so, insert
-// reshard edge, then invalidate all sharding options which would go above L1
-// size limits.
+// reshard edge.
 //
 bool ShardSolver::preprocessFirstOp() {
   Operation *firstOp = shardSpecs->front().op;
 
-  if (memReconfigEdges.count(
+  if (memReconfigMap.count(
           Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0)) > 0) {
     return true;
   }
 
   Bitset *firstOpBitset = getOrInsertBitset(firstOp, kBitsetAll);
   std::vector<OpConfig> const &firstOpConfigs = getLegalConfigs(firstOp);
-
-  RankedTensorType firstOpInputTensorType =
-      mlir::cast<RankedTensorType>(firstOp->getOperand(0).getType());
-  TTNNLayoutAttr firstOpInputLayout =
-      mlir::cast<TTNNLayoutAttr>(firstOpInputTensorType.getEncoding());
-  constexpr float tensorL1UsageCap = 0.8;
-
-  bool hasValidConfig = false;
 
   for (size_t i = 0; i < firstOpConfigs.size(); ++i) {
     if (!firstOpBitset->test(i)) {
@@ -269,59 +267,53 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
-    TTNNLayoutAttr firstOpInputShardedLayout =
-        firstOpInputLayout
-            .withBufferType(firstOp->getContext(),
-                            firstOpLayout.getBufferType())
-            .withMemoryLayout(firstOp->getContext(),
-                              firstOpLayout.getMemLayout())
-            .withGrid(firstOp->getContext(), firstOpInputTensorType,
-                      firstOpLayout.getGrid());
-
-    uint64_t firstInputL1Usage =
-        firstOpInputShardedLayout.getShardSizeInBytes();
-    uint64_t firstOpL1OutputUsage = firstOpLayout.getShardSizeInBytes();
-
-    if ((firstInputL1Usage + firstOpL1OutputUsage) >=
-        tensorL1UsageCap * usableL1CacheSize) {
+    if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i])) {
+      // Invalidate this config.
       firstOpBitset->reset(i);
-    } else if (not supportsInterleavedInputShardedOutput(firstOp,
-                                                         firstOpConfigs[i])) {
-      firstOpBitset->reset(i);
-    } else {
-      hasValidConfig = true;
     }
   }
 
-  if (!hasValidConfig) {
-    // Insert reshard edge for the first op to start the chain.
-    Edge shardChainInputEdge = Edge(firstOp->getOperand(0).getDefiningOp(),
-                                    firstOp, 0 /*operandIndex*/);
-
-    return insertReshard(shardChainInputEdge);
+  if (firstOpBitset->any()) {
+    return true;
   }
 
-  return true;
+  // None of the configs are valid, so we need to insert a reshard op.
+  Edge shardChainInputEdge =
+      Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0 /*operandIndex*/);
+
+  return insertReshard(shardChainInputEdge);
 }
 
 bool ShardSolver::insertReshard(const Edge &edge) {
   // Same edge should not be resharded twice!
-  //
-  assert(memReconfigEdges.count(edge) == 0);
+  assert(memReconfigMap.count(edge) == 0);
 
   Operation *consumerOp = edge.consumerOp;
   Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
   *consumerBitset = kBitsetNone;
 
   std::vector<OpConfig> const &consumerConfigs = getLegalConfigs(consumerOp);
-  // TODO(odjuricic): This needs to be replaced with all possible layouts for
-  // the input tensor instead of the producer op, as these are not always the
-  // same. Related: #2219
-  std::vector<OpConfig> const &producerConfigs =
-      getLegalConfigs(edge.producerOp);
+  std::vector<OpConfig> producerConfigs;
+
+  if (edge.producerOp == nullptr) {
+    auto inputTensor = mlir::cast<RankedTensorType>(
+        consumerOp->getOperand(edge.operandIndex).getType());
+
+    std::vector<TTNNLayoutAttr> layouts =
+        optimizer_utils::generateAllPossibleLayouts(
+            consumerOp->getContext(), inputTensor, deviceAttr.getWorkerGrid(),
+            /*onlyShardedLayouts=*/true);
+
+    for (TTNNLayoutAttr layout : layouts) {
+      producerConfigs.emplace_back(layout);
+    }
+  } else {
+    producerConfigs = getLegalConfigs(edge.producerOp);
+  }
 
   // For all legal outputs, check if there is at least one valid input.
   //
+  MemReconfigEntry memReconfigEntry;
   bool validConfigExists = false;
   for (size_t i = 0; i < consumerConfigs.size(); ++i) {
     OpConfig outputConfig = consumerConfigs[i];
@@ -334,7 +326,17 @@ bool ShardSolver::insertReshard(const Edge &edge) {
       if (shardCompatible && shardCompatible.get()) {
         consumerBitset->set(i);
         validConfigExists = true;
-        break;
+
+        if (memReconfigEntry.reshardOutputConfigMap.find(i) ==
+            memReconfigEntry.reshardOutputConfigMap.end()) {
+          memReconfigEntry.reshardOutputConfigMap[i] =
+              llvm::SmallVector<OpConfig>();
+        }
+        memReconfigEntry.reshardOutputConfigMap[i].push_back(
+            producerConfig.outputLayout);
+
+        // TODO not sure if breaking is needed, we may lose some producer
+        // configs. break;
       }
       llvm::consumeError(shardCompatible.takeError());
     }
@@ -367,7 +369,8 @@ bool ShardSolver::insertReshard(const Edge &edge) {
     return false;
   }
 
-  memReconfigEdges.insert(edge);
+  memReconfigMap[edge] = memReconfigEntry;
+
   return true;
 }
 
@@ -622,6 +625,27 @@ void ShardSolver::set(Operation *op, OpConfig const &config) {
   op_bitset->reset();
   op_bitset->set(selection);
 
+  // Check if there exists an edge from null producer to an operand of this op.
+  // If so, check if this edge is eligible for reshard.
+  for (int64_t operandIdx = 0; operandIdx < op->getNumOperands();
+       ++operandIdx) {
+    Value operand = op->getOperand(operandIdx);
+    Operation *producerOp = operand.getDefiningOp();
+
+    if (producerOp == nullptr) {
+      auto it = memReconfigMap.find(Edge(producerOp, op, operandIdx));
+
+      if (it != memReconfigMap.end()) {
+        // Found edge in reshard map, now let's just save the iterator
+        // corresponding to the op config selection.
+        it->second.reshardOutputConfigMapIter =
+            it->second.reshardOutputConfigMap.find(selection);
+        assert(it->second.reshardOutputConfigMapIter !=
+               it->second.reshardOutputConfigMap.end());
+      }
+    }
+  }
+
   bool updateSuccessful =
       updateSolver(op, true /*expand_root*/, true /*invokedBySet*/);
   assert(updateSuccessful && "Failed to update solver after setting config");
@@ -666,6 +690,11 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
     for (uint32_t i = 0; i < numOperands; i++) {
       auto operand = consumerOp->getOperand(i);
 
+      if (mlir::isa<TypedValue<mlir::tt::ttnn::DeviceType>>(operand)) {
+        // Skip device type operand.
+        continue;
+      }
+
       if (operand == producerOperand) {
         // This is the input we are checking compatibility for.
 
@@ -708,6 +737,7 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
                      << "\n";
         producerLayout.dump();
         consumerConfig.dump();
+        llvm::errs() << "=== End of error dump ===\n";
       }
 
       return l1UsageExp.takeError();
@@ -722,6 +752,7 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
       consumerConfig.dump();
       llvm::errs() << "L1 usage: " << cBUsagePeak << ", " << tensorUsage << ", "
                    << outputTensorUsage << "\n";
+      llvm::errs() << "=== End of debug dump ===\n";
     }
 
     uint64_t producerL1OutputUsage = producerLayout.getShardSizeInBytes();
@@ -870,6 +901,6 @@ ShardSolver::produceMaxCoreUsage() {
 //
 ShardSolverSolution ShardSolver::finish() const {
   assert(selectedOpConfig.size() == shardedOps->size());
-  return ShardSolverSolution(selectedOpConfig, memReconfigEdges);
+  return ShardSolverSolution(selectedOpConfig, memReconfigMap);
 }
 } // namespace mlir::tt::ttnn
