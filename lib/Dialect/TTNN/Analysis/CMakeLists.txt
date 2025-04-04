@@ -18,4 +18,5 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
 
         LINK_LIBS PUBLIC
         MLIRScheduler
+        TTMLIRTTNNUtils
         )
