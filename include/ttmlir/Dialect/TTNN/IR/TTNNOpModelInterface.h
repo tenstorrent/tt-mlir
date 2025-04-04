@@ -7,6 +7,7 @@
 
 // This include is required for llvm::Expected in the tablegen'd
 // TTNNOpModelInterface methods
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "llvm/Support/Error.h"
 
 #endif
