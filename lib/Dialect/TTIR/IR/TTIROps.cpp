@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
@@ -31,6 +32,18 @@
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
+
+namespace mlir::tt::ttir {
+static MemRefType getBufferType(Type type) {
+  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(type);
+  if (!rankedTensorType.getEncoding()) {
+    return MemRefType::get(rankedTensorType.getShape(),
+                           rankedTensorType.getElementType());
+  }
+  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
+      .getBufferType();
+}
+} // namespace mlir::tt::ttir
 
 //===----------------------------------------------------------------------===//
 // BitwiseXorOp
@@ -256,6 +269,10 @@ bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryWrite(
   return false;
 }
 
+bool mlir::tt::ttir::EmptyOp::bufferizesToAllocation(Value value) {
+  return true;
+}
+
 mlir::LogicalResult mlir::tt::ttir::EmptyOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options) {
@@ -282,9 +299,7 @@ mlir::tt::ttir::EmptyOp::getAliasingValues(
 mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<mlir::Value> &) {
-  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-      .getBufferType();
+  return mlir::tt::ttir::getBufferType(value.getType());
 }
 
 //===----------------------------------------------------------------------===//
@@ -294,6 +309,44 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
 // ConstantOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor adaptor) {
   return getValueAttr();
+}
+
+bool mlir::tt::ttir::ConstantOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool mlir::tt::ttir::ConstantOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options) {
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  auto memrefType = mlir::cast<mlir::MemRefType>(
+      *getBufferType(getResult(), options, invocationStack));
+
+  mlir::memref::GlobalOp global = createGlobal(
+      getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
+  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
+      rewriter, *this, global.getType(), global.getName());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::ConstantOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ConstantOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1609,16 +1662,16 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return op->emitOpError("Input and output types must be the same");
     }
 
-    if (!inputTy.getEncoding() ||
-        !mlir::isa<mlir::tt::MetalLayoutAttr>(inputTy.getEncoding())) {
-      // If the input tensor does not have a layout, we can early exit.
+    auto inputLayout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
+        inputTy.getEncoding());
+    auto outputLayout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
+        outputTy.getEncoding());
+
+    if (!inputLayout || !outputLayout) {
+      // If the input/output tensor does not have a layout, we can early exit.
       return mlir::success();
     }
 
-    auto inputLayout =
-        mlir::cast<mlir::tt::MetalLayoutAttr>(inputTy.getEncoding());
-    auto outputLayout =
-        mlir::cast<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());
     bool isFormatChange =
         inputLayout.getElementType() != outputLayout.getElementType();
     if (isFormatChange && !allowFormatChange) {
@@ -1733,11 +1786,39 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
     FoldAdaptor, llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
-  if (auto emptyOp = getInput().getDefiningOp<ttir::EmptyOp>()) {
-    results.push_back(getOutput());
+  mlir::RankedTensorType inputType =
+      dyn_cast<mlir::RankedTensorType>(getInput().getType());
+  mlir::RankedTensorType outputType =
+      dyn_cast<mlir::RankedTensorType>(getOutput().getType());
+  if (inputType && outputType && inputType == outputType) {
+    results.push_back(getInput());
     return mlir::success();
   }
   return mlir::failure();
+}
+
+void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  // Fold into ttir.empty w/ desired layout
+  patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
+    EmptyOp emptyOp = op.getInput().getDefiningOp<EmptyOp>();
+    if (!emptyOp) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
+    return success();
+  });
+
+  // Back to back ToLayoutOp folding, last one wins
+  patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
+    ToLayoutOp producerLayoutOp = op.getInput().getDefiningOp<ToLayoutOp>();
+    if (!producerLayoutOp) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
+                                            op.getOutput());
+    return success();
+  });
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
@@ -1876,7 +1957,7 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
 
-// ViewLayoutOp verification
+// ViewLayoutOp verificatin
 mlir::LogicalResult mlir::tt::ttir::ViewLayoutOp::verify() {
   return verifyLayoutOp(*this, getInput().getType(), getResult().getType(),
                         /*allowFormatChange*/ false,
@@ -1932,9 +2013,7 @@ mlir::FailureOr<mlir::BaseMemRefType>
 mlir::tt::ttir::ViewLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     ::llvm::SmallVector<mlir::Value> &) {
-  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-      .getBufferType();
+  return mlir::tt::ttir::getBufferType(value.getType());
 }
 
 //===----------------------------------------------------------------------===//
