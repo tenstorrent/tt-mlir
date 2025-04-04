@@ -974,6 +974,30 @@ public:
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
         rewriter, "_flatten");
 
+    // Get ttnn::TTNNLayoutAttr of the weight type
+    //
+    ttnn::TTNNLayoutAttr inputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputTy.getEncoding());
+
+    ttnn::MemoryConfigAttr inputMemConfigAttr =
+        rewriter.getAttr<ttnn::MemoryConfigAttr>(
+            rewriter.getAttr<ttnn::BufferTypeAttr>(
+                inputLayoutAttr.getBufferType()),
+            rewriter.getAttr<ttnn::ShardSpecAttr>(
+                rewriter.getAttr<ttnn::ShapeAttr>(
+                    inputLayoutAttr.getShardShape())),
+            inputLayoutAttr.getMemLayout());
+
+    ttnn::PrepareConv2dWeightsOp prepareConv2dWeightsOp =
+        rewriter.create<ttnn::PrepareConv2dWeightsOp>(
+            op.getLoc(), kernelTy, adaptor.getWeight(), inputMemConfigAttr,
+            rewriter.getAttr<ttnn::LayoutAttr>(inputLayoutAttr.getLayout()),
+            rewriter.getStringAttr("OIHW"), inChannelsAttr, outChannelsAttr,
+            batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
+            *strideAttr, reducedPaddingAttr, *dilationAttr,
+            rewriter.getBoolAttr(adaptor.getBias() != nullptr), groupsAttr,
+            device, nullptr);
+
     // Convolution in ttnn returns a tensor in a flattened shape
     // (1 x 1 x N * H * W x C)
     llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
@@ -987,10 +1011,11 @@ public:
                                            outputTy.getEncoding());
 
     ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
-        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
+        op.getLoc(), outputTy, flattenedInput,
+        prepareConv2dWeightsOp.getResult(), adaptor.getBias(), device,
+        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
+        inputWidthAttr, kernelSizeAttr, *strideAttr, reducedPaddingAttr,
+        *dilationAttr, groupsAttr, nullptr);
 
     Value output = ttir_to_ttnn::utils::generateReshape(newConv, outputShape,
                                                         rewriter, "_unflatten");

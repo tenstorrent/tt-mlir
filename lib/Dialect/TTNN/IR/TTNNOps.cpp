@@ -67,6 +67,74 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// PrepareConv2dWeightsOp
+//===----------------------------------------------------------------------===//
+
+// PrepareConv2dWeightsOp verification
+::mlir::LogicalResult mlir::tt::ttnn::PrepareConv2dWeightsOp::verify() {
+  mlir::RankedTensorType weightType = getWeightTensor().getType();
+
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
+  }
+
+  if (getWeightsFormat() != "OIHW") {
+    return emitOpError("Only `OIHW` weights format is currently supported.");
+  }
+
+  constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 0, WEIGHT_IN_CHANNEL_DIM = 1;
+  constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 2,
+                         WEIGHT_KERNEL_WIDTH_DIM = 3;
+
+  if (weightType.getShape()[WEIGHT_OUT_CHANNEL_DIM] != getOutChannels()) {
+    return emitOpError()
+           << "Expected output channels attribute (" << getOutChannels()
+           << ") to match the first dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_OUT_CHANNEL_DIM] << ")";
+  }
+
+  if (weightType.getShape()[WEIGHT_IN_CHANNEL_DIM] !=
+      getInChannels() / getGroups()) {
+    return emitOpError()
+           << "Expected input channels attribute (" << getInChannels()
+           << ") to match the number of input channels per group ("
+           << weightType.getShape()[WEIGHT_IN_CHANNEL_DIM] / getGroups() << ")";
+  }
+
+  if (getKernelSize().size() != 2) {
+    return emitOpError("Expected kernel size attribute to be a 2D tensor");
+  }
+
+  if (weightType.getShape()[WEIGHT_KERNEL_HEIGHT_DIM] != getKernelSize()[0]) {
+    return emitOpError()
+           << "Expected kernel height attribute (" << getKernelSize()[0]
+           << ") to match the second dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_KERNEL_HEIGHT_DIM] << ")";
+  }
+
+  if (weightType.getShape()[WEIGHT_KERNEL_WIDTH_DIM] != getKernelSize()[1]) {
+    return emitOpError()
+           << "Expected kernel width attribute (" << getKernelSize()[1]
+           << ") to match the third dimension of the weight tensor ("
+           << weightType.getShape()[WEIGHT_KERNEL_WIDTH_DIM] << ")";
+  }
+
+  if (getStride().size() != 2) {
+    return emitOpError("Expected strides attribute to be a 2D tensor");
+  }
+
+  if (getDilation().size() != 2) {
+    return emitOpError("Expected dilations attribute to be a 2D tensor");
+  }
+
+  if (getPadding().size() != 2) {
+    return emitOpError("Expected padding attribute to be a 2D tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
