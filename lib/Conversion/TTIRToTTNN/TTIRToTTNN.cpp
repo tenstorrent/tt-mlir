@@ -946,18 +946,11 @@ public:
     }
 
     auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[2] ||
-        paddingArrayRef[1] != paddingArrayRef[3]) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports padding height/width attributes. Thus, "
-          "padding_top/padding_left must equal padding_bottom/padding_right "
-          "for the op to execute as expected.");
-    }
 
     // Padding only supports 2 values in ttnn
     auto reducedPaddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
+        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1],
+                                       paddingArrayRef[2], paddingArrayRef[3]});
 
     auto dilationAttr =
         attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
@@ -976,6 +969,7 @@ public:
     llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
     llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
         1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
+
     outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
         outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 

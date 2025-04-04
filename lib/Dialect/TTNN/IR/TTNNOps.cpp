@@ -147,13 +147,16 @@ namespace mlir::tt::ttnn {
   }
 
   llvm::ArrayRef<int32_t> padding = getPadding();
-  if (padding.size() != 2) {
+  if (padding.size() != 4) {
     return emitOpError() << "Padding attribute must have two values, got: "
                          << padding.size();
   }
+  int32_t verticalPadding = padding[0] + padding[2];
+  int32_t horizontalPadding = padding[1] + padding[3];
+
   if (!llvm::all_of(padding, [](int32_t value) { return value >= 0; })) {
-    return emitOpError() << "Padding attribute (" << padding[0] << ", "
-                         << padding[1]
+    return emitOpError() << "Padding attribute (" << verticalPadding << ", "
+                         << horizontalPadding
                          << ") must be greater than or equal to 0";
   }
 
@@ -185,8 +188,8 @@ namespace mlir::tt::ttnn {
            << ")";
   }
 
-  llvm::SmallVector<uint32_t, 2> paddedInputSize{inputHeight + 2 * padding[0],
-                                                 inputWidth + 2 * padding[1]};
+  llvm::SmallVector<uint32_t, 2> paddedInputSize{
+      inputHeight + verticalPadding, inputWidth + horizontalPadding};
   llvm::SmallVector<uint32_t, 2> effectiveKernelSize{
       static_cast<uint32_t>(kernelSize[0] +
                             (kernelSize[0] - 1) * (dilation[0] - 1)),
@@ -231,11 +234,11 @@ namespace mlir::tt::ttnn {
   }
 
   int32_t calculatedHOut =
-      (inputHeight + 2 * padding[0] - dilation[0] * (kernelSize[0] - 1) - 1) /
+      (inputHeight + verticalPadding - dilation[0] * (kernelSize[0] - 1) - 1) /
           stride[0] +
       1;
   int32_t calculatedWOut =
-      (inputWidth + 2 * padding[1] - dilation[1] * (kernelSize[1] - 1) - 1) /
+      (inputWidth + horizontalPadding - dilation[1] * (kernelSize[1] - 1) - 1) /
           stride[1] +
       1;
   if (calculatedHOut < 0 || calculatedWOut < 0) {
