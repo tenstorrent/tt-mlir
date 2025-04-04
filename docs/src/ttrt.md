@@ -336,7 +336,7 @@ result_code, results = run_instance()
 ```
 
 ## Bonus Section: Extending runtime to other FE's
-MLIR Runtime exposes a feature to register a python callback function. Any python fuction can be provided - and this function will be executed after every op in MLIR Runtime. The following steps describe how to extend your application to register a python function.
+MLIR Runtime exposes a feature to register a python callback function. Any python fuction can be provided and directed to be executed before or after every op in MLIR Runtime. The following steps describe how to extend your application to register a python function.
 
 1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/tools/python/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
 ```bash
@@ -344,9 +344,9 @@ tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
 ```
 
-2. Register callback function in your python script. The following is registering a golden python function. Assume the Debug Hooks `get` function has been pybinded to `ttrt.runtime.DebugHooks.get`
+2. Register callback function and location in your python script. The following is registering a golden python function to run after an operation. Assume the Debug Hooks `get` function has been pybinded to `ttrt.runtime.DebugHooks.get`
 ```bash
-callback_env = ttrt.runtime.DebugHooks.get(golden)
+callback_env = ttrt.runtime.DebugHooks.get(ttrt.runtime.CallbackKey.PostOp, golden)
 ```
 
 3. The callback function has a particular function signature, which looks like the following
