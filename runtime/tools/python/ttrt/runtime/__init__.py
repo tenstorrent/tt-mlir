@@ -15,6 +15,7 @@ try:
         DebugEnv,
         DebugHooks,
         MeshDeviceOptions,
+        TensorCache,
         get_current_runtime,
         set_current_runtime,
         set_compatible_runtime,
@@ -39,6 +40,8 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
+        dirty_tensor,
+        init_cache,
     )
 except ModuleNotFoundError:
     raise ImportError(

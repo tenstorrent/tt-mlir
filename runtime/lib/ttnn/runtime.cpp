@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Constants.h"
-#include "tt-metalium/small_vector.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/tensor_cache.h"
+#include "tt/runtime/ttnn/program.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
@@ -363,8 +363,9 @@ static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
         static_cast<::ttnn::IDevice *>(nullptr)));
   }
 
-  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-                DeviceRuntime::TTNN);
+  Tensor result = Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
+                         DeviceRuntime::TTNN);
+  return result;
 }
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
@@ -842,8 +843,47 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                    return &input.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
                  });
 
-  std::vector<Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      meshDevice, executableHandle, programIndex, ttnnInputs);
+  std::vector<Tensor> outputs = runProgram(
+      meshDevice, executableHandle, programIndex, ttnnInputs, nullptr, {});
+  return outputs;
+}
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputHandles,
+                           std::shared_ptr<TensorCache> tensorCache) {
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  // Extract versions from input tensors
+  std::vector<uint64_t> inputVersions;
+  inputVersions.reserve(inputHandles.size());
+  for (const auto &input : inputHandles) {
+    inputVersions.push_back(input.version.load());
+  }
+
+  // Convert input tensors to the layout expected by the program
+  std::vector<Tensor> inputsWithLayout;
+  inputsWithLayout.reserve(inputHandles.size());
+  std::transform(
+      inputHandles.begin(), inputHandles.end(),
+      std::back_inserter(inputsWithLayout), [&](const Tensor &input) -> Tensor {
+        Layout inputLayout = ::tt::runtime::ttnn::getLayout(
+            executableHandle, programIndex, inputsWithLayout.size());
+        return ::tt::runtime::ttnn::toLayout(input, deviceHandle, inputLayout);
+      });
+
+  std::vector<::ttnn::Tensor *> ttnnInputs;
+  ttnnInputs.reserve(inputsWithLayout.size());
+  std::transform(inputsWithLayout.begin(), inputsWithLayout.end(),
+                 std::back_inserter(ttnnInputs),
+                 [](Tensor &input) -> ::ttnn::Tensor * {
+                   return &input.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+                 });
+
+  std::vector<Tensor> outputs =
+      runProgram(meshDevice, executableHandle, programIndex, ttnnInputs,
+                 tensorCache, std::move(inputVersions));
   return outputs;
 }
 

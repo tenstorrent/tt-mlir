@@ -9,6 +9,7 @@
 #include <functional>
 #include <vector>
 
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime {
@@ -69,6 +70,10 @@ Tensor createTensor(Device device, Layout layout,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize);
+
+void dirtyTensor(Tensor &tensor);
+
+void initCache(Device &device);
 
 inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
   return ::tt::runtime::createTensor(data, desc.shape, desc.stride,
@@ -135,6 +140,10 @@ std::string getOpLocInfo(OpContext opContextHandle);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputs);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

@@ -214,6 +214,21 @@ class Run:
             help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
         )
         Run.register_arg(
+            name="--enable-tensor-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable tensor caching between program runs for const-eval",
+        )
+        # Register the argument
+        Run.register_arg(
+            name="--dirty-tensor-schedule",
+            type=str,
+            default="",
+            choices=None,
+            help="Configuration for dirtying tensors, format: 'index:iterations,...' (e.g., '0:1,2:3' to dirty tensor 0 after 1 iteration and tensor 2 after 3 iterations)",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -464,6 +479,10 @@ class Run:
                 "post-op", get_callback_fn(callback_runtime_config)
             )
 
+            # Create a tensor cache if enabled
+            if self["--enable-tensor-cache"]:
+                ttrt.runtime.init_cache(device)
+
             try:
                 for bin in binaries:
                     try:
@@ -527,46 +546,102 @@ class Run:
                                 Run.TorchInitializer.get_initilizer("zeros")
                             )
 
-                            total_inputs = []
-                            total_outputs = []
-                            for loop in range(self["--loops"]):
-                                self.logging.debug(
-                                    f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                            inputs = []
+                            outputs = []
+                            for i in program.input_tensors:
+                                inputs.append(
+                                    ttrt.runtime.create_tensor(
+                                        i.data_ptr(),
+                                        list(i.shape),
+                                        list(i.stride()),
+                                        i.element_size(),
+                                        Binary.Program.to_data_type(i.dtype),
+                                    )
                                 )
 
-                                inputs = []
-                                outputs = []
-                                for i in program.input_tensors:
-                                    inputs.append(
-                                        ttrt.runtime.create_tensor(
-                                            i.data_ptr(),
-                                            list(i.shape),
-                                            list(i.stride()),
-                                            i.element_size(),
-                                            Binary.Program.to_data_type(i.dtype),
-                                        )
+                            for i in program.output_tensors:
+                                outputs.append(
+                                    ttrt.runtime.create_tensor(
+                                        i.data_ptr(),
+                                        list(i.shape),
+                                        list(i.stride()),
+                                        i.element_size(),
+                                        Binary.Program.to_data_type(i.dtype),
                                     )
-
-                                for i in program.output_tensors:
-                                    outputs.append(
-                                        ttrt.runtime.create_tensor(
-                                            i.data_ptr(),
-                                            list(i.shape),
-                                            list(i.stride()),
-                                            i.element_size(),
-                                            Binary.Program.to_data_type(i.dtype),
-                                        )
-                                    )
-
-                                total_inputs.append(inputs)
-                                total_outputs.append(outputs)
+                                )
 
                             event = None
+
+                            self.logging.info("dirtying initial inputs")
+                            for input_tensor in inputs:
+                                ttrt.runtime.dirty_tensor(input_tensor)
+
+                            # Parse the dirty tensor schedule
+                            dirty_tensor_schedule = {}
+                            if self["--dirty-tensor-schedule"]:
+                                dirty_configs = self["--dirty-tensor-schedule"].split(
+                                    ","
+                                )
+
+                                if not dirty_configs:
+                                    raise Exception(
+                                        "Invalid --dirty-tensor-schedule format. Expected 'index:iterations,...'"
+                                    )
+
+                                for config in dirty_configs:
+                                    if ":" not in config:
+                                        raise Exception(
+                                            f"Invalid dirty tensor configuration: '{config}'. Missing colon separator. Expected format 'index:iterations'"
+                                        )
+
+                                    parts = config.split(":")
+                                    if len(parts) != 2:
+                                        raise Exception(
+                                            f"Invalid dirty tensor configuration: '{config}'. Too many colons. Expected format 'index:iterations'"
+                                        )
+
+                                    try:
+                                        input_idx = int(parts[0])
+                                        iterations = int(parts[1])
+                                    except ValueError:
+                                        raise Exception(
+                                            f"Invalid dirty tensor configuration: '{config}'. Both index and iterations must be integers. Got '{parts[0]}' and '{parts[1]}'"
+                                        )
+
+                                    if input_idx < 0:
+                                        raise Exception(
+                                            f"Invalid dirty tensor configuration: '{config}'. Tensor index must be non-negative. Got {input_idx}"
+                                        )
+
+                                    if iterations < 0:
+                                        raise Exception(
+                                            f"Invalid dirty tensor configuration: '{config}'. Iterations must be non-negative. Got {iterations}"
+                                        )
+
+                                    if iterations not in dirty_tensor_schedule:
+                                        dirty_tensor_schedule[iterations] = []
+                                    dirty_tensor_schedule[iterations].append(input_idx)
 
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
+                                # Check if we need to dirty any input tensors in this iteration
+                                if loop in dirty_tensor_schedule:
+                                    for input_idx in dirty_tensor_schedule[loop]:
+                                        if input_idx < len(inputs):
+                                            # Get the tensor to dirty
+                                            tensor_to_dirty = inputs[input_idx]
+                                            # Call the dirtyTensor function to increment the version counter
+                                            ttrt.runtime.dirty_tensor(tensor_to_dirty)
+                                            self.logging.info(
+                                                f"Marked input tensor {input_idx} as dirty after {loop} iterations"
+                                            )
+                                        else:
+                                            self.logging.warning(
+                                                f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
+                                            )
+
                                 if (
                                     current_runtime
                                     == ttrt.runtime.DeviceRuntime.TTMetal
@@ -575,8 +650,8 @@ class Run:
                                         device,
                                         bin.fbb,
                                         program_index,
-                                        total_inputs[loop],
-                                        total_outputs[loop],
+                                        inputs,
+                                        outputs,
                                     )
 
                                 elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
@@ -584,21 +659,42 @@ class Run:
                                         device,
                                         bin.fbb,
                                         program_index,
-                                        total_inputs[loop],
+                                        inputs,
                                     )
+                                    if self["--enable-tensor-cache"]:
+                                        # Log cache stats after execution
+                                        cache_stats = (
+                                            device.get_tensor_cache().get_stats()
+                                        )
+                                        self.logging.debug(
+                                            f"Tensor cache stats: hits={cache_stats.get('hits', 0)}, misses={cache_stats.get('misses', 0)}"
+                                        )
+
                                     ttrt.runtime.wait(runtime_outputs)
                                     for i, runtime_output_tensor in enumerate(
                                         runtime_outputs
                                     ):
+                                        self.logging.debug(
+                                            f"Transferring output tensor {i} to host"
+                                        )
                                         output_host = ttrt.runtime.to_host(
                                             runtime_output_tensor, untilize=True
                                         )[0]
+                                        self.logging.debug(
+                                            f"Copying output tensor {i} to host"
+                                        )
                                         ttrt.runtime.memcpy(
-                                            total_outputs[loop][i],
+                                            outputs[i],
                                             output_host,
+                                        )
+                                        self.logging.debug(
+                                            f"Copying output tensor {i} to host completed"
                                         )
                                         ttrt.runtime.deallocate_tensor(
                                             runtime_output_tensor, force=True
+                                        )
+                                        self.logging.debug(
+                                            f"Deallocating output tensor {i} completed"
                                         )
 
                                 self.logging.debug(
@@ -618,7 +714,7 @@ class Run:
                                 for loop in range(self["--loops"]):
                                     inputs_converted = convert_input_layouts(
                                         device,
-                                        total_inputs[loop],
+                                        inputs,
                                         bin.fbb,
                                         program_index,
                                     )
@@ -640,7 +736,7 @@ class Run:
 
                                     all_tensors_match = (
                                         ttrt.runtime.testing.compare_outs(
-                                            total_outputs[0], emitc_outs
+                                            outputs, emitc_outs
                                         )
                                     )
 
@@ -648,9 +744,7 @@ class Run:
                                         self.logging.error(
                                             "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
                                         )
-                                        self.logging.error(
-                                            total_outputs[loop], emitc_outs
-                                        )
+                                        self.logging.error(outputs, emitc_outs)
                                         raise Exception(
                                             "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
                                         )

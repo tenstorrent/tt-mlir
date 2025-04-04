@@ -16,6 +16,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include <mlir/IR/BuiltinAttributes.h>
 
 namespace mlir::tt::transforms {
 
@@ -337,7 +338,6 @@ private:
 
   // Set of params to original func which can be const-eval'ed.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
-
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
 };
@@ -370,8 +370,9 @@ private:
     ConstEvalAnalyze analyzer(&funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
-        analysisResults.subgraphs;
-    llvm::SmallVector<Operation *, 1> sharedOps = analysisResults.sharedOps;
+        std::move(analysisResults.subgraphs);
+    llvm::SmallVector<Operation *, 1> sharedOps =
+        std::move(analysisResults.sharedOps);
 
     if (subgraphs.empty()) {
       return;
@@ -398,11 +399,6 @@ private:
     // Identify all outputs of the subgraph.
     llvm::SmallVector<mlir::BlockArgument, 4> inputs(
         subgraph.inputParameters.begin(), subgraph.inputParameters.end());
-    // Sort by argument number to keep order consistent
-    std::sort(inputs.begin(), inputs.end(),
-              [](BlockArgument a, BlockArgument b) {
-                return a.getArgNumber() < b.getArgNumber();
-              });
     llvm::SmallVector<mlir::Type, 4> inputTypes;
     llvm::SmallVector<mlir::Value, 4> outputs;
     llvm::SmallVector<mlir::Type, 4> outputTypes;
@@ -472,9 +468,19 @@ private:
     auto calleeAttr =
         mlir::SymbolRefAttr::get(builder.getContext(), newFuncName);
 
+    llvm::SmallVector<int32_t> inputIdxs(inputs.size());
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      inputIdxs[i] = inputs[i].getArgNumber();
+    }
+    // Keep input index order consistent.
+    std::sort(inputIdxs.begin(), inputIdxs.end());
     // Create the LoadCachedOp with the correct argument order
     auto callOp = builder.create<tt::LoadCachedOp>(
-        originalFunc.getLoc(), outputTypes, calleeAttr, ValueRange(inputs));
+        originalFunc.getLoc(), // Location
+        outputTypes,           // Result types
+        calleeAttr,            // Callee symbol reference
+        DenseI32ArrayAttr::get(builder.getContext(), inputIdxs) // Input indexes
+    );
 
     // Replace uses of original outputs with call results.
     for (size_t i = 0; i < outputs.size(); ++i) {

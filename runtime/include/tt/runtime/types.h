@@ -5,10 +5,12 @@
 #ifndef TT_RUNTIME_TYPES_H
 #define TT_RUNTIME_TYPES_H
 
+#include <atomic>
 #include <cassert>
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #pragma clang diagnostic push
@@ -150,8 +152,10 @@ struct Binary : public Flatbuffer {
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
 };
 
+class TensorCache;
 struct Device : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  std::shared_ptr<TensorCache> cache;
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {
@@ -161,6 +165,8 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
   Event event;
+  std::atomic<uint64_t> version{0};
+
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
@@ -170,6 +176,23 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
          std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(eventHandle, runtime) {}
+
+  // Custom copy constructor to handle the atomic field
+  Tensor(const Tensor &other)
+      : detail::RuntimeCheckedObjectImpl(other.handle, other.associatedRuntime),
+        data(other.data), event(other.event), version(other.version.load()) {}
+
+  // Custom copy assignment operator
+  Tensor &operator=(const Tensor &other) {
+    if (this != &other) {
+      handle = other.handle;
+      associatedRuntime = other.associatedRuntime;
+      data = other.data;
+      event = other.event;
+      version.store(other.version.load());
+    }
+    return *this;
+  }
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {

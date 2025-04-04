@@ -8,10 +8,18 @@
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 
+#include <cstdint>
+#include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace tt::runtime::ttnn {
 using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
@@ -104,9 +112,14 @@ public:
   ::ttnn::Tensor &
   getAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
 
+  const ::ttnn::Tensor &getAndValidate(const size_t idx) const;
+  ::ttnn::Tensor &getAndValidate(const size_t idx);
+
   std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
   insertAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
                     const ::ttnn::Tensor &ttnnTensor);
+  std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
+  insertAndValidate(const size_t globalId, const ::ttnn::Tensor &ttnnTensor);
 
   size_t erase(const ::tt::target::ttnn::TensorRef *tensorRef);
 
@@ -142,16 +155,41 @@ public:
                  const std::vector<uint32_t> &programOutputIds,
                  std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
                  common::DylibManager &&programDylibManager,
-                 ::ttnn::MeshDevice *parentMesh)
+                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
+                 const std::string &programName)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
-        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh) {
+        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
+        executableHandle(executableHandle), programName(programName) {
     LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
+    // Create a default cache
+    externalCache = std::make_shared<TensorCache>();
   }
+
+  ProgramContext(const std::vector<uint32_t> &programInputIds,
+                 const std::vector<uint32_t> &programOutputIds,
+                 std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
+                 common::DylibManager &&programDylibManager,
+                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
+                 std::shared_ptr<TensorCache> externalCache,
+                 std::vector<uint64_t> &&inputVersions,
+                 const std::string &programName)
+      : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
+                                     std::move(liveTensors))),
+        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
+        executableHandle(executableHandle), externalCache(externalCache),
+        inputVersions(std::move(inputVersions)), programName(programName) {
+    LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
+    // If no external cache was provided, create a default one
+    if (!this->externalCache) {
+      this->externalCache = std::make_shared<TensorCache>();
+    }
+  }
+
   ProgramContext(const ProgramContext &) = delete;
   ProgramContext &operator=(const ProgramContext &) = delete;
-  ProgramContext(ProgramContext &&) = default;
-  ProgramContext &operator=(ProgramContext &&) = default;
+  ProgramContext(ProgramContext &&) = delete;
+  ProgramContext &operator=(ProgramContext &&) = delete;
 
   //
   // Parent Mesh Operations
@@ -161,6 +199,8 @@ public:
   const ::ttnn::MeshDevice &getParentMesh() const { return *parentMesh; }
 
   size_t parentMeshSize() const { return parentMesh->num_devices(); }
+
+  Binary getExecutableHandle() { return executableHandle; }
 
   //
   // Sub Mesh Operations
@@ -188,6 +228,18 @@ public:
   ProgramTensorPool &getTensorPool() { return tensorPool; }
   const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
+  //
+  // Tensor Cache Operations
+  //
+  std::shared_ptr<TensorCache> getCache() { return externalCache; }
+
+  // Get the input versions
+  const std::vector<uint64_t> &getInputVersions() const {
+    return inputVersions;
+  }
+
+  const std::string &getProgramName() const { return programName; }
+
 private:
   ProgramTensorPool tensorPool;
 
@@ -199,7 +251,18 @@ private:
   // Contains subMeshes of the parentMesh that are used by the program
   // Will be populated by GetDevice ops
   std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
+
+  Binary executableHandle;
+
+  // The shared tensor cache
+  std::shared_ptr<TensorCache> externalCache;
+
+  // Input versions
+  const std::vector<uint64_t> inputVersions;
+
+  const std::string programName;
 };
+
 } // namespace tt::runtime::ttnn
 
 #endif

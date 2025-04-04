@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+#include "tt/runtime/ttnn/program.h"
+
+#include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/collective_permute.h"
 #include "operations/ccl/mesh_shard.h"
@@ -60,13 +63,6 @@
 #endif
 
 namespace tt::runtime::ttnn {
-using LogType = ::tt::runtime::logger::LogType;
-
-static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
-#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
-  TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
-#endif
-}
 
 static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
@@ -75,71 +71,10 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
-namespace {
-class ProgramExecutor {
-public:
-  ProgramExecutor(const ::tt::target::ttnn::Program *program,
-                  const Binary &executableHandle,
-                  const std::vector<::ttnn::Tensor *> &programInputs,
-                  ::ttnn::MeshDevice *meshDevice)
-      : program(program), executableHandle(executableHandle) {
-    LOG_ASSERT(program, "Program must be provided for execution");
-
-    std::vector<uint32_t> programInputIds;
-    int inputIndex = 0;
-    std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
-    LOG_ASSERT(program->inputs()->size() == programInputs.size(),
-               "Program input size mismatch: ", program->inputs()->size(),
-               " != ", programInputs.size());
-    for (const ::tt::target::ttnn::TensorRef *input : *program->inputs()) {
-      auto [iter, inserted] = liveTensors.try_emplace(
-          input->global_id(), programInputs[inputIndex++]);
-      LOG_ASSERT(inserted, "Duplicate input tensor");
-      programInputIds.push_back(input->global_id());
-    }
-
-    std::vector<uint32_t> programOutputIds;
-    for (const ::tt::target::ttnn::TensorRef *output : *program->outputs()) {
-      programOutputIds.push_back(output->global_id());
-    }
-
-    context = std::make_unique<ProgramContext>(
-        programInputIds, programOutputIds, std::move(liveTensors),
-        common::DylibManager(program->dylibs()), meshDevice);
-  }
-
-  void runCallback(std::string callbackKey, Binary &executableHandle,
-                   const ::tt::target::ttnn::Operation *opContext,
-                   ProgramContext *programContext);
-
-  void execute() {
-    for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-      LOG_DEBUG(LogType::LogRuntimeTTNN,
-                "Executing operation: ", op->debug_info()->c_str());
-      tracyLogOpLocation(op);
-      runCallback("pre-op", executableHandle, op, context.get());
-      runOperation(op);
-      runCallback("post-op", executableHandle, op, context.get());
-    }
-  }
-
-  ProgramContext &getContext() { return *context; }
-
-  std::vector<Tensor> gatherOutputTensors() {
-    return context->getTensorPool().gatherOutputTensors();
-  }
-
-private:
-  const ::tt::target::ttnn::Program *program;
-  Binary executableHandle;
-  std::unique_ptr<ProgramContext> context;
-  void runOperation(const ::tt::target::ttnn::Operation *op);
-  void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
-};
-} // namespace
+using executor::ProgramExecutor;
 
 void ProgramExecutor::runCallback(
-    std::string callbackKey, Binary &executableHandle,
+    const std::string &callbackKey, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (auto callback = debug::Hooks::get().getOperatorCallback();
@@ -333,6 +268,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConstantOp: {
     return operations::creation::run(op->type_as_ConstantOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::LoadCachedOp: {
+    return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
+  }
   default: {
     LOG_FATAL("Unsupported operation type");
   }
@@ -342,11 +280,28 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
+                               std::vector<::ttnn::Tensor *> const &inputs,
+                               std::shared_ptr<TensorCache> externalCache,
+                               std::vector<uint64_t> &&inputVersions) {
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
+  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
+                           externalCache, std::move(inputVersions));
+  executor.execute();
+  std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
+  return outputTensors;
+}
+
+std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+                               Binary executableHandle,
+                               std::uint32_t programIndex,
                                std::vector<::ttnn::Tensor *> const &inputs) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
-  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice);
+  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
+                           nullptr, {});
   executor.execute();
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;

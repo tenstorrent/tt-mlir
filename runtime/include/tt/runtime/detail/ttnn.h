@@ -43,6 +43,7 @@
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
@@ -147,12 +148,15 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputs);
+                           std::vector<Tensor> const &inputs,
+                           std::shared_ptr<TensorCache> tensorCache);
 
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs);
+                               std::vector<::ttnn::Tensor *> const &inputs,
+                               std::shared_ptr<TensorCache> tensorCache,
+                               std::vector<uint64_t> &&versionIds);
 
 } // namespace tt::runtime::ttnn
 

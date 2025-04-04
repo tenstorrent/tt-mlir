@@ -116,37 +116,47 @@ LogicalResult DeviceModuleOp::verify() { return verifyModuleWrapper(*this); }
 LogicalResult CPUModuleOp::verify() { return verifyModuleWrapper(*this); }
 
 LogicalResult LoadCachedOp::verify() {
-  // Verify that the callee exists and has the right type.
+  // Verify that the callee exists
   FlatSymbolRefAttr calleeAttr = this->getCalleeAttr();
-  func::FuncOp funcOp =
+  func::FuncOp calleeFunc =
       SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(*this, calleeAttr);
-  if (!funcOp) {
+  if (!calleeFunc) {
     return emitOpError() << "'" << calleeAttr.getValue()
                          << "' does not reference a function";
   }
 
-  FunctionType fnType = funcOp.getFunctionType();
-
-  if (fnType.getNumInputs() != this->getNumOperands()) {
-    return emitOpError("Incorrect number of operands for callee -- expected ")
-           << fnType.getNumInputs() << " but got: " << this->getNumOperands();
+  // Get the function where this op resides
+  Operation *op = this->getOperation();
+  func::FuncOp parentFunc = op->getParentOfType<func::FuncOp>();
+  if (!parentFunc) {
+    return emitOpError() << "must be nested inside a function";
   }
+  FunctionType parentFnType = parentFunc.getFunctionType();
 
-  for (unsigned i = 0; i < fnType.getNumInputs(); ++i) {
-    if (this->getOperand(i).getType() != fnType.getInput(i)) {
-      return emitOpError("Operand type mismatch at index ") << i;
+  // Verify that all indices in input_indices are valid
+  llvm::ArrayRef<int32_t> inputIndices = this->getInputIndices();
+
+  // Verify each input index is valid for the parent function's signature
+  for (const int32_t index : inputIndices) {
+    if (index < 0 ||
+        static_cast<unsigned>(index) >= parentFnType.getNumInputs()) {
+      return emitOpError("input index ")
+             << index << " out of range; enclosing function has "
+             << parentFnType.getNumInputs() << " parameters";
     }
   }
 
+  FunctionType calleeFnType = calleeFunc.getFunctionType();
   // Verify result count.
-  if (fnType.getNumResults() != this->getNumResults()) {
+  if (calleeFnType.getNumResults() != this->getNumResults()) {
     return emitOpError("Incorrect number of results for callee -- expected ")
-           << fnType.getNumResults() << " but got: " << this->getNumResults();
+           << calleeFnType.getNumResults()
+           << " but got: " << this->getNumResults();
   }
 
   // Verify result types.
-  for (unsigned i = 0; i < fnType.getNumResults(); ++i) {
-    if (this->getResult(i).getType() != fnType.getResult(i)) {
+  for (unsigned i = 0; i < calleeFnType.getNumResults(); ++i) {
+    if (this->getResult(i).getType() != calleeFnType.getResult(i)) {
       return emitOpError("Result type mismatch at index ") << i;
     }
   }

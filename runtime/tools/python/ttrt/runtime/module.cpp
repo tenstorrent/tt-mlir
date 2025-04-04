@@ -6,6 +6,7 @@
 
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/runtime.h"
+#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
@@ -37,7 +38,11 @@ PYBIND11_MODULE(_C, m) {
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
       .def("get_memory_view", &tt::runtime::detail::getMemoryView,
-           py::arg("device_id") = 0);
+           py::arg("device_id") = 0)
+      .def(
+          "get_tensor_cache",
+          [](tt::runtime::Device &device) { return device.cache; },
+          py::return_value_policy::reference);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::TensorDesc>(m, "TensorDesc")
       .def_readonly("shape", &tt::runtime::TensorDesc::shape)
@@ -114,6 +119,15 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
+
+  py::class_<tt::runtime::TensorCache,
+             std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
+      .def(py::init<>())
+      .def("clear", &tt::runtime::TensorCache::clear)
+      .def("size", &tt::runtime::TensorCache::size)
+      .def("get_stats", &tt::runtime::TensorCache::getStats)
+      .def("remove", &tt::runtime::TensorCache::remove);
+
   py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
       .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
       .value("L1", tt::runtime::MemoryBufferType::L1)
@@ -209,6 +223,11 @@ PYBIND11_MODULE(_C, m) {
   m.def("get_layout", &tt::runtime::getLayout, py::arg("executable"),
         py::arg("program_index"), py::arg("input_index"),
         "Get the layout of the input tensor");
+  m.def("dirty_tensor", &tt::runtime::dirtyTensor, py::arg("tensor"),
+        "Mark a tensor as dirty--any dependent const-eval tensors in the cache "
+        "must be recomputed.");
+  m.def("init_cache", &tt::runtime::initCache, py::arg("device"),
+        "Initialize device's cache to valid empty cache.");
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,

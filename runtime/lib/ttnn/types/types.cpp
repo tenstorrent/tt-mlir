@@ -342,11 +342,19 @@ LayoutConverter::convertDeviceTensorLayout(const ::ttnn::Tensor &input) {
 const ::ttnn::Tensor &ProgramTensorPool::getAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef) const {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
-  std::uint32_t globalId = tensorRef->global_id();
+  return getAndValidate(tensorRef->global_id());
+}
+
+::ttnn::Tensor &ProgramTensorPool::getAndValidate(const size_t globalId) {
+  return const_cast<::ttnn::Tensor &>(
+      static_cast<const ProgramTensorPool &>(*this).getAndValidate(globalId));
+}
+
+const ::ttnn::Tensor &
+ProgramTensorPool::getAndValidate(const size_t globalId) const {
   LOG_ASSERT(liveTensors.contains(globalId));
   const ::ttnn::Tensor &ttnnTensor = *liveTensors.at(globalId);
   DEBUG_ASSERT(ttnnTensor.is_allocated());
-  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
   return ttnnTensor;
 }
 
@@ -361,9 +369,13 @@ ProgramTensorPool::insertAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef,
     const ::ttnn::Tensor &ttnnTensor) {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
-  std::uint32_t globalId = tensorRef->global_id();
+  return insertAndValidate(tensorRef->global_id(), ttnnTensor);
+}
+
+std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
+ProgramTensorPool::insertAndValidate(const size_t globalId,
+                                     const ::ttnn::Tensor &ttnnTensor) {
   DEBUG_ASSERT(ttnnTensor.is_allocated());
-  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
   auto [iter, inserted] =
       intermedTensors.insert_or_assign(globalId, ttnnTensor);
   return liveTensors.insert_or_assign(globalId, &(iter->second));

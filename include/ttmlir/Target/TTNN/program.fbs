@@ -455,6 +455,13 @@ table CpuOp {
   dylib_id: uint32;
 }
 
+table LoadCachedOp {
+  inputs_indexes: [uint32];
+  callee_name: string;
+  program_idx: uint32;
+  outputs: [tt.target.ttnn.TensorRef];
+}
+
 table ConstantOp {
   out: tt.target.ttnn.TensorRef;
   data: [ubyte];
@@ -504,6 +511,7 @@ union OpType {
   PadOp,
   CpuOp,
   ConstantOp,
+  LoadCachedOp,
 }
 
 table Operation {

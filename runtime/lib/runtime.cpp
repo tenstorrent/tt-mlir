@@ -8,6 +8,8 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
+#include "tt/runtime/tensor_cache.h"
+
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
 #endif
@@ -178,6 +180,16 @@ Tensor createTensor(std::shared_ptr<void> data,
   }
 #endif
   LOG_FATAL("runtime is not enabled");
+}
+
+void initCache(Device &device) {
+  device.cache = std::make_shared<TensorCache>();
+}
+
+void dirtyTensor(Tensor &tensor) {
+  static std::atomic<uint64_t> version(0);
+  tensor.version.store(version++);
+  LOG_INFO("dirtyTensor called, new version: %lu", tensor.version.load());
 }
 
 Tensor
@@ -513,7 +525,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
-                                       programIndex, inputHandles);
+                                       programIndex, inputHandles,
+                                       deviceHandle.cache);
   }
 #endif
 

@@ -52,6 +52,8 @@ static OpType findOpAtTopLevel(mlir::ModuleOp module) {
 
 namespace mlir::tt::ttnn {
 
+static std::map<std::string, unsigned int> programIdxMap;
+
 constexpr uint64_t kHostAllocatedSize = 0;
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -1401,6 +1403,28 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
+createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
+  // Collect input indices from the attribute
+  std::vector<uint32_t> inputIndices;
+  for (int32_t idx : op.getInputIndices()) {
+    inputIndices.push_back(static_cast<uint32_t>(idx));
+  }
+
+  // Collect output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  const uint32_t programIdx = programIdxMap[op.getCallee().str()];
+
+  // Create the LoadCachedOp with indices instead of inputs
+  return ::tt::target::ttnn::CreateLoadCachedOpDirect(
+      *cache.fbb, &inputIndices, op.getCallee().str().c_str(), programIdx,
+      &outputs);
+}
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString, std::string const &locInfo) {
@@ -1799,6 +1823,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
   }
+  if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
+    return createOperation(cache, createOp(cache, loadCachedOp), debugString,
+                           locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -1885,6 +1913,12 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(
       fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
+
+  size_t programIdx = 0;
+  module->walk([&](func::FuncOp func) {
+    // llvm::outs() << func.getSymName().str() << " : " << programIdx << "\n";
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  });
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {
