@@ -61,6 +61,7 @@
 
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
+using ::tt::runtime::DeviceRuntime;
 
 static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #ifdef TT_RUNTIME_ENABLE_PERF_TRACE
@@ -82,7 +83,8 @@ public:
                   const Binary &executableHandle,
                   const std::vector<::ttnn::Tensor *> &programInputs,
                   ::ttnn::MeshDevice *meshDevice)
-      : program(program), executableHandle(executableHandle) {
+      : program(program), executableHandle(executableHandle),
+        meshDevice(meshDevice) {
     LOG_ASSERT(program, "Program must be provided for execution");
 
     std::vector<uint32_t> programInputIds;
@@ -113,13 +115,23 @@ public:
                    ProgramContext *programContext);
 
   void execute() {
+    int dump_op_counter = 0;
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+      dump_op_counter++;
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
       runCallback("pre-op", executableHandle, op, context.get());
       runOperation(op);
       runCallback("post-op", executableHandle, op, context.get());
+      if (dump_op_counter == 100) {
+        for (::ttnn::IDevice *ttnnDevice : meshDevice->get_devices()) {
+          ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+        }
+        LOG_DEBUG(LogType::LogRuntimeTTNN,
+                  "Dumping Log after " + dump_op_counter + " operations");
+        dump_op_counter = 0;
+      }
     }
   }
 
@@ -132,6 +144,7 @@ public:
 private:
   const ::tt::target::ttnn::Program *program;
   Binary executableHandle;
+  ::ttnn::MeshDevice *meshDevice;
   std::unique_ptr<ProgramContext> context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
