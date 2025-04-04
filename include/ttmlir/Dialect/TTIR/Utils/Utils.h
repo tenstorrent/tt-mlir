@@ -63,13 +63,12 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
     // build(::mlir::OpBuilder &, ::mlir::OperationState &odsState,
     // ::mlir::TypeRange resultTypes, ::mlir::ValueRange operands,
     // ::llvm::ArrayRef<::mlir::NamedAttribute> attributes = {})`.
-    if constexpr ((sizeof...(Js) == 1 &&
-                   std::is_convertible_v<
-                       std::tuple_element_t<
-                           sizeof...(Is) + sizeof...(Js) - 1,
-                           std::tuple<
-                               ttmlir::utils::remove_cvref_t<ArgsTy>...>>,
-                       mlir::ArrayRef<mlir::NamedAttribute>>)) {
+    if constexpr (sizeof...(Js) == 1 &&
+                  std::is_convertible_v<
+                      std::tuple_element_t<
+                          sizeof...(Is) + sizeof...(Js) - 1,
+                          std::tuple<ttmlir::utils::remove_cvref_t<ArgsTy>...>>,
+                      mlir::ArrayRef<mlir::NamedAttribute>>) {
       return builder.create<OpTy>(
           loc, output.getType(),
           ttmlir::utils::flatten(std::get<Is>(std::forward_as_tuple(
