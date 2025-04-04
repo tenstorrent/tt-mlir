@@ -59,6 +59,10 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
   template <typename... ArgsTy>
   static auto call(mlir::OpBuilder &builder, mlir::Location loc,
                    mlir::Value output, ArgsTy &&...args) {
+    // Calls the generic build member function that every op has `static void
+    // build(::mlir::OpBuilder &, ::mlir::OperationState &odsState,
+    // ::mlir::TypeRange resultTypes, ::mlir::ValueRange operands,
+    // ::llvm::ArrayRef<::mlir::NamedAttribute> attributes = {})`.
     if constexpr ((sizeof...(Js) == 1 &&
                    std::is_convertible_v<
                        std::tuple_element_t<
@@ -73,6 +77,8 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
                                  output),
           std::get<sizeof...(Is) + sizeof...(Js) - 1>(
               std::forward_as_tuple(std::forward<ArgsTy>(args)...)));
+      // Otherwise, call the op specific builder that provides positional
+      // `Attribute` arguments.
     } else {
       return builder.create<OpTy>(
           loc, output.getType(),
