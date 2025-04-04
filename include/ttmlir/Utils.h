@@ -334,13 +334,13 @@ struct get_value_type {
 };
 
 template <typename T>
-struct get_value_type<T, std::enable_if_t<is_leaf_type_v<T>>> {
-  using type = typename std::iterator_traits<
-      decltype(std::declval<T>().begin())>::value_type;
-};
+using get_value_type_t = typename get_value_type<T>::type;
 
 template <typename T>
-using get_value_type_t = typename get_value_type<T>::type;
+struct get_value_type<T, std::enable_if_t<!is_leaf_type_v<T>>> {
+  using type = get_value_type_t<typename std::iterator_traits<
+      decltype(std::declval<T>().begin())>::value_type>;
+};
 
 template <typename T, typename U>
 std::enable_if_t<std::is_convertible_v<get_value_type_t<T>, U>>
@@ -355,13 +355,20 @@ append(llvm::SmallVector<U> &result, T &&value) {
 }
 } // namespace detail
 
-template <typename FirstTy, typename... RestTy,
-          typename ReturnTy = detail::get_value_type_t<FirstTy>>
-llvm::SmallVector<ReturnTy> flatten(FirstTy &&first, RestTy &&...rest) {
+template <typename FirstTy, typename FallbackTy>
+using type_or_fallback_t =
+    std::conditional_t<std::is_void_v<FirstTy>, FallbackTy, FirstTy>;
+
+template <typename ReturnTy = void, typename FirstTy, typename... RestTy>
+llvm::SmallVector<
+    type_or_fallback_t<ReturnTy, detail::get_value_type_t<FirstTy>>>
+flatten(FirstTy &&first, RestTy &&...rest) {
+  using TrueReturnTy =
+      type_or_fallback_t<ReturnTy, detail::get_value_type_t<FirstTy>>;
   static_assert(
-      (std::is_convertible_v<detail::get_value_type_t<FirstTy>, ReturnTy> &&
+      (std::is_convertible_v<detail::get_value_type_t<FirstTy>, TrueReturnTy> &&
        ... &&
-       std::is_convertible_v<detail::get_value_type_t<RestTy>, ReturnTy>));
+       std::is_convertible_v<detail::get_value_type_t<RestTy>, TrueReturnTy>));
   llvm::SmallVector<ReturnTy> result;
   append(result, std::forward<FirstTy>(first));
   (append(result, std::forward<RestTy>(rest)), ...);
@@ -405,11 +412,12 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
   template <typename... ArgsTy>
   static auto call(mlir::PatternRewriter &rewriter, mlir::Location loc,
                    mlir::Value output, ArgsTy &&...args) {
-    if constexpr (sizeof...(Js) == 1 &&
-                  std::is_convertible_v<
-                      std::tuple_element<sizeof...(Is) + sizeof...(Js) - 1,
-                                         std::tuple<std::decay_t<ArgsTy>...>>,
-                      mlir::ArrayRef<mlir::NamedAttribute>>) {
+    if constexpr ((sizeof...(Js) == 1 &&
+                   std::is_convertible_v<
+                       std::tuple_element<
+                           sizeof...(Is) + sizeof...(Js) - 1,
+                           std::tuple<remove_cvref_t<ArgsTy>...>>,
+                       mlir::ArrayRef<mlir::NamedAttribute>>)) {
       return rewriter.create<OpTy>(
           loc, output.getType(),
           flatten(std::get<Is>(
