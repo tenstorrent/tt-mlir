@@ -26,6 +26,7 @@
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
+#include "operations/eltwise/quantization/quantization.h"
 #include "operations/eltwise/ternary/ternary.h"
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
@@ -175,10 +176,16 @@ void ProgramExecutor::runEltwiseOperation(
     return operations::ternary::run(op, getContext());
   };
 
+  auto runQuantizationOp = [&]() {
+    return operations::quantization::run(op, getContext());
+  };
+
+  if (operations::quantization::isQuantizationOp(op)) {
+    return runQuantizationOp();
+  }
   if (operations::unary::isUnaryOp(op)) {
     return runUnaryOp();
   }
-
   if (operations::binary::isBinaryOp(op)) {
     return runBinaryOp();
   }

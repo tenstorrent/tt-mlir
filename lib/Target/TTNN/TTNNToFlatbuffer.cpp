@@ -31,6 +31,8 @@
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Quant/IR/Quant.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -250,6 +252,15 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   auto deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
   assert(deviceAttr);
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  mlir::Type elementType = tensorType.getElementType();
+  // If the element type is quantized, use the desired type.
+  // Ex: for a quant op of fp32->int8, the storage type is int8.
+  if (auto quantType =
+          mlir::dyn_cast<mlir::quant::QuantizedType>(elementType)) {
+    elementType = quantType.getStorageType();
+    tensorType = mlir::RankedTensorType::get(tensorType.getShape(), elementType,
+                                             tensorType.getEncoding());
+  }
   auto tensorDesc =
       cache.getOrCreate(tensorType, tensorTypeToFlatbuffer, deviceAttr);
   return ::tt::target::ttnn::CreateTensorRef(*cache.fbb, cache.global_id++,
@@ -906,6 +917,25 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
     auto parameter = op.getParameter().convertToFloat();
     return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
                                                               parameter);
+  } else if constexpr (std::is_same_v<EltwiseOp, QuantizeOp> ||
+                       std::is_same_v<EltwiseOp, DequantizeOp>) {
+    auto scale = op.getScale().convertToFloat();
+    auto zeroPoint = op.getZeroPoint();
+    ::flatbuffers::Optional<int32_t> axis = op.getAxis();
+    ::flatbuffers::Optional<::tt::target::DataType> dtype =
+        toFlatbufferOptional(cache, op.getOutputDtype());
+    return ::tt::target::ttnn::CreateQuantizationOpParams(
+        *cache.fbb, scale, zeroPoint, axis, dtype);
+  } else if constexpr (std::is_same_v<EltwiseOp, RequantizeOp>) {
+    auto inScale = op.getInScale().convertToFloat();
+    auto inZeroPoint = op.getInZeroPoint();
+    auto outScale = op.getOutScale().convertToFloat();
+    auto outZeroPoint = op.getOutZeroPoint();
+    ::flatbuffers::Optional<int32_t> axis = op.getAxis();
+    ::flatbuffers::Optional<::tt::target::DataType> dtype =
+        toFlatbufferOptional(cache, op.getOutputDtype());
+    return ::tt::target::ttnn::CreateRequantizeOpParams(
+        *cache.fbb, inScale, inZeroPoint, outScale, outZeroPoint, axis, dtype);
   }
 }
 
@@ -975,6 +1005,27 @@ createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
                                    ::tt::target::ttnn::ClampTensorOpParams>(
                  cache, op)
                  .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, QuantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Quantize;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::QuantizationOpParams;
+    params = createEltwiseOpParams<QuantizeOp,
+                                   ::tt::target::ttnn::QuantizationOpParams>(
+                 cache, op)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, DequantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Dequantize;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::QuantizationOpParams;
+    params = createEltwiseOpParams<DequantizeOp,
+                                   ::tt::target::ttnn::QuantizationOpParams>(
+                 cache, op)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, RequantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Requantize;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::RequantizeOpParams;
+    params =
+        createEltwiseOpParams<RequantizeOp,
+                              ::tt::target::ttnn::RequantizeOpParams>(cache, op)
+            .Union();
   } else {
     llvm_unreachable("unhandled non-DPS EltwiseOp");
   }
@@ -1798,6 +1849,18 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     // clear.
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
+  }
+  if (auto quantizeOp = dyn_cast<QuantizeOp>(op); quantizeOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, quantizeOp),
+                           debugString, locInfo);
+  }
+  if (auto dequantizeOp = dyn_cast<DequantizeOp>(op); dequantizeOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, dequantizeOp),
+                           debugString, locInfo);
+  }
+  if (auto requantizeOp = dyn_cast<RequantizeOp>(op); requantizeOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, requantizeOp),
+                           debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

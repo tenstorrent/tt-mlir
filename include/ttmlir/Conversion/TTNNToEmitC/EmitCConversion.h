@@ -261,13 +261,25 @@ struct EmitCTypeConverter<T,
   }
 
   static std::string convert(mlir::APFloat value) {
-    return convert(value.convertToDouble());
+    if constexpr (std::is_same_v<T, float>) {
+      // Add 'f' suffix for float literals to ensure correct type in C++.
+      std::string result = std::to_string(value.convertToDouble());
+      result.append("f");
+      return result;
+    } else {
+      return std::to_string(value.convertToDouble());
+    }
   }
 
   template <typename U>
   static std::enable_if_t<std::is_floating_point_v<U>, std::string>
   convert(U value) {
-    return std::to_string(static_cast<T>(value));
+    // Add 'f' suffix for float literals to ensure correct type in C++.
+    std::string result = std::to_string(static_cast<T>(value));
+    if constexpr (std::is_same_v<T, float>) {
+      result.append("f");
+    }
+    return result;
   }
 };
 

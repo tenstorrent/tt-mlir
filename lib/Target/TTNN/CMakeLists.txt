@@ -12,4 +12,5 @@ add_mlir_translation_library(TTNNTargetFlatbuffer
     MLIRTTKernelDialect
     MLIRTTNNTransforms
     TTMLIRTTNNToEmitC
+    MLIRQuantDialect
 )

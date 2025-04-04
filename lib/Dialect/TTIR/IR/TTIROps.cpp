@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -545,6 +546,96 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   return success();
+}
+
+// Common verifier for all Quantize ops.
+static ::mlir::LogicalResult verifyQuantizeOpCommon(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
+    ::mlir::RankedTensorType inputType, ::mlir::RankedTensorType outputType) {
+  // Sanity check to make sure that input rank matches the rank of the output
+  // tensor.
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError() << "Input tensor rank of " << inputType.getRank()
+                         << " does not match the output tensor rank of "
+                         << outputType.getRank();
+  }
+
+  // Shapes of input and output of a quantize operation must be the same.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError() << "Output tensor shape ("
+                         << ttmlir::utils::join(outputType.getShape(), ",") +
+                                ") must match the inferred shape: (" +
+                                ttmlir::utils::join(inputType.getShape(), ",") +
+                                ")";
+  }
+
+  return ::mlir::success();
+}
+
+// QuantizeOp verification.
+::mlir::LogicalResult mlir::tt::ttir::QuantizeOp::verify() {
+  auto inputElemType = getInput().getType().getElementType();
+  auto outputElemType = getResult().getType().getElementType();
+
+  if (!mlir::isa<mlir::FloatType>(inputElemType)) {
+    return emitOpError() << "Input element type must be float, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+    return emitOpError()
+           << "Output element type must be UniformQuantizedType or "
+              "UniformQuantizedPerAxisType, but got "
+           << outputElemType;
+  }
+
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getOutput().getType());
+}
+
+// DequantizeOp verification.
+::mlir::LogicalResult mlir::tt::ttir::DequantizeOp::verify() {
+  auto inputElemType = getInput().getType().getElementType();
+  auto outputElemType = getResult().getType().getElementType();
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
+    return emitOpError() << "Input element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::FloatType>(outputElemType)) {
+    return emitOpError() << "Output element type must be float, but got "
+                         << outputElemType;
+  }
+
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getOutput().getType());
+}
+
+// RequantizeOp verification.
+::mlir::LogicalResult mlir::tt::ttir::RequantizeOp::verify() {
+  auto inputElemType = getInput().getType().getElementType();
+  auto outputElemType = getResult().getType().getElementType();
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
+    return emitOpError() << "Input element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << inputElemType;
+  }
+
+  if (!mlir::isa<mlir::quant::UniformQuantizedType,
+                 mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
+    return emitOpError() << "Output element type must be UniformQuantizedType "
+                            "or UniformQuantizedPerAxisType, but got "
+                         << outputElemType;
+  }
+
+  return verifyQuantizeOpCommon([&]() { return emitOpError(); },
+                                getInput().getType(), getOutput().getType());
 }
 
 //===----------------------------------------------------------------------===//
