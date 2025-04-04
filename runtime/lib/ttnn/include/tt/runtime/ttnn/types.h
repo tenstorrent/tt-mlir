@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -190,11 +191,12 @@ public:
                  const std::vector<uint32_t> &programOutputIds,
                  std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
                  common::DylibManager &&programDylibManager,
-                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle)
+                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
+                 const std::string &programName)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
-        executableHandle(executableHandle) {
+        executableHandle(executableHandle), programName(programName) {
     LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
     // Create a default cache
     externalCache = std::make_shared<TensorCache>();
@@ -206,12 +208,13 @@ public:
                  common::DylibManager &&programDylibManager,
                  ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
                  std::shared_ptr<TensorCache> externalCache,
-                 std::vector<uint64_t> &&inputVersions)
+                 std::vector<uint64_t> &&inputVersions,
+                 const std::string &programName)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
         executableHandle(executableHandle), externalCache(externalCache),
-        inputVersions(std::move(inputVersions)) {
+        inputVersions(std::move(inputVersions)), programName(programName) {
     LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
     // If no external cache was provided, create a default one
     if (!this->externalCache) {
@@ -221,8 +224,8 @@ public:
 
   ProgramContext(const ProgramContext &) = delete;
   ProgramContext &operator=(const ProgramContext &) = delete;
-  ProgramContext(ProgramContext &&) = default;
-  ProgramContext &operator=(ProgramContext &&) = default;
+  ProgramContext(ProgramContext &&) = delete;
+  ProgramContext &operator=(ProgramContext &&) = delete;
 
 private:
   std::vector<std::uint32_t> programInputIds;
@@ -280,6 +283,8 @@ private:
     return inputVersions;
   }
 
+  const std::string &getProgramName() const { return programName; }
+
 private:
   ProgramTensorPool tensorPool;
 
@@ -298,7 +303,9 @@ private:
   std::shared_ptr<TensorCache> externalCache;
 
   // Input versions
-  std::vector<uint64_t> inputVersions;
+  const std::vector<uint64_t> inputVersions;
+
+  const std::string programName;
 };
 
 } // namespace tt::runtime::ttnn

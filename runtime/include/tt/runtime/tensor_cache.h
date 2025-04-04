@@ -5,10 +5,11 @@
 #ifndef TT_RUNTIME_TENSOR_CACHE_H
 #define TT_RUNTIME_TENSOR_CACHE_H
 
-#include "tt/runtime/types.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/types.h"
 
 #include <cstdint>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -46,45 +47,29 @@ public:
   TensorCache(TensorCache &&) = default;
   TensorCache &operator=(TensorCache &&) = default;
 
-  // Check if a cache entry is valid (input tensor versions match)
-  bool isValid(const std::string &functionName,
-               const std::vector<Tensor> &inputs) const {
-    auto it = cache.find(functionName);
-    if (it == cache.end()) {
-      // If not in cache, it's not valid
-      return false;
-    }
-
-    // Check if input versions match the stored versions
-    if (it->second.inputVersions.size() != inputs.size()) {
-      return false;
-    }
-
-    for (size_t i = 0; i < inputs.size(); ++i) {
-      if (inputs[i].version.load() != it->second.inputVersions[i]) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
   // Get all cached tensors for a function name if the cache is valid
   // Returns nullptr if cache is invalid or not found
   const std::vector<Tensor> *
-  getAll(const std::string &functionName,
+  getAll(const std::string &parentFuncName,
+         const std::string &constEvalFuncName,
          const std::vector<uint64_t> &inputVersions) const {
-    auto it = cache.find(functionName);
+    auto it = cache.find(parentFuncName);
     if (it == cache.end()) {
       ++stats["misses"];
       return nullptr;
     }
 
-    const CacheValue &value = it->second;
+    auto internalIt = it->second.find(constEvalFuncName);
+    if (internalIt == it->second.end()) {
+      ++stats["misses"];
+      return nullptr;
+    }
+
+    const CacheValue &value = internalIt->second;
     if (value.inputVersions != inputVersions) {
-      for (size_t i = 0; i < inputVersions.size(); ++i)
-      {
-        LOG_INFO("Prev version: ", value.inputVersions[i], " vs given version: ", inputVersions[i]);
+      for (size_t i = 0; i < inputVersions.size(); ++i) {
+        LOG_INFO("Prev version: ", value.inputVersions[i],
+                 " vs given version: ", inputVersions[i]);
       }
       ++stats["misses"];
       return nullptr;
@@ -94,18 +79,16 @@ public:
   }
 
   // Store tensors with explicit input versions
-  void store(const std::string &functionName, std::vector<Tensor> tensors,
+  void store(const std::string &parentFuncName,
+             const std::string &constEvalFuncName, std::vector<Tensor> tensors,
              const std::vector<uint64_t> &inputVersions) {
     CacheValue value;
     value.inputVersions = inputVersions;
     value.tensors = std::move(tensors);
 
     // Replace any existing entry
-    cache[functionName] = std::move(value);
+    cache[parentFuncName][constEvalFuncName] = std::move(value);
   }
-
-  // Remove a function name and its associated tensors from the cache
-  void remove(const std::string &functionName) { cache.erase(functionName); }
 
   // Clear the entire cache
   void clear() { cache.clear(); }
@@ -114,12 +97,19 @@ public:
   size_t size() const { return cache.size(); }
 
   // Get cache statistics
-  std::unordered_map<std::string, size_t> getStats() const {
-    return stats;
+  std::unordered_map<std::string, size_t> getStats() const { return stats; }
+
+  void remove(const std::string &parentFunc) {
+    auto it = cache.find(parentFunc);
+    if (it == cache.end()) {
+      return;
+    }
+    cache.erase(it);
   }
 
 private:
-  std::unordered_map<std::string, CacheValue> cache;
+  std::unordered_map<std::string, std::unordered_map<std::string, CacheValue>>
+      cache;
 
   mutable std::unordered_map<std::string, size_t> stats;
 };

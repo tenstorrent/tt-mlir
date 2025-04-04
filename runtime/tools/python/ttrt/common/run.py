@@ -565,13 +565,6 @@ class Run:
                                 Run.TorchInitializer.get_initilizer("zeros")
                             )
 
-                            # total_inputs = []
-                            # total_outputs = []
-                            # for loop in range(self["--loops"]):
-                            #     self.logging.debug(
-                            #         f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
-                            #     )
-
                             inputs = []
                             outputs = []
                             for i in program.input_tensors:
@@ -595,9 +588,6 @@ class Run:
                                         Binary.Program.to_data_type(i.dtype),
                                     )
                                 )
-
-                            # total_inputs.append(inputs)
-                            # total_outputs.append(outputs)
 
                             event = None
 
