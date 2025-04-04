@@ -26,21 +26,22 @@ Hooks const &Hooks::get(
     throw std::runtime_error("callbackKey must be 'post-op' or 'pre-op', got " +
                              callbackKey.value());
   }
-  
+
   if (!callbackKey) {
     static Hooks defaultHooks{};
     return defaultHooks;
   }
-  
+
   if (config.contains(callbackKey.value())) {
     return config.at(callbackKey.value());
   }
-  
+
   if (!operatorCallback) {
     throw std::runtime_error("operatorCallback must be provided");
   }
-  
-  config.insert({callbackKey.value(), Hooks(callbackKey, operatorCallback.value())});
+
+  config.insert(
+      {callbackKey.value(), Hooks(callbackKey, operatorCallback.value())});
   return config.at(callbackKey.value());
 }
 
