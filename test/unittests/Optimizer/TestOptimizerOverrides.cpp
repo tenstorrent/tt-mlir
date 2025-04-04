@@ -43,7 +43,6 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
                     "reshard_if_not_optimal#false:"
                     "override_sharding_config#false:"
                     "shard_layout#block_sharded:"
-                    "core_grid#0:"
                     "transpose_shards#true:"
                     "output_layout#row_major:"
                     "enable_act_double_buffer#false:"
