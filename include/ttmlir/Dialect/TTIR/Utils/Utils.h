@@ -57,7 +57,7 @@ template <typename OpTy, size_t... Is, size_t... Js>
 struct SplitCaller<OpTy, std::index_sequence<Is...>,
                    std::index_sequence<Js...>> {
   template <typename... ArgsTy>
-  static auto call(mlir::PatternRewriter &rewriter, mlir::Location loc,
+  static auto call(mlir::OpBuilder &builder, mlir::Location loc,
                    mlir::Value output, ArgsTy &&...args) {
     if constexpr ((sizeof...(Js) == 1 &&
                    std::is_convertible_v<
@@ -66,7 +66,7 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
                            std::tuple<
                                ttmlir::utils::remove_cvref_t<ArgsTy>...>>,
                        mlir::ArrayRef<mlir::NamedAttribute>>)) {
-      return rewriter.create<OpTy>(
+      return builder.create<OpTy>(
           loc, output.getType(),
           ttmlir::utils::flatten(std::get<Is>(std::forward_as_tuple(
                                      std::forward<ArgsTy>(args)...))...,
@@ -74,7 +74,7 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
           std::get<sizeof...(Is) + sizeof...(Js) - 1>(
               std::forward_as_tuple(std::forward<ArgsTy>(args)...)));
     } else {
-      return rewriter.create<OpTy>(
+      return builder.create<OpTy>(
           loc, output.getType(),
           std::get<Is>(std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
           output,
@@ -87,21 +87,21 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
 template <typename OpTy, size_t OperandCountV, size_t AttributeCountV>
 struct SplitImpl {
   template <typename... ArgsTy>
-  static auto call(mlir::PatternRewriter &rewriter, mlir::Location loc,
+  static auto call(mlir::OpBuilder &builder, mlir::Location loc,
                    mlir::Value dpsOutput, ArgsTy &&...args) {
     return SplitCaller<OpTy, std::make_index_sequence<OperandCountV>,
                        std::make_index_sequence<AttributeCountV>>::
-        call(rewriter, loc, dpsOutput, std::forward<ArgsTy>(args)...);
+        call(builder, loc, dpsOutput, std::forward<ArgsTy>(args)...);
   }
 };
 
 template <typename OpTy, typename... ArgsTy>
-auto splitAndCall(mlir::PatternRewriter &rewriter, mlir::Location loc,
+auto splitAndCall(mlir::OpBuilder &builder, mlir::Location loc,
                   mlir::Value output, ArgsTy &&...args) {
   constexpr size_t count = count_consecutive_v<ArgsTy...>;
 
   return SplitImpl<OpTy, count, sizeof...(ArgsTy) - count>::call(
-      rewriter, loc, output, std::forward<ArgsTy>(args)...);
+      builder, loc, output, std::forward<ArgsTy>(args)...);
 }
 } // namespace detail
 
@@ -117,16 +117,16 @@ auto splitAndCall(mlir::PatternRewriter &rewriter, mlir::Location loc,
 // rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
 // output, attribute1, attribute2, ..., attributeM);
 template <typename OpTy, typename... ArgsTy>
-OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
                  mlir::RankedTensorType outputType, ArgsTy &&...args) {
   static_assert(
       OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
 
-  auto output = rewriter.create<mlir::tt::ttir::EmptyOp>(
+  auto output = builder.create<mlir::tt::ttir::EmptyOp>(
       loc, outputType.getShape(), outputType.getElementType(),
       outputType.getEncoding());
 
-  return detail::splitAndCall<OpTy>(rewriter, loc, output,
+  return detail::splitAndCall<OpTy>(builder, loc, output,
                                     std::forward<ArgsTy>(args)...);
 }
 
@@ -145,7 +145,7 @@ OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
 // rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
 // output, attribute1, attribute2, ..., attributeM);
 template <typename OpTy, typename... ArgsTy>
-OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
                  llvm::ArrayRef<int64_t> outputShape,
                  mlir::Type outputElementType, mlir::Attribute outputEncoding,
                  ArgsTy &&...args) {
@@ -154,7 +154,7 @@ OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
 
   auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
                                                 outputEncoding);
-  return createDPSOp<OpTy>(rewriter, loc, outputType,
+  return createDPSOp<OpTy>(builder, loc, outputType,
                            std::forward<ArgsTy>(args)...);
 }
 
