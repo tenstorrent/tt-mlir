@@ -157,6 +157,23 @@ void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(pm, *optionsStruct);
 }
 
+void createTTNNPipelineQuantDataTypeConversionPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  if (!options.quantDataType.empty()) {
+    auto passOptions = mlir::tt::ttir::TTIRQuantDataTypeConversionPassOptions();
+    passOptions.targetBitWidth = options.quantDataType;
+    pm.addPass(
+        mlir::tt::ttir::createTTIRQuantDataTypeConversionPass(passOptions));
+  }
+}
+
+void createTTNNPipelineQuantDataTypeConversionPassFromString(
+    OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineQuantDataTypeConversionPass(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::createCanonicalizerPass());
@@ -172,6 +189,7 @@ void createTTIRToTTNNBackendPipeline(
       pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
   createTTNNPipelineTTIRPasses(devicePm, options);
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
+  createTTNNPipelineQuantDataTypeConversionPass(devicePm, options);
   createTTNNPipelineLoweringPasses(devicePm, options);
   createTTNNPipelineWorkaroundPass(devicePm, options);
   if (options.enableConstEval) {
