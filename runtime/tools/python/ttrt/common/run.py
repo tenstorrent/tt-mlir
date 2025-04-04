@@ -494,14 +494,8 @@ class Run:
                         post_op_get_callback_fn(post_op_callback_runtime_config),
                     )
 
-<<<<<<< HEAD
                     if self["--save-artifacts"]:
                         self.artifacts.create_binary_artifacts_folder(bin)
-=======
-            # Create a tensor cache if enabled
-            if self["--enable-tensor-cache"]:
-                ttrt.runtime.init_cache(device)
->>>>>>> f56a84a47 (various fixes)
 
                     if self["--emitc"]:
                         # .so are compiled such that they have the same name as flatbuffers, so we rename here

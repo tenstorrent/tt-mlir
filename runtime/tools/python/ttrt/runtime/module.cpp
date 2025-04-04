@@ -137,7 +137,8 @@ PYBIND11_MODULE(_C, m) {
       .def(py::init<>())
       .def("clear", &tt::runtime::TensorCache::clear)
       .def("size", &tt::runtime::TensorCache::size)
-      .def("get_stats", &tt::runtime::TensorCache::getStats);
+      .def("get_stats", &tt::runtime::TensorCache::getStats)
+      .def("remove", &tt::runtime::TensorCache::remove);
 
   py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
       .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
