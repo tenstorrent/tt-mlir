@@ -79,7 +79,7 @@ struct Hooks {
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   Hooks() : callbackKey(std::nullopt), operatorCallback(std::nullopt) {}
-  
+
   Hooks(std::optional<std::string> callbackKey,
         std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
             operatorCallback)
