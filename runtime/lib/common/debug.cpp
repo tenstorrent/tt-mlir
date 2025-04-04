@@ -4,6 +4,7 @@
 
 #include "tt/runtime/detail/debug.h"
 #include <set>
+#include <unordered_map>
 
 namespace tt::runtime::debug {
 
