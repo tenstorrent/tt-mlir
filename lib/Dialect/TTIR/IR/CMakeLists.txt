@@ -18,4 +18,5 @@ add_mlir_dialect_library(MLIRTTIRDialect
         LINK_LIBS PUBLIC
         MLIRTTDialect
         MLIRBufferizationTransforms
+        TTMLIRTTIRUtils
         )

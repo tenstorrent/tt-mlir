@@ -61,7 +61,7 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
                    mlir::Value output, ArgsTy &&...args) {
     if constexpr ((sizeof...(Js) == 1 &&
                    std::is_convertible_v<
-                       std::tuple_element<
+                       std::tuple_element_t<
                            sizeof...(Is) + sizeof...(Js) - 1,
                            std::tuple<
                                ttmlir::utils::remove_cvref_t<ArgsTy>...>>,
