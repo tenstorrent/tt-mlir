@@ -1723,6 +1723,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createNonDPSEltwiseOp(cache, clampTensorOp),
                            debugString, locInfo);
   }
+  if (auto prepareConv2dWeightsOp = dyn_cast<PrepareConv2dWeightsOp>(op);
+      prepareConv2dWeightsOp) {
+    return createOperation(cache, createOp(cache, prepareConv2dWeightsOp),
+                           debugString, locInfo);
+  }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
     return createOperation(cache, createOp(cache, conv2dOp), debugString,
                            locInfo);

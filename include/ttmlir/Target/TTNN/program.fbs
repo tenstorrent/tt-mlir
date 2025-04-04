@@ -505,6 +505,7 @@ union OpType {
   RepeatInterleaveOp,
   SoftmaxOp,
   TransposeOp,
+  PrepareConv2dWeightsOp,
   Conv2dOp,
   ConvTranspose2dOp,
   ConcatOp,

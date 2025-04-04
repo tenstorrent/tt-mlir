@@ -2,15 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "operations/conv/conv2d.h"
-#include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+#include "operations/conv/prepare_conv2d_weights.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/types.hpp"
-#include <optional>
 #include <ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp>
 
 namespace tt::runtime::ttnn::operations::conv {

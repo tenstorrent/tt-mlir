@@ -1815,6 +1815,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Convolution ops
   //
+  patterns.add<DefaultOpConversionPattern<tt::ttnn::PrepareConv2dWeightsOp>>(
+      typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<tt::ttnn::ConvTranspose2dOp>>(
       typeConverter, ctx);
