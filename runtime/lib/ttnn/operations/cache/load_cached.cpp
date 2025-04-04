@@ -10,6 +10,7 @@
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/types.h"
 
+#include <string_view>
 #include <vector>
 
 namespace tt::runtime::ttnn::operations::cache {
@@ -31,7 +32,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
   // Extract function name
-  const std::string functionName = op->callee_name()->str();
+  const std::string &parentFuncName = context.getProgramName();
+  const std::string &constEvalFuncname = op->callee_name()->str();
 
   // Initialize input versions array with the correct size
   std::vector<uint64_t> inputVersions(op->inputs_indexes()->size());
@@ -47,10 +49,10 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Get the cached tensors, which will be empty if cache is invalid
   const std::vector<Tensor> *cachedOutputs =
-      cache->getAll(functionName, inputVersions);
+      cache->getAll(parentFuncName, constEvalFuncname, inputVersions);
 
   if (cachedOutputs) {
-    LOG_INFO("Cache hit for function: ", functionName.c_str());
+    LOG_INFO("Cache hit for function: ", constEvalFuncname.c_str());
 
     assert(cachedOutputs->size() == op->outputs()->size());
     for (size_t i = 0; i < cachedOutputs->size(); ++i) {
@@ -62,7 +64,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     return;
   }
 
-  LOG_INFO("Cache miss or invalid cache for function: ", functionName);
+  LOG_INFO("Cache miss or invalid cache for function: ", constEvalFuncname);
 
   // Collect input tensor IDs for execution
   std::vector<uint32_t> funcInputIds =
@@ -99,7 +101,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   executor::ProgramExecutor exec(subProgram, context.getExecutableHandle(),
                                  inputs, &context.getParentMesh());
   exec.execute();
-  LOG_INFO("executed sub-func: ", functionName);
+  LOG_INFO("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();
   // Collect output tensor IDs
   std::vector<uint32_t> outputIds;
@@ -110,7 +112,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Store the results in the cache with input versions
   assert(inputTensors.size() == inputIds.size());
-  cache->store(functionName, outputs, inputVersions);
+  cache->store(parentFuncName, constEvalFuncname, outputs, inputVersions);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     Tensor &runtimeOutput = outputs[i];

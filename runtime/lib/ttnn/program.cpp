@@ -292,7 +292,6 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   return outputTensors;
 }
 
-// Version that accepts an external TensorCache
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,

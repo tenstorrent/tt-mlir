@@ -48,7 +48,8 @@ public:
 
     context = std::make_unique<ProgramContext>(
         programInputIds, programOutputIds, std::move(liveTensors),
-        common::DylibManager(program->dylibs()), meshDevice, executableHandle);
+        common::DylibManager(program->dylibs()), meshDevice, executableHandle,
+        program->name()->str());
   }
 
   // Constructor that accepts an external cache and input versions
@@ -82,7 +83,7 @@ public:
     context = std::make_unique<ProgramContext>(
         programInputIds, programOutputIds, std::move(liveTensors),
         common::DylibManager(program->dylibs()), meshDevice, executableHandle,
-        externalCache, std::move(inputVersions));
+        externalCache, std::move(inputVersions), program->name()->str());
   }
 
   void runCallback(const ::tt::target::ttnn::Operation *opContext,
