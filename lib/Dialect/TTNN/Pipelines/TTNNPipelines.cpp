@@ -49,6 +49,7 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOptimizerOptions optimizerOptions;
     optimizerOptions.overrideInputLayout = options.overrideInputLayout;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
+    optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
     optimizerOptions.memoryLayoutAnalysisEnabled =
         options.memoryLayoutAnalysisEnabled;
     optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;

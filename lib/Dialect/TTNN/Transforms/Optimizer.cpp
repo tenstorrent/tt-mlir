@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
@@ -9,8 +10,10 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -18,6 +21,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 
@@ -81,6 +85,7 @@ public:
   TTNNOptimizerBase(TTNNOptimizerOptions options) : TTNNOptimizerBase() {
     overrideInputLayout = std::move(options.overrideInputLayout);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
+    overrideConv2dConfig = std::move(options.overrideConv2dConfig);
     memoryLayoutAnalysisEnabled =
         std::move(options.memoryLayoutAnalysisEnabled);
     memReconfigEnabled = std::move(options.memReconfigEnabled);
@@ -93,32 +98,38 @@ protected:
   ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
                        mlir::tt::ttnn::InputLayoutOverrideParser>
       overrideInputLayout{
-          *this, "insert-memreconfig",
+          *this, OptionNames::overrideInputLayout,
           ::llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
           ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
   ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
                        mlir::tt::ttnn::OutputLayoutOverrideParser>
       overrideOutputLayout{
-          *this, "override-output-layout",
+          *this, OptionNames::overrideOutputLayout,
           ::llvm::cl::desc("Override output tensor layout for specific ops."),
           ::llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
+  ::mlir::Pass::Option<llvm::StringMap<Conv2dConfigOverrideParams>,
+                       mlir::tt::ttnn::Conv2dConfigOverrideParser>
+      overrideConv2dConfig{
+          *this, OptionNames::overrideConv2dConfig,
+          ::llvm::cl::desc("Override Conv2d configuration for specific ops."),
+          ::llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
   ::mlir::Pass::Option<bool> memoryLayoutAnalysisEnabled{
-      *this, "memory-layout-analysis-enabled",
+      *this, OptionNames::memoryLayoutAnalysisEnabled,
       ::llvm::cl::desc("Enable memory layout optimization."),
       ::llvm::cl::init(false)};
   ::mlir::Pass::Option<bool> memReconfigEnabled{
-      *this, "memreconfig-enabled",
+      *this, OptionNames::memReconfigEnabled,
       ::llvm::cl::desc("Memory layout reconfiguration pass."),
       ::llvm::cl::init(true)};
   ::mlir::Pass::Option<mlir::tt::MemoryLayoutAnalysisPolicyType,
                        mlir::tt::MemoryLayoutAnalysisPolicyTypeParser>
       memoryLayoutAnalysisPolicy{
-          *this, "memory-layout-analysis-policy",
+          *this, OptionNames::memoryLayoutAnalysisPolicy,
           llvm::cl::desc("Specify policy for memory layout analysis."),
           llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
   ::mlir::Pass::Option<int64_t> maxLegalLayouts{
-      *this, "max-legal-layouts",
+      *this, OptionNames::maxLegalLayouts,
       ::llvm::cl::desc("Override maximum number of sharded layouts for legal "
                        "layout analysis."),
       ::llvm::cl::init(64)};
@@ -190,7 +201,7 @@ public:
           getChildAnalysis<LegalLayoutAnalysis>(op);
       legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
           chipDesc, max_grid, tensorType, maxLegalLayouts,
-          &overrideOutputLayout, rowMajorEnabled));
+          &overrideOutputLayout, &overrideConv2dConfig, rowMajorEnabled));
       legalConfigs[op] = legalLayoutAnalysis.getResult();
     });
 
@@ -330,6 +341,18 @@ public:
                                          layoutAttr.getMemref().getShape())),
                 tensorMemoryLayoutAttr));
           }
+
+          // Set specific Conv2d Op configuration.
+          if (isa<ttnn::Conv2dOp>(op)) {
+            if (opConfigAnalysis.getResult().at(op).config) {
+              Attribute config = opConfigAnalysis.getResult().at(op).config;
+              if (isa<ttnn::Conv2dConfigAttr>(config)) {
+                ttnn::Conv2dOp conv2dOp = mlir::cast<ttnn::Conv2dOp>(op);
+                conv2dOp.setConv2dConfigAttr(
+                    mlir::cast<ttnn::Conv2dConfigAttr>(config));
+              }
+            }
+          }
         }
       });
 
@@ -352,13 +375,19 @@ public:
 private:
   void assertOverridesValid() {
     // Check if each overriden op exists in the graph.
+    // Check if each conv2d config override is applied only to conv2d op.
     //
     llvm::StringMap<bool> overridenOpExists;
-    for (auto &override : overrideOutputLayout) {
-      overridenOpExists[override.first()] = false;
+    llvm::StringMap<bool> overrideConv2dOp;
+    for (auto &opOverride : overrideOutputLayout) {
+      overridenOpExists[opOverride.first()] = false;
     }
-    for (auto &override : overrideInputLayout) {
-      overridenOpExists[override.first()] = false;
+    for (auto &opOverride : overrideInputLayout) {
+      overridenOpExists[opOverride.first()] = false;
+    }
+    for (auto &opOverride : overrideConv2dConfig) {
+      overridenOpExists[opOverride.first()] = false;
+      overrideConv2dOp[opOverride.first()] = false;
     }
 
     ModuleOp moduleOp = getOperation();
@@ -371,12 +400,17 @@ private:
       if (overridenOpExists.contains(opLocName)) {
         overridenOpExists[opLocName] = true;
       }
+      if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocName)) {
+        llvm::errs() << "Trying to override conv2d config on non-conv2d op: "
+                     << op->getName() << "\n";
+        assert(false && "Trying to override conv2d config on non-conv2d op: ");
+      }
     });
 
-    for (auto &override : overridenOpExists) {
-      if (!override.second) {
+    for (auto &opOverride : overridenOpExists) {
+      if (!opOverride.second) {
         llvm::errs() << "Trying to override non-existing op: "
-                     << override.first() << "\n";
+                     << opOverride.first() << "\n";
         assert(false && "Trying to override non-existing op");
       }
     }
@@ -509,9 +543,11 @@ private:
         Layout outputLayoutEnum = consumerOpOutputLayout.getLayout();
         LayoutAttr outputLayout =
             LayoutAttr::get(consumerOp->getContext(), outputLayoutEnum);
+        Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
+                                                           "_mem_reconfig");
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
-            consumerOp->getLoc(), newTensorType, producerOp->getResult(0),
-            outputLayout, outputDataType, outputMemConfigAttr,
+            loc, newTensorType, producerOp->getResult(0), outputLayout,
+            outputDataType, outputMemConfigAttr,
             getOrCreateDeviceOpValue(consumerOp, builder));
 
         consumerOp->setOperand(edge.operandIndex,
@@ -551,8 +587,10 @@ private:
           dramLayout.getMemLayout());
 
       builder.setInsertionPointAfter(op);
+      Location loc =
+          ttmlir::utils::appendLocationSuffix(op->getLoc(), "_spill");
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          op->getLoc(), newTensorType, op->getResult(0), newLayout, dataType,
+          loc, newTensorType, op->getResult(0), newLayout, dataType,
           memConfigAttr, getOrCreateDeviceOpValue(op, builder));
 
       for (auto &use : op->getResult(0).getUses()) {
