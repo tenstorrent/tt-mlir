@@ -4,10 +4,13 @@
 
 #include "tt/runtime/detail/debug.h"
 #include <set>
+#include <unordered_map>
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
 namespace tt::runtime::debug {
+
+std::unordered_map<std::string, Hooks> Hooks::config;
 
 Env const &Env::get(bool loadKernelsFromDisk) {
   static Env config(loadKernelsFromDisk);
@@ -23,8 +26,22 @@ Hooks const &Hooks::get(
     throw std::runtime_error("callbackKey must be 'post-op' or 'pre-op', got " +
                              callbackKey.value());
   }
-  static Hooks config(callbackKey, operatorCallback);
-  return config;
+  
+  if (!callbackKey) {
+    static Hooks defaultHooks{};
+    return defaultHooks;
+  }
+  
+  if (config.contains(callbackKey.value())) {
+    return config.at(callbackKey.value());
+  }
+  
+  if (!operatorCallback) {
+    throw std::runtime_error("operatorCallback must be provided");
+  }
+  
+  config.insert({callbackKey.value(), Hooks(callbackKey, operatorCallback.value())});
+  return config.at(callbackKey.value());
 }
 
 } // namespace tt::runtime::debug
