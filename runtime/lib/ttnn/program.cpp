@@ -61,7 +61,7 @@
 
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
-using ::tt::runtime::DeviceRuntime;
+// using ::tt::runtime::DeviceRuntime;
 
 static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 #ifdef TT_RUNTIME_ENABLE_PERF_TRACE
