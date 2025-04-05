@@ -23,6 +23,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
@@ -3461,9 +3462,7 @@ void mlir::tt::ttir::GenericOp::getAsmBlockNames(
     auto type = getRegionThreadType(region.getRegionNumber());
     setNameFn(&region.front(),
               stringifyEnum(type).str() +
-                  Twine(threadTypeCounts[static_cast<
-                            std::underlying_type_t<ThreadType>>(type)]++)
-                      .str());
+                  Twine(threadTypeCounts[llvm::to_underlying(type)]++).str());
   }
 }
 
