@@ -10,6 +10,7 @@
 
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <iterator>
@@ -67,7 +68,7 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
                   std::is_convertible_v<
                       std::tuple_element_t<
                           sizeof...(Is) + sizeof...(Js) - 1,
-                          std::tuple<ttmlir::utils::remove_cvref_t<ArgsTy>...>>,
+                          std::tuple<llvm::remove_cvref_t<ArgsTy>...>>,
                       mlir::ArrayRef<mlir::NamedAttribute>>) {
       return builder.create<OpTy>(
           loc, output.getType(),
