@@ -163,7 +163,7 @@ class TTIRBuilder:
         return self._get_type(input).shape
 
     def generate_and_store_random_golden(
-        self, operand: Operand, dtype: torch.dtype = torch.float32
+        self, operand: Operand, dtype: Union[torch.dtype, TypeInfo] = torch.float32
     ) -> Golden:
         """
         Generates random tensor of `dtype`s of `operand`s shape, assigns it to a golden,
@@ -180,7 +180,7 @@ class TTIRBuilder:
         return golden
 
     def generate_input_golden(
-        self, operand: Operand, dtype: torch.dtype, index: int
+        self, operand: Operand, dtype: Union[torch.dtype, TypeInfo], index: int
     ) -> None:
         """
         Generates random tensor of `dtype`s of `input`s shape, assigns it to a golden,
@@ -257,12 +257,20 @@ class TTIRBuilder:
 
     @staticmethod
     def _generate_random_tensor(
-        shape: Shape, dtype: torch.dtype, seed: int
+        shape: Shape, dtype: Union[torch.dtype, TypeInfo], seed: int
     ) -> torch.Tensor:
         """
         Generates random tensor of shape `shape`, with type `dtype`, using `seed` to seed torch
         random generator.
         """
+        if isinstance(dtype, TypeInfo):
+            # Generate float tensor and quantize it.
+            float_tensor = torch.randn(
+                shape, generator=torch.manual_seed(seed), dtype=torch.float32
+            )
+            return torch.quantize_per_tensor(
+                float_tensor, dtype.scale, dtype.zero_point, dtype.dtype
+            )
         if dtype.is_floating_point:
             return torch.randn(shape, generator=torch.manual_seed(seed), dtype=dtype)
         else:
@@ -341,7 +349,7 @@ class TTIRBuilder:
                 return DataType.BFloat16
             case torch.float32:
                 return DataType.Float32
-            case torch.int32:
+            case torch.int32 | torch.qint32:
                 return DataType.Int32
             case None:
                 return DataType.Float32
@@ -1563,3 +1571,60 @@ class TTIRBuilder:
 
     def maximum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
+
+    def quantize(
+        self, in0: Operand, scale: float, zero_point: int, dtype: torch.dtype
+    ) -> OpView:
+        golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
+        return self.op_proxy(
+            lambda *args, **kwargs: torch.quantize_per_tensor(
+                *args, **kwargs
+            ).int_repr(),
+            ttir.QuantizeOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            output_type=self.get_type_from_torch_dtype(
+                TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
+            ),
+        )
+
+    def dequantize(
+        self, in0: Operand, scale: float, zero_point: int, dtype: torch.dtype
+    ) -> OpView:
+        return self.op_proxy(
+            torch.dequantize,
+            ttir.DequantizeOp,
+            [in0],
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            output_type=self.get_type_from_torch_dtype(dtype=dtype),
+        )
+
+    def requantize(
+        self, in0: Operand, scale: float, zero_point: int, dtype: torch.dtype
+    ) -> OpView:
+        golden_kwargs = {"scale": scale, "zero_point": zero_point, "dtype": dtype}
+        return self.op_proxy(
+            lambda *args, **kwargs: torch.quantize_per_tensor(
+                torch.dequantize(args[0]), **kwargs
+            ),
+            ttir.RequantizeOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            output_type=self.get_type_from_torch_dtype(
+                TypeInfo(dtype=dtype, scale=scale, zero_point=zero_point)
+            ),
+        )
