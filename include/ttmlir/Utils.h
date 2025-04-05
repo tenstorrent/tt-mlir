@@ -12,7 +12,7 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
@@ -310,15 +310,6 @@ getQuadrupleOfInteger(mlir::Attribute attr) {
   }
 }
 
-// Removes const, volatile, and reference qualifiers from a type.
-// The same as C++20's std::remove_cvref_t.
-//
-// Example:
-//   remove_cvref_t<const int&> -> int
-//   remove_cvref_t<volatile float&&> -> float
-template <typename T>
-using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
-
 namespace detail {
 template <typename, typename = void>
 struct is_leaf_type : std::true_type {};
@@ -338,7 +329,7 @@ constexpr bool is_leaf_type_v = is_leaf_type<T>::value;
 // container hierarchy to find the underlying element type.
 template <typename T, typename = void>
 struct get_value_type {
-  using type = remove_cvref_t<T>;
+  using type = llvm::remove_cvref_t<T>;
 };
 
 template <typename T>
