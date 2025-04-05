@@ -123,81 +123,47 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-
-class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-    }];
-}
-
-class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, traits> {
-
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-}
-
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([OneOperand], traits)> {
+    TTNN_Op<mnemonic, traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
     }];
 
-    let builders =
-    [
-      OpBuilder<(ins "Value": $in, "Type": $outputType),
-      [{
-        build($_builder, $_state, {outputType}, in);
-      }]>,
-      OpBuilder<(ins "Value": $in),
-      [{
-        build($_builder, $_state, in, in.getType());
-      }]>
-    ];
+    let arguments = (ins AnyRankedTensor:$input);
+    let results = (outs AnyRankedTensor:$result);
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
+    TTNN_Op<mnemonic, traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
     }];
 
-    let builders =
-    [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Type": $outputType),
-      [{
-        build($_builder, $_state, {outputType}, {lhs, rhs});
-      }]>
-    ];
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs);
+    let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getInputs();
-        mlir::Operation *op = getOperation();
         return
-          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
-                                                                        inputs, op);
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
       }
     }];
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
+    TTNN_Op<mnemonic, traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
     }];
 
-    let builders =
-    [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Type": $outputType),
-      [{
-        build($_builder, $_state, {outputType}, {first, second, third});
-      }]>
-    ];
+    let arguments = (ins AnyRankedTensor:$first,
+                         AnyRankedTensor:$second,
+                         AnyRankedTensor:$third);
+    let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
@@ -208,7 +174,7 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getInputs();
+        ::mlir::Operation::operand_range inputs = getOperands();
         return
           wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
                                                                         inputs);
@@ -427,16 +393,8 @@ class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
       Eltwise unary op with the float parameter.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$parameter);
-
-    let builders =
-    [
-      OpBuilder<(ins "Value": $in, "FloatAttr":$parameter),
-      [{
-        build($_builder, $_state, {in.getType()}, {in}, parameter);
-      }]>
-    ];
 }
 
 def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
@@ -1370,11 +1328,11 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar"> {
         -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$min,
                          F32Attr:$max);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
@@ -1393,11 +1351,11 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
       %out:  [[2, 2, 2, 3, 4, 5, 6, 6]]
   }];
 
-  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+  let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$min,
                        AnyRankedTensor:$max);
 
-  let results = (outs Variadic<AnyRankedTensor>:$result);
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_EmptyOp : TTNN_Op<"empty", [TT_CreationOpTrait]> {
@@ -1744,7 +1702,7 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
       Applies quantization to the input tensor.
 
       Inputs:
-        - `input` Variadic<AnyRankedTensor>: The input tensor to be quantized.
+        - `input` AnyRankedTensor: The input tensor to be quantized.
         - `scale` f32: The scale factor.
         - `zero_point` i32: The zero point value.
         - `axis` Optional<i32>: The axis along which quantization is applied.
@@ -1761,14 +1719,14 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$scale,
                          I32Attr:$zero_point,
                          OptionalAttr<I32Attr>:$axis,
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
@@ -1779,7 +1737,7 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
       Applies dequantization to the input tensor.
 
       Inputs:
-        - `input` Variadic<AnyRankedTensor>: The input tensor to be dequantized.
+        - `input` AnyRankedTensor: The input tensor to be dequantized.
         - `scale` f32: The scale factor.
         - `zero_point` i32: The zero point value.
         - `axis` Optional<i32>: The axis along which quantization is applied.
@@ -1796,14 +1754,14 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$scale,
                          I32Attr:$zero_point,
                          OptionalAttr<I32Attr>:$axis,
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
@@ -1814,7 +1772,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
       Applies requantization to the input tensor.
 
       Inputs:
-        - `input` Variadic<AnyRankedTensor>: The input tensor to be requantized.
+        - `input` AnyRankedTensor: The input tensor to be requantized.
         - `in_scale` f32: The input scale factor.
         - `in_zero_point` i32: The input zero point value.
         - `out_scale` f32: The output scale factor.
@@ -1833,7 +1791,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$in_scale,
                          I32Attr:$in_zero_point,
                          F32Attr:$out_scale,
@@ -1842,7 +1800,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }

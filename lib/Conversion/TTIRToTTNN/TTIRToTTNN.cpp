@@ -587,7 +587,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType(0)),
-        adaptor.getInputs(), adaptor.getParameter());
+        adaptor.getInputs()[0], adaptor.getParameter());
     return success();
   }
 };
@@ -1266,9 +1266,9 @@ public:
     Type outputType = this->getTypeConverter()->convertType(srcOp.getType(0));
 
     if (lhsType.getShape() == rhsType.getShape()) {
-      rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
-          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back(),
-          outputType);
+      rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(srcOp, outputType,
+                                                    adaptor.getInputs().front(),
+                                                    adaptor.getInputs().back());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
@@ -1277,11 +1277,11 @@ public:
 
     } else {
       ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
-          srcOp.getLoc(), adaptor.getInputs().back());
+          srcOp.getLoc(), adaptor.getInputs().back().getType(),
+          adaptor.getInputs().back());
 
       rewriter.replaceOpWithNewOp<ttnn::AddOp>(
-          srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
-          outputType);
+          srcOp, outputType, adaptor.getInputs().front(), negOp);
     }
 
     return success();
@@ -1447,9 +1447,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // The ttnn interface has the inverse inputs of the TTIR dialect op (which
     // matches torch ops).
-    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(op, adaptor.getUpdate(),
-                                                 adaptor.getInput(),
-                                                 adaptor.getOutput().getType());
+    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
+        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
+        adaptor.getInput());
 
     return success();
   }

@@ -137,9 +137,8 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputs()[0]),
-        emitter.emit(std::nullopt) |
-            emitter.getMemoryConfig(srcOp->getResult(0)),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -171,10 +170,9 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputs()[0]),
+        emitter.emit(srcOp.getInput()),
         /*parameter=*/emitter.emit(false),
-        emitter.emit(std::nullopt) |
-            emitter.getMemoryConfig(srcOp->getResult(0)),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -206,10 +204,9 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputs()[0]),
+        emitter.emit(srcOp.getInput()),
         /*parameter=*/emitter.emit(srcOp.getParameter()),
-        emitter.emit(std::nullopt) |
-            emitter.getMemoryConfig(srcOp->getResult(0)),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -241,9 +238,8 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputs()[0]),
-        emitter.emit(std::nullopt) |
-            emitter.getMemoryConfig(srcOp->getResult(0)),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -286,11 +282,10 @@ public:
 
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputs()[0]),
+        emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getMin()),
         emitter.emit(srcOp.getMax()),
-        emitter.emit(std::nullopt) |
-            emitter.getMemoryConfig(srcOp->getResult(0)),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -322,11 +317,10 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputs()[0]),
-        emitter.emit(srcOp.getInputs()[1]),
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
         /*dtype=*/emitter.emit(std::nullopt),
-        emitter.emit(std::nullopt) |
-            emitter.getMemoryConfig(srcOp->getResult(0)),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -358,10 +352,9 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputs()[0]),
-        emitter.emit(srcOp.getInputs()[1]),
-        emitter.emit(std::nullopt) |
-            emitter.getMemoryConfig(srcOp->getResult(0)),
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -393,11 +386,10 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputs()[0]),
-        emitter.emit(srcOp.getInputs()[1]),
-        emitter.emit(srcOp.getInputs()[2]),
-        emitter.emit(std::nullopt) |
-            emitter.getMemoryConfig(srcOp->getResult(0)),
+        emitter.emit(srcOp.getFirst()),
+        emitter.emit(srcOp.getSecond()),
+        emitter.emit(srcOp.getThird()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
@@ -563,7 +555,7 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<OpType> emitter(op, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(op.getInputs()[0]),
+        emitter.emit(op.getInput()),
         emitter.emit(op.getScale()),
         emitter.emit(op.getZeroPoint()),
         emitter.emit(op.getAxis()),
@@ -590,7 +582,7 @@ public:
                                                                     rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(op.getInputs()[0]),
+        emitter.emit(op.getInput()),
         emitter.emit(op.getInScale()),
         emitter.emit(op.getInZeroPoint()),
         emitter.emit(op.getOutScale()),

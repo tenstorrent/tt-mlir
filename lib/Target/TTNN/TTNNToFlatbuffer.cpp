@@ -1031,12 +1031,20 @@ createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   }
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
-  for (auto input : op.getInputs()) {
-    ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(input)));
+  // ClampTensorOp is mapped to a unary composite op in the TTNN, even though
+  // it's technically a ternary elementwise op. To keep the mapping in the
+  // runtime consistent, we have to treat it as a special case where only
+  // `input` operand is the input, and `min` and `max` are parameters.
+  if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
+    ins.emplace_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getInput())));
+  } else {
+    for (auto input : op->getOperands()) {
+      ins.emplace_back(cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(input)));
+    }
   }
-  assert(op.getResults().size() == 1);
-  auto out = cache.getOrCreate(op.getResults().front(), tensorValueToFlatbuffer,
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
   return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,
                                                    paramsType, params);
@@ -1155,12 +1163,11 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     llvm_unreachable("unhandled EltwiseOp");
   }
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
-  for (auto input : op.getInputs()) {
+  for (auto input : op->getOperands()) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
         getOperandThroughDPSOps(input)));
   }
-  assert(op.getResults().size() == 1);
-  auto out = cache.getOrCreate(op.getResult(0), tensorValueToFlatbuffer,
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,

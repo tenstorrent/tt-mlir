@@ -407,26 +407,32 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
 
 // Helper function to determine if data type workaround is required for a binary
 // op. Set the workaround data type based on the binary op.
-static bool isWorkaroundRequiredForBinaryOps(mlir::Operation *op,
-                                             DataType dType,
-                                             DataType &waDataType) {
-  if (isa<ttnn::AddOp>(op) || isa<ttnn::SubtractOp>(op)) {
-    waDataType = DataType::BFloat16;
-    return !(dType == DataType::Float32 || dType == DataType::BFloat16 ||
-             dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4 ||
-             dType == DataType::Int32);
+static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
+                                                       Type elementType) {
+  DataType dType = elementTypeToDataType(elementType);
+
+  if (isa<ttnn::AddOp, ttnn::SubtractOp>(op)) {
+    if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
+        dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4 ||
+        dType == DataType::Int32) {
+      return {};
+    }
+    return DataType::BFloat16;
   }
   // Left shift and right shift ops have same requirements but they are not
   // implemented for TTNN dialect currently.
-  if (isa<ttnn::BitwiseAndOp>(op) || isa<ttnn::BitwiseOrOp>(op) ||
-      isa<ttnn::BitwiseXorOp>(op)) {
-    waDataType = DataType::Int32;
-    return dType != DataType::Int32;
+  if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
+    if (dType == DataType::Int32) {
+      return {};
+    }
+    return DataType::Int32;
   }
   // All remaining binary ops.
-  waDataType = DataType::BFloat16;
-  return !(dType == DataType::Float32 || dType == DataType::BFloat16 ||
-           dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4);
+  if (dType == DataType::Float32 || dType == DataType::BFloat16 ||
+      dType == DataType::BFP_BFloat8 || dType == DataType::BFP_BFloat4) {
+    return {};
+  }
+  return DataType::BFloat16;
 }
 
 // Factory method to create a set of workarounds for binary operation operands.
@@ -438,34 +444,31 @@ static bool isWorkaroundRequiredForBinaryOps(mlir::Operation *op,
 // of the input is using ROW_MAJOR layout.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
-    mlir::Operation::operand_range inputs, mlir::Operation *op) {
-  DataType waDataType;
-  bool isDataTypeWARequired = false;
-  bool isLayoutWARequired = false;
-  for (size_t idx = 0; idx < inputs.size(); ++idx) {
-    RankedTensorType inputTensor =
-        mlir::dyn_cast<RankedTensorType>(inputs[idx].getType());
-    DataType elementType = elementTypeToDataType(inputTensor.getElementType());
-    isDataTypeWARequired |=
-        isWorkaroundRequiredForBinaryOps(op, elementType, waDataType);
-    isLayoutWARequired |= !(
-        mlir::cast<ttnn::TTNNLayoutAttr>(inputTensor.getEncoding()).isTiled());
+    mlir::Operation *op) {
+  assert(op->getNumOperands() == 2 && "expected binary op");
+  auto lhsType =
+      mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+  auto rhsType =
+      mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
+
+  TTNNOperandWorkarounds operandWorkaround;
+  if (auto dtype = binaryOpDTypeWorkaround(op, lhsType.getElementType())) {
+    operandWorkaround.tensorDataTypeWorkaround = *dtype;
+  }
+  if (auto dtype = binaryOpDTypeWorkaround(op, rhsType.getElementType())) {
+    operandWorkaround.tensorDataTypeWorkaround = *dtype;
+  }
+  if (!mlir::cast<ttnn::TTNNLayoutAttr>(lhsType.getEncoding()).isTiled()) {
+    operandWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  }
+  if (!mlir::cast<ttnn::TTNNLayoutAttr>(rhsType.getEncoding()).isTiled()) {
+    operandWorkaround.tensorLayoutWorkaround = Layout::Tile;
   }
 
-  TTNNOperandWorkarounds tileLayoutDataTypeWorkaround;
-  if (isDataTypeWARequired) {
-    tileLayoutDataTypeWorkaround.tensorDataTypeWorkaround = waDataType;
-  }
-  if (isLayoutWARequired) {
-    tileLayoutDataTypeWorkaround.tensorLayoutWorkaround = Layout::Tile;
-  }
-
-  TTNNOperandsWorkarounds workaround =
-      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
-  for (size_t idx = 0; idx < inputs.size(); ++idx) {
-    workaround.addInputOperandWorkaround(tileLayoutDataTypeWorkaround);
-  }
-  return workaround.addOutputOperandWorkaround(tileLayoutDataTypeWorkaround);
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
 }
 
 // Factory method to create a set of workarounds for ArgMax op operands.
