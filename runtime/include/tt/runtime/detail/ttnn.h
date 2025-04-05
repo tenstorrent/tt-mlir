@@ -49,45 +49,59 @@
 
 namespace tt::runtime::ttnn {
 
-Tensor createOwnedTensor(std::shared_ptr<void> data,
+// Creates host tensor with owned storage (the buffer of the tensor is on the
+// host and its allocation/deallocation is owned by this tensor instance).
+Tensor createOwnedHostTensor(void *data,
+                             std::vector<std::uint32_t> const &shape,
+                             std::vector<std::uint32_t> const &stride,
+                             std::uint32_t itemsize,
+                             ::tt::target::DataType dataType);
+
+// Creates host tensor with borrowed storage (the buffer of the tensor is on the
+// host and it was borrowed from an external buffer which is responsible for its
+// allocation/deallocation).
+Tensor createBorrowedHostTensor(void *data,
+                                std::vector<std::uint32_t> const &shape,
+                                std::vector<std::uint32_t> const &stride,
+                                std::uint32_t itemsize,
+                                ::tt::target::DataType dataType);
+
+// Creates multi-device host tensor with owned storage (buffers of the tensor
+// are on the host and their allocation/deallocation is owned by this tensor
+// instance).
+Tensor createOwnedMultiDeviceHostTensor(
+    std::vector<void *> const &data, std::vector<std::uint32_t> const &shape,
+    std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    std::unordered_map<std::string, std::string> const &strategy);
+
+// Creates multi-device host tensor from already existing host tensor shards.
+// Tensor shards can be host tensors with either owned or borrowed storage.
+Tensor createMultiDeviceHostTensor(
+    std::vector<Tensor> const &tensorShards,
+    std::unordered_map<std::string, std::string> const &strategy);
+
+Tensor createEmptyTensor(Device device, Layout layout,
                          std::vector<std::uint32_t> const &shape,
                          std::vector<std::uint32_t> const &stride,
-                         std::uint32_t itemsize,
-                         ::tt::target::DataType dataType);
+                         std::uint32_t itemsize);
 
-Tensor createTensor(std::shared_ptr<void> data,
-                    std::vector<std::uint32_t> const &shape,
-                    std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType);
-
-Tensor
-createTensor(std::vector<std::shared_ptr<void>> &data,
-             std::vector<std::uint32_t> const &shape,
-             std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
-             ::tt::target::DataType dataType,
-             std::unordered_map<std::string, std::string> const &strategy);
-
-Tensor createTensor(Device device, Layout layout,
-                    std::vector<std::uint32_t> const &shape,
-                    std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize);
-
-inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
-  return ::tt::runtime::ttnn::createTensor(data, desc.shape, desc.stride,
-                                           desc.itemsize, desc.dataType);
+inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {
+  return ::tt::runtime::ttnn::createBorrowedHostTensor(
+      data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
 }
 
-inline Tensor
-createTensor(std::vector<std::shared_ptr<void>> &data, TensorDesc const &desc,
-             std::unordered_map<std::string, std::string> const &strategy) {
-  return ::tt::runtime::ttnn::createTensor(
+inline Tensor createOwnedMultiDeviceHostTensor(
+    std::vector<void *> const &data, TensorDesc const &desc,
+    std::unordered_map<std::string, std::string> const &strategy) {
+  return ::tt::runtime::ttnn::createOwnedMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);
 }
 
-inline Tensor createTensor(Device device, Layout layout,
-                           TensorDesc const &desc) {
-  return ::tt::runtime::ttnn::createTensor(device, layout, desc.shape,
-                                           desc.stride, desc.itemsize);
+inline Tensor createEmptyTensor(Device device, Layout layout,
+                                TensorDesc const &desc) {
+  return ::tt::runtime::ttnn::createEmptyTensor(device, layout, desc.shape,
+                                                desc.stride, desc.itemsize);
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor);

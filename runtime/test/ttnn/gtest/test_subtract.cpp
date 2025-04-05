@@ -7,6 +7,7 @@
 #include <memory>
 #include <numeric>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -33,19 +34,23 @@ TEST(TTNNSubtract, Equal) {
     tensorSize *= dim;
   }
 
+  std::vector<std::shared_ptr<void>> inputData;
+  inputData.reserve(inputDescs.size());
   for (const auto &desc : inputDescs) {
     std::shared_ptr<void> data =
         ::tt::runtime::utils::malloc_shared(tensorSize);
     std::memset(data.get(), 1, tensorSize);
-    inputTensors.emplace_back(::tt::runtime::createTensor(data, desc));
+    inputTensors.emplace_back(
+        ::tt::runtime::createBorrowedHostTensor(data.get(), desc));
+    inputData.emplace_back(std::move(data));
   }
 
   std::shared_ptr<void> outputDataPtr =
       ::tt::runtime::utils::malloc_shared(tensorSize);
   // Set to wrong value on purpose here
   std::memset(outputDataPtr.get(), 1, tensorSize);
-  ::tt::runtime::Tensor outputTensor =
-      ::tt::runtime::createTensor(outputDataPtr, outputDescs[0]);
+  ::tt::runtime::Tensor outputTensor = ::tt::runtime::createBorrowedHostTensor(
+      outputDataPtr.get(), outputDescs[0]);
 
   uint32_t numDevices =
       static_cast<uint32_t>(::tt::runtime::getNumAvailableDevices());
