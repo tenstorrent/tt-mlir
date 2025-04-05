@@ -219,7 +219,8 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
 
 // Helper function to unsqueeze a value either on front or back dimension.
 llvm::SmallVector<int64_t> unsqueezeValue(mlir::PatternRewriter &rewriter,
-                                          mlir::Location loc, mlir::Value input,
+                                          mlir::Location loc,
+                                          mlir::Value &input,
                                           mlir::RankedTensorType desiredType,
                                           bool frontUnsqueeze);
 
