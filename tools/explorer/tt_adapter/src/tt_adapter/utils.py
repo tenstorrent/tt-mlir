@@ -14,9 +14,6 @@ TTRT_INSTALLED = importlib.util.find_spec("ttrt") is not None
 
 def parse_mlir_str(module_str):
     with ttmlir.ir.Context() as ctx:
-        ttmlir.dialects.ttir.register_dialect(ctx)
-        ttmlir.dialects.tt.register_dialect(ctx)
-        ttmlir.dialects.ttnn.register_dialect(ctx)
         module = ttmlir.ir.Module.parse(module_str, ctx)
         return module
 

@@ -4,4 +4,4 @@
 
 from ._ttnn_ops_gen import *
 from ._ttnn_enum_gen import *
-from .._mlir_libs._ttmlir import register_dialect, ttnn_ir as ir
+from .._mlir_libs._ttmlir import ttnn_ir as ir

@@ -8,7 +8,6 @@ from ttmlir.ir import *
 from ttmlir.dialects import tt, ttir
 
 with Context() as ctx:
-    ttir.register_dialect(ctx)
 
     module = Module.parse(
         """
