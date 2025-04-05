@@ -1,145 +1,18 @@
 // SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-//
-// From PyTorch:
-// Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
-// Copyright (c) 2014-     Facebook, Inc            (Soumith Chintala)
-// Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
-// Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
-// Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
-// Copyright (c) 2011-2013 NYU                      (Clement Farabet)
-// Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon
-// Bottou, Iain Melvin, Jason Weston) Copyright (c) 2006      Idiap Research
-// Institute (Samy Bengio) Copyright (c) 2001-2004 Idiap Research Institute
-// (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
-
-// From Caffe2:
-
-// Copyright (c) 2016-present, Facebook Inc. All rights reserved.
-
-// All contributions by Facebook:
-// Copyright (c) 2016 Facebook Inc.
-
-// All contributions by Google:
-// Copyright (c) 2015 Google Inc.
-// All rights reserved.
-
-// All contributions by Yangqing Jia:
-// Copyright (c) 2015 Yangqing Jia
-// All rights reserved.
-
-// All contributions by Kakao Brain:
-// Copyright 2019-2020 Kakao Brain
-
-// All contributions by Cruise LLC:
-// Copyright (c) 2022 Cruise LLC.
-// All rights reserved.
-
-// All contributions by Tri Dao:
-// Copyright (c) 2024 Tri Dao.
-// All rights reserved.
-
-// All contributions by Arm:
-// Copyright (c) 2021, 2023-2024 Arm Limited and/or its affiliates
-
-// All contributions from Caffe:
-// Copyright(c) 2013, 2014, 2015, the respective contributors
-// All rights reserved.
-
-// All other contributions:
-// Copyright(c) 2015, 2016 the respective contributors
-// All rights reserved.
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "ttmlir/Utils.h"
+#include <cstdint>
+#include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/SmallVector.h>
+#include <tuple>
 
 namespace mlir::tt::ttir {
-
-static SmallVector<int64_t> getContiguousStrides(ArrayRef<int64_t> shape) {
-  SmallVector<int64_t> strides(shape.size(), 1);
-
-  // The strides of a contiguous 1D tensor is simply [1]
-  if (shape.size() == 1) {
-    return strides;
-  }
-
-  for (int64_t i = static_cast<int64_t>(shape.size()) - 2; i >= 0; i--) {
-    strides[i] = shape[i + 1] * strides[i + 1];
-  }
-  return strides;
-}
-
-// This function calculates the theoretical strides of a tensor after it has
-// been broadcasted. Put simply - if a dimension is broadcasted, the stride
-// of that dimension becomes 0 as you do not have to travel along the buffer
-// which stores the tensor data to retrieve the next segment of data along
-// that dimension. All other strides remain the same.
-static SmallVector<int64_t>
-getStrideAfterBroadcast(ArrayRef<int64_t> originalShape,
-                        ArrayRef<int64_t> broadcastShape) {
-  SmallVector<int64_t> strides = getContiguousStrides(originalShape);
-  SmallVector<int64_t> newStrides(originalShape.size(), 0);
-  for (uint64_t i = 0; i < originalShape.size(); i++) {
-    // Want to set the stride to 0 if the boolean expression is false,
-    // strides[i] if true.
-    newStrides[i] = (originalShape[i] == broadcastShape[i]) * strides[i];
-  }
-  return newStrides;
-}
-
-static std::optional<SmallVector<int64_t>>
-getStrideAfterBroadcastReshape(ArrayRef<int64_t> originalShape,
-                               ArrayRef<int64_t> broadcastShape,
-                               ArrayRef<int64_t> finalShape) {
-  auto stridesAfterBroadcast =
-      getStrideAfterBroadcast(originalShape, broadcastShape);
-
-  // The following algorithm is based upon the implementation of pytorch's
-  // `view` op implementation. Specifically the helper that computes the new
-  // stride.
-  //
-  // Source:
-  // https://github.com/pytorch/pytorch/blob/842a072fd3d219aca538435d4e956053e76817df/aten/src/ATen/TensorUtils.cpp#L364
-  SmallVector<int64_t> newStrides(finalShape.size(), 0);
-
-  int64_t viewD = finalShape.size() - 1;
-  int64_t tensorNumel = 1;
-  int64_t viewNumel = 1;
-  int64_t chunkBaseStride = stridesAfterBroadcast.back();
-
-  for (int64_t tensorD = broadcastShape.size() - 1; tensorD >= 0; tensorD--) {
-    tensorNumel *= broadcastShape[tensorD];
-    if (tensorD == 0 ||
-        (broadcastShape[tensorD - 1] != 1 &&
-         stridesAfterBroadcast[tensorD - 1] != tensorNumel * chunkBaseStride)) {
-
-      while (viewD >= 0 &&
-             (viewNumel < tensorNumel || finalShape[viewD] == 1)) {
-        newStrides[viewD] = viewNumel * chunkBaseStride;
-        viewNumel *= finalShape[viewD];
-        viewD--;
-      }
-
-      if (viewNumel != tensorNumel) {
-        return std::nullopt;
-      }
-
-      if (tensorD > 0) {
-        chunkBaseStride = stridesAfterBroadcast[tensorD - 1];
-        tensorNumel = 1;
-        viewNumel = 1;
-      }
-    }
-  }
-  if (viewD != -1) {
-    return std::nullopt;
-  }
-  return newStrides;
-}
 
 namespace {
 class TTIRCommuteTransposesAboveBroadcast
@@ -203,6 +76,79 @@ private:
 } // namespace
 
 namespace {
+struct DataPartition {
+  int64_t size;
+  bool real;
+};
+
+std::optional<std::tuple<SmallVector<int64_t>, SmallVector<int64_t>>>
+getNewReshapeAndBroadcastDims(ArrayRef<int64_t> originalShape,
+                              ArrayRef<int64_t> finalShape,
+                              ArrayRef<int64_t> broadcastDims) {
+  SmallVector<DataPartition> dataPartitions;
+  DataPartition currentPartition = {-1, false};
+  for (uint64_t i = 0; i < originalShape.size(); i++) {
+    assert(originalShape[i] > 1 && broadcastDims[i] == 1 ||
+           originalShape[i] == 1 && broadcastDims[i] >= 1 &&
+               "Broadcast dimensions should always be 1 when the input shape "
+               "is > 1");
+    if (broadcastDims[i] == 1 && originalShape[i] > 1) {
+      if (currentPartition.size == -1) {
+        currentPartition = {1, true};
+      }
+      if (currentPartition.real) {
+        currentPartition.size *= originalShape[i];
+      } else {
+        dataPartitions.push_back(currentPartition);
+        currentPartition = {originalShape[i], true};
+      }
+    } else if (broadcastDims[i] > 1) {
+      if (currentPartition.size == -1) {
+        currentPartition = {1, false};
+      }
+      if (!currentPartition.real) {
+        currentPartition.size *= broadcastDims[i];
+      } else {
+        dataPartitions.push_back(currentPartition);
+        currentPartition = {broadcastDims[i], false};
+      }
+    }
+  }
+  dataPartitions.push_back(currentPartition);
+
+  int64_t partitionIndex = dataPartitions.size() - 1;
+  SmallVector<int64_t> newBroadcastDims(finalShape.size(), 1);
+  SmallVector<int64_t> newReshapeShape(finalShape);
+  for (int64_t i = finalShape.size() - 1; i >= 0; i--) {
+    if (partitionIndex < 0 && finalShape[i] != 1) {
+      return std::nullopt;
+    }
+    if (finalShape[i] == 1) {
+      continue;
+    }
+    if (dataPartitions[partitionIndex].real) {
+      if (finalShape[i] > dataPartitions[partitionIndex].size) {
+        return std::nullopt;
+      }
+      dataPartitions[partitionIndex].size /= finalShape[i];
+    } else {
+      if (finalShape[i] > dataPartitions[partitionIndex].size) {
+        return std::nullopt;
+      }
+      dataPartitions[partitionIndex].size /= finalShape[i];
+
+      newBroadcastDims[i] = finalShape[i];
+      newReshapeShape[i] = 1;
+    }
+
+    if (dataPartitions[partitionIndex].size == 1) {
+      partitionIndex--;
+    }
+  }
+  assert(partitionIndex == -1 && "All data should have been accounted for.");
+
+  return std::make_tuple(newReshapeShape, newBroadcastDims);
+}
 class TTIRCommuteReshapeAboveBroadcast
     : public TTIRCommuteOpRewritePattern<ttir::ReshapeOp, ttir::BroadcastOp> {
 public:
@@ -212,32 +158,16 @@ public:
                              PatternRewriter &rewriter) const override {
 
     auto originalShape = op.getInput().getType().getShape();
-    auto broadcastShape = op.getResult().getType().getShape();
+    // auto broadcastShape = op.getResult().getType().getShape();
     auto tmResultType = reshapeUser.getResult().getType();
     auto finalShape = tmResultType.getShape();
 
-    std::optional<SmallVector<int64_t>> finalStrides =
-        getStrideAfterBroadcastReshape(originalShape, broadcastShape,
-                                       finalShape);
-
-    assert(finalStrides.has_value() &&
-           "isCommuteViable should have ensured that this is possible.");
-
-    // All dimensions with stride 0 will be broadcasted. So the new reshape
-    // should have the same shape as the desired output - except with all
-    // broadcasted dimensions as `1`.
-    //
-    // The broadcasted dimensions should all be `1` except for the dimensions
-    // which we actually want to broadcast.
-    SmallVector<int64_t> newReshapeShape(finalShape);
-    SmallVector<int64_t> newBroadcastDimensions(finalShape);
-    for (uint64_t i = 0; i < finalShape.size(); i++) {
-      if (finalStrides.value()[i] == 0) {
-        newReshapeShape[i] = 1;
-      } else {
-        newBroadcastDimensions[i] = 1;
-      }
-    }
+    // This must return something, since we know that the commute is viable.
+    // If dataPartitions is nullopt, then there is a bug in isCommuteViable or
+    // within getDataPartitions.
+    auto [newReshapeShape, newBroadcastDimensions] =
+        *getNewReshapeAndBroadcastDims(originalShape, finalShape,
+                                       op.getBroadcastDimensions());
 
     // Now that we know which shape the reshape should have and which broadcast
     // dimensions the broadcast should have, we can generate the new ops.
@@ -267,43 +197,15 @@ public:
 private:
   LogicalResult isCommuteViable(ttir::BroadcastOp op,
                                 ttir::ReshapeOp reshapeUser) const override {
-    // There are some cases where the specific reshape cannot be
-    // commuted above a specific broadcast, so we must check if it is possible
-    // here.
+    // TODO Make new explanitory comment about when a reshape can and cannot
+    // commute through a broadcast.
 
-    // The following points are true about about reshaping and broadcasting
-    // tensors that have stride attributes:
-    //
-    // 1. You can always reshape a contiguous tensor by editing the strides.
-    // 2. You can always broadcast a tensor (contiguous or not) by editing
-    // the strides.
-    // 3. You can only SOMETIMES reshape a non-contiguous tensor by editing
-    // the strides alone.
-    //
-    // We can always assume that the input tensor to this broadcast -> reshape
-    // sequence is contiguous, since TTIR ops do not edit strides. If the
-    // reshape which follows the broadcast shuffles broadcasted data into the
-    // same axes as original data, then we cannot move the reshape before
-    // the broadcast and get the same result. This is because the broadcast
-    // op does not have the ability to shuffle original data into broadcasted
-    // data. If our desired result requires us to do that, then the broadcast
-    // cannot come after the reshape.
-    //
-    // We can check if the reshape can commute above the broadcast by checking
-    // whether or not the reshape can be done by editing strides alone (point
-    // #3).
-
-    auto finalShape = reshapeUser.getResult().getType().getShape();
     auto originalShape = op.getInput().getType().getShape();
-    auto broadcastShape = op.getResult().getType().getShape();
+    auto finalShape = reshapeUser.getResult().getType().getShape();
+    auto broadcastDims = op.getBroadcastDimensions();
 
-    std::optional<SmallVector<int64_t>> finalStrides =
-        getStrideAfterBroadcastReshape(originalShape, broadcastShape,
-                                       finalShape);
-    // finalStrides will be nullopt if the broadcast -> reshape sequence
-    // cannot be performed by editing strides alone. This means we cannot
-    // commute the reshape above the broadcast either.
-    return success(finalStrides.has_value());
+    return success(getNewReshapeAndBroadcastDims(originalShape, finalShape,
+                                                 broadcastDims));
   }
 
   LogicalResult isCommuteFavorable(ttir::BroadcastOp op,
