@@ -1702,7 +1702,7 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
       Applies quantization to the input tensor.
 
       Inputs:
-        - `input` Variadic<AnyRankedTensor>: The input tensor to be quantized.
+        - `input` AnyRankedTensor: The input tensor to be quantized.
         - `scale` f32: The scale factor.
         - `zero_point` i32: The zero point value.
         - `axis` Optional<i32>: The axis along which quantization is applied.
@@ -1719,14 +1719,14 @@ def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$scale,
                          I32Attr:$zero_point,
                          OptionalAttr<I32Attr>:$axis,
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
@@ -1737,7 +1737,7 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
       Applies dequantization to the input tensor.
 
       Inputs:
-        - `input` Variadic<AnyRankedTensor>: The input tensor to be dequantized.
+        - `input` AnyRankedTensor: The input tensor to be dequantized.
         - `scale` f32: The scale factor.
         - `zero_point` i32: The zero point value.
         - `axis` Optional<i32>: The axis along which quantization is applied.
@@ -1754,14 +1754,14 @@ def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$scale,
                          I32Attr:$zero_point,
                          OptionalAttr<I32Attr>:$axis,
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
@@ -1772,7 +1772,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
       Applies requantization to the input tensor.
 
       Inputs:
-        - `input` Variadic<AnyRankedTensor>: The input tensor to be requantized.
+        - `input` AnyRankedTensor: The input tensor to be requantized.
         - `in_scale` f32: The input scale factor.
         - `in_zero_point` i32: The input zero point value.
         - `out_scale` f32: The output scale factor.
@@ -1791,7 +1791,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$in_scale,
                          I32Attr:$in_zero_point,
                          F32Attr:$out_scale,
@@ -1800,7 +1800,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
                          OptionalAttr<TT_DataTypeAttr>:$output_dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }

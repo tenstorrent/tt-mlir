@@ -555,7 +555,7 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<OpType> emitter(op, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(op.getInputs()[0]),
+        emitter.emit(op.getInput()),
         emitter.emit(op.getScale()),
         emitter.emit(op.getZeroPoint()),
         emitter.emit(op.getAxis()),
@@ -582,7 +582,7 @@ public:
                                                                     rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(op.getInputs()[0]),
+        emitter.emit(op.getInput()),
         emitter.emit(op.getInScale()),
         emitter.emit(op.getInZeroPoint()),
         emitter.emit(op.getOutScale()),
