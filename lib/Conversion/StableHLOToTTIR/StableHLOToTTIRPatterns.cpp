@@ -2189,8 +2189,8 @@ public:
       value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
     }
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
-        srcOp,
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
+        rewriter, srcOp,
         outputType,                            // result type
         adaptor.getOperand(),                  // input
         rewriter.getDenseI32ArrayAttr(padDim), // padding dimensions
