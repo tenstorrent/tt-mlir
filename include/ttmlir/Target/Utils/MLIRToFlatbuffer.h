@@ -11,13 +11,9 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
-#include "ttmlir/Utils.h"
 
 #include "llvm/ADT/STLForwardCompat.h"
 
-#include "flatbuffers/flatbuffers.h"
-
-#include <numeric>
 #include <type_traits>
 
 namespace mlir::tt {

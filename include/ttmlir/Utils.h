@@ -9,7 +9,6 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"

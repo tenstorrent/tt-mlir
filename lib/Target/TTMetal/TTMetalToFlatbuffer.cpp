@@ -2,17 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cassert>
-#include <cstddef>
-#include <flatbuffers/buffer.h>
-#include <memory>
-
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/IR/Utils.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Target/TTMetal/Target.h"
@@ -20,7 +12,7 @@
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
 
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "flatbuffers/buffer.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LLVM.h"
@@ -29,6 +21,10 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <cassert>
+#include <cstddef>
+#include <memory>
 
 namespace mlir::tt {
 flatbuffers::Offset<::tt::target::metal::MemoryDesc>
