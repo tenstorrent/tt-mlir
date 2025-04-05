@@ -12,6 +12,7 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 
+#include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
 #include <type_traits>
@@ -142,14 +143,6 @@ inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
-inline ::flatbuffers::Optional<::tt::target::DataType>
-toFlatbufferOptional(FlatbufferObjectCache &cache,
-                     ::std::optional<::mlir::tt::DataType> dataType) {
-  return dataType.has_value() ? ::flatbuffers::Optional<::tt::target::DataType>(
-                                    toFlatbuffer(cache, dataType.value()))
-                              : ::flatbuffers::nullopt;
-}
-
 inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
                                                ttnn::Layout layout) {
   switch (layout) {
@@ -160,15 +153,6 @@ inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
   case ttnn::Layout::Invalid:
     return ::tt::target::TensorLayout::Invalid;
   }
-}
-
-inline ::flatbuffers::Optional<::tt::target::TensorLayout>
-toFlatbufferOptional(FlatbufferObjectCache &cache,
-                     ::std::optional<mlir::tt::ttnn::Layout> layout) {
-  return layout.has_value()
-             ? ::flatbuffers::Optional<::tt::target::TensorLayout>(
-                   toFlatbuffer(cache, layout.value()))
-             : ::flatbuffers::nullopt;
 }
 
 inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
@@ -286,12 +270,20 @@ struct IsNativeFlatbufferType : std::false_type {};
 
 template <typename T>
 struct IsNativeFlatbufferType<
-    T, std::void_t<typename ToFlatbufferReturnType<T>::Traits::type>> {
-  constexpr static bool value = true;
-};
+    T, std::void_t<typename ToFlatbufferReturnType<T>::Traits::type>>
+    : std::true_type {};
 
-template <typename T,
-          std::enable_if_t<IsNativeFlatbufferType<T>::value, int> = 0>
+template <typename T>
+constexpr bool IsNativeFlatbufferTypeV = IsNativeFlatbufferType<T>::value;
+
+template <typename T>
+flatbuffers::Optional<ToFlatbufferReturnType<T>>
+toFlatbuffer(FlatbufferObjectCache &cache, const std::optional<T> &optValue) {
+  return llvm::transformOptional(
+      optValue, [&](const T &val) { return toFlatbuffer(cache, val); });
+}
+
+template <typename T, std::enable_if_t<IsNativeFlatbufferTypeV<T>, int> = 0>
 flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<T> const *>>
 toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   static_assert(std::is_trivially_copyable_v<ToFlatbufferReturnType<T>>);
@@ -305,8 +297,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   return vec;
 }
 
-template <typename T,
-          std::enable_if_t<!IsNativeFlatbufferType<T>::value, int> = 0>
+template <typename T, std::enable_if_t<!IsNativeFlatbufferTypeV<T>, int> = 0>
 flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<T>>>
 toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   return cache.fbb->CreateVector<ToFlatbufferReturnType<T>>(
@@ -657,34 +648,27 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::Conv2dConfigAttr conv2dConfigAttr) {
-  ::flatbuffers::Optional<::tt::target::ttnn::TensorMemoryLayout> shardLayout;
-  if (conv2dConfigAttr.getShardLayout()) {
-    shardLayout = toFlatbuffer(cache, conv2dConfigAttr.getShardLayout());
-  }
-
-  ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig> conv2dConfigDesc =
-      ::tt::target::ttnn::CreateConv2dConfig(
-          *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
-          toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
-          toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
-          conv2dConfigAttr.getInputChannelsAlignment(),
-          conv2dConfigAttr.getDeallocateActivation(),
-          conv2dConfigAttr.getReallocateHaloOutput(),
-          conv2dConfigAttr.getActBlockHOverride(),
-          conv2dConfigAttr.getActBlockWDiv(),
-          conv2dConfigAttr.getReshardIfNotOptimal(),
-          conv2dConfigAttr.getOverrideShardingConfig(), shardLayout,
-          toFlatbuffer(cache, conv2dConfigAttr.getCoreGrid()),
-          conv2dConfigAttr.getTransposeShards(),
-          toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
-          conv2dConfigAttr.getPreprocessWeightsOnDevice(),
-          conv2dConfigAttr.getAlwaysPreprocessWeights(),
-          conv2dConfigAttr.getEnableActDoubleBuffer(),
-          conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
-          conv2dConfigAttr.getEnableSplitReader(),
-          conv2dConfigAttr.getEnableSubblockPadding());
-
-  return conv2dConfigDesc;
+  return ::tt::target::ttnn::CreateConv2dConfig(
+      *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
+      toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
+      toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
+      conv2dConfigAttr.getInputChannelsAlignment(),
+      conv2dConfigAttr.getDeallocateActivation(),
+      conv2dConfigAttr.getReallocateHaloOutput(),
+      conv2dConfigAttr.getActBlockHOverride(),
+      conv2dConfigAttr.getActBlockWDiv(),
+      conv2dConfigAttr.getReshardIfNotOptimal(),
+      conv2dConfigAttr.getOverrideShardingConfig(),
+      toFlatbuffer(cache, conv2dConfigAttr.getShardLayout()),
+      toFlatbuffer(cache, conv2dConfigAttr.getCoreGrid()),
+      conv2dConfigAttr.getTransposeShards(),
+      toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
+      conv2dConfigAttr.getPreprocessWeightsOnDevice(),
+      conv2dConfigAttr.getAlwaysPreprocessWeights(),
+      conv2dConfigAttr.getEnableActDoubleBuffer(),
+      conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
+      conv2dConfigAttr.getEnableSplitReader(),
+      conv2dConfigAttr.getEnableSubblockPadding());
 }
 
 } // namespace mlir::tt
