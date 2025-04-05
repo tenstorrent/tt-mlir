@@ -15,6 +15,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -821,10 +822,10 @@ public:
   template <typename TargetTy = void, typename SourceTy>
   std::enable_if_t<!IsMLIRTypeV<SourceTy>, mlir::Attribute>
   emit(SourceTy &&attr) {
-    using ActualTargetTy = std::conditional_t<
-        std::is_void_v<TargetTy>,
-        TTNNTargetT<std::remove_reference_t<std::remove_cv_t<SourceTy>>>,
-        TargetTy>;
+    using ActualTargetTy =
+        std::conditional_t<std::is_void_v<TargetTy>,
+                           TTNNTargetT<llvm::remove_cvref_t<SourceTy>>,
+                           TargetTy>;
     auto result = EmitCTypeConverter<ActualTargetTy>::convert(
         std::forward<SourceTy>(attr));
     // It's assumed that the conversion will always succeed, if the result is

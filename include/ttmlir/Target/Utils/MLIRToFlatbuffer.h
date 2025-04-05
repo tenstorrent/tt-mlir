@@ -11,11 +11,9 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
-#include "ttmlir/Utils.h"
 
-#include "flatbuffers/flatbuffers.h"
+#include "llvm/ADT/STLForwardCompat.h"
 
-#include <numeric>
 #include <type_traits>
 
 namespace mlir::tt {
@@ -212,18 +210,11 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::tt::target::ChipCapability
 toFlatbuffer(FlatbufferObjectCache &, ChipCapabilityAttr capabilityAttr) {
   auto capabilities = capabilityAttr.getValue();
-  static_assert(
-      static_cast<std::underlying_type_t<ChipCapability>>(
-          ChipCapability::PCIE) ==
-      static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
-          ::tt::target::ChipCapability::PCIE));
-  static_assert(
-      static_cast<std::underlying_type_t<ChipCapability>>(
-          ChipCapability::HostMMIO) ==
-      static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
-          ::tt::target::ChipCapability::HostMMIO));
-  assert((static_cast<std::underlying_type_t<ChipCapability>>(capabilities) &
-          ~0b11) == 0 &&
+  static_assert(llvm::to_underlying(ChipCapability::PCIE) ==
+                llvm::to_underlying(::tt::target::ChipCapability::PCIE));
+  static_assert(llvm::to_underlying(ChipCapability::HostMMIO) ==
+                llvm::to_underlying(::tt::target::ChipCapability::HostMMIO));
+  assert((llvm::to_underlying(capabilities) & ~0b11) == 0 &&
          "unsupported chip capabilities");
   return static_cast<::tt::target::ChipCapability>(capabilities);
 }

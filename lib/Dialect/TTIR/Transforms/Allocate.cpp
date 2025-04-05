@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLForwardCompat.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRALLOCATE
@@ -67,7 +68,7 @@ class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
         return 0;
       }
 
-      auto index = ttmlir::utils::enum_as_int(memorySpace);
+      auto index = llvm::to_underlying(memorySpace);
       uint64_t &ptr = currPtr[index];
       ptr = ttmlir::utils::alignUp(ptr, memorySpaceInfo[index].alignment);
       auto result = ptr;
@@ -111,12 +112,12 @@ public:
   SimpleAllocator createSimpleAllocator(ChipDescAttr chipDesc) {
     SmallVector<SimpleAllocator::MemorySpaceInfo> memorySpaceInfo;
     memorySpaceInfo.resize(getMaxEnumValForMemorySpace() + 1llu);
-    memorySpaceInfo[ttmlir::utils::enum_as_int(MemorySpace::DeviceL1)] =
+    memorySpaceInfo[llvm::to_underlying(MemorySpace::DeviceL1)] =
         SimpleAllocator::MemorySpaceInfo(chipDesc.getL1UnreservedBase(),
                                          chipDesc.getL1Size() -
                                              chipDesc.getScratchL1RegionSize(),
                                          chipDesc.getNocL1AddressAlignBytes());
-    memorySpaceInfo[ttmlir::utils::enum_as_int(MemorySpace::DeviceDRAM)] =
+    memorySpaceInfo[llvm::to_underlying(MemorySpace::DeviceDRAM)] =
         SimpleAllocator::MemorySpaceInfo(
             chipDesc.getDramUnreservedBase(), chipDesc.getDramChannelSize(),
             chipDesc.getNocDRAMAddressAlignBytes());
