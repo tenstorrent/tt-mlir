@@ -6,7 +6,8 @@
 
 namespace mlir::tt::ttir::utils {
 llvm::SmallVector<int64_t> unsqueezeValue(mlir::PatternRewriter &rewriter,
-                                          mlir::Location loc, mlir::Value input,
+                                          mlir::Location loc,
+                                          mlir::Value &input,
                                           mlir::RankedTensorType desiredType,
                                           bool frontUnsqueeze) {
   auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
@@ -33,7 +34,7 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze) {
   auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-  auto inputShape = inputType.getShape();
+  llvm::SmallVector<int64_t> inputShape(inputType.getShape());
   llvm::SmallVector<int64_t, 4> broadcastedShape;
   if (!mlir::OpTrait::util::getBroadcastedShape(
           inputShape, desiredType.getShape(), broadcastedShape)) {
