@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
@@ -48,7 +49,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
       mlir::vector::VectorDialect, mlir::memref::MemRefDialect,
       mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect>();
+      mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
