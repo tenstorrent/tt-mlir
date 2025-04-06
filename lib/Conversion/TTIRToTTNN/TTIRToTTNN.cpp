@@ -969,7 +969,6 @@ public:
     llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
     llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
         1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-
     outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
         outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
