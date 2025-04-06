@@ -336,17 +336,17 @@ result_code, results = run_instance()
 ```
 
 ## Bonus Section: Extending runtime to other FE's
-MLIR Runtime exposes a feature to register a python callback function. Any python fuction can be provided and directed to be executed before or after every op in MLIR Runtime. The following steps describe how to extend your application to register a python function.
+MLIR Runtime exposes two features to register a python callback function: `DebugPreOperationHooks` and `DebugPostOperationHooks`. Any python fuction can be provided to either hook - and this function will be executed respectively either before or after every op in MLIR Runtime. The following steps describe how to extend your application to register a python function using `DebugPostOperationHooks` as an example.
 
-1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/tools/python/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
+1. Pybind DebugPostOperationHooks C++ class, specifically `tt::runtime::debug::PostOperationHooks::get`. See `runtime/tools/python/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
 ```bash
-tt::runtime::debug::Hooks
-tt::runtime::debug::Hooks::get
+tt::runtime::debug::PostOperationHooks
+tt::runtime::debug::PostOperationHooks::get
 ```
 
-2. Register callback function and location in your python script. The following is registering a golden python function to run after an operation. Assume the Debug Hooks `get` function has been pybinded to `ttrt.runtime.DebugHooks.get`
+2. Register callback function in your python script. The following is registering a golden python function to run after an operation. Assume the `get` function has been pybinded to `ttrt.runtime.DebugPostOperationHooks.get`
 ```bash
-callback_env = ttrt.runtime.DebugHooks.get(ttrt.runtime.CallbackKey.PostOp, golden)
+callback_env = ttrt.runtime.DebugPostOperationHooks.get(golden)
 ```
 
 3. The callback function has a particular function signature, which looks like the following
