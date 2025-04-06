@@ -298,5 +298,5 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         debugger(callback_runtime_config, binary, program_context, op_context)
 
 
-def get_callback_fn(callback_runtime_config):
-    return partial(callback, callback_runtime_config)
+def post_op_get_callback_fn(callback_runtime_config):
+    return partial(post_op_callback, callback_runtime_config)

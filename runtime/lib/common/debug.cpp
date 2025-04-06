@@ -17,7 +17,7 @@ Env const &Env::get(bool loadKernelsFromDisk) {
 PreOperationHooks const &PreOperationHooks::get(
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
         operatorCallback) {
-  static Hooks config(callbackKey, operatorCallback);
+  static PreOperationHooks config(operatorCallback);
   return config;
 }
 

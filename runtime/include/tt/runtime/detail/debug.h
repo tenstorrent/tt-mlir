@@ -8,7 +8,6 @@
 #include <functional>
 #include <optional>
 #include <ostream>
-#include <unordered_set>
 
 #include "tt/runtime/types.h"
 
@@ -43,23 +42,20 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   return os;
 }
 
-enum class CallbackKey { PreOp, PostOp, Null };
-
-struct Hooks {
+struct PreOperationHooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static Hooks const &
-  get(std::optional<CallbackKey> callbackKey = CallbackKey::Null,
-      std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+  static PreOperationHooks const &
+  get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           operatorCallback = std::nullopt);
 #else
-  constexpr static Hooks get() { return Hooks(); }
+  constexpr static PreOperationHooks get() { return PreOperationHooks(); }
 #endif
 
-  std::optional<CallbackKey> getCallbackKey() const {
+  std::optional<std::string> getCallbackKey() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return callbackKey;
 #else
-    return CallbackKey::Null;
+    return std::nullopt;
 #endif
   }
 
@@ -72,41 +68,84 @@ struct Hooks {
 #endif
   }
 
-  const std::unordered_set<CallbackKey> &getValidCallbackKeys() {
-    static const std::unordered_set<CallbackKey> validKeys = {
-        CallbackKey::PreOp, CallbackKey::PostOp, CallbackKey::Null};
-    return validKeys;
-  }
-
   void unregisterHooks() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    callbackKey = CallbackKey::Null;
+    callbackKey = std::nullopt;
     operatorCallback = std::nullopt;
 #endif
   }
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  Hooks(std::optional<CallbackKey> callbackKey,
-        std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-            operatorCallback)
-      : callbackKey(callbackKey), operatorCallback(operatorCallback) {}
+  PreOperationHooks(
+      std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback)
+      : operatorCallback(operatorCallback) {}
 
-  mutable std::optional<CallbackKey> callbackKey;
+  mutable std::optional<std::string> callbackKey;
   mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
       operatorCallback;
 
 #else
-  constexpr Hooks() = default;
+  constexpr PreOperationHooks() = default;
 #endif
 };
 
-inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
-  os << "debug::Hooks{\n"
+struct PostOperationHooks {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  static PostOperationHooks const &
+  get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback = std::nullopt);
+#else
+  constexpr static PostOperationHooks get() { return PostOperationHooks(); }
+#endif
+
+  std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+  getOperatorCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return operatorCallback;
+#else
+    return std::nullopt;
+#endif
+  }
+
+  void unregisterHooks() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    operatorCallback = std::nullopt;
+#endif
+  }
+
+private:
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  PostOperationHooks(
+      std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+          operatorCallback)
+      : operatorCallback(operatorCallback) {}
+
+  mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+      operatorCallback;
+
+#else
+  constexpr PostOperationHooks() = default;
+#endif
+};
+
+inline std::ostream &operator<<(std::ostream &os,
+                                PreOperationHooks const &pre_operation_hooks) {
+  os << "debug::PreOperationHooks{\n"
      << "\t"
-     << "callbackKey: " << static_cast<bool>(hooks.getCallbackKey())
-     << "operatorCallback: " << static_cast<bool>(hooks.getOperatorCallback())
-     << ",\n"
+     << "operatorCallback: "
+     << static_cast<bool>(pre_operation_hooks.getOperatorCallback()) << ",\n"
+     << "}";
+  return os;
+}
+
+inline std::ostream &
+operator<<(std::ostream &os, PostOperationHooks const &post_operation_hooks) {
+  os << "debug::PostOperationHooks{\n"
+     << "\t"
+     << "operatorCallback: "
+     << static_cast<bool>(post_operation_hooks.getOperatorCallback()) << ",\n"
      << "}";
   return os;
 }
