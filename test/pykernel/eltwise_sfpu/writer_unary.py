@@ -41,11 +41,10 @@ def writer_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
 
         # CHECK: "ttkernel.cb_pop_front"{{.*}}
         cb_pop_front(cb_out, ublock_size_tiles)
-
         # CHECK: {{.*}}memref.load %[[DST_ADDR]]{{.*}}
         # CHECK: {{.*}}arith.addi{{.*}}
         # CHECK: memref.store {{.*}} %[[DST_ADDR]]{{.*}}
-        dst_addr = dst_addr + ublock_size_bytes
+        dst_addr += ublock_size_bytes
 
     return
 

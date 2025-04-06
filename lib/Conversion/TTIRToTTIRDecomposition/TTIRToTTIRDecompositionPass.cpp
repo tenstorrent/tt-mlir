@@ -42,8 +42,8 @@ struct TTIRToTTIRDecompositionPass
     target.addLegalDialect<BuiltinDialect>(); // This contains the "module" op
                                               // which is necessary
 
-    target.addLegalOp<tensor::EmptyOp>(); // DPS operands are create with
-                                          // tensor::EmptyOp
+    target.addLegalOp<ttir::EmptyOp>(); // DPS operands are create with
+                                        // ttir::EmptyOp
 
     // These are the ops we intend to remove entirely with this pass
     target.addIllegalOp<ttir::IndexOp>();

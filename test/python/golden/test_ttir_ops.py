@@ -12,6 +12,7 @@ from ttmlir.test_utils import compile_to_flatbuffer, set_output_path
 from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute, UnitAttr
 from ttmlir.dialects import ttir
 from ttmlir.ir import *
+from ttmlir.passes import GoldenTensor, DataType
 
 
 # NOTE: This test is not valid for TTRT Perf due to weird issues with perf collection. Issue #2371
@@ -124,9 +125,16 @@ def test_gelu(in0: Operand, builder: TTIRBuilder):
     return builder.gelu(in0)
 
 
-@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-def test_clamp(in0: Operand, builder: TTIRBuilder):
-    return builder.clamp(in0, max_arg=1.0, min_arg=0.0)
+@compile_to_flatbuffer([(64, 128)], inputs_types=[torch.bfloat16], targets=["ttnn"])
+def test_clamp_scalar(in0: Operand, builder: TTIRBuilder):
+    return builder.clamp_scalar(in0, max_arg=3.0, min_arg=2.0)
+
+
+@compile_to_flatbuffer([(32, 64), (32, 64), (32, 64), (32, 64)], targets=["ttnn"])
+def test_clamp_tensor(
+    in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
+):
+    return builder.clamp_tensor(in0, in1, in2, in3)
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
@@ -167,6 +175,17 @@ def test_is_finite(in0: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_get_dimension_size(in0: Operand, builder: TTIRBuilder):
     return builder.get_dimension_size(in0)
+
+
+@compile_to_flatbuffer(
+    [
+        (4, 10, 3, 5, 7),
+        (4, 10, 5, 7, 3),
+    ],
+    targets=["ttnn"],
+)
+def test_dot_general(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.dot_general(in0, in1, [0], [3], [0], [2])
 
 
 @compile_to_flatbuffer(
@@ -412,8 +431,21 @@ def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     ],
     targets=["ttnn"],
 )
-def test_power(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.power(in0, in1)
+def test_pow(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.pow(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (10, 64, 32),
+        (32, 128),
+        (128,),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_linear(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.linear(in0, in1, in2)
 
 
 @compile_to_flatbuffer(
@@ -487,27 +519,27 @@ def test_transpose(in0: Operand, builder: TTIRBuilder):
     return builder.transpose(in0)
 
 
-# @compile_to_flatbuffer(
-# [
-#    (64, 64),
-#    (64, 64),
-#    (64, 64),
-# ],
-# inputs_types = [torch.int8, torch.float32, torch.float32],
-# targets=["ttnn"],
-# )
-# def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-# return builder.where(in0, in1, in2)
+@compile_to_flatbuffer(
+    [
+        (64, 64),
+        (64, 64),
+        (64, 64),
+    ],
+    inputs_types=[torch.int8, torch.float32, torch.float32],
+    targets=["ttnn"],
+)
+def test_where(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.where(in0, in1, in2)
 
 
 @compile_to_flatbuffer(
     [
-        (2, 3),
+        (1, 32, 32),
     ],
     targets=["ttnn"],
 )
 def test_repeat(in0: Operand, builder: TTIRBuilder):
-    return builder.repeat(in0, [2, 2])
+    return builder.repeat(in0, [32, 1, 1])
 
 
 @compile_to_flatbuffer(
@@ -618,12 +650,13 @@ def test_max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
-        (32, 32),
+        (1, 1, 5, 5),
     ],
+    inputs_types=[torch.bfloat16],
     targets=["ttnn"],
 )
 def test_pad(in0: Operand, builder: TTIRBuilder):
-    return builder.pad(in0, padding=[0, 2, 1, 0], value=0)
+    return builder.pad(in0, padding=[0, 0, 0, 0, 1, 1, 1, 1], value=0)
 
 
 @compile_to_flatbuffer([(32, 64)], targets=["ttnn"])
@@ -684,6 +717,20 @@ def test_permute(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
+    [(10, 64, 32, 3), (10, 128, 128, 3)],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
+    targets=["ttnn"],
+)
+def test_upsample2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.upsample2d(in0, in1, scale_factor=DenseI32ArrayAttr.get([2, 4]))
+
+
+@compile_to_flatbuffer([(5,)], inputs_types=[torch.bfloat16], targets=["ttnn"])
+def test_arange(in0: Operand, builder: TTIRBuilder):
+    return builder.arange(in0, 0, 5, 1, 0)
+
+
+@compile_to_flatbuffer(
     [(32, 32), (32, 32)], inputs_types=[torch.uint32, torch.uint16], targets=["ttnn"]
 )
 def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -691,12 +738,12 @@ def test_typecast(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 @compile_to_flatbuffer(
-    [(128, 10, 32, 4), (128, 1, 32, 4)],
-    inputs_types=[torch.bfloat16, torch.bfloat16],
+    [(128, 10, 32, 4)],
+    inputs_types=[torch.bfloat16],
     targets=["ttnn"],
 )
-def test_prod(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.prod(in0, in1, [1])
+def test_prod(in0: Operand, builder: TTIRBuilder):
+    return builder.prod(in0, [1])
 
 
 @compile_to_flatbuffer(
@@ -705,17 +752,40 @@ def test_prod(in0: Operand, in1: Operand, builder: TTIRBuilder):
     targets=["ttnn"],
 )
 def test_cumsum(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    dim = IntegerAttr.get(IntegerType.get_signless(64), 1)
     return builder.cumsum(in0, in1, dim=1)
 
 
 @compile_to_flatbuffer(
-    [(32, 32), (512, 128), (32, 32, 128)],
-    inputs_types=[torch.bfloat16, torch.bfloat16, torch.bfloat16],
+    [(32, 32), (512, 128)],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
     targets=["ttnn"],
 )
-def test_embedding(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-    return builder.embedding(in0, in1, in2)
+def test_embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.embedding(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 32, 64, 512),
+        (1, 32, 3, 512),
+    ],
+    targets=["ttnn"],
+)
+def test_fill_cache(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.fill_cache(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
+        (1, 32, 64, 512),
+        (1, 32, 1, 512),
+        (1,),
+    ],
+    inputs_types=[torch.bfloat16, torch.bfloat16, torch.int32],
+    targets=["ttnn"],
+)
+def test_update_cache(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+    return builder.update_cache(in0, in1, in2)
 
 
 @compile_to_flatbuffer(
@@ -750,6 +820,61 @@ def test_hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
         unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
         use_zeros=True,
     )
+
+
+def test_provided_graph_input_output():
+    def golden_tensor_to_torch_tensor(golden):
+        shape = golden.shape
+        stride = golden.strides
+        match golden.dtype:
+            case DataType.Float16:
+                np_dtype = np.float16
+            case DataType.BFloat16:
+                np_dtype = np.bfloat16
+            case DataType.Float32:
+                np_dtype = np.float32
+            case DataType.Int32:
+                np_dtype = np.int32
+            case None:
+                np_dtype = np.float32
+        np_array = (
+            np.frombuffer(bytes(golden.data), dtype=np_dtype).copy().reshape(shape)
+        )
+        tensor = torch.as_strided(torch.from_numpy(np_array), size=shape, stride=stride)
+        return tensor
+
+    @compile_to_flatbuffer(
+        [
+            (64, 128),
+            (64, 128),
+        ],
+        targets=["ttnn"],
+    )
+    def test_simple_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        input_0 = torch.randn(builder.get_shape(in0))
+        input_1 = torch.randn(builder.get_shape(in1))
+        output = input_0 + input_1
+        builder.set_graph_input_output([input_0, input_1], [output])
+        result = builder.add(in0, in1)
+
+        # Verify graph input / output on golden map
+        golden_map = builder.get_golden_map()
+
+        assert "input_0" in golden_map
+        golden_input_0 = golden_tensor_to_torch_tensor(golden_map["input_0"])
+        assert torch.equal(golden_input_0, input_0)
+
+        assert "input_1" in golden_map
+        golden_input_1 = golden_tensor_to_torch_tensor(golden_map["input_1"])
+        assert torch.equal(golden_input_1, input_1)
+
+        assert "output_0" in golden_map
+        golden_output_0 = golden_tensor_to_torch_tensor(golden_map["output_0"])
+        assert torch.equal(golden_output_0, output)
+
+        return result
+
+    test_simple_add()
 
 
 if __name__ == "__main__":

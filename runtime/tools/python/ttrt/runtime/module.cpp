@@ -44,6 +44,40 @@ PYBIND11_MODULE(_C, m) {
       .def_readonly("stride", &tt::runtime::TensorDesc::stride)
       .def_readonly("item_size", &tt::runtime::TensorDesc::itemsize)
       .def_readonly("dtype", &tt::runtime::TensorDesc::dataType);
+  py::class_<tt::runtime::MeshDeviceOptions>(m, "MeshDeviceOptions")
+      .def(py::init<>())
+      .def_readwrite("mesh_offset", &tt::runtime::MeshDeviceOptions::meshOffset)
+      .def_readwrite("device_ids", &tt::runtime::MeshDeviceOptions::deviceIds)
+      .def_readwrite("num_hw_cqs", &tt::runtime::MeshDeviceOptions::numHWCQs)
+      .def_readwrite("enable_async_ttnn",
+                     &tt::runtime::MeshDeviceOptions::enableAsyncTTNN)
+      .def_readwrite("enable_program_cache",
+                     &tt::runtime::MeshDeviceOptions::enableProgramCache)
+      .def_property(
+          "l1_small_size",
+          [](const tt::runtime::MeshDeviceOptions &o) {
+            return o.l1SmallSize.has_value() ? py::cast(o.l1SmallSize.value())
+                                             : py::none();
+          },
+          [](tt::runtime::MeshDeviceOptions &o, py::handle value) {
+            o.l1SmallSize = py::none().is(value)
+                                ? std::nullopt
+                                : std::make_optional(value.cast<size_t>());
+          })
+      .def_property(
+          "dispatch_core_type",
+          [](const tt::runtime::MeshDeviceOptions &o) {
+            return o.dispatchCoreType.has_value()
+                       ? py::cast(o.dispatchCoreType.value())
+                       : py::none();
+          },
+          [](tt::runtime::MeshDeviceOptions &o, py::handle value) {
+            o.dispatchCoreType =
+                py::none().is(value)
+                    ? std::nullopt
+                    : std::make_optional(
+                          value.cast<tt::runtime::DispatchCoreType>());
+          });
   py::class_<tt::runtime::Tensor>(m, "Tensor")
       .def("get_shape",
            [](tt::runtime::Tensor self) {
@@ -80,6 +114,10 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
+  py::enum_<tt::runtime::debug::CallbackKey>(m, "CallbackKey")
+      .value("PreOp", ::tt::runtime::debug::CallbackKey::PreOp)
+      .value("PostOp", ::tt::runtime::debug::CallbackKey::PostOp)
+      .value("None", ::tt::runtime::debug::CallbackKey::Null);
   py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
       .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
       .value("L1", tt::runtime::MemoryBufferType::L1)
@@ -157,14 +195,16 @@ PYBIND11_MODULE(_C, m) {
       "Create a multi-device host tensor with owned memory");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
-  m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
-        py::arg("num_hw_cqs") = size_t{1},
-        py::arg("l1_small_size") = py::none(),
-        py::arg("dispatch_core_type") = py::none(),
-        py::arg("enable_async_ttnn") = py::none(),
-        py::arg("enable_program_cache") = py::none(),
-        "Open a mesh of devices for execution");
-  m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
+  m.def("open_mesh_device", &tt::runtime::openMeshDevice, py::arg("mesh_shape"),
+        py::arg("options"), "Open a parent mesh of devices");
+  m.def("close_mesh_device", &tt::runtime::closeMeshDevice,
+        py::arg("parent_mesh"), "Close a mesh device");
+  m.def("create_sub_mesh_device", &tt::runtime::createSubMeshDevice,
+        py::arg("parent_mesh"), py::arg("mesh_shape"),
+        py::arg("mesh_offset") = py::none(),
+        "Open a sub mesh of devices from a parent mesh");
+  m.def("release_sub_mesh_device", &tt::runtime::releaseSubMeshDevice,
+        py::arg("sub_mesh"), "Release a sub mesh device from the parent");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
         py::arg("untilize") = false, "Copy the tensor to the host");
   m.def("to_layout", &tt::runtime::toLayout, py::arg("tensor"),
@@ -249,47 +289,24 @@ PYBIND11_MODULE(_C, m) {
         return os.str();
       });
 
-  py::class_<tt::runtime::debug::PreOperationHooks>(m, "DebugPreOperationHooks")
-      .def_static("get",
-                  [](py::function func) {
+  py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
+      .def_static(
+          "get",
+          [](tt::runtime::debug::CallbackKey callbackKey, py::function func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-                    tt::runtime::debug::PreOperationHooks::get(
-                        [func](tt::runtime::Binary binary,
-                               tt::runtime::CallbackContext programContext,
-                               tt::runtime::OpContext opContext) {
-                          func(binary, programContext, opContext);
-                        });
+            tt::runtime::debug::Hooks::get(
+                callbackKey, [func](tt::runtime::Binary binary,
+                                    tt::runtime::CallbackContext programContext,
+                                    tt::runtime::OpContext opContext) {
+                  func(binary, programContext, opContext);
+                });
 #else
-            tt::runtime::debug::PreOperationHooks::get();
+            tt::runtime::debug::Hooks::get();
 #endif
-                  })
-      .def(
-          "__str__",
-          [](const tt::runtime::debug::PreOperationHooks &pre_operation_hooks) {
-            std::stringstream os;
-            os << pre_operation_hooks;
-            return os.str();
-          });
-
-  py::class_<tt::runtime::debug::PostOperationHooks>(m,
-                                                     "DebugPostOperationHooks")
-      .def_static("get",
-                  [](py::function func) {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-                    tt::runtime::debug::PostOperationHooks::get(
-                        [func](tt::runtime::Binary binary,
-                               tt::runtime::CallbackContext programContext,
-                               tt::runtime::OpContext opContext) {
-                          func(binary, programContext, opContext);
-                        });
-#else
-            tt::runtime::debug::PostOperationHooks::get();
-#endif
-                  })
-      .def("__str__", [](const tt::runtime::debug::PostOperationHooks
-                             &post_operation_hooks) {
+          })
+      .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
-        os << post_operation_hooks;
+        os << hooks;
         return os.str();
       });
 
@@ -328,12 +345,9 @@ PYBIND11_MODULE(_C, m) {
    * Cleanup code to force a well ordered destruction w.r.t. the GIL
    */
   auto cleanup_callback = []() {
-    ::tt::runtime::debug::PreOperationHooks::get().unregisterHooks();
-    ::tt::runtime::debug::PostOperationHooks::get().unregisterHooks();
+    ::tt::runtime::debug::Hooks::get().unregisterHooks();
   };
   m.add_object("_cleanup", py::capsule(cleanup_callback));
-  m.def("unregister_hooks", []() {
-    ::tt::runtime::debug::PreOperationHooks::get().unregisterHooks();
-    ::tt::runtime::debug::PostOperationHooks::get().unregisterHooks();
-  });
+  m.def("unregister_hooks",
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }

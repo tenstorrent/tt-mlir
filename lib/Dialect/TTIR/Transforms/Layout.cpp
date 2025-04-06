@@ -18,19 +18,6 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
-  if (isa<NameLoc>(loc)) {
-    NameLoc oldLoc = mlir::cast<NameLoc>(loc);
-    StringAttr newName = StringAttr::get(
-        loc->getContext(), oldLoc.getName().str() + "_in_" +
-                               std::to_string(operandIndex) + "_layout");
-
-    return NameLoc::get(newName, oldLoc.getChildLoc());
-  }
-
-  return loc;
-}
-
 //===----------------------------------------------------------------------===//
 // To layout pass
 //===----------------------------------------------------------------------===//
@@ -80,11 +67,11 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   auto desiredLayout = rewriter.getAttr<MetalLayoutAttr>(
       ty, desiredMemorySpace, currLayout.getGrid(), desiredElementType);
 
-  tensor::EmptyOp existingEmpty = input.getDefiningOp<tensor::EmptyOp>();
+  ttir::EmptyOp existingEmpty = input.getDefiningOp<ttir::EmptyOp>();
   if (existingEmpty) {
     return rewriter
-        .replaceOpWithNewOp<tensor::EmptyOp>(existingEmpty, ty.getShape(),
-                                             ty.getElementType(), desiredLayout)
+        .replaceOpWithNewOp<ttir::EmptyOp>(existingEmpty, ty.getShape(),
+                                           ty.getElementType(), desiredLayout)
         .getResult();
   }
 
@@ -136,8 +123,9 @@ public:
         continue;
       }
 
-      Location newLoc =
-          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+      Location newLoc = ttmlir::utils::appendLocationSuffix(
+          op.getLoc(),
+          "_in_" + std::to_string(operand.getOperandNumber()) + "_layout");
       auto desiredLayout =
           createToLayoutOp(rewriter, newLoc, operand.get(), defaultMemorySpace,
                            true /* isTiled */);
@@ -175,8 +163,9 @@ public:
       // Leave the return values in initMemorySpace, optimizer might decide
       // otherwise
       bool tiled = false;
-      Location newLoc =
-          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+      Location newLoc = ttmlir::utils::appendLocationSuffix(
+          op.getLoc(),
+          "_in_" + std::to_string(operand.getOperandNumber()) + "_layout");
       if (auto layout = createToLayoutOp(rewriter, newLoc, operand.get(),
                                          initMemorySpace, tiled);
           layout) {

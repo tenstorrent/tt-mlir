@@ -74,7 +74,7 @@ public:
   }
 
   mlir::Value createEmptyTensor() {
-    return builder.create<mlir::tensor::EmptyOp>(
+    return builder.create<mlir::tt::ttir::EmptyOp>(
         builder.getUnknownLoc(), getTensorShape(), builder.getF32Type());
   }
 

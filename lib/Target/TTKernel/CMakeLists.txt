@@ -12,7 +12,3 @@ add_mlir_translation_library(TTKernelTargetCpp
     MLIRSCFToEmitC
     MLIRArithToEmitC
 )
-
-target_include_directories(TTKernelTargetCpp PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
-
-target_link_libraries(TTKernelTargetCpp PUBLIC coverage_config)

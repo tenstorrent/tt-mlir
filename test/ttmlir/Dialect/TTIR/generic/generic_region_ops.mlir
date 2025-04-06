@@ -6,11 +6,12 @@
 
 module {
 func.func @reduce_max(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    %0 = tensor.empty() : tensor<64x128xf32>
+    %0 = ttir.empty() : tensor<64x128xf32>
     %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<1x1>,
         indexing_maps = [#map, #map, #map],
         iterator_types = [#parallel, #parallel],
+        threads = [#ttir.thread<compute>],
         operandSegmentSizes = array<i32: 2, 1>
         }> ({
         ^bb0(%arg2: memref<2x4x!tt.tile<32x32, f32>, #l1_alias>,

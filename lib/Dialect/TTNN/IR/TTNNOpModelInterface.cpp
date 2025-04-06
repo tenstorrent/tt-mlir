@@ -85,6 +85,46 @@ ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SqrtOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+SqrtOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const TTNNLayoutAttr &output) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  return op_model::ttnn::SqrtOpInterface::getOpConstraints(
+      inputShape, inputs[0], outputShape, output);
+}
+
+llvm::Expected<size_t>
+SqrtOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const TTNNLayoutAttr &output) {
+
+  assert(inputs.size() == 1);
+
+  const auto inputShape =
+      mlir::cast<RankedTensorType>(getOperand(0).getType()).getShape();
+
+  const auto outputShape =
+      mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
+
+  return op_model::ttnn::SqrtOpInterface::getOpRuntime(inputShape, inputs[0],
+                                                       outputShape, output);
+}
+
+//===----------------------------------------------------------------------===//
 // AddOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

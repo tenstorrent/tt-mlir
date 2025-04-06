@@ -12,7 +12,3 @@ add_mlir_translation_library(TTMetalTargetFlatbuffer
     MLIRTTDialect
     TTMLIRTTKernelToEmitC
 )
-
-target_include_directories(TTMetalTargetFlatbuffer PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
-
-target_link_libraries(TTMetalTargetFlatbuffer PUBLIC coverage_config)

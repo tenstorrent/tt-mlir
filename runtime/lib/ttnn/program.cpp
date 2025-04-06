@@ -14,8 +14,7 @@
 #include "operations/creation/construct_tensor.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
-#include "operations/creation/ones.h"
-#include "operations/creation/zeros.h"
+#include "operations/creation/full_with.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
@@ -146,8 +145,8 @@ private:
 void ProgramExecutor::runPreOpCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
-  if (auto pre_callback = debug::PreOperationHooks::get().getOperatorCallback();
-      pre_callback) {
+  if (auto callback = debug::Hooks::get().getOperatorCallback();
+      callback && debug::Hooks::get().getCallbackKey() == callbackKey) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);
     std::shared_ptr<void> opContextPtr =
@@ -241,11 +240,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::creation::run(op->type_as_ConstructTensorOp(),
                                      getContext());
   }
-  case ::tt::target::ttnn::OpType::ZerosOp: {
-    return operations::creation::run(op->type_as_ZerosOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::OnesOp: {
-    return operations::creation::run(op->type_as_OnesOp(), getContext());
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    return operations::creation::run(op->type_as_NamedFullOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::FullOp: {
     return operations::creation::run(op->type_as_FullOp(), getContext());

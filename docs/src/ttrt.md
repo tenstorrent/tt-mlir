@@ -336,17 +336,17 @@ result_code, results = run_instance()
 ```
 
 ## Bonus Section: Extending runtime to other FE's
-MLIR Runtime exposes a feature to register a python callback function. Any python fuction can be provided - and this function will be executed after every op in MLIR Runtime. The following steps describe how to extend your application to register a python function.
+MLIR Runtime exposes two features to register a python callback function: `DebugPreOperationHooks` and `DebugPostOperationHooks`. Any python fuction can be provided to either hook - and this function will be executed respectively either before or after every op in MLIR Runtime. The following steps describe how to extend your application to register a python function using `DebugPostOperationHooks` as an example.
 
-1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/tools/python/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
+1. Pybind DebugPostOperationHooks C++ class, specifically `tt::runtime::debug::PostOperationHooks::get`. See `runtime/tools/python/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
 ```bash
-tt::runtime::debug::Hooks
-tt::runtime::debug::Hooks::get
+tt::runtime::debug::PostOperationHooks
+tt::runtime::debug::PostOperationHooks::get
 ```
 
-2. Register callback function in your python script. The following is registering a golden python function. Assume the Debug Hooks `get` function has been pybinded to `ttrt.runtime.DebugHooks.get`
+2. Register callback function in your python script. The following is registering a golden python function to run after an operation. Assume the `get` function has been pybinded to `ttrt.runtime.DebugPostOperationHooks.get`
 ```bash
-callback_env = ttrt.runtime.DebugHooks.get(golden)
+callback_env = ttrt.runtime.DebugPostOperationHooks.get(golden)
 ```
 
 3. The callback function has a particular function signature, which looks like the following
@@ -416,12 +416,13 @@ The `ttrt` toolchain verifies whether the current system configuration matches t
 To resolve issues stemming from these synchronization problems, follow this workflow:
 
 1. **Incremental build**
-'''<make some changes>
-commit
-cmake --build build
-cmake --build build -- ttrt
-(note you need to generate system_desc and flatbuffer again once you do this)
-'''
+```bash
+  # make some changes
+  # commit
+  cmake --build build
+  cmake --build build -- ttrt
+  # note you need to generate system_desc and flatbuffer again once you do this
+```
 
 This incremental build should be sufficient. If it does not resolve the error, please file an issue and proceed with the following steps for now.
 
@@ -433,7 +434,7 @@ This incremental build should be sufficient. If it does not resolve the error, p
 This ensures that all previous build artifacts and dependencies are removed, preventing conflicts or stale files from affecting the new build.
 
 3. **Rebuild from scratch:**
-Once the build directories are cleared, rebuild the project from the ground up. This ensures that the build process incorporates all the necessary components without any remnants of previous builds. [Build Instructions](./build.md#build)
+After clearing the build directories, rebuild the project from the ground up. This ensures that the build process incorporates all the necessary components without any remnants of previous builds. [Build Instructions](./build.md#build)
 
 4. **Switch build configurations:**
 If switching from a Debug to a Release build (or vice versa), ensure that you clean the build environment before transitioning. This avoids inconsistencies between build configurations and potential issues with optimization levels or debugging symbols.

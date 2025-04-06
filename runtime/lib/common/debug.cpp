@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/debug.h"
+#include <set>
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
@@ -16,7 +17,7 @@ Env const &Env::get(bool loadKernelsFromDisk) {
 PreOperationHooks const &PreOperationHooks::get(
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
         operatorCallback) {
-  static PreOperationHooks config(operatorCallback);
+  static Hooks config(callbackKey, operatorCallback);
   return config;
 }
 

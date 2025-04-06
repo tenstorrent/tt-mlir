@@ -490,4 +490,79 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
       .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
       .addOutputOperandWorkaround(rowMajorLayoutUint32Workaround);
 }
+
+// Factory method to create a set of workarounds for Pad op operands.
+// tt-metal only supports float32 and bfloat16 data types.
+// tt-metal generates incorrect output for tile layout.
+// https://github.com/tenstorrent/tt-metal/issues/19513
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
+    mlir::TypedValue<mlir::RankedTensorType> input,
+    ttnn::TTNNLayoutAttr layoutAttr) {
+  TTNNOperandWorkarounds operandWorkaround;
+  if (layoutAttr.isTiled()) {
+    operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  }
+  if (isa<IntegerType>(input.getType().getElementType())) {
+    operandWorkaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  }
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
+// ttnn.permute will not work correctly on 32-bit integers. This workaround will
+// typecast the 32-bit integers to 32-bit floats before the ttnn.permute op and
+// typecast the output back.
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/19950
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPermuteOpOperandWorkaround(
+    mlir::RankedTensorType inputType) {
+  TTNNOperandWorkarounds operandWorkaround;
+  if (auto elementType = dyn_cast<IntegerType>(inputType.getElementType());
+      elementType && elementType.getWidth() == 32) {
+    operandWorkaround.tensorDataTypeWorkaround = DataType::Float32;
+  }
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
+// Currently, there is more support for conv2d and conv_transpose2d for
+// row-major inputs than there is for tile inputs.
+// There is no single issue in tt-metal for this. This workaround is here
+// to ensure we use the more generally-supported input layout for
+// convolutions in ttnn. For example, here is an issue highliting
+// some convolutions that will not work when the input is in tile layout,
+// but will work when the input is in row-major layout:
+// https://github.com/tenstorrent/tt-metal/issues/19762
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
+    bool hasBias) {
+
+  TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  // Convolution outputs are always in tile layout regardless
+  // of the input layout. We explicitly state this here to
+  // avoid accidentally assigning the output of a convolution
+  // to row major layout just because its input is row major.
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorLayoutWorkaround = Layout::Tile;
+
+  TTNNOperandWorkarounds parameterWorkaround;
+
+  auto workaround =
+      wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(inputWorkaround)
+          .addInputOperandWorkaround(parameterWorkaround)
+          .addOutputOperandWorkaround(outputWorkaround);
+
+  if (hasBias) {
+    workaround = workaround.addInputOperandWorkaround(parameterWorkaround);
+  }
+  return workaround;
+}
+
 } // namespace mlir::tt::ttnn::wa

@@ -298,11 +298,19 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
   std::transform(
       shapeInt64.begin(), shapeInt64.end(), std::back_inserter(shape),
       [](int64_t val) -> int32_t { return static_cast<int32_t>(val); });
+  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  // Set meshShape to {1, 1} for single device tensor.
+  std::vector<int32_t> meshShape = {1, 1};
+  if (layoutAttr.getTensorMeshSharding()) {
+    meshShape.clear();
+    // Set meshShape to {x, y} for multi device tensor.
+    auto meshShapeInt64 = deviceAttr.getMeshShape();
+    meshShape =
+        std::vector<int32_t>(meshShapeInt64.begin(), meshShapeInt64.end());
+  }
   return ::tt::target::ttnn::CreateTensorDescDirect(
-      *cache.fbb, &shape,
-      cache.getOrCreate(
-          mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
-          ttnnLayoutAttrToFlatbuffer, deviceAttr));
+      *cache.fbb, &shape, &meshShape,
+      cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer, deviceAttr));
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
@@ -609,8 +617,19 @@ createOp(FlatbufferObjectCache &cache, ArangeOp op) {
       output);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::ZerosOp>
-createOp(FlatbufferObjectCache &cache, ZerosOp op) {
+template <typename OpTy>
+::flatbuffers::Offset<::tt::target::ttnn::NamedFullOp>
+createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
+  ::tt::target::ttnn::NamedFullOpType type;
+  if constexpr (std::is_same_v<OpTy, ttnn::ZerosOp>) {
+    type = ::tt::target::ttnn::NamedFullOpType::Zeros;
+  } else if constexpr (std::is_same_v<OpTy, ttnn::OnesOp>) {
+    type = ::tt::target::ttnn::NamedFullOpType::Ones;
+  } else {
+    static_assert(ttmlir::utils::always_false<OpTy>(),
+                  "Unsupported NamedFullOp type");
+  }
+
   ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape =
       cache.fbb->CreateVector<int64_t>(op.getShape().getShape());
 
@@ -634,37 +653,8 @@ createOp(FlatbufferObjectCache &cache, ZerosOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
-  return ::tt::target::ttnn::CreateZerosOp(*cache.fbb, shape, dtype, layout,
-                                           device, memoryConfig, output);
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::OnesOp>
-createOp(FlatbufferObjectCache &cache, OnesOp op) {
-  ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape =
-      cache.fbb->CreateVector<int64_t>(op.getShape().getShape());
-
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbufferOptional(cache, op.getDtype());
-
-  ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbufferOptional(cache, op.getLayout());
-
-  flatbuffers::Offset<::tt::target::DeviceRef> device =
-      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
-
-  auto tileShape = getTensorValueTileShape(op.getResult());
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
-  auto memoryConfig =
-      op.getMemoryConfig().has_value()
-          ? memoryConfigToFlatbuffer(cache, op.getMemoryConfig().value(),
-                                     tileShape, coreRangeSet)
-          : 0;
-
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedSize);
-
-  return ::tt::target::ttnn::CreateOnesOp(*cache.fbb, shape, dtype, layout,
-                                          device, memoryConfig, output);
+  return ::tt::target::ttnn::CreateNamedFullOp(
+      *cache.fbb, type, shape, dtype, layout, device, memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
@@ -692,8 +682,42 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
       getOperandThroughDPSOps(op.getB()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
+
+  using MatmulConfigType = ::tt::target::ttnn::MatmulProgramConfig;
+  MatmulConfigType matmulProgramConfigType = MatmulConfigType::NONE;
+  ::flatbuffers::Offset<void> matmulProgramConfigDesc;
+  if (auto matmulProgramConfig = op.getMatmulProgramConfigAttr()) {
+    if (auto config =
+            mlir::dyn_cast<ttnn::MatmulMultiCoreReuseProgramConfigAttr>(
+                matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (auto config = mlir::dyn_cast<
+                   ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+                   matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseMultiCastProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (auto config = mlir::dyn_cast<
+                   ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+                   matmulProgramConfig)) {
+      matmulProgramConfigType =
+          MatmulConfigType::MatmulMultiCoreReuseMultiCast1DProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    } else if (
+        auto config = mlir::dyn_cast<
+            ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+            matmulProgramConfig)) {
+      matmulProgramConfigType = MatmulConfigType::
+          MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig;
+      matmulProgramConfigDesc = toFlatbuffer(cache, config).Union();
+    }
+  }
+
   return ::tt::target::ttnn::CreateMatmulOp(
-      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
+      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB(),
+      matmulProgramConfigType, matmulProgramConfigDesc);
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
@@ -937,12 +961,17 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
 template <typename EltwiseOp, typename EltwiseOpParams>
 ::flatbuffers::Offset<EltwiseOpParams>
 createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
-  if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
+  if constexpr (std::is_same_v<EltwiseOp, ClampScalarOp>) {
     auto min = op.getMin().convertToFloat();
     auto max = op.getMax().convertToFloat();
-    return ::tt::target::ttnn::CreateClampOpParams(*cache.fbb, min, max);
-  }
-  if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
+    return ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max);
+  } else if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
+    auto min = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMin()));
+    auto max = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMax()));
+    return ::tt::target::ttnn::CreateClampTensorOpParams(*cache.fbb, min, max);
+  } else if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
     auto parameter = op.getParameter().convertToFloat();
     return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
                                                               parameter);
@@ -1001,10 +1030,18 @@ createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   ::tt::target::ttnn::EltwiseOpParams paramsType =
       ::tt::target::ttnn::EltwiseOpParams::NONE;
   ::flatbuffers::Offset<void> params = 0;
-  if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Clamp;
-    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampOpParams;
-    params = createEltwiseOpParams<ClampOp, ::tt::target::ttnn::ClampOpParams>(
+  if constexpr (std::is_same_v<EltwiseOp, ClampScalarOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::ClampScalar;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampScalarOpParams;
+    params = createEltwiseOpParams<ClampScalarOp,
+                                   ::tt::target::ttnn::ClampScalarOpParams>(
+                 cache, op)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::ClampTensor;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampTensorOpParams;
+    params = createEltwiseOpParams<ClampTensorOp,
+                                   ::tt::target::ttnn::ClampTensorOpParams>(
                  cache, op)
                  .Union();
   } else {
@@ -1128,8 +1165,10 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Tanh;
   } else if constexpr (std::is_same_v<EltwiseOp, AtanOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Atan;
-  } else if constexpr (std::is_same_v<EltwiseOp, PowerOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Power;
+  } else if constexpr (std::is_same_v<EltwiseOp, Atan2Op>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Atan2;
+  } else if constexpr (std::is_same_v<EltwiseOp, PowOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Pow;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -1481,11 +1520,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto zerosOp = dyn_cast<ZerosOp>(op); zerosOp) {
-    return createOperation(cache, createOp(cache, zerosOp), debugString,
-                           locInfo);
+    return createOperation(cache, createNamedFullOp(cache, zerosOp),
+                           debugString, locInfo);
   }
   if (auto onesOp = dyn_cast<OnesOp>(op); onesOp) {
-    return createOperation(cache, createOp(cache, onesOp), debugString,
+    return createOperation(cache, createNamedFullOp(cache, onesOp), debugString,
                            locInfo);
   }
   if (auto absOp = dyn_cast<AbsOp>(op); absOp) {
@@ -1640,8 +1679,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, leakyReluOp),
                            debugString, locInfo);
   }
-  if (auto powerOp = dyn_cast<PowerOp>(op); powerOp) {
-    return createOperation(cache, createEltwiseOp(cache, powerOp), debugString,
+  if (auto powOp = dyn_cast<PowOp>(op); powOp) {
+    return createOperation(cache, createEltwiseOp(cache, powOp), debugString,
                            locInfo);
   }
   if (auto linearOp = dyn_cast<LinearOp>(op); linearOp) {
@@ -1704,8 +1743,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createTransposeOp(cache, transposeOp),
                            debugString, locInfo);
   }
-  if (auto clampOp = dyn_cast<ClampOp>(op); clampOp) {
-    return createOperation(cache, createNonDPSEltwiseOp(cache, clampOp),
+  if (auto clampScalarOp = dyn_cast<ClampScalarOp>(op); clampScalarOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, clampScalarOp),
+                           debugString, locInfo);
+  }
+  if (auto clampTensorOp = dyn_cast<ClampTensorOp>(op); clampTensorOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, clampTensorOp),
                            debugString, locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
@@ -1792,6 +1835,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto atanOp = dyn_cast<AtanOp>(op); atanOp) {
     return createOperation(cache, createEltwiseOp(cache, atanOp), debugString,
+                           locInfo);
+  }
+  if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
+    return createOperation(cache, createEltwiseOp(cache, atan2Op), debugString,
                            locInfo);
   }
   if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {

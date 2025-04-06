@@ -55,6 +55,8 @@ def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
         return torch.uint8
     elif dtype == DataType.BFloat16:
         return torch.bfloat16
+    elif dtype == DataType.Int32:
+        return torch.int32
     else:
         raise ValueError(
             "Only F32, BF16, and unsigned integers are supported in the runtime"
@@ -67,6 +69,89 @@ def get_ttrt_metal_home_path():
     package_path = os.path.dirname(spec.origin)
     tt_metal_home = f"{package_path}/runtime"
     return tt_metal_home
+
+
+def get_atol_rtol_pcc(golden, calculated):
+    import numpy as np
+    import torch
+
+    # Calculate atol and rtol
+    cal_atol = torch.max(torch.abs(golden - calculated)).item()
+    cal_rtol = torch.max(torch.abs(golden - calculated) / torch.abs(calculated)).item()
+
+    # Calculate PCC
+    def get_pcc(golden, calculated):
+        # Both tensors are nan
+        if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
+            logging.debug("Both tensors are 'nan'")
+            return 1.0
+        # Test if either is completely zero
+        elif torch.any(golden.bool()) != torch.any(calculated.bool()):
+            return 0.0
+        # One tensor is all nan, the other is not
+        elif torch.all(torch.isnan(golden)) or torch.all(torch.isnan(calculated)):
+            logging.debug("One tensor is all nan, the other is not.")
+            return 0.0
+        else:
+            # For now, mask all infs and nans so that we check the rest... TODO
+            golden = golden.clone()
+            golden[
+                torch.logical_or(
+                    torch.isnan(golden),
+                    torch.logical_or(torch.isinf(golden), torch.isneginf(golden)),
+                )
+            ] = 0
+            calculated = calculated.clone()
+            calculated[
+                torch.logical_or(
+                    torch.isnan(calculated),
+                    torch.logical_or(
+                        torch.isinf(calculated), torch.isneginf(calculated)
+                    ),
+                )
+            ] = 0
+
+            if torch.equal(golden, calculated):
+                return 1.0
+
+            if golden.dtype == torch.bfloat16:
+                golden = golden.type(torch.float32)
+                calculated = calculated.type(torch.float32)
+
+            # Single element case
+            if golden.numel() == 1:
+                return float(torch.equal(golden, calculated))
+
+            # If both tensors are contant
+            if torch.max(golden) == torch.min(golden) and torch.max(
+                calculated
+            ) == torch.min(calculated):
+                return torch.isclose(torch.max(golden), torch.max(calculated)).item()
+
+            cal_pcc = np.ma.corrcoef(
+                np.ma.masked_invalid(torch.squeeze(golden).detach().numpy()).flatten(),
+                np.ma.masked_invalid(
+                    torch.squeeze(calculated).detach().numpy()
+                ).flatten(),
+            )
+            # Remove correlation coefficient with self (typically always 1.0)
+            mask = np.ones(cal_pcc.shape, dtype=bool)
+            np.fill_diagonal(mask, 0)
+            cal_pcc = np.min(cal_pcc[mask])
+
+            if isinstance(cal_pcc, np.ma.core.MaskedConstant):
+                return 1.0
+
+            return cal_pcc
+
+    cal_pcc = get_pcc(golden, calculated)
+
+    return (
+        cal_atol,
+        cal_rtol,
+        cal_pcc,
+        f"Max ATOL Delta: {cal_atol}, Max RTOL Delta: {cal_rtol}, PCC: {cal_pcc}",
+    )
 
 
 class Logger:
@@ -524,7 +609,7 @@ class Flatbuffer:
         # temporary state value to check if test failed
         self.test_result = "pass"
 
-    def check_version(self):
+    def check_version(self, ignore: bool = False):
         package_name = "ttrt"
 
         try:
@@ -532,7 +617,7 @@ class Flatbuffer:
         except Exception as e:
             raise Exception(f"error retrieving version: {e} for {package_name}")
 
-        if package_version != self.version:
+        if package_version != self.version and not ignore:
             raise Exception(
                 f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
             )

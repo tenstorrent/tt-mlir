@@ -81,44 +81,91 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize,
-                  std::optional<DispatchCoreType> dispatchCoreType,
-                  [[maybe_unused]] std::optional<bool> enableAsyncTTNN,
-                  [[maybe_unused]] std::optional<bool> enableProgramCache) {
-  LOG_ASSERT(deviceIds.size(), "No devices specified");
+Device openMeshDevice(const std::vector<uint32_t> &meshShape,
+                      const MeshDeviceOptions &options) {
+  LOG_ASSERT(meshShape.size() == 2, "Mesh shape must be 2D for now");
+  ::tt::tt_metal::distributed::MeshShape shape(meshShape);
 
-  ::tt::tt_metal::DispatchCoreType type =
-      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+  LOG_ASSERT(options.meshOffset.size() == 2, "Mesh offset must be 2D for now");
+  ::tt::tt_metal::distributed::MeshCoordinate offset(options.meshOffset);
 
-  ::tt::tt_metal::distributed::MeshShape grid{
-      1, static_cast<uint32_t>(deviceIds.size())};
-  size_t l1SmallSizeValue = l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
+  size_t l1SmallSize = options.l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
+  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
+      tt::runtime::common::getDispatchCoreType(options.dispatchCoreType);
+
+  ::tt::tt_metal::distributed::MeshDeviceConfig meshConfig(shape, offset,
+                                                           options.deviceIds);
+
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          ::tt::tt_metal::distributed::MeshDeviceConfig(grid), l1SmallSizeValue,
-          DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
+          meshConfig, l1SmallSize, DEFAULT_TRACE_REGION_SIZE, options.numHWCQs,
+          dispatchCoreType);
 
-  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
-  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
-           "}");
+  LOG_DEBUG("Device grid size = { ",
+            meshDevice->compute_with_storage_grid_size().x, ", ",
+            meshDevice->compute_with_storage_grid_size().y, " }");
 
   return Device(std::static_pointer_cast<void>(meshDevice),
                 DeviceRuntime::TTMetal);
 }
 
-void closeDevice(Device device) {
-  ::tt::tt_metal::distributed::MeshDevice &ttmetalMeshDevice =
-      device.as<::tt::tt_metal::distributed::MeshDevice>(
+void closeMeshDevice(Device parentMesh) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      parentMesh.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
 
+  LOG_ASSERT(metalMeshDevice.is_parent_mesh(),
+             "Mesh device must be a parent mesh");
+
+  if (uint32_t numSubMeshes = metalMeshDevice.get_submeshes().size()) {
+    LOG_WARNING("Calling close on parent mesh device ", metalMeshDevice,
+                " that has ", numSubMeshes, " unreleased submeshes.");
+  }
+
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (::tt::tt_metal::IDevice *ttmetalDevice :
-       ttmetalMeshDevice.get_devices()) {
+  for (::tt::tt_metal::IDevice *ttmetalDevice : metalMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
   }
 #endif
-  ttmetalMeshDevice.close();
+  metalMeshDevice.close();
+}
+
+Device createSubMeshDevice(
+    Device parentMesh, const std::pair<uint32_t, uint32_t> &meshShape,
+    const std::optional<const std::pair<uint32_t, uint32_t>> &meshOffset) {
+  ::tt::tt_metal::distributed::MeshDevice &parentMeshDevice =
+      parentMesh.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  LOG_ASSERT(parentMeshDevice.is_parent_mesh(),
+             "Mesh device must be a parent mesh");
+
+  ::tt::tt_metal::distributed::MeshShape shape{meshShape.first,
+                                               meshShape.second};
+
+  std::optional<::tt::tt_metal::distributed::MeshCoordinate> offset =
+      std::nullopt;
+  if (meshOffset.has_value()) {
+    offset = ::tt::tt_metal::distributed::MeshCoordinate{
+        meshOffset.value().first, meshOffset.value().second};
+  }
+
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> subMeshDevice =
+      parentMeshDevice.create_submesh(shape, offset);
+
+  return Device(std::static_pointer_cast<void>(subMeshDevice),
+                DeviceRuntime::TTMetal);
+}
+
+void releaseSubMeshDevice(Device subMesh) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      subMesh.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+
+  LOG_ASSERT(!metalMeshDevice.is_parent_mesh(),
+             "Mesh device must be a submesh");
+
+  metalMeshDevice.close();
+  subMesh.handle.reset();
 }
 
 void deallocateBuffers(Device deviceHandle) {

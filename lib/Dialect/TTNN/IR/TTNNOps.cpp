@@ -40,7 +40,7 @@ namespace mlir::tt::ttnn {
 // ClampOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttnn::ClampOp::verify() {
+::mlir::LogicalResult mlir::tt::ttnn::ClampScalarOp::verify() {
   ::mlir::Operation::operand_range inputs = getInputs();
   ::mlir::Operation::result_range outputs = getResults();
 
@@ -515,6 +515,38 @@ namespace mlir::tt::ttnn {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NamedFullOp
+//===----------------------------------------------------------------------===//
+
+template <typename Op>
+static ::mlir::LogicalResult namedOpVerify(Op op) {
+  RankedTensorType output = op.getResult().getType();
+  if (op.getDtype()) {
+    if (op.getDtype() != elementTypeToDataType(output.getElementType())) {
+      return op.emitOpError("Data type mismatch between op and output tensor.");
+    }
+  }
+
+  ArrayRef<int64_t> shape = op.getShape().getShape();
+  ArrayRef<int64_t> outputShape = output.getShape();
+
+  if (shape != outputShape) {
+    return op.emitOpError("Output tensor shape must be ")
+           << shape << ", but got " << outputShape;
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::ZerosOp::verify() {
+  return namedOpVerify(*this);
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::OnesOp::verify() {
+  return namedOpVerify(*this);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1747,6 +1779,40 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+::mlir::OpFoldResult
+mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
+  ::mlir::DenseIntElementsAttr srcTargetPairs = getSourceTargetPairs();
+
+  // Filter out self-mapping src-target pairs.
+  auto elements = srcTargetPairs.getValues<APInt>();
+  SmallVector<APInt> filteredPairs;
+  for (size_t idx = 0; idx < elements.size(); idx += 2) {
+    auto src = elements[idx];
+    auto target = elements[idx + 1];
+    if (src == target) {
+      continue;
+    }
+    filteredPairs.push_back(src);
+    filteredPairs.push_back(target);
+  }
+
+  if (filteredPairs.empty()) {
+    // No permutations left. Exclude this op.
+    return getInput();
+  }
+
+  // There are effective permutations left.
+  if (srcTargetPairs.getNumElements() !=
+      static_cast<int64_t>(filteredPairs.size())) {
+    // Update source_target_pairs if changed.
+    std::array<int64_t, 2> shape = {
+        static_cast<int64_t>(filteredPairs.size() / 2), 2};
+    auto newType =
+        RankedTensorType::get(shape, srcTargetPairs.getType().getElementType());
+    setSourceTargetPairsAttr(DenseIntElementsAttr::get(newType, filteredPairs));
+  }
+  return {};
+}
 //===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//

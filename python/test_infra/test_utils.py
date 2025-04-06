@@ -5,7 +5,7 @@
 import os
 import inspect
 import torch
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Union
 
 from ttmlir.dialects import func
 from ttmlir.ir import *
@@ -18,7 +18,7 @@ from ttmlir.passes import (
     ModuleLog,
 )
 
-from .ttir_builder import Golden, Operand, Shape, TTIRBuilder, DataType
+from .ttir_builder import Golden, Operand, Shape, TTIRBuilder, DataType, TypeInfo
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 
@@ -58,7 +58,7 @@ def get_ttmetal_path(filename):
 def compile_as_mlir_module(
     test_fn: Callable,
     inputs_shapes: List[Shape],
-    inputs_types: Optional[List[torch.dtype]] = None,
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     mesh_shape: Optional[Tuple[int, int]] = None,
     module_dump: bool = False,
 ):
@@ -107,7 +107,7 @@ def compile_as_mlir_module(
                 %arg0: tensor<32x32xf32>,
                 %arg1: tensor<32x32xf32>
             ) -> tensor<32x32xf32> {
-                %0 = tensor.empty() : tensor<32x32xf32>
+                %0 = ttir.empty() : tensor<32x32xf32>
                 %1 = "ttir.add"(%arg0, %arg1, %0) ...
                 return %1 : tensor<32x32xf32>
             }
@@ -145,13 +145,17 @@ def compile_as_mlir_module(
 
     with ctx, loc:
         test_fn_input_types = [
-            builder.ranked_tensor_type(shape, builder.get_type_from_torch_dtype(dtype))
+            builder.ranked_tensor_type(
+                shape,
+                builder.get_type_from_torch_dtype(
+                    dtype if isinstance(dtype, torch.dtype) else dtype
+                ),
+            )
             for (shape, dtype) in zip(inputs_shapes, inputs_types)
         ]
 
         # Wrap everything in a mlir module.
         module = Module.create()
-
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
             @func.func(*test_fn_input_types, name=test_fn.__name__)
@@ -159,14 +163,12 @@ def compile_as_mlir_module(
                 # Randomly generate golden tensors for function inputs.
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
                     builder.generate_input_golden(operand, dtype, index)
-
                 return test_fn(*inputs, builder=builder)
 
         print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
         if module_dump:
             _dump_module(module)
-
         return module, builder
 
 
@@ -311,7 +313,7 @@ def ttmetal_to_flatbuffer(
 
 def compile_to_flatbuffer(
     inputs_shapes: List[Shape],
-    inputs_types: Optional[List[torch.dtype]] = None,
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     test_name: Optional[str] = None,
     targets: List[str] = ["ttmetal", "ttnn"],
     mesh_shape: Tuple[int, int] = None,

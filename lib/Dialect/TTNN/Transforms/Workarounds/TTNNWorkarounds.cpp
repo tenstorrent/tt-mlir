@@ -332,6 +332,8 @@ public:
 // 3. It doesn't really matter which tensor dimension we do the
 // reduce scatter and the all gather on but they must be equal to each other
 // and within the constraints of the rank of the tensor.
+// 3-1. It turned out that using any dimension other than 3 generates incorrect
+// output under the current ttnn implementation. Temporarily use dimension == 3.
 // 4. We also need to
 // make sure the tensor dimension we select is divisible by the number of
 // devices along the cluster axis dimension we want to perform the all
@@ -351,21 +353,10 @@ public:
     auto deviceDesc = lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
-    // Algorithm: iterate through all tensor dimension values and select first
-    // tensor dimension which is divisible by number of devices along the
-    // cluster axis on which we are performing the all reduce.
-    auto sizeOfDevices = meshShape[clusterAxis];
-    auto inputShape = inputType.getShape();
-    const auto *tensorDimDevice = llvm::find_if(
-        inputShape, [&](int64_t dim) { return dim % sizeOfDevices == 0; });
-
-    if (tensorDimDevice == inputShape.end()) {
-      return rewriter.notifyMatchFailure(
-          op, "Could not find a tensor dimension that can be scattered and "
-              "gathered along the required cluster axis.");
-    }
-
-    int32_t dimension = std::distance(inputShape.begin(), tensorDimDevice);
+    // TODO(hongseok): Restore dynamic dimension selection once the issue
+    // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
+    // Currently, dimension 3 must be used to produce correct outputs.
+    int32_t dimension = 3;
 
     // TODO(wooseoklee): Once it supports two dimensional tensor
     // (https://github.com/tenstorrent/tt-metal/issues/15010), we can remove
@@ -389,8 +380,13 @@ public:
           loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
           /* memory_config */ nullptr);
 
-      // Determine new dimension since entire tensor shape got shifted.
-      dimension = dimension + requiredOnesInput;
+      // TODO(hongseok): Restore dynamic dimension selection once the issue
+      // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
+      // Currently, dimension 3 must be used to produce correct outputs.
+      if ((reshapedInputShape[dimension] % meshShape[clusterAxis]) != 0) {
+        return op.emitOpError()
+               << "Unable to lower all_reduce op using dimesion 3.";
+      }
 
       // Determine the shape of its input tensor. The new tensor
       // shape at the scatter_dim will be tensor_shape[scatter_dim] =
@@ -433,6 +429,13 @@ public:
       // (https://github.com/tenstorrent/tt-metal/issues/13835), we can convert
       // directly to ttnn.all_reduce.
 
+      // TODO(hongseok): Restore dynamic dimension selection once the issue
+      // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
+      // Currently, dimension 3 must be used to produce correct outputs.
+      if ((inputTypeShape[dimension] % meshShape[clusterAxis]) != 0) {
+        return op.emitOpError()
+               << "Unable to lower all_reduce op using dimesion 3.";
+      }
       // Determine the shape of its input tensor. The new tensor
       // shape at the scatter_dim will be tensor_shape[scatter_dim] =
       // original_tensor_shape / num_devices.
