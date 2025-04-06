@@ -32,8 +32,11 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   std::array<uint32_t, 2> kernelSize, stride, padding, dilation;
   std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
   std::copy_n(op->stride()->begin(), 2, stride.begin());
-
-  std::copy_n(op->padding()->begin(), 4, padding.begin());
+  if (op->padding()->size() == 2) {
+    std::copy_n(op->padding()->begin(), 2, padding.begin());
+  } else if (op->padding()->size() == 4) {
+    std::copy_n(op->padding()->begin(), 4, padding.begin());
+  }
   std::copy_n(op->dilation()->begin(), 2, dilation.begin());
 
   ::ttnn::operations::conv::Conv2dConfig conv2dConfig;
