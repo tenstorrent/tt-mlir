@@ -947,8 +947,8 @@ public:
 
     auto paddingArrayRef = paddingAttr->asArrayRef();
 
-    // Padding only supports 2 values in ttnn
-    auto reducedPaddingAttr =
+    // Padding only supports 2 or 4 values in ttnn
+    auto PaddingAttr =
         rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1],
                                        paddingArrayRef[2], paddingArrayRef[3]});
 
@@ -981,7 +981,7 @@ public:
         op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
+        *strideAttr, PaddingAttr, *dilationAttr, groupsAttr, nullptr);
 
     Value output = ttir_to_ttnn::utils::generateReshape(newConv, outputShape,
                                                         rewriter, "_unflatten");
