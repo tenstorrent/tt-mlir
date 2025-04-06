@@ -51,14 +51,6 @@ struct PreOperationHooks {
   constexpr static PreOperationHooks get() { return PreOperationHooks(); }
 #endif
 
-  std::optional<std::string> getCallbackKey() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    return callbackKey;
-#else
-    return std::nullopt;
-#endif
-  }
-
   std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
   getOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
@@ -70,7 +62,6 @@ struct PreOperationHooks {
 
   void unregisterHooks() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    callbackKey = std::nullopt;
     operatorCallback = std::nullopt;
 #endif
   }
@@ -82,7 +73,6 @@ private:
           operatorCallback)
       : operatorCallback(operatorCallback) {}
 
-  mutable std::optional<std::string> callbackKey;
   mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
       operatorCallback;
 
