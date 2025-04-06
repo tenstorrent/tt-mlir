@@ -13,23 +13,19 @@ Env const &Env::get(bool loadKernelsFromDisk) {
   return config;
 }
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 PreOperationHooks const &PreOperationHooks::get(
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
         operatorCallback) {
   static PreOperationHooks config(operatorCallback);
   return config;
 }
+
 PostOperationHooks const &PostOperationHooks::get(
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
         operatorCallback) {
   static PostOperationHooks config(operatorCallback);
   return config;
 }
-#else
-PreOperationHooks get() { return PreOperationHooks(); }
-PostOperationHooks get() { return PostOperationHooks(); }
-#endif
 
 } // namespace tt::runtime::debug
 

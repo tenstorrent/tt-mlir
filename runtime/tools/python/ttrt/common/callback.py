@@ -363,7 +363,6 @@ def debugger(callback_runtime_config, binary, program_context, op_context):
 
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-
     # Pre_callback logic to be implemented here
     pass
 

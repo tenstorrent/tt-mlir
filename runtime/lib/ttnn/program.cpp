@@ -109,22 +109,22 @@ public:
         common::DylibManager(program->dylibs()), meshDevice);
   }
 
-  void runPreCallback(Binary &executableHandle,
-                      const ::tt::target::ttnn::Operation *opContext,
-                      ProgramContext *programContext);
+  void runPreOpCallback(Binary &executableHandle,
+                        const ::tt::target::ttnn::Operation *opContext,
+                        ProgramContext *programContext);
 
-  void runPostCallback(Binary &executableHandle,
-                       const ::tt::target::ttnn::Operation *opContext,
-                       ProgramContext *programContext);
+  void runPostOpCallback(Binary &executableHandle,
+                         const ::tt::target::ttnn::Operation *opContext,
+                         ProgramContext *programContext);
 
   void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
-      runPreCallback(executableHandle, op, context.get());
+      runPreOpCallback(executableHandle, op, context.get());
       runOperation(op);
-      runPostCallback(executableHandle, op, context.get());
+      runPostOpCallback(executableHandle, op, context.get());
     }
   }
 
@@ -143,7 +143,7 @@ private:
 };
 } // namespace
 
-void ProgramExecutor::runPreCallback(
+void ProgramExecutor::runPreOpCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (auto pre_callback = debug::PreOperationHooks::get().getOperatorCallback();
@@ -159,7 +159,7 @@ void ProgramExecutor::runPreCallback(
   }
 }
 
-void ProgramExecutor::runPostCallback(
+void ProgramExecutor::runPostOpCallback(
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (auto post_callback =
