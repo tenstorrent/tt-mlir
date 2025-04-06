@@ -146,13 +146,22 @@ namespace mlir::tt::ttnn {
                          << stride[1] << ") must be greater than 0";
   }
 
-  llvm::ArrayRef<int32_t> padding = getPadding();
-  if (padding.size() != 4) {
-    return emitOpError() << "Padding attribute must have two values, got: "
-                         << padding.size();
-  }
+if (!(padding.size() == 4 || padding.size() == 2)) {
+  return emitOpError() << "Padding attribute must have two or four values, got: "
+                       << padding.size();
+}
+
+if (padding.size() == 4) {
+  // For padding size 4, add the vertical and horizontal paddings
   int32_t verticalPadding = padding[0] + padding[2];
   int32_t horizontalPadding = padding[1] + padding[3];
+} else if (padding.size() == 2) {
+  // For padding size 2, treat as [vertical, horizontal]
+  int32_t verticalPadding = padding[0];
+  int32_t horizontalPadding = padding[1];
+} else {
+  return emitOpError() << "Unexpected padding size. Only 2 or 4 values are allowed.";
+}
 
   if (!llvm::all_of(padding, [](int32_t value) { return value >= 0; })) {
     return emitOpError() << "Padding attribute (" << verticalPadding << ", "
