@@ -287,7 +287,7 @@ PYBIND11_MODULE(_C, m) {
 
   py::class_<tt::runtime::debug::PreOperationHooks>(m, "DebugPreOperationHooks")
       .def_static("get",
-                  [](std::string callbackKey, py::function func) {
+                  [](py::function func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
                     tt::runtime::debug::PreOperationHooks::get(
                         [func](tt::runtime::Binary binary,
