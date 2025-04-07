@@ -230,6 +230,13 @@ class Run:
             help="Configuration for dirtying tensors, format: 'index:iterations,...' (e.g., '0:1,2:3' to dirty tensor 0 after 1 iteration and tensor 2 after 3 iterations)",
         )
         Run.register_arg(
+            name="--check-cache-stats",
+            type=str,
+            default="",
+            choices=None,
+            help="Verify tensor cache statistics. Format: 'hits:N,misses:M' or path to JSON file with expected stats",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -685,9 +692,70 @@ class Run:
                                         cache_stats = (
                                             device.get_tensor_cache().get_stats()
                                         )
+                                        hits = cache_stats.get("hits", 0)
+                                        misses = cache_stats.get("misses", 0)
                                         self.logging.debug(
-                                            f"Tensor cache stats: hits={cache_stats.get('hits', 0)}, misses={cache_stats.get('misses', 0)}"
+                                            f"Tensor cache stats: hits={hits}, misses={misses}"
                                         )
+
+                                        # Check cache stats against expected values if specified
+                                        if self["--check-cache-stats"]:
+                                            try:
+                                                # Try to import the verification utility
+                                                import sys
+                                                import os
+
+                                                # First check if it's in the const-eval directory
+                                                sys.path.append(
+                                                    os.path.join(
+                                                        os.path.dirname(
+                                                            os.path.dirname(
+                                                                os.path.dirname(
+                                                                    os.path.dirname(
+                                                                        __file__
+                                                                    )
+                                                                )
+                                                            )
+                                                        ),
+                                                        "test",
+                                                        "python",
+                                                        "const-eval",
+                                                    )
+                                                )
+                                                import verify_cache_stats
+
+                                                binary_name = os.path.basename(
+                                                    bin.file_path
+                                                )
+                                                expected_stats = verify_cache_stats.get_expected_stats(
+                                                    self["--check-cache-stats"],
+                                                    binary_name,
+                                                )
+
+                                                if expected_stats:
+                                                    success = verify_cache_stats.verify_cache_stats(
+                                                        hits,
+                                                        misses,
+                                                        expected_stats,
+                                                        verbose=True,
+                                                    )
+                                                    if not success:
+                                                        raise AssertionError(
+                                                            "Cache statistics verification failed"
+                                                        )
+                                                else:
+                                                    self.logging.warning(
+                                                        "No expected cache stats found for verification"
+                                                    )
+                                            except ImportError:
+                                                self.logging.error(
+                                                    "Could not import verify_cache_stats module. Skipping cache stats verification."
+                                                )
+                                            except Exception as e:
+                                                self.logging.error(
+                                                    f"Error verifying cache stats: {e}"
+                                                )
+                                                raise
 
                                     ttrt.runtime.wait(runtime_outputs)
                                     for i, runtime_output_tensor in enumerate(
