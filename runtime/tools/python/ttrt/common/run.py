@@ -473,11 +473,9 @@ class Run:
                 self["--debugger"],
             )
 
-            pre_op_callback_env = ttrt.runtime.DebugPreOperationHooks.get(
-                pre_op_get_callback_fn(pre_op_callback_runtime_config)
-            )
-            post_op_callback_env = ttrt.runtime.DebugPostOperationHooks.get(
-                post_op_get_callback_fn(post_op_callback_runtime_config)
+            callback_env = ttrt.runtime.DebugHooks.get(
+                pre_op_get_callback_fn(pre_op_callback_runtime_config),
+                post_op_get_callback_fn(post_op_callback_runtime_config),
             )
 
             try:

@@ -14,17 +14,12 @@ Env const &Env::get(bool loadKernelsFromDisk) {
   return config;
 }
 
-PreOperationHooks const &PreOperationHooks::get(
+Hooks const &Hooks::get(
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-        operatorCallback) {
-  static PreOperationHooks config(operatorCallback);
-  return config;
-}
-
-PostOperationHooks const &PostOperationHooks::get(
+        preOperatorCallback,
     std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-        operatorCallback) {
-  static PostOperationHooks config(operatorCallback);
+        postOperatorCallback) {
+  static Hooks config(preOperatorCallback, postOperatorCallback);
   return config;
 }
 

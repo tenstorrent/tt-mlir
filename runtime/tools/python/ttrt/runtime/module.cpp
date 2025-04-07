@@ -285,47 +285,29 @@ PYBIND11_MODULE(_C, m) {
         return os.str();
       });
 
-  py::class_<tt::runtime::debug::PreOperationHooks>(m, "DebugPreOperationHooks")
-      .def_static("get",
-                  [](py::function func) {
+  py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
+      .def_static(
+          "get",
+          [](py::function pre_op_func, py::function post_op_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-                    tt::runtime::debug::PreOperationHooks::get(
-                        [func](tt::runtime::Binary binary,
+            tt::runtime::debug::Hooks::get(
+                [pre_op_func](tt::runtime::Binary Binary,
+                              tt::runtime::CallbackContext programContext,
+                              tt::runtime::OpContext opContext) {
+                  pre_op_func(Binary, programContext, opContext);
+                },
+                [post_op_func](tt::runtime::Binary Binary,
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
-                          func(binary, programContext, opContext);
-                        });
+                  post_op_func(Binary, programContext, opContext);
+                });
 #else
-            tt::runtime::debug::PreOperationHooks::get();
+            tt::runtime::debug::Hooks::get();
 #endif
-                  })
-      .def(
-          "__str__",
-          [](const tt::runtime::debug::PreOperationHooks &pre_operation_hooks) {
-            std::stringstream os;
-            os << pre_operation_hooks;
-            return os.str();
-          });
-
-  py::class_<tt::runtime::debug::PostOperationHooks>(m,
-                                                     "DebugPostOperationHooks")
-      .def_static("get",
-                  [](py::function func) {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-                    tt::runtime::debug::PostOperationHooks::get(
-                        [func](tt::runtime::Binary binary,
-                               tt::runtime::CallbackContext programContext,
-                               tt::runtime::OpContext opContext) {
-                          func(binary, programContext, opContext);
-                        });
-#else
-            tt::runtime::debug::PostOperationHooks::get();
-#endif
-                  })
-      .def("__str__", [](const tt::runtime::debug::PostOperationHooks
-                             &post_operation_hooks) {
+          })
+      .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
-        os << post_operation_hooks;
+        os << hooks;
         return os.str();
       });
 
@@ -364,12 +346,9 @@ PYBIND11_MODULE(_C, m) {
    * Cleanup code to force a well ordered destruction w.r.t. the GIL
    */
   auto cleanup_callback = []() {
-    ::tt::runtime::debug::PreOperationHooks::get().unregisterHooks();
-    ::tt::runtime::debug::PostOperationHooks::get().unregisterHooks();
+    ::tt::runtime::debug::Hooks::get().unregisterHooks();
   };
   m.add_object("_cleanup", py::capsule(cleanup_callback));
-  m.def("unregister_hooks", []() {
-    ::tt::runtime::debug::PreOperationHooks::get().unregisterHooks();
-    ::tt::runtime::debug::PostOperationHooks::get().unregisterHooks();
-  });
+  m.def("unregister_hooks",
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }
