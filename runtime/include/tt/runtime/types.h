@@ -185,6 +185,21 @@ struct OpContext : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
+struct CallbackTensorBase : public detail::RuntimeCheckedObjectImpl {
+  std::optional<Tensor> tensor;
+  virtual void updateTensor(CallbackContext programContext) = 0;
+  virtual ~CallbackTensorBase() = default;
+  CallbackTensorBase(CallbackTensorBase &&other)
+      : detail::RuntimeCheckedObjectImpl(other.handle, other.associatedRuntime),
+        tensor(std::move(other.tensor)) {}
+  CallbackTensorBase(Tensor &&tensor, std::shared_ptr<void> handle,
+                     DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime),
+        tensor(std::move(tensor)) {}
+  CallbackTensorBase(std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime) {}
+};
+
 } // namespace tt::runtime
 
 #endif
