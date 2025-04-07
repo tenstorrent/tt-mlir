@@ -226,10 +226,16 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   // ToLayoutOp on its output. We can do this by setting the element type to
   // ty.getElementType() in case desiredElementType is a TileType.
   if (existingArange) {
+    // Save the current insertion point because we want to restore it after
+    // we are done with rewriting the arange op inplace.
+    auto currentInsertionPoint = rewriter.saveInsertionPoint();
+    // Set the insertion point to the arange op
+    rewriter.setInsertionPoint(existingArange);
     TTNNLayoutAttr arangeLayout = rewriter.getAttr<TTNNLayoutAttr>(
         ty.getShape(), ty.getElementType(), desiredBufferType,
         ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr,
         desiredTensorMeshSharding, g_defaultCollapseDims);
+    // Replace the arange op with a new one with the desired layout inplace.
     input =
         rewriter
             .replaceOpWithNewOp<ttir::ArangeOp>(
@@ -239,6 +245,8 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
                 existingArange.getStart(), existingArange.getEnd(),
                 existingArange.getStep(), existingArange.getArangeDimension())
             .getResult();
+    // Restore the insertion point.
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
   }
 
   // Create the ToLayoutOp which will convert the input tensor to the desired
