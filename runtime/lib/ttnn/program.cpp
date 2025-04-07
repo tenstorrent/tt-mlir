@@ -117,19 +117,17 @@ public:
     int dump_op_counter = 0;
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       dump_op_counter++;
-      LOG_DEBUG(LogType::LogRuntimeTTNN,
-                "Executing operation: ", op->debug_info()->c_str());
+      LOG_DEBUG("Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
       runCallback("pre-op", executableHandle, op, context.get());
       runOperation(op);
       runCallback("post-op", executableHandle, op, context.get());
       if (dump_op_counter == 1000) {
+        LOG_DEBUG("Dumping device profile results after " +
+                  std::to_string(dump_op_counter) + " operations");
         for (::ttnn::IDevice *ttnnDevice : meshDevice->get_devices()) {
           ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
         }
-        LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping Log after " +
-                                               std::to_string(dump_op_counter) +
-                                               " operations");
         dump_op_counter = 0;
       }
     }
