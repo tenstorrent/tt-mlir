@@ -9,4 +9,7 @@ add_mlir_dialect_library(MLIRTTDialect
 
         DEPENDS
         MLIRTTOpsIncGen
+
+        LINK_LIBS PUBLIC
+        MLIRQuantDialect
         )

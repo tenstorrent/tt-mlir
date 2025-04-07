@@ -4,7 +4,7 @@
 module @moreh_cumsum attributes {} {
   func.func @test_moreh_cumsum_0_dim1(%arg0: tensor<1x10xi64>) -> tensor<1x10xi64> {
     // CHECK-LABEL: func.func @test_moreh_cumsum_0_dim1
-    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : [[TENSOR:tensor<1x10xi32>]]
+    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : [[TENSOR:tensor<1x10xi64>]]
     // CHECK: %[[RET:[0-9]+]] = "ttir.cumsum"(%arg0, %[[EMPTY]])
     // CHECK-SAME: <{dim = 1 : i64}>
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
@@ -21,7 +21,7 @@ module @moreh_cumsum attributes {} {
   func.func @test_moreh_cumsum_1_dim0(%arg0: tensor<5xi64>) -> tensor<5xi64> {
     %c = stablehlo.constant dense<0> : tensor<i64>
     // CHECK-LABEL: func.func @test_moreh_cumsum_1_dim0
-    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : [[TENSOR:tensor<5xi32>]]
+    // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty() : [[TENSOR:tensor<5xi64>]]
     // CHECK: %[[RET:[0-9]+]] = "ttir.cumsum"(%arg0, %[[EMPTY]])
     // CHECK-SAME: <{dim = 0 : i64}>
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
@@ -36,7 +36,7 @@ module @moreh_cumsum attributes {} {
 
   func.func @test_moreh_cumsum_2_dim0(%arg0: tensor<8x2x4x16xi32>) -> tensor<8x2x4x16xi64> {
     // CHECK-LABEL: func.func @test_moreh_cumsum_2_dim0
-    // CHECK: ttir.empty() : [[TENSOR:tensor<8x2x4x16xi32>]]
+    // CHECK: ttir.empty() : [[TENSOR:tensor<8x2x4x16xi64>]]
     // CHECK: %[[RET:[0-9]+]] = "ttir.cumsum"
     // CHECK-SAME: <{dim = 0 : i64}>
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
@@ -53,7 +53,7 @@ module @moreh_cumsum attributes {} {
 
   func.func @test_moreh_cumsum_2_dim2(%arg0: tensor<8x2x4x16xi32>) -> tensor<8x2x4x16xi64> {
     // CHECK-LABEL: func.func @test_moreh_cumsum_2_dim2
-    // CHECK: ttir.empty() : [[TENSOR:tensor<8x2x4x16xi32>]]
+    // CHECK: ttir.empty() : [[TENSOR:tensor<8x2x4x16xi64>]]
     // CHECK: %[[RET:[0-9]+]] = "ttir.cumsum"
     // CHECK-SAME: <{dim = 2 : i64}>
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
@@ -70,7 +70,7 @@ module @moreh_cumsum attributes {} {
 
   func.func @test_moreh_cumsum_3_dim1(%arg0: tensor<8x1x4x16xi32>) -> tensor<8x1x4x16xi64> {
     // CHECK-LABEL: func.func @test_moreh_cumsum_3_dim1
-    // CHECK: ttir.empty() : [[TENSOR:tensor<8x1x4x16xi32>]]
+    // CHECK: ttir.empty() : [[TENSOR:tensor<8x1x4x16xi64>]]
     // CHECK: %[[RET:[0-9]+]] = "ttir.cumsum"
     // CHECK-SAME: <{dim = 1 : i64}>
     // CHECK-SAME: ([[TENSOR]], [[TENSOR]]) -> [[TENSOR]]
