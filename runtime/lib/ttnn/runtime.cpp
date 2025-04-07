@@ -19,6 +19,9 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
+#include <memory>
+#include <optional>
+#include <vector>
 
 namespace tt::runtime::ttnn {
 
@@ -661,8 +664,9 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle) {
+std::optional<const ::tt::target::ttnn::TensorRef *>
+getOpOutputTensorRef(OpContext opContextHandle,
+                     CallbackContext programContextHandle) {
   const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
@@ -670,7 +674,6 @@ std::string getOpLocInfo(OpContext opContextHandle) {
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
   std::optional<const ::tt::target::ttnn::TensorRef *> tensorRef = std::nullopt;
-  const ::ttnn::Tensor *outPtr = nullptr;
 
   switch (opContext.type_type()) {
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
@@ -862,7 +865,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
-    return createNullTensor();
+    return std::nullopt;
   }
   default: {
     LOG_FATAL("Unsupported operation type");
@@ -870,17 +873,253 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   }
 
   if (tensorRef.has_value() && tensorPool.contains(tensorRef.value())) {
-    outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef.value());
+    return tensorRef;
   } else {
     LOG_WARNING("Output tensor not found in tensor pool");
-    return createNullTensor();
+    return std::nullopt;
   }
+}
+
+std::unique_ptr<CallbackTensorBase>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  const auto &tensorRefPtr =
+      getOpOutputTensorRef(opContextHandle, programContextHandle);
+
+  if (!tensorRefPtr.has_value()) {
+    LOG_WARNING("Output tensor not found in tensor pool");
+    return std::make_unique<CallbackTensor>();
+  }
+
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+
+  if (!tensorPool.contains(tensorRefPtr.value())) {
+    LOG_WARNING("Output tensor not found in tensor pool");
+    return std::make_unique<CallbackTensor>();
+  }
+
+  const auto &outPtr =
+      &tensorPool.getTTNNTensorAndValidate(tensorRefPtr.value());
 
   ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
       ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
       std::nullopt, static_cast<::ttnn::MeshDevice *>(nullptr));
 
-  return utils::createRuntimeTensorFromTTNN(hostTensor);
+  // TODO: what is this???
+  // return utils::createRuntimeTensorFromTTNN(hostTensor);
+  return std::make_unique<CallbackTensor>(
+      ::tt::runtime::Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
+                            DeviceRuntime::TTNN),
+      tensorRefPtr.value(), nullptr, DeviceRuntime::TTNN);
+}
+
+std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *fbVector) {
+  std::vector<const tt::target::ttnn::TensorRef *> stdVector;
+  if (!fbVector) {
+    return stdVector;
+  }
+  stdVector.reserve(fbVector->size());
+  for (size_t i = 0; i < fbVector->size(); i++) {
+    stdVector.push_back(fbVector->Get(i));
+  }
+  return stdVector;
+}
+
+std::vector<const ::tt::target::ttnn::TensorRef *>
+getOpInputTensorRefs(OpContext opContextHandle,
+                     CallbackContext programContextHandle) {
+
+  const auto &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+
+  std::vector<const ::tt::target::ttnn::TensorRef *> tensorRefs;
+
+  switch (opContext.type_type()) {
+  case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
+    tensorRefs = {opContext.type_as_ToMemoryConfigOp()->in0()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToLayoutOp: {
+    tensorRefs = {opContext.type_as_ToLayoutOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDTypeOp: {
+    tensorRefs = {opContext.type_as_ToDTypeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TypecastOp: {
+    tensorRefs = {opContext.type_as_TypecastOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDeviceOp: {
+    tensorRefs = {opContext.type_as_ToDeviceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FromDeviceOp: {
+    tensorRefs = {opContext.type_as_FromDeviceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseOp: {
+    tensorRefs =
+        convertFbTensorRefsToVector(opContext.type_as_EltwiseOp()->ins());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LinearOp: {
+    tensorRefs = {opContext.type_as_LinearOp()->a(),
+                  opContext.type_as_LinearOp()->b(),
+                  opContext.type_as_LinearOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MatmulOp: {
+    tensorRefs = {opContext.type_as_MatmulOp()->a(),
+                  opContext.type_as_MatmulOp()->b()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
+    tensorRefs = {opContext.type_as_MorehCumSumOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
+    tensorRefs = {opContext.type_as_ReductionArgMaxOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    tensorRefs = {opContext.type_as_ReductionProdOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionOp: {
+    tensorRefs = {opContext.type_as_ReductionOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingOp: {
+    tensorRefs = {opContext.type_as_EmbeddingOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
+    tensorRefs = {opContext.type_as_EmbeddingBackwardOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxOp: {
+    tensorRefs = {opContext.type_as_SoftmaxOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TransposeOp: {
+    tensorRefs = {opContext.type_as_TransposeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PadOp: {
+    tensorRefs = {opContext.type_as_PadOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatOp: {
+    tensorRefs =
+        convertFbTensorRefsToVector(opContext.type_as_ConcatOp()->inputs());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PermuteOp: {
+    tensorRefs = {opContext.type_as_PermuteOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReshapeOp: {
+    tensorRefs = {opContext.type_as_ReshapeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    tensorRefs = {opContext.type_as_SliceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    tensorRefs = {opContext.type_as_RepeatOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    tensorRefs = {opContext.type_as_RepeatInterleaveOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv2dOp: {
+    tensorRefs = {opContext.type_as_Conv2dOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    tensorRefs = {opContext.type_as_ConvTranspose2dOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dOp: {
+    tensorRefs = {opContext.type_as_MaxPool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllGatherOp: {
+    tensorRefs = {opContext.type_as_AllGatherOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
+    tensorRefs = {opContext.type_as_CollectivePermuteOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    tensorRefs = {opContext.type_as_MeshShardOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    tensorRefs = {opContext.type_as_UpsampleOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    tensorRefs = convertFbTensorRefsToVector(opContext.type_as_CpuOp()->ins());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DeallocateOp: {
+    tensorRefs = {opContext.type_as_DeallocateOp()->in()};
+    break;
+  }
+  default: {
+    LOG_FATAL("Unsupported operation type");
+  }
+  }
+  return tensorRefs;
+}
+
+std::vector<std::unique_ptr<CallbackTensorBase>>
+getOpInputTensors(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  std::vector<const ::tt::target::ttnn::TensorRef *> tensorRefs =
+      getOpInputTensorRefs(opContextHandle, programContextHandle);
+  std::vector<std::unique_ptr<CallbackTensorBase>> tensors;
+
+  for (const auto &tensorRef : tensorRefs) {
+    if (!tensorPool.contains(tensorRef)) {
+      LOG_WARNING("Output tensor not found in tensor pool");
+      tensors.push_back(std::make_unique<CallbackTensor>());
+      continue;
+    }
+    const auto &inPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef);
+
+    std::shared_ptr<::ttnn::Tensor> hostTensor =
+        std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+            ::ttnn::from_device(*inPtr), ::ttnn::Layout::ROW_MAJOR,
+            std::nullopt, std::nullopt,
+            static_cast<::ttnn::IDevice *>(nullptr)));
+
+    const void *tensorRefPtr = reinterpret_cast<const void *>(tensorRef);
+    tensors.push_back(std::make_unique<CallbackTensor>(
+        ::tt::runtime::Tensor(std::move(hostTensor), nullptr,
+                              DeviceRuntime::TTNN),
+        tensorRefPtr, nullptr, DeviceRuntime::TTNN));
+  }
+  return tensors;
 }
 
 std::vector<::tt::runtime::Tensor>

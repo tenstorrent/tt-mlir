@@ -5,6 +5,9 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_H
 #define TT_RUNTIME_DETAIL_TTNN_H
 
+#include <optional>
+#include <vector>
+
 #define FMT_HEADER_ONLY
 #include "hostdevcommon/common_values.hpp"
 #include "tt-metalium/host_api.hpp"
@@ -166,13 +169,35 @@ void memcpy(void *dst, ::tt::runtime::Tensor src);
 void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src);
 
 void deallocateTensor(::tt::runtime::Tensor &tensor, bool force = false);
+struct CallbackTensor : public CallbackTensorBase {
+  const ::tt::target::ttnn::TensorRef *tensorRef;
+  void updateTensor(CallbackContext programContext) override;
+  CallbackTensor() : CallbackTensorBase(nullptr, DeviceRuntime::TTNN) {}
+  CallbackTensor(std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : CallbackTensorBase(handle, runtime) {}
+  CallbackTensor(Tensor &&tensor,
+                 const ::tt::target::ttnn::TensorRef *tensorRef,
+                 std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : CallbackTensorBase(std::move(tensor), handle, runtime),
+        tensorRef(tensorRef) {}
+  CallbackTensor(Tensor &&tensor, const void *tensorRef,
+                 std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : CallbackTensorBase(std::move(tensor), handle, runtime),
+        tensorRef(
+            static_cast<const ::tt::target::ttnn::TensorRef *>(tensorRef)) {}
+};
 
 std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle);
+std::unique_ptr<CallbackTensorBase>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
+
+std::vector<std::unique_ptr<CallbackTensorBase>>
+getOpInputTensors(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
