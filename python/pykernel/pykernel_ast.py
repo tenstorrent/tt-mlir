@@ -380,11 +380,6 @@ class TTKernelCompiler(ast.NodeVisitor):
                         iter_arg_names.append(var_name)
                         break
 
-        if self.verbose:
-            print(f"Modified variables: {list(modified_vars.keys())}")
-            print(f"Iter arg names: {iter_arg_names}")
-            print(f"Iter args: {iter_args}")
-
         # Create the ForOp with iter_args if we found any
         if iter_args:
             # Create the ForOp with iter_args
