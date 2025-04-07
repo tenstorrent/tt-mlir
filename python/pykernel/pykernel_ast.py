@@ -6,6 +6,7 @@ import ast
 import inspect
 import functools
 import os
+import symtable
 from ttmlir.ir import *
 from ttmlir.dialects import tt, ttkernel, func, scf, arith, memref, emitc
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
@@ -333,13 +334,119 @@ class TTKernelCompiler(ast.NodeVisitor):
             comment = self.get_source_comment_block(node)
             emitc.verbatim(comment)
 
-        for_op = scf.ForOp(lower_bound, upper_bound, step)
-        with (InsertionPoint(for_op.body)), Location.unknown():
-            self.symbol_tables.append({})
-            for stmt in node.body:
-                self.visit(stmt)
-            scf.YieldOp([])
-            self.symbol_tables.pop()
+        # Directly analyze the AST to find variables that are modified inside the loop
+        modified_vars = {}
+
+        # Helper function to find all variables that are assigned to in the loop body
+        def find_modified_vars_in_body(body):
+            for stmt in body:
+                if isinstance(stmt, ast.Assign):
+                    for target in stmt.targets:
+                        if isinstance(target, ast.Name):
+                            # Record the variable name and the assignment node
+                            modified_vars[target.id] = stmt
+                elif isinstance(stmt, ast.AugAssign) and isinstance(
+                    stmt.target, ast.Name
+                ):
+                    # Record the variable name and the augmented assignment node
+                    modified_vars[stmt.target.id] = stmt
+                elif isinstance(stmt, ast.For):
+                    find_modified_vars_in_body(stmt.body)
+                elif isinstance(stmt, ast.If):
+                    find_modified_vars_in_body(stmt.body)
+                    if stmt.orelse:
+                        find_modified_vars_in_body(stmt.orelse)
+
+        # Find all variables modified in the loop body
+        find_modified_vars_in_body(node.body)
+
+        # Identify variables that are defined outside the loop and modified inside
+        iter_args = []
+        iter_arg_names = []
+
+        # For each modified variable, check if it's defined outside the loop
+        for var_name in modified_vars.keys():
+            # Skip the loop variable itself
+            if hasattr(node.target, "id") and var_name == node.target.id:
+                continue
+
+            # Check if the variable exists in the current scope (defined outside the loop)
+            if self.var_exists(var_name):
+                # Find the variable in our symbol tables
+                for table in reversed(self.symbol_tables):
+                    if var_name in table:
+                        # Add it as an iter_arg
+                        iter_args.append(table[var_name])
+                        iter_arg_names.append(var_name)
+                        break
+
+        if self.verbose:
+            print(f"Modified variables: {list(modified_vars.keys())}")
+            print(f"Iter arg names: {iter_arg_names}")
+            print(f"Iter args: {iter_args}")
+
+        # Create the ForOp with iter_args if we found any
+        if iter_args:
+            # Create the ForOp with iter_args
+            for_op = scf.ForOp(lower_bound, upper_bound, step, iter_args)
+
+            # Create a new scope for the loop body
+            with InsertionPoint(for_op.body), Location.unknown():
+                # Add a new symbol table for this scope
+                self.symbol_tables.append({})
+
+                # Add the loop variable to the symbol table
+                if hasattr(node.target, "id"):
+                    loop_var_name = node.target.id
+                    self.symbol_tables[-1][loop_var_name] = for_op.induction_variable
+
+                # Map the iter_args to their corresponding variables in the new scope
+                for i, name in enumerate(iter_arg_names):
+                    self.symbol_tables[-1][name] = for_op.inner_iter_args[i]
+
+                # Process the loop body
+                for stmt in node.body:
+                    self.visit(stmt)
+
+                # Collect the updated values for the iter_args
+                updated_values = []
+                for name in iter_arg_names:
+                    updated_values.append(self.symbol_tables[-1][name])
+
+                # Yield the updated values at the end of the loop body
+                scf.YieldOp(updated_values)
+
+                # Remove the loop's symbol table
+                self.symbol_tables.pop()
+
+                # Update the original variables with the loop results
+                if hasattr(for_op, "results"):
+                    for i, name in enumerate(iter_arg_names):
+                        for table in reversed(self.symbol_tables):
+                            if name in table:
+                                table[name] = for_op.results[i]
+                                break
+        else:
+            # Create a regular ForOp without iter_args
+            for_op = scf.ForOp(lower_bound, upper_bound, step)
+
+            with InsertionPoint(for_op.body), Location.unknown():
+                self.symbol_tables.append({})
+
+                # Add the loop variable to the symbol table
+                if hasattr(node.target, "id"):
+                    loop_var_name = node.target.id
+                    self.symbol_tables[-1][loop_var_name] = for_op.induction_variable
+
+                # Process the loop body
+                for stmt in node.body:
+                    self.visit(stmt)
+
+                # No iter_args to yield
+                scf.YieldOp([])
+
+                # Remove the loop's symbol table
+                self.symbol_tables.pop()
 
     def visit_While(self, node):
         # TODO: while cond like if stmt, need support for at least: Name, Expr, Compare, Call, UnaryOp, BoolOp
@@ -462,28 +569,58 @@ class TTKernelCompiler(ast.NodeVisitor):
         value = self.visit(node.value)
         sym_table = self.symbol_tables[-1]
 
-        if not isinstance(target.type, memref.MemRefType):
-            raise ValueError("Can not AugAssign to non-memref types")
+        # Handle both memref and non-memref types
+        if isinstance(target.type, memref.MemRefType):
+            # For memref types, load the value, perform the operation, and store it back
+            _target = memref.LoadOp(
+                target, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
 
-        _target = memref.LoadOp(
-            target, arith.ConstantOp(IndexType.get(self.ctx), 0)
-        ).result
+            # Determine the operation based on the type of AugAssign
+            match node.op:
+                case ast.Add():
+                    result = arith.AddIOp(_target, value)
+                case ast.Sub():
+                    result = arith.SubIOp(_target, value)
+                case ast.Mult():
+                    result = arith.MulIOp(_target, value)
+                case _:
+                    raise NotImplementedError(
+                        f"AugAssign operation {type(node.op).__name__} not supported"
+                    )
 
-        # Determine the operation based on the type of AugAssign
-        match node.op:
-            case ast.Add():
-                result = arith.AddIOp(_target, value)
-            case ast.Sub():
-                result = arith.SubIOp(_target, value)
-            case ast.Mult():
-                result = arith.MulIOp(_target, value)
-            case _:
-                raise NotImplementedError(
-                    f"AugAssign operation {type(node.op).__name__} not supported"
-                )
+            # Store the result back to the target
+            memref.StoreOp(
+                result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)]
+            )
+            return result
+        else:
+            # For non-memref types (like regular variables), just perform the operation
+            # and update the symbol table
 
-        # Store the result back to the target
-        memref.StoreOp(result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
+            # Determine the operation based on the type of AugAssign
+            match node.op:
+                case ast.Add():
+                    result = arith.AddIOp(target, value)
+                case ast.Sub():
+                    result = arith.SubIOp(target, value)
+                case ast.Mult():
+                    result = arith.MulIOp(target, value)
+                case _:
+                    raise NotImplementedError(
+                        f"AugAssign operation {type(node.op).__name__} not supported"
+                    )
+
+            # Find the target variable name
+            if isinstance(node.target, ast.Name):
+                var_name = node.target.id
+                # Update the symbol table with the new value
+                for table in reversed(self.symbol_tables):
+                    if var_name in table:
+                        table[var_name] = result
+                        break
+
+            return result
 
     # Function calls
     def visit_Call(self, node):
@@ -640,9 +777,11 @@ class TTKernelCompiler(ast.NodeVisitor):
     def visit_Compare(self, node):
         assert len(node.ops) == 1, "Only single operators supported"
         assert len(node.comparators) == 1, "Only single comparators supported"
+
         lhs = self.visit(node.left)
         rhs = self.visit(node.comparators[0])
-        if not lhs or not rhs:
+
+        if lhs is None or rhs is None:
             raise ValueError("Compare operands not found")
 
         if isinstance(lhs.type, memref.MemRefType):

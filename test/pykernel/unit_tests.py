@@ -254,6 +254,45 @@ def test_unary_ops():
     return
 
 
+@ttkernel_compile(optimize=False)
+def test_for_iter_args():
+    # CHECK: module {
+    # CHECK: func.func @
+
+    # TEST: For loop with a variable modified inside the loop
+    # This should automatically use iter_args
+    a = 0
+    # CHECK: %[[INIT:.*]] = arith.constant 0 : i32
+    # CHECK: scf.for {{.*}} = {{.*}} to {{.*}} step {{.*}} iter_args
+    for i in range(0, 10, 1):
+        # CHECK: arith.addi
+        a = a + 1
+
+    # CHECK: return
+    return
+
+
+@ttkernel_compile(optimize=False)
+def test_for_multiple_iter_args():
+    # CHECK: module {
+    # CHECK: func.func @
+
+    # TEST: For loop with multiple variables modified inside the loop
+    # All should be automatically turned into iter_args
+    a = 0
+    b = 10
+
+    # CHECK: %[[A_INIT:.*]] = arith.constant 0 : i32
+    # CHECK: %[[B_INIT:.*]] = arith.constant 10 : i32
+    # CHECK: scf.for {{.*}} = {{.*}} to {{.*}} step {{.*}} iter_args
+    for i in range(0, 10, 1):
+        a = a + 1
+        b = b - 1
+
+    # CHECK: return
+    return
+
+
 test_assign()
 test_ifstmt()
 test_for()
@@ -261,3 +300,5 @@ test_binops()
 test_compare_expr()
 test_bool_ops()
 test_unary_ops()
+test_for_iter_args()
+test_for_multiple_iter_args()
