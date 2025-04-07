@@ -2,13 +2,30 @@
 
 These are the steps required to get the TT-MLIR project running on your machine
 
-Please refer to the [Dependencies](#dependencies) section before building the project.
+## Prerequisites
 
-## Environment setup
+- [System Dependencies](#dependencies)
+- [Hardware Setup](https://docs.tenstorrent.com/getting-started/README.html)
+
+## Environment Setup
+
+There are two ways to set up the environment, either using a docker image or
+building the environment manually. The docker image is recommended for most users
+since it's easier to set up and use
+
+### Using a Docker Image
+
+Please see [Docker Notes](docker-notes.md#using-the-docker-image) for more information on how to use the docker image.
+
+Once you have the docker image running and you've logged into the container, you
+should now be ready to build.
+
+### Building the Environment Manually
 
 You only need to build this once, it builds llvm, flatbuffers and a python virtual environment.
 
 ```bash
+source env/activate
 cmake -B env/build env
 cmake --build env/build
 ```
@@ -106,7 +123,7 @@ brew install doxygen
 brew install graphviz
 ```
 
-## Dependencies
+## System Dependencies
 
 ### Ubuntu 22.04
 
