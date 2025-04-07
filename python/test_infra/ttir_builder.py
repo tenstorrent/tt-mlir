@@ -1276,7 +1276,7 @@ class TTIRBuilder:
     def pad(self, in0: Operand, padding: List[int], value: int) -> OpView:
         # Reformatting padding dimensions for golden tensor:
         golden_padding = []
-        for i in range(int(len(padding) / 2)):
+        for i in range(len(padding) // 2):
             golden_padding.append(padding[-((2 * i) + 2)])
             golden_padding.append(padding[-((2 * i) + 1)])
         return self.op_proxy(
