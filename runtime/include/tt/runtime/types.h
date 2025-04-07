@@ -180,6 +180,11 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
         event(nullptr, runtime) {}
 
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
+         DeviceRuntime runtime, uint64_t version)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        event(nullptr, runtime), version(version) {}
+
+  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(eventHandle, runtime) {}

@@ -230,6 +230,13 @@ class Run:
             help="Configuration for dirtying tensors, format: 'index:iterations,...' (e.g., '0:1,2:3' to dirty tensor 0 after 1 iteration and tensor 2 after 3 iterations)",
         )
         Run.register_arg(
+            name="--check-cache-stats",
+            type=str,
+            default="",
+            choices=None,
+            help="Verify tensor cache statistics. Format: 'hits:N,misses:M' or path to JSON file with expected stats",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
