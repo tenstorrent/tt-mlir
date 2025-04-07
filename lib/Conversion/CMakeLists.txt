@@ -6,6 +6,7 @@ add_subdirectory(TTIRToLinalg)
 add_subdirectory(TTIRToTTNN)
 add_subdirectory(TTIRToTTMetal)
 add_subdirectory(TTKernelToEmitC)
+add_subdirectory(TTIRToTTKernel)
 
 if (TTMLIR_ENABLE_STABLEHLO)
 add_subdirectory(StableHLOToTTIR)

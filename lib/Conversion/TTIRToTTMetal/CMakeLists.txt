@@ -1,6 +1,5 @@
 add_mlir_conversion_library(TTMLIRTTIRToTTMetal
   TTIRToTTMetal.cpp
-  TTIRToTTKernel.cpp
   TTIRToTTMetalPass.cpp
 
   ADDITIONAL_HEADER_DIRS

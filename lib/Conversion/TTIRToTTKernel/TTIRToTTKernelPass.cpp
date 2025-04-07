@@ -1,8 +1,8 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
+#include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
@@ -29,15 +29,14 @@ using namespace mlir::tt;
 
 namespace mlir::tt::ttir {
 
-#define GEN_PASS_DEF_CONVERTTTIRTOTTMETAL
+#define GEN_PASS_DEF_CONVERTTTIRTOTTKERNEL
 #include "ttmlir/Conversion/Passes.h.inc"
 
 } // namespace mlir::tt::ttir
 
 namespace {
-
-struct ConvertTTIRToTTMetal
-    : public ttir::impl::ConvertTTIRToTTMetalBase<ConvertTTIRToTTMetal> {
+struct ConvertTTIRToTTKernel
+    : public ttir::impl::ConvertTTIRToTTKernelBase<ConvertTTIRToTTKernel> {
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
@@ -53,28 +52,28 @@ struct ConvertTTIRToTTMetal
     target.addLegalOp<tt::DeviceOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
-    target.addIllegalOp<memref::AllocOp>();
+    target.addLegalOp<ttir::GenericOp>();
+    target.addIllegalOp<memref::StoreOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    populateTTIRToTTMetalPatterns(&getContext(), patterns, typeConverter);
+    populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter);
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }
-  }
+  };
 };
-
 } // namespace
 
 namespace mlir::tt {
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTMetalPass() {
-  return std::make_unique<ConvertTTIRToTTMetal>();
+std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTKernelPass() {
+  return std::make_unique<ConvertTTIRToTTKernel>();
 }
 
 } // namespace mlir::tt

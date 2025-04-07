@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTKernel.h"
-
 #ifndef TTMLIR_CONVERSION_TTIRTOTTMETAL_TTIRTOTTMETAL_H
 #define TTMLIR_CONVERSION_TTIRTOTTMETAL_TTIRTOTTMETAL_H
 

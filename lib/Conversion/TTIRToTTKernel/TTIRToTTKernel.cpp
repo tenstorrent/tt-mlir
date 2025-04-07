@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTKernel.h"
+#include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
