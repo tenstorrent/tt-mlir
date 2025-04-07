@@ -5,12 +5,12 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 
-#include <llvm/Support/CommandLine.h>
-#include <optional>
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include <llvm/Support/CommandLine.h>
+
+#include <optional>
 namespace mlir::tt::ttnn {
 
 struct OptionNames {
@@ -41,9 +41,11 @@ struct Conv2dConfigOverrideParams {
   std::optional<bool> reshardIfNotOptimal = std::nullopt;
   std::optional<bool> overrideShardingConfig = std::nullopt;
   std::optional<TensorMemoryLayout> shardLayout = std::nullopt;
-  std::optional<Attribute> coreGrid = std::nullopt;
+  std::optional<CoreRangeSetAttr> coreGrid = std::nullopt;
   std::optional<bool> transposeShards = std::nullopt;
   std::optional<Layout> outputLayout = std::nullopt;
+  std::optional<bool> preprocessWeightsOnDevice = std::nullopt;
+  std::optional<bool> alwaysPreprocessWeights = std::nullopt;
   std::optional<bool> enableActDoubleBuffer = std::nullopt;
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> enableSplitReader = std::nullopt;

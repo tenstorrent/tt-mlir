@@ -101,43 +101,42 @@ void applyConv2dConfigOverrides(
       conv2dConfigOverrides.weightsDtype.value_or(DataType::BFloat16);
   StringAttr newActivation =
       StringAttr::get(context, conv2dConfigOverrides.activation.value_or(""));
-  IntegerAttr newInputChannelsAlignment = IntegerAttr::get(
-      IntegerType::get(
-          context, conv2dConfigOverrides.inputChannelsAlignment.value_or(32)),
-      conv2dConfigOverrides.inputChannelsAlignment.value_or(32));
-  BoolAttr newDeallocateActivation = BoolAttr::get(
-      context, conv2dConfigOverrides.deallocateActivation.value_or(false));
-  BoolAttr newReallocateHaloOutput = BoolAttr::get(
-      context, conv2dConfigOverrides.reallocateHaloOutput.value_or(true));
-  IntegerAttr newActBlockHOverride = IntegerAttr::get(
-      IntegerType::get(context,
-                       conv2dConfigOverrides.actBlockHOverride.value_or(0)),
-      conv2dConfigOverrides.actBlockHOverride.value_or(0));
-  IntegerAttr newActBlockWDiv = IntegerAttr::get(
-      IntegerType::get(context, conv2dConfigOverrides.actBlockWDiv.value_or(1)),
-      conv2dConfigOverrides.actBlockWDiv.value_or(1));
-  BoolAttr newReshardIfNotOptimal = BoolAttr::get(
-      context, conv2dConfigOverrides.reshardIfNotOptimal.value_or(false));
-  BoolAttr newOverrideShardingConfig = BoolAttr::get(
-      context, conv2dConfigOverrides.overrideShardingConfig.value_or(false));
+  uint32_t newInputChannelsAlignment =
+      conv2dConfigOverrides.inputChannelsAlignment.value_or(32);
+  bool newDeallocateActivation =
+      conv2dConfigOverrides.deallocateActivation.value_or(false);
+  bool newReallocateHaloOutput =
+      conv2dConfigOverrides.reallocateHaloOutput.value_or(true);
+  uint32_t newActBlockHOverride =
+      conv2dConfigOverrides.actBlockHOverride.value_or(0);
+  uint32_t newActBlockWDiv = conv2dConfigOverrides.actBlockWDiv.value_or(1);
+  bool newReshardIfNotOptimal =
+      conv2dConfigOverrides.reshardIfNotOptimal.value_or(false);
+  bool newOverrideShardingConfig =
+      conv2dConfigOverrides.overrideShardingConfig.value_or(false);
   ttnn::TensorMemoryLayoutAttr newShardLayout;
   if (conv2dConfigOverrides.shardLayout.has_value()) {
     newShardLayout = TensorMemoryLayoutAttr::get(
         context, conv2dConfigOverrides.shardLayout.value());
   }
-  Attribute newCoreGrid = conv2dConfigOverrides.coreGrid.value_or(Attribute());
-  BoolAttr newTransposeShards = BoolAttr::get(
-      context, conv2dConfigOverrides.transposeShards.value_or(false));
-  LayoutAttr newOutputLayout = LayoutAttr::get(
-      context, conv2dConfigOverrides.outputLayout.value_or(Layout::Tile));
-  BoolAttr newEnableActDoubleBuffer = BoolAttr::get(
-      context, conv2dConfigOverrides.enableActDoubleBuffer.value_or(false));
-  BoolAttr newEnableWeightsDoubleBuffer = BoolAttr::get(
-      context, conv2dConfigOverrides.enableWeightsDoubleBuffer.value_or(false));
-  BoolAttr newEnableSplitReader = BoolAttr::get(
-      context, conv2dConfigOverrides.enableSplitReader.value_or(false));
-  BoolAttr newEnableSubblockPadding = BoolAttr::get(
-      context, conv2dConfigOverrides.enableSubblockPadding.value_or(false));
+  ttnn::CoreRangeSetAttr newCoreGrid =
+      conv2dConfigOverrides.coreGrid.value_or(ttnn::CoreRangeSetAttr());
+  bool newTransposeShards =
+      conv2dConfigOverrides.transposeShards.value_or(false);
+  Layout newOutputLayout =
+      conv2dConfigOverrides.outputLayout.value_or(Layout::Tile);
+  bool newPreprocessWeightsOnDevice =
+      conv2dConfigOverrides.preprocessWeightsOnDevice.value_or(false);
+  bool newAlwaysPreprocessWeights =
+      conv2dConfigOverrides.alwaysPreprocessWeights.value_or(false);
+  bool newEnableActDoubleBuffer =
+      conv2dConfigOverrides.enableActDoubleBuffer.value_or(false);
+  bool newEnableWeightsDoubleBuffer =
+      conv2dConfigOverrides.enableWeightsDoubleBuffer.value_or(false);
+  bool newEnableSplitReader =
+      conv2dConfigOverrides.enableSplitReader.value_or(false);
+  bool newEnableSubblockPadding =
+      conv2dConfigOverrides.enableSubblockPadding.value_or(false);
 
   for (auto &opConfig : analysisResult) {
     assert(!opConfig.config &&
@@ -147,7 +146,8 @@ void applyConv2dConfigOverrides(
         newInputChannelsAlignment, newDeallocateActivation,
         newReallocateHaloOutput, newActBlockHOverride, newActBlockWDiv,
         newReshardIfNotOptimal, newOverrideShardingConfig, newShardLayout,
-        newCoreGrid, newTransposeShards, newOutputLayout.getValue(),
+        newCoreGrid, newTransposeShards, newOutputLayout,
+        newPreprocessWeightsOnDevice, newAlwaysPreprocessWeights,
         newEnableActDoubleBuffer, newEnableWeightsDoubleBuffer,
         newEnableSplitReader, newEnableSubblockPadding);
   }
@@ -423,8 +423,8 @@ void LegalLayoutAnalysis::analysisImplementation() {
   }
 
   // Apply conv2d config overrides if they exist and op is Conv2d.
-  if (isa<NameLoc>(op->getLoc())) {
-    StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+  if (auto opLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
+    StringRef opLocName = opLoc.getName().strref();
     if (analysisInput.conv2dConfigOverrides && isa<ttnn::Conv2dOp>(op)) {
       auto overrideConv2dIt =
           analysisInput.conv2dConfigOverrides->find(opLocName);
