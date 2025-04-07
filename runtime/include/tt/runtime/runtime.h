@@ -133,8 +133,13 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::unique_ptr<CallbackTensorBase>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
+
+std::vector<std::unique_ptr<CallbackTensorBase>>
+getOpInputTensors(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

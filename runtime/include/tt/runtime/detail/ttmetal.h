@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_DETAIL_TTMETAL_H
 #define TT_RUNTIME_DETAIL_TTMETAL_H
 
+#include "tt/runtime/detail/logger.h"
 #define FMT_HEADER_ONLY
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/event.hpp"
@@ -72,8 +73,30 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+struct CallbackTensor : public CallbackTensorBase {
+  void updateTensor(CallbackContext programContext) override {
+    LOG_WARNING(
+        "CallbackTensor::updateTensor not implemented for metal runtime");
+  }
+  CallbackTensor() : CallbackTensorBase(nullptr, DeviceRuntime::TTMetal) {}
+  CallbackTensor(std::shared_ptr<void> handle,
+                 ::tt::runtime::DeviceRuntime runtime)
+      : CallbackTensorBase(handle, runtime) {}
+  CallbackTensor(Tensor &&tensor, std::shared_ptr<void> handle,
+                 DeviceRuntime runtime)
+      : CallbackTensorBase(std::move(tensor), handle, runtime) {}
+  CallbackTensor(Tensor &&tensor, const void *tensorRef,
+                 std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : CallbackTensorBase(std::move(tensor), handle, runtime) {}
+};
+
+std::unique_ptr<CallbackTensorBase>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
+
+std::vector<std::unique_ptr<CallbackTensorBase>>
+getOpInputTensors(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 using InputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,
