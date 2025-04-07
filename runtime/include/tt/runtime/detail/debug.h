@@ -43,18 +43,16 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
 }
 
 struct Hooks {
+  using CallbackFn = std::function<void(Binary, CallbackContext, OpContext)>;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static Hooks const &
-  get(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-          preOperatorCallback = std::nullopt,
-      std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-          postOperatorCallback = std::nullopt);
+  get(std::optional<CallbackFn> preOperatorCallback = std::nullopt,
+      std::optional<CallbackFn> postOperatorCallback = std::nullopt);
 #else
   constexpr static Hooks get() { return Hooks(); }
 #endif
 
-  std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-  getPreOperatorCallback() const {
+  std::optional<CallbackFn> getPreOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return preOperatorCallback;
 #else
@@ -62,8 +60,7 @@ struct Hooks {
 #endif
   }
 
-  std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-  getPostOperatorCallback() const {
+  std::optional<CallbackFn> getPostOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return postOperatorCallback;
 #else
@@ -80,17 +77,13 @@ struct Hooks {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  Hooks(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-            preOperatorCallback,
-        std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-            postOperatorCallback)
+  Hooks(std::optional<CallbackFn> preOperatorCallback,
+        std::optional<CallbackFn> postOperatorCallback)
       : preOperatorCallback(preOperatorCallback),
         postOperatorCallback(postOperatorCallback) {}
 
-  mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-      preOperatorCallback;
-  mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-      postOperatorCallback;
+  mutable std::optional<CallbackFn> preOperatorCallback;
+  mutable std::optional<CallbackFn> postOperatorCallback;
 
 #else
   constexpr Hooks() = default;
