@@ -12,6 +12,8 @@ from ttmlir.dialects import ttir, tt, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 import torch
 import array
+from enum import Enum, auto
+import re
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -109,6 +111,12 @@ class TypeInfo:
     zero_point: Optional[int] = None
 
 
+class GoldenCheckLevel(Enum):
+    DISABLED = auto()  # Do not store golden.
+    OP_LEVEL = auto()  # Check every single op level goldens
+    GRAPH_LEVEL = auto()  # Check graph level goldens only
+
+
 class TTIRBuilder:
     """Builder class providing API for creating TTIR ops."""
 
@@ -130,11 +138,24 @@ class TTIRBuilder:
         # mesh_shape for multi-device
         self.mesh_shape = ()
 
+        # golden check level
+        self._golden_check_level = GoldenCheckLevel.OP_LEVEL
+
     # ----- Public helpers -----
 
     @property
     def goldens(self) -> Dict:
         return self._goldens
+
+    @property
+    def golden_check_level(self) -> GoldenCheckLevel:
+        return self._golden_check_level
+
+    @golden_check_level.setter
+    def golden_check_level(self, level: GoldenCheckLevel):
+        if not isinstance(level, GoldenCheckLevel):
+            raise ValueError("Invalid golden check level.")
+        self._golden_check_level = level
 
     def get_next_global_id(self) -> int:
         self._global_id += 1
@@ -189,7 +210,13 @@ class TTIRBuilder:
 
     def get_golden_map(self) -> Dict:
         golden_info = {}
+        if self.golden_check_level == GoldenCheckLevel.DISABLED:
+            return golden_info
         for name, golden_tensor in self.id_golden_map.items():
+            if self.golden_check_level == GoldenCheckLevel.GRAPH_LEVEL:
+                if re.match(r"^(input|output)_[0-9]+$", name) is None:
+                    # It means this is not graph level golden.
+                    continue
             golden_tensor = golden_tensor.contiguous()
             data_type = self.get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
             golden_info[name] = GoldenTensor(
@@ -220,6 +247,7 @@ class TTIRBuilder:
             self.id_golden_map[input_key] = Golden(tensor)
 
         if outputs is not None:
+            self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
             for index, tensor in enumerate(outputs):
                 output_key = f"output_{index}"
                 self.id_golden_map[output_key] = Golden(tensor)
@@ -566,7 +594,6 @@ class TTIRBuilder:
 
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
             self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
