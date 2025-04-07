@@ -15,10 +15,17 @@ void run(const ::tt::target::ttnn::PrintOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor &input = tensorPool.getAndValidate(op->in());
 
-  std::cerr << "-------this is tensor----------" << std::endl;
   ::ttnn::core::set_printoptions("FULL");
-  std::cerr << input.write_to_string() << std::endl;
-  std::cerr << "-------this is tensor----------" << std::endl;
+  const std::string tensor_string = input.write_to_string();
+  std::string probe_id = op->probe_id()->str();
+
+  std::ofstream log_file("interpreter_log/" + probe_id + ".txt");
+  if (log_file.is_open()) {
+    log_file << tensor_string;
+    log_file.close();
+  } else {
+    LOG_FATAL("Failed to open log file for probe_id: " + probe_id);
+  }
 
   ::ttnn::Tensor output = input;
 

@@ -28,3 +28,13 @@ add_mlir_conversion_library(TTMLIRStableHLOToTTIR
   StablehloReferenceErrors
   StablehloReferenceConfiguration
 )
+
+# Force whole-archive linking for the last four static libs
+target_link_options(TTMLIRStableHLOToTTIR PUBLIC
+  -Wl,--whole-archive
+  $<TARGET_FILE:StablehloReferenceApi>
+  $<TARGET_FILE:InterpreterPasses>
+  $<TARGET_FILE:StablehloReferenceErrors>
+  $<TARGET_FILE:StablehloReferenceConfiguration>
+  -Wl,--no-whole-archive
+)
