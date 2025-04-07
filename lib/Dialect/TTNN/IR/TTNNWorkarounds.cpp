@@ -568,4 +568,15 @@ TTNNOperandsWorkaroundsFactory::createConv2dOpOperandsWorkarounds(
   return workaround;
 }
 
+// TTNN Arange op only supports row-major output. Adding workaround to enforce
+// row-major layout on its output.
+// tt-metal issue to support tile layout for arange op:
+// https://github.com/tenstorrent/tt-metal/issues/20251
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createArangeOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds arangeOpOperandWorkaround(Layout::RowMajor);
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addOutputOperandWorkaround(arangeOpOperandWorkaround);
+}
+
 } // namespace mlir::tt::ttnn::wa

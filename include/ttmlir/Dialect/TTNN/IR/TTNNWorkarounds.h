@@ -282,6 +282,9 @@ public:
   // Create workarounds for conv2d op operands.
   static TTNNOperandsWorkarounds
   createConv2dOpOperandsWorkarounds(bool hasBias);
+
+  // Create workarounds for arange op.
+  static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa
