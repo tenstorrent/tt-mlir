@@ -4,7 +4,7 @@ These are the steps required to get the TT-MLIR project running on your machine
 
 ## Prerequisites
 
-- [System Dependencies](#dependencies)
+- [System Dependencies](#system-dependencies)
 - [Hardware Setup](https://docs.tenstorrent.com/getting-started/README.html)
 
 ## Environment Setup
