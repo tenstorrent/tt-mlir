@@ -1,0 +1,11 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table MorehCumSumOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  dim: int64;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}

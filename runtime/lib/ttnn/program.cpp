@@ -27,7 +27,7 @@
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
 #include "operations/eltwise/quantization/quantization.h"
-#include "operations/eltwise/ternary/ternary.h"
+#include "operations/eltwise/ternary/where.h"
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
@@ -142,7 +142,6 @@ private:
   Binary executableHandle;
   std::unique_ptr<ProgramContext> context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
-  void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
 } // namespace
 
@@ -176,46 +175,6 @@ void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
     counter = 0;
   }
 #endif
-}
-
-void ProgramExecutor::runEltwiseOperation(
-    const ::tt::target::ttnn::EltwiseOp *op) {
-  auto runUnaryOp = [&]() {
-    if (operations::unary::composite::isUnaryCompositeOp(op)) {
-      return operations::unary::composite::run(op, getContext());
-    }
-    return operations::unary::run(op, getContext());
-  };
-
-  auto runBinaryOp = [&]() {
-    if (operations::binary::composite::isBinaryCompositeOp(op)) {
-      return operations::binary::composite::run(op, getContext());
-    }
-    return operations::binary::run(op, getContext());
-  };
-
-  auto runTernaryOp = [&]() {
-    return operations::ternary::run(op, getContext());
-  };
-
-  auto runQuantizationOp = [&]() {
-    return operations::quantization::run(op, getContext());
-  };
-
-  if (operations::quantization::isQuantizationOp(op)) {
-    return runQuantizationOp();
-  }
-  if (operations::unary::isUnaryOp(op)) {
-    return runUnaryOp();
-  }
-  if (operations::binary::isBinaryOp(op)) {
-    return runBinaryOp();
-  }
-  if (operations::ternary::isTernaryOp(op)) {
-    return runTernaryOp();
-  }
-
-  LOG_FATAL("Unsupported Eltwise operation");
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
@@ -255,8 +214,29 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::FullOp: {
     return operations::creation::run(op->type_as_FullOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::EltwiseOp: {
-    return runEltwiseOperation(op->type_as_EltwiseOp());
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    return operations::eltwise::binary::run(op->type_as_EltwiseBinaryOp(),
+                                            getContext());
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    return operations::eltwise::binary::run(
+        op->type_as_EltwiseBinaryCompositeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
+    return operations::eltwise::ternary::run(
+        op->type_as_EltwiseTernaryWhereOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    return operations::eltwise::quantization::run(
+        op->type_as_EltwiseQuantizationOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    return operations::eltwise::unary::run(op->type_as_EltwiseUnaryOp(),
+                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    return operations::eltwise::unary::run(
+        op->type_as_EltwiseUnaryCompositeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::LinearOp: {
     return operations::matmul::run(op->type_as_LinearOp(), getContext());
@@ -363,7 +343,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::creation::run(op->type_as_ConstantOp(), getContext());
   }
   default: {
-    LOG_FATAL("Unsupported operation type");
+    LOG_FATAL("Unsupported operation type: ",
+              ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
   }
 }

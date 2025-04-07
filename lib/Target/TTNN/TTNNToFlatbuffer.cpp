@@ -90,14 +90,19 @@ getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
   return coreRangeSet;
 }
 
-::flatbuffers::Offset<::tt::target::DeviceRef>
-createDeviceRef(FlatbufferObjectCache &cache, Value device) {
-  auto desc = lookupDevice(device.getParentBlock()->getParentOp());
-  auto chipIds = desc.getChipIds();
-  return ::tt::target::CreateDeviceRef(*cache.fbb, chipIds[0]);
+static ttnn::MemoryConfigAttr
+getMemoryConfigAttr(::mlir::tt::ttnn::TTNNLayoutAttr layoutAttr) {
+  MLIRContext *ctx = layoutAttr.getContext();
+  ttnn::BufferTypeAttr bufferTypeAttr =
+      ttnn::BufferTypeAttr::get(ctx, layoutAttr.getBufferType());
+  ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
+      ctx, ttnn::ShapeAttr::get(ctx, layoutAttr.getShardShape()));
+  ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+      ctx, bufferTypeAttr, shardSpecAttr, layoutAttr.getMemLayout());
+  return memoryConfigAttr;
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
+static ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 shardSpecToFlatbuffer(FlatbufferObjectCache &cache,
                       ::mlir::tt::ttnn::ShardSpecAttr shardSpec,
                       ::tt::target::Dim2d tileShape,
@@ -119,7 +124,7 @@ shardSpecToFlatbuffer(FlatbufferObjectCache &cache,
                                                    &shardShape);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
 memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
                          ::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr,
                          ::tt::target::Dim2d tileShape,
@@ -139,6 +144,32 @@ memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
       ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
                                              bufferType, shardSpec);
   return memoryConfig;
+}
+
+static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
+                                      Value tensor) {
+  auto tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  ttnn::BufferType bufferType = layoutAttr.getBufferType();
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (isDeviceBufferType(bufferType)) {
+    auto memoryConfigAttr = getMemoryConfigAttr(layoutAttr);
+    auto tileShape = getTensorValueTileShape(tensor);
+    auto coreRangeSet = getTensorValueCoreRangeSet(cache, tensor);
+    memoryConfig = memoryConfigToFlatbuffer(cache, memoryConfigAttr, tileShape,
+                                            coreRangeSet);
+  }
+
+  return memoryConfig;
+}
+
+::flatbuffers::Offset<::tt::target::DeviceRef>
+createDeviceRef(FlatbufferObjectCache &cache, Value device) {
+  auto desc = lookupDevice(device.getParentBlock()->getParentOp());
+  auto chipIds = desc.getChipIds();
+  return ::tt::target::CreateDeviceRef(*cache.fbb, chipIds[0]);
 }
 
 flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
@@ -891,45 +922,6 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
       *cache.fbb, input, scaleType, scaleFactor, mode, memoryConfig, output);
 }
 
-template <typename EltwiseOp, typename EltwiseOpParams>
-::flatbuffers::Offset<EltwiseOpParams>
-createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
-  if constexpr (std::is_same_v<EltwiseOp, ClampScalarOp>) {
-    auto min = op.getMin().convertToFloat();
-    auto max = op.getMax().convertToFloat();
-    return ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max);
-  } else if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
-    auto min = cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(op.getMin()));
-    auto max = cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(op.getMax()));
-    return ::tt::target::ttnn::CreateClampTensorOpParams(*cache.fbb, min, max);
-  } else if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
-    auto parameter = op.getParameter().convertToFloat();
-    return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
-                                                              parameter);
-  } else if constexpr (std::is_same_v<EltwiseOp, QuantizeOp> ||
-                       std::is_same_v<EltwiseOp, DequantizeOp>) {
-    auto scale = op.getScale().convertToFloat();
-    auto zeroPoint = op.getZeroPoint();
-    ::flatbuffers::Optional<int32_t> axis = toFlatbuffer(cache, op.getAxis());
-    ::flatbuffers::Optional<::tt::target::DataType> dtype =
-        toFlatbuffer(cache, op.getOutputDtype());
-    return ::tt::target::ttnn::CreateQuantizationOpParams(
-        *cache.fbb, scale, zeroPoint, axis, dtype);
-  } else if constexpr (std::is_same_v<EltwiseOp, RequantizeOp>) {
-    auto inScale = op.getInScale().convertToFloat();
-    auto inZeroPoint = op.getInZeroPoint();
-    auto outScale = op.getOutScale().convertToFloat();
-    auto outZeroPoint = op.getOutZeroPoint();
-    ::flatbuffers::Optional<int32_t> axis = toFlatbuffer(cache, op.getAxis());
-    ::flatbuffers::Optional<::tt::target::DataType> dtype =
-        toFlatbuffer(cache, op.getOutputDtype());
-    return ::tt::target::ttnn::CreateRequantizeOpParams(
-        *cache.fbb, inScale, inZeroPoint, outScale, outZeroPoint, axis, dtype);
-  }
-}
-
 ::flatbuffers::Offset<::tt::target::ttnn::UpdateCacheOp>
 createOp(FlatbufferObjectCache &cache, UpdateCacheOp op) {
   auto cacheOperand = cache.at<::tt::target::ttnn::TensorRef>(
@@ -975,194 +967,341 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
                                                     &rawVector);
 }
 
-template <typename EltwiseOp>
-::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
-createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
-  ::tt::target::ttnn::EltwiseOpType type;
-  ::tt::target::ttnn::EltwiseOpParams paramsType =
-      ::tt::target::ttnn::EltwiseOpParams::NONE;
-  ::flatbuffers::Offset<void> params = 0;
-  if constexpr (std::is_same_v<EltwiseOp, ClampScalarOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::ClampScalar;
-    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampScalarOpParams;
-    params = createEltwiseOpParams<ClampScalarOp,
-                                   ::tt::target::ttnn::ClampScalarOpParams>(
-                 cache, op)
-                 .Union();
-  } else if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::ClampTensor;
-    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampTensorOpParams;
-    params = createEltwiseOpParams<ClampTensorOp,
-                                   ::tt::target::ttnn::ClampTensorOpParams>(
-                 cache, op)
-                 .Union();
-  } else if constexpr (std::is_same_v<EltwiseOp, QuantizeOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Quantize;
-    paramsType = ::tt::target::ttnn::EltwiseOpParams::QuantizationOpParams;
-    params = createEltwiseOpParams<QuantizeOp,
-                                   ::tt::target::ttnn::QuantizationOpParams>(
-                 cache, op)
-                 .Union();
-  } else if constexpr (std::is_same_v<EltwiseOp, DequantizeOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Dequantize;
-    paramsType = ::tt::target::ttnn::EltwiseOpParams::QuantizationOpParams;
-    params = createEltwiseOpParams<DequantizeOp,
-                                   ::tt::target::ttnn::QuantizationOpParams>(
-                 cache, op)
-                 .Union();
-  } else if constexpr (std::is_same_v<EltwiseOp, RequantizeOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Requantize;
-    paramsType = ::tt::target::ttnn::EltwiseOpParams::RequantizeOpParams;
-    params =
-        createEltwiseOpParams<RequantizeOp,
-                              ::tt::target::ttnn::RequantizeOpParams>(cache, op)
-            .Union();
-  } else {
-    llvm_unreachable("unhandled non-DPS EltwiseOp");
-  }
+template <typename EltwiseBinaryOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryOp>
+createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
-  // ClampTensorOp is mapped to a unary composite op in the TTNN, even though
-  // it's technically a ternary elementwise op. To keep the mapping in the
-  // runtime consistent, we have to treat it as a special case where only
-  // `input` operand is the input, and `min` and `max` are parameters.
-  if constexpr (std::is_same_v<EltwiseOp, ClampTensorOp>) {
-    ins.emplace_back(cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(op.getInput())));
+  ::tt::target::ttnn::EltwiseBinaryOpType type;
+  if constexpr (std::is_same_v<EltwiseBinaryOp, AddOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::Add;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, MultiplyOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::Multiply;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, SubtractOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::Subtract;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, EqualOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::Equal;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, NotEqualOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::NotEqual;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, GreaterEqualOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::GreaterEqual;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, GreaterThanOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::GreaterThan;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, LessEqualOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::LessEqual;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, LessThanOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::LessThan;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, DivideOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::Divide;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, LogicalAndOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::LogicalAnd;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, LogicalOrOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::LogicalOr;
+  } else if constexpr (std::is_same_v<EltwiseBinaryOp, LogicalXorOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryOpType::LogicalXor;
   } else {
-    for (auto input : op->getOperands()) {
-      ins.emplace_back(cache.at<::tt::target::ttnn::TensorRef>(
-          getOperandThroughDPSOps(input)));
-    }
+    llvm_unreachable("unhandled EltwiseBinaryOp");
   }
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                               kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,
-                                                   paramsType, params);
+  auto lhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+
+  auto rhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRhs()));
+
+  auto result = op.getResult();
+
+  auto out =
+      cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
+
+  // TODO (#2856): we should be getting output data type and memory config from
+  // the binary op directly instead of deriving from the output tensor.
+  // Requires compiler support.
+  auto outputType = mlir::cast<RankedTensorType>(result.getType());
+  DataType outputDtype = elementTypeToDataType(outputType.getElementType());
+  ::tt::target::DataType targetDtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(outputDtype);
+
+  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+
+  return ::tt::target::ttnn::CreateEltwiseBinaryOp(
+      *cache.fbb, type, lhs, rhs, targetDtype, memoryConfig, out);
 }
 
-template <typename EltwiseOp>
-::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
-createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
-  ::tt::target::ttnn::EltwiseOpType type;
-  ::tt::target::ttnn::EltwiseOpParams paramsType =
-      ::tt::target::ttnn::EltwiseOpParams::NONE;
-  ::flatbuffers::Offset<void> params = 0;
-  if constexpr (std::is_same_v<EltwiseOp, AbsOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Abs;
-  } else if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Add;
-  } else if constexpr (std::is_same_v<EltwiseOp, CbrtOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Cbrt;
-  } else if constexpr (std::is_same_v<EltwiseOp, FloorOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Floor;
-  } else if constexpr (std::is_same_v<EltwiseOp, IsFiniteOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::IsFinite;
-  } else if constexpr (std::is_same_v<EltwiseOp, LogicalAndOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::LogicalAnd;
-  } else if constexpr (std::is_same_v<EltwiseOp, LogicalNotOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::LogicalNot;
-  } else if constexpr (std::is_same_v<EltwiseOp, LogicalOrOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::LogicalOr;
-  } else if constexpr (std::is_same_v<EltwiseOp, LogicalXorOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::LogicalXor;
-  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseAndOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::BitwiseAnd;
-  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseOrOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::BitwiseOr;
-  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseXorOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::BitwiseXor;
-  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseNotOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::BitwiseNot;
-  } else if constexpr (std::is_same_v<EltwiseOp, MultiplyOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Multiply;
-  } else if constexpr (std::is_same_v<EltwiseOp, NegOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Neg;
-  } else if constexpr (std::is_same_v<EltwiseOp, SubtractOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Subtract;
-  } else if constexpr (std::is_same_v<EltwiseOp, EqualOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Equal;
-  } else if constexpr (std::is_same_v<EltwiseOp, NotEqualOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::NotEqual;
-  } else if constexpr (std::is_same_v<EltwiseOp, GreaterEqualOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::GreaterEqual;
-  } else if constexpr (std::is_same_v<EltwiseOp, GreaterThanOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::GreaterThan;
-  } else if constexpr (std::is_same_v<EltwiseOp, LessEqualOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::LessEqual;
-  } else if constexpr (std::is_same_v<EltwiseOp, LessThanOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::LessThan;
-  } else if constexpr (std::is_same_v<EltwiseOp, MaximumOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Maximum;
-  } else if constexpr (std::is_same_v<EltwiseOp, MinimumOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Minimum;
-  } else if constexpr (std::is_same_v<EltwiseOp, ReluOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Relu;
-  } else if constexpr (std::is_same_v<EltwiseOp, SqrtOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Sqrt;
-  } else if constexpr (std::is_same_v<EltwiseOp, RsqrtOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Rsqrt;
-  } else if constexpr (std::is_same_v<EltwiseOp, SignOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Sign;
-  } else if constexpr (std::is_same_v<EltwiseOp, ReciprocalOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Reciprocal;
-  } else if constexpr (std::is_same_v<EltwiseOp, DivideOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Divide;
-  } else if constexpr (std::is_same_v<EltwiseOp, SigmoidOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Sigmoid;
-  } else if constexpr (std::is_same_v<EltwiseOp, ScatterOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Scatter;
-  } else if constexpr (std::is_same_v<EltwiseOp, Log1pOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Log1p;
-  } else if constexpr (std::is_same_v<EltwiseOp, ExpOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Exp;
-  } else if constexpr (std::is_same_v<EltwiseOp, CeilOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Ceil;
-  } else if constexpr (std::is_same_v<EltwiseOp, CosOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Cos;
-  } else if constexpr (std::is_same_v<EltwiseOp, SinOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Sin;
-  } else if constexpr (std::is_same_v<EltwiseOp, LogOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Log;
-  } else if constexpr (std::is_same_v<EltwiseOp, Expm1Op>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Expm1;
-  } else if constexpr (std::is_same_v<EltwiseOp, RemainderOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Remainder;
-  } else if constexpr (std::is_same_v<EltwiseOp, WhereOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Where;
-  } else if constexpr (std::is_same_v<EltwiseOp, GeluOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Gelu;
-  } else if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::LeakyRelu;
-    paramsType = ::tt::target::ttnn::EltwiseOpParams::EltwiseOpWithFloatParams;
-    params =
-        createEltwiseOpParams<LeakyReluOp,
-                              ::tt::target::ttnn::EltwiseOpWithFloatParams>(
-            cache, op)
-            .Union();
-  } else if constexpr (std::is_same_v<EltwiseOp, TanOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Tan;
-  } else if constexpr (std::is_same_v<EltwiseOp, TanhOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Tanh;
-  } else if constexpr (std::is_same_v<EltwiseOp, AtanOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Atan;
-  } else if constexpr (std::is_same_v<EltwiseOp, Atan2Op>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Atan2;
-  } else if constexpr (std::is_same_v<EltwiseOp, PowOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Pow;
-  } else {
-    llvm_unreachable("unhandled EltwiseOp");
-  }
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
-  for (auto input : op->getOperands()) {
-    ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(input)));
-  }
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                               kHostAllocatedSize);
+template <typename EltwiseBinaryCompositeOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeOp>
+createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
+                               EltwiseBinaryCompositeOp op) {
 
-  return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,
-                                                   paramsType, params);
+  ::tt::target::ttnn::EltwiseBinaryCompositeOpType type;
+  if (std::is_same_v<EltwiseBinaryCompositeOp, MaximumOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Maximum;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, MinimumOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, RemainderOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, ScatterOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseAndOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseAnd;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseOrOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseOr;
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseXorOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseXor;
+  } else {
+    llvm_unreachable("unhandled EltwiseBinaryCompositeOp");
+  }
+  auto lhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+
+  auto rhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRhs()));
+
+  auto result = op.getResult();
+
+  // TODO (#2856): we should be getting memory config from the binary
+  // composite op directly instead of deriving from the output tensor.
+  // Requires compiler support.
+  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+
+  auto out =
+      cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateEltwiseBinaryCompositeOp(
+      *cache.fbb, type, lhs, rhs, memoryConfig, out);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
+createEltwiseTernaryWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
+
+  auto first = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getFirst()));
+  auto second = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSecond()));
+  auto third = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getThird()));
+
+  auto result = op.getResult();
+
+  // TODO (#2857): we should be getting memory config from the where op
+  // directly instead of deriving from the output tensor.
+  // Requires compiler support.
+  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+
+  auto out =
+      cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateEltwiseTernaryWhereOp(
+      *cache.fbb, first, second, third, memoryConfig, out);
+}
+
+template <typename EltwiseQuantizationOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseQuantizationOp>
+createEltwiseQuantizationOp(FlatbufferObjectCache &cache,
+                            EltwiseQuantizationOp op) {
+
+  auto createQuantDequantParams =
+      [&cache](std::variant<QuantizeOp, DequantizeOp> opVariant) {
+        return std::visit(
+            [&cache](auto &&op) {
+              auto scale = op.getScale().convertToFloat();
+              auto zeroPoint = op.getZeroPoint();
+              return ::tt::target::ttnn::CreateQuantizeDequantizeOpParams(
+                  *cache.fbb, scale, zeroPoint);
+            },
+            opVariant);
+      };
+
+  auto createRequantOpParams = [&cache](RequantizeOp op) {
+    auto inScale = op.getInScale().convertToFloat();
+    auto inZeroPoint = op.getInZeroPoint();
+    auto outScale = op.getOutScale().convertToFloat();
+    auto outZeroPoint = op.getOutZeroPoint();
+    return ::tt::target::ttnn::CreateRequantizeOpParams(
+        *cache.fbb, inScale, inZeroPoint, outScale, outZeroPoint);
+  };
+
+  ::tt::target::ttnn::EltwiseQuantizationOpType type;
+  ::tt::target::ttnn::EltwiseQuantizationOpParams paramsType =
+      ::tt::target::ttnn::EltwiseQuantizationOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
+
+  if constexpr (std::is_same_v<EltwiseQuantizationOp, QuantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseQuantizationOpType::Quantize;
+    paramsType = ::tt::target::ttnn::EltwiseQuantizationOpParams::
+        QuantizeDequantizeOpParams;
+    params = createQuantDequantParams(op).Union();
+  } else if constexpr (std::is_same_v<EltwiseQuantizationOp, DequantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseQuantizationOpType::Dequantize;
+    paramsType = ::tt::target::ttnn::EltwiseQuantizationOpParams::
+        QuantizeDequantizeOpParams;
+    params = createQuantDequantParams(op).Union();
+  } else if constexpr (std::is_same_v<EltwiseQuantizationOp, RequantizeOp>) {
+    type = ::tt::target::ttnn::EltwiseQuantizationOpType::Requantize;
+    paramsType =
+        ::tt::target::ttnn::EltwiseQuantizationOpParams::RequantizeOpParams;
+    params = createRequantOpParams(op).Union();
+  } else {
+    llvm_unreachable("unhandled EltwiseQuantizationOp");
+  }
+
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Optional<int32_t> axis = toFlatbuffer(cache, op.getAxis());
+  ::flatbuffers::Optional<::tt::target::DataType> outputDType =
+      toFlatbuffer(cache, op.getOutputDtype());
+
+  auto result = op.getResult();
+
+  // TODO (#2858): we should be getting memory config from the quantization op
+  // directly instead of deriving from the output tensor.
+  // Although the mlir op has a memory config attribute, it's not being set.
+  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+
+  auto out =
+      cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateEltwiseQuantizationOp(
+      *cache.fbb, type, in, axis, outputDType, memoryConfig, out, paramsType,
+      params);
+}
+
+template <typename EltwiseUnaryOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseUnaryOp>
+createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
+
+  ::tt::target::ttnn::EltwiseUnaryOpType type;
+  ::tt::target::ttnn::EltwiseUnaryOpParams paramsType =
+      ::tt::target::ttnn::EltwiseUnaryOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
+
+  if constexpr (std::is_same_v<EltwiseUnaryOp, AbsOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Abs;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, CeilOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Ceil;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, CosOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Cos;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, FloorOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Floor;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, GeluOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Gelu;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, IsFiniteOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::IsFinite;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, LogicalNotOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::LogicalNot;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, NegOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Neg;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReluOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Relu;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, SqrtOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Sqrt;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, RsqrtOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Rsqrt;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, SigmoidOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, SinOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, SignOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Sign;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, TanOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Tan;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, TanhOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Tanh;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, AtanOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Atan;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, ExpOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Exp;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, LogOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Log;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, Expm1Op>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Expm1;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, LeakyReluOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::LeakyRelu;
+    paramsType =
+        ::tt::target::ttnn::EltwiseUnaryOpParams::EltwiseOpWithFloatParams;
+    auto parameter = op.getParameter().convertToFloat();
+    params = ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
+                                                                parameter)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, BitwiseNotOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::BitwiseNot;
+  } else {
+    llvm_unreachable("unhandled EltwiseUnaryOp");
+  }
+
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  auto result = op.getResult();
+
+  // TODO (#2859): we should be getting memory config from the unary op
+  // directly instead of deriving from the output tensor
+  // Requires compiler support.
+  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+
+  auto out =
+      cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateEltwiseUnaryOp(
+      *cache.fbb, type, in, memoryConfig, out, paramsType, params);
+}
+
+template <typename EltwiseUnaryCompositeOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseUnaryCompositeOp>
+createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
+                              EltwiseUnaryCompositeOp op) {
+
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpType type;
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpParams paramsType =
+      ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
+
+  if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, CbrtOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::Cbrt;
+  } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampScalarOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
+    paramsType =
+        ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::ClampScalarOpParams;
+    auto min = op.getMin().convertToFloat();
+    auto max = op.getMax().convertToFloat();
+    params = ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampTensorOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor;
+    paramsType =
+        ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::ClampTensorOpParams;
+    auto min = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMin()));
+    auto max = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMax()));
+    params = ::tt::target::ttnn::CreateClampTensorOpParams(*cache.fbb, min, max)
+                 .Union();
+  } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, Log1pOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::Log1p;
+  } else {
+    llvm_unreachable("unhandled EltwiseUnaryCompositeOp");
+  }
+
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  auto result = op.getResult();
+
+  // TODO (#2859): we should be getting memory config from the unary
+  // composite op directly instead of deriving from the output tensor
+  // Requires compiler support.
+  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+
+  auto out =
+      cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateEltwiseUnaryCompositeOp(
+      *cache.fbb, type, in, memoryConfig, out, paramsType, params);
 }
 
 template <typename ReductionOp>
@@ -1503,161 +1642,230 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createNamedFullOp(cache, onesOp), debugString,
                            locInfo);
   }
-  if (auto absOp = dyn_cast<AbsOp>(op); absOp) {
-    return createOperation(cache, createEltwiseOp(cache, absOp), debugString,
-                           locInfo);
-  }
   if (auto addOp = dyn_cast<AddOp>(op); addOp) {
-    return createOperation(cache, createEltwiseOp(cache, addOp), debugString,
-                           locInfo);
-  }
-  if (auto floorOp = dyn_cast<FloorOp>(op); floorOp) {
-    return createOperation(cache, createEltwiseOp(cache, floorOp), debugString,
-                           locInfo);
-  }
-  if (auto isFiniteOp = dyn_cast<IsFiniteOp>(op); isFiniteOp) {
-    return createOperation(cache, createEltwiseOp(cache, isFiniteOp),
-                           debugString, locInfo);
-  }
-  if (auto cbrtOp = dyn_cast<CbrtOp>(op); cbrtOp) {
-    return createOperation(cache, createEltwiseOp(cache, cbrtOp), debugString,
-                           locInfo);
-  }
-  if (auto andOp = dyn_cast<LogicalAndOp>(op); andOp) {
-    return createOperation(cache, createEltwiseOp(cache, andOp), debugString,
-                           locInfo);
-  }
-  if (auto orOp = dyn_cast<LogicalOrOp>(op); orOp) {
-    return createOperation(cache, createEltwiseOp(cache, orOp), debugString,
-                           locInfo);
-  }
-  if (auto xorOp = dyn_cast<LogicalXorOp>(op); xorOp) {
-    return createOperation(cache, createEltwiseOp(cache, xorOp), debugString,
-                           locInfo);
-  }
-  if (auto notOp = dyn_cast<LogicalNotOp>(op); notOp) {
-    return createOperation(cache, createEltwiseOp(cache, notOp), debugString,
-                           locInfo);
-  }
-  if (auto bitwiseAndOp = dyn_cast<BitwiseAndOp>(op); bitwiseAndOp) {
-    return createOperation(cache, createEltwiseOp(cache, bitwiseAndOp),
-                           debugString, locInfo);
-  }
-  if (auto bitwiseOrOp = dyn_cast<BitwiseOrOp>(op); bitwiseOrOp) {
-    return createOperation(cache, createEltwiseOp(cache, bitwiseOrOp),
-                           debugString, locInfo);
-  }
-  if (auto bitwiseXorOp = dyn_cast<BitwiseXorOp>(op); bitwiseXorOp) {
-    return createOperation(cache, createEltwiseOp(cache, bitwiseXorOp),
-                           debugString, locInfo);
-  }
-  if (auto bitwiseNotOp = dyn_cast<BitwiseNotOp>(op); bitwiseNotOp) {
-    return createOperation(cache, createEltwiseOp(cache, bitwiseNotOp),
+    return createOperation(cache, createEltwiseBinaryOp(cache, addOp),
                            debugString, locInfo);
   }
   if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
-    return createOperation(cache, createEltwiseOp(cache, multiplyOp),
+    return createOperation(cache, createEltwiseBinaryOp(cache, multiplyOp),
                            debugString, locInfo);
-  }
-  if (auto negOp = dyn_cast<NegOp>(op); negOp) {
-    return createOperation(cache, createEltwiseOp(cache, negOp), debugString,
-                           locInfo);
   }
   if (auto subtractOp = dyn_cast<SubtractOp>(op); subtractOp) {
-    return createOperation(cache, createEltwiseOp(cache, subtractOp),
-                           debugString, locInfo);
-  }
-  if (auto eqOp = dyn_cast<EqualOp>(op); eqOp) {
-    return createOperation(cache, createEltwiseOp(cache, eqOp), debugString,
-                           locInfo);
-  }
-  if (auto neOp = dyn_cast<NotEqualOp>(op); neOp) {
-    return createOperation(cache, createEltwiseOp(cache, neOp), debugString,
-                           locInfo);
-  }
-  if (auto geOp = dyn_cast<GreaterEqualOp>(op); geOp) {
-    return createOperation(cache, createEltwiseOp(cache, geOp), debugString,
-                           locInfo);
-  }
-  if (auto gtOp = dyn_cast<GreaterThanOp>(op); gtOp) {
-    return createOperation(cache, createEltwiseOp(cache, gtOp), debugString,
-                           locInfo);
-  }
-  if (auto leOp = dyn_cast<LessEqualOp>(op); leOp) {
-    return createOperation(cache, createEltwiseOp(cache, leOp), debugString,
-                           locInfo);
-  }
-  if (auto ltOp = dyn_cast<LessThanOp>(op); ltOp) {
-    return createOperation(cache, createEltwiseOp(cache, ltOp), debugString,
-                           locInfo);
-  }
-  if (auto maximumOp = dyn_cast<MaximumOp>(op); maximumOp) {
-    return createOperation(cache, createEltwiseOp(cache, maximumOp),
-                           debugString, locInfo);
-  }
-  if (auto minimumOp = dyn_cast<MinimumOp>(op); minimumOp) {
-    return createOperation(cache, createEltwiseOp(cache, minimumOp),
-                           debugString, locInfo);
-  }
-  if (auto reluOp = dyn_cast<ReluOp>(op); reluOp) {
-    return createOperation(cache, createEltwiseOp(cache, reluOp), debugString,
-                           locInfo);
-  }
-  if (auto sqrtOp = dyn_cast<SqrtOp>(op); sqrtOp) {
-    return createOperation(cache, createEltwiseOp(cache, sqrtOp), debugString,
-                           locInfo);
-  }
-  if (auto rsqrtOp = dyn_cast<RsqrtOp>(op); rsqrtOp) {
-    return createOperation(cache, createEltwiseOp(cache, rsqrtOp), debugString,
-                           locInfo);
-  }
-  if (auto signOp = dyn_cast<SignOp>(op); signOp) {
-    return createOperation(cache, createEltwiseOp(cache, signOp), debugString,
-                           locInfo);
-  }
-  if (auto expOp = dyn_cast<ExpOp>(op); expOp) {
-    return createOperation(cache, createEltwiseOp(cache, expOp), debugString,
-                           locInfo);
-  }
-  if (auto logOp = dyn_cast<LogOp>(op); logOp) {
-    return createOperation(cache, createEltwiseOp(cache, logOp), debugString,
-                           locInfo);
-  }
-  if (auto expm1Op = dyn_cast<Expm1Op>(op); expm1Op) {
-    return createOperation(cache, createEltwiseOp(cache, expm1Op), debugString,
-                           locInfo);
-  }
-  if (auto sigmoidOp = dyn_cast<SigmoidOp>(op); sigmoidOp) {
-    return createOperation(cache, createEltwiseOp(cache, sigmoidOp),
-                           debugString, locInfo);
-  }
-  if (auto log1pOp = dyn_cast<Log1pOp>(op); log1pOp) {
-    return createOperation(cache, createEltwiseOp(cache, log1pOp), debugString,
-                           locInfo);
-  }
-  if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
-    return createOperation(cache, createEltwiseOp(cache, scatterOp),
-                           debugString, locInfo);
-  }
-  if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {
-    return createOperation(cache, createEltwiseOp(cache, reciprocalOp),
+    return createOperation(cache, createEltwiseBinaryOp(cache, subtractOp),
                            debugString, locInfo);
   }
   if (auto divOp = dyn_cast<DivideOp>(op); divOp) {
-    return createOperation(cache, createEltwiseOp(cache, divOp), debugString,
-                           locInfo);
-  }
-  if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
-    return createOperation(cache, createEltwiseOp(cache, remainderOp),
+    return createOperation(cache, createEltwiseBinaryOp(cache, divOp),
                            debugString, locInfo);
   }
-  if (auto leakyReluOp = dyn_cast<LeakyReluOp>(op); leakyReluOp) {
-    return createOperation(cache, createEltwiseOp(cache, leakyReluOp),
+  if (auto eqOp = dyn_cast<EqualOp>(op); eqOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, eqOp),
+                           debugString, locInfo);
+  }
+  if (auto neOp = dyn_cast<NotEqualOp>(op); neOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, neOp),
+                           debugString, locInfo);
+  }
+  if (auto geOp = dyn_cast<GreaterEqualOp>(op); geOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, geOp),
+                           debugString, locInfo);
+  }
+  if (auto gtOp = dyn_cast<GreaterThanOp>(op); gtOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, gtOp),
+                           debugString, locInfo);
+  }
+  if (auto leOp = dyn_cast<LessEqualOp>(op); leOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, leOp),
+                           debugString, locInfo);
+  }
+  if (auto ltOp = dyn_cast<LessThanOp>(op); ltOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, ltOp),
+                           debugString, locInfo);
+  }
+  if (auto logicalAndOp = dyn_cast<LogicalAndOp>(op); logicalAndOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, logicalAndOp),
+                           debugString, locInfo);
+  }
+  if (auto logicalOrOp = dyn_cast<LogicalOrOp>(op); logicalOrOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, logicalOrOp),
+                           debugString, locInfo);
+  }
+  if (auto logicalXorOp = dyn_cast<LogicalXorOp>(op); logicalXorOp) {
+    return createOperation(cache, createEltwiseBinaryOp(cache, logicalXorOp),
+                           debugString, locInfo);
+  }
+  if (auto bitwiseAndOp = dyn_cast<BitwiseAndOp>(op); bitwiseAndOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, bitwiseAndOp),
+                           debugString, locInfo);
+  }
+  if (auto bitwiseOrOp = dyn_cast<BitwiseOrOp>(op); bitwiseOrOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, bitwiseOrOp),
+                           debugString, locInfo);
+  }
+  if (auto bitwiseXorOp = dyn_cast<BitwiseXorOp>(op); bitwiseXorOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, bitwiseXorOp),
+                           debugString, locInfo);
+  }
+  if (auto maximumOp = dyn_cast<MaximumOp>(op); maximumOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, maximumOp),
+                           debugString, locInfo);
+  }
+  if (auto minimumOp = dyn_cast<MinimumOp>(op); minimumOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, minimumOp),
                            debugString, locInfo);
   }
   if (auto powOp = dyn_cast<PowOp>(op); powOp) {
-    return createOperation(cache, createEltwiseOp(cache, powOp), debugString,
-                           locInfo);
+    return createOperation(cache, createEltwiseBinaryCompositeOp(cache, powOp),
+                           debugString, locInfo);
+  }
+  if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, remainderOp),
+                           debugString, locInfo);
+  }
+  if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, scatterOp),
+                           debugString, locInfo);
+  }
+  if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, atan2Op),
+                           debugString, locInfo);
+  }
+  if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
+    return createOperation(cache, createEltwiseTernaryWhereOp(cache, whereOp),
+                           debugString, locInfo);
+  }
+  if (auto quantizeOp = dyn_cast<QuantizeOp>(op); quantizeOp) {
+    return createOperation(cache,
+                           createEltwiseQuantizationOp(cache, quantizeOp),
+                           debugString, locInfo);
+  }
+  if (auto dequantizeOp = dyn_cast<DequantizeOp>(op); dequantizeOp) {
+    return createOperation(cache,
+                           createEltwiseQuantizationOp(cache, dequantizeOp),
+                           debugString, locInfo);
+  }
+  if (auto requantizeOp = dyn_cast<RequantizeOp>(op); requantizeOp) {
+    return createOperation(cache,
+                           createEltwiseQuantizationOp(cache, requantizeOp),
+                           debugString, locInfo);
+  }
+  if (auto absOp = dyn_cast<AbsOp>(op); absOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, absOp),
+                           debugString, locInfo);
+  }
+  if (auto floorOp = dyn_cast<FloorOp>(op); floorOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, floorOp),
+                           debugString, locInfo);
+  }
+  if (auto isFiniteOp = dyn_cast<IsFiniteOp>(op); isFiniteOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, isFiniteOp),
+                           debugString, locInfo);
+  }
+  if (auto logicalNotOp = dyn_cast<LogicalNotOp>(op); logicalNotOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, logicalNotOp),
+                           debugString, locInfo);
+  }
+  if (auto bitwiseNotOp = dyn_cast<BitwiseNotOp>(op); bitwiseNotOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, bitwiseNotOp),
+                           debugString, locInfo);
+  }
+  if (auto negOp = dyn_cast<NegOp>(op); negOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, negOp),
+                           debugString, locInfo);
+  }
+  if (auto reluOp = dyn_cast<ReluOp>(op); reluOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, reluOp),
+                           debugString, locInfo);
+  }
+  if (auto sqrtOp = dyn_cast<SqrtOp>(op); sqrtOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, sqrtOp),
+                           debugString, locInfo);
+  }
+  if (auto rsqrtOp = dyn_cast<RsqrtOp>(op); rsqrtOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, rsqrtOp),
+                           debugString, locInfo);
+  }
+  if (auto signOp = dyn_cast<SignOp>(op); signOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, signOp),
+                           debugString, locInfo);
+  }
+  if (auto expOp = dyn_cast<ExpOp>(op); expOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, expOp),
+                           debugString, locInfo);
+  }
+  if (auto logOp = dyn_cast<LogOp>(op); logOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, logOp),
+                           debugString, locInfo);
+  }
+  if (auto expm1Op = dyn_cast<Expm1Op>(op); expm1Op) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, expm1Op),
+                           debugString, locInfo);
+  }
+  if (auto sigmoidOp = dyn_cast<SigmoidOp>(op); sigmoidOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, sigmoidOp),
+                           debugString, locInfo);
+  }
+  if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, reciprocalOp),
+                           debugString, locInfo);
+  }
+  if (auto leakyReluOp = dyn_cast<LeakyReluOp>(op); leakyReluOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, leakyReluOp),
+                           debugString, locInfo);
+  }
+  if (auto ceilOp = dyn_cast<CeilOp>(op); ceilOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, ceilOp),
+                           debugString, locInfo);
+  }
+  if (auto cosOp = dyn_cast<CosOp>(op); cosOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, cosOp),
+                           debugString, locInfo);
+  }
+  if (auto sinOp = dyn_cast<SinOp>(op); sinOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, sinOp),
+                           debugString, locInfo);
+  }
+  if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, geluOp),
+                           debugString, locInfo);
+  }
+  if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, tanOp),
+                           debugString, locInfo);
+  }
+  if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, tanhOp),
+                           debugString, locInfo);
+  }
+  if (auto atanOp = dyn_cast<AtanOp>(op); atanOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, atanOp),
+                           debugString, locInfo);
+  }
+  if (auto cbrtOp = dyn_cast<CbrtOp>(op); cbrtOp) {
+    return createOperation(cache, createEltwiseUnaryCompositeOp(cache, cbrtOp),
+                           debugString, locInfo);
+  }
+  if (auto log1pOp = dyn_cast<Log1pOp>(op); log1pOp) {
+    return createOperation(cache, createEltwiseUnaryCompositeOp(cache, log1pOp),
+                           debugString, locInfo);
+  }
+  if (auto clampScalarOp = dyn_cast<ClampScalarOp>(op); clampScalarOp) {
+    return createOperation(cache,
+                           createEltwiseUnaryCompositeOp(cache, clampScalarOp),
+                           debugString, locInfo);
+  }
+  if (auto clampTensorOp = dyn_cast<ClampTensorOp>(op); clampTensorOp) {
+    return createOperation(cache,
+                           createEltwiseUnaryCompositeOp(cache, clampTensorOp),
+                           debugString, locInfo);
   }
   if (auto linearOp = dyn_cast<LinearOp>(op); linearOp) {
     return createOperation(cache, createOp(cache, linearOp), debugString,
@@ -1719,14 +1927,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createTransposeOp(cache, transposeOp),
                            debugString, locInfo);
   }
-  if (auto clampScalarOp = dyn_cast<ClampScalarOp>(op); clampScalarOp) {
-    return createOperation(cache, createNonDPSEltwiseOp(cache, clampScalarOp),
-                           debugString, locInfo);
-  }
-  if (auto clampTensorOp = dyn_cast<ClampTensorOp>(op); clampTensorOp) {
-    return createOperation(cache, createNonDPSEltwiseOp(cache, clampTensorOp),
-                           debugString, locInfo);
-  }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
     return createOperation(cache, createOp(cache, conv2dOp), debugString,
                            locInfo);
@@ -1781,42 +1981,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createDeallocateOp(cache, deallocateOp),
                            debugString, locInfo);
   }
-  if (auto ceilOp = dyn_cast<CeilOp>(op); ceilOp) {
-    return createOperation(cache, createEltwiseOp(cache, ceilOp), debugString,
-                           locInfo);
-  }
-  if (auto cosOp = dyn_cast<CosOp>(op); cosOp) {
-    return createOperation(cache, createEltwiseOp(cache, cosOp), debugString,
-                           locInfo);
-  }
-  if (auto sinOp = dyn_cast<SinOp>(op); sinOp) {
-    return createOperation(cache, createEltwiseOp(cache, sinOp), debugString,
-                           locInfo);
-  }
-  if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
-    return createOperation(cache, createEltwiseOp(cache, whereOp), debugString,
-                           locInfo);
-  }
-  if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
-    return createOperation(cache, createEltwiseOp(cache, geluOp), debugString,
-                           locInfo);
-  }
-  if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
-    return createOperation(cache, createEltwiseOp(cache, tanOp), debugString,
-                           locInfo);
-  }
-  if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
-    return createOperation(cache, createEltwiseOp(cache, tanhOp), debugString,
-                           locInfo);
-  }
-  if (auto atanOp = dyn_cast<AtanOp>(op); atanOp) {
-    return createOperation(cache, createEltwiseOp(cache, atanOp), debugString,
-                           locInfo);
-  }
-  if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
-    return createOperation(cache, createEltwiseOp(cache, atan2Op), debugString,
-                           locInfo);
-  }
   if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {
     return createOperation(cache, createOp(cache, updateCacheOp), debugString,
                            locInfo);
@@ -1843,18 +2007,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     // clear.
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
-  }
-  if (auto quantizeOp = dyn_cast<QuantizeOp>(op); quantizeOp) {
-    return createOperation(cache, createNonDPSEltwiseOp(cache, quantizeOp),
-                           debugString, locInfo);
-  }
-  if (auto dequantizeOp = dyn_cast<DequantizeOp>(op); dequantizeOp) {
-    return createOperation(cache, createNonDPSEltwiseOp(cache, dequantizeOp),
-                           debugString, locInfo);
-  }
-  if (auto requantizeOp = dyn_cast<RequantizeOp>(op); requantizeOp) {
-    return createOperation(cache, createNonDPSEltwiseOp(cache, requantizeOp),
-                           debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

@@ -33,7 +33,7 @@ inline ::ttnn::Shape toTTNNShape(const flatbuffers::Vector<T> &vec) {
 }
 
 ::ttnn::operations::unary::UnaryOpType
-toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType);
+toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);
 
 ::ttnn::operations::unary::UnaryWithParam
 toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParam &unaryWithParam);
