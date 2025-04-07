@@ -50,7 +50,7 @@ struct Hooks {
       std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
           postOperatorCallback = std::nullopt);
 #else
-  constexpr static PreOperationHooks get() { return PreOperationHooks(); }
+  constexpr static Hooks get() { return Hooks(); }
 #endif
 
   std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
