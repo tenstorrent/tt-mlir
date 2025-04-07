@@ -360,18 +360,19 @@ public:
     if (inputTypeShape.size() < 4) {
       dimension = inputTypeShape.size() - 1;
     }
-    // Check if 'All Gather + Local Reduce' is required.
-    // If not, fall back to 'Reduce Scatter + All Gather' breakdown.
+    // If the target dimension is not evenly divisible by the number of devices
+    // in the cluster, use the all-gather + local reduce breakdown approach.
     if (inputTypeShape[dimension] % meshShape[clusterAxis] != 0) {
-      // Since 'All Gather + Local Reduce' consumes significant memory,
-      // it may not be suitable for large tensors.
-      // The size limit used here is determined heuristically.
-      int64_t size_limit = 200000;
+      // Note: This method uses a large amount of memory, so it should only be
+      // applied when the input tensor size is small. The size_limit was
+      // determined heuristically. The limit is set very conservatively, but may
+      // need adjustment if issues arise.
+      const int64_t size_limit = 200000;
       int64_t tensor_size = 1;
       for (int64_t dim : inputTypeShape) {
         tensor_size *= dim;
       }
-      if (tensor_size * meshShape[clusterAxis] < size_limit) {
+      if (tensor_size < size_limit) {
         return rewriteAsAllGatherLocalReduce(op, rewriter, meshShape);
       }
     }
