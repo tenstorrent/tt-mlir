@@ -1412,6 +1412,12 @@ def TTNN_ArangeOp : TTNN_Op<"arange", [TT_CreationOpTrait]> {
                        Optional<TTNN_Device>:$device,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
+  let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createArangeOpOperandsWorkarounds();
+      }
+    }];
+
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }
