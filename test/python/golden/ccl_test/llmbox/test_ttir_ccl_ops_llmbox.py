@@ -138,7 +138,8 @@ def pseudo_golden_collective_permute(
     input_tensor: torch.Tensor,
     source_target_pairs: List[Tuple[int, int]],
 ):
-    shards = list(torch.chunk(input_tensor, 2, dim=3))
+    shards_row = list(torch.chunk(input_tensor, 4, dim=3))
+    shards = [torch.chunk(shard, 2, dim=2) for shard in shards_row]
     permuted_tensor = shards.copy()
     for source, target in source_target_pairs:
         permuted_tensor[target] = shards[source]
