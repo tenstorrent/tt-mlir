@@ -14,16 +14,10 @@ Env const &Env::get(bool loadKernelsFromDisk) {
   return config;
 }
 
-Hooks const &Hooks::get(
-    std::optional<std::string> callbackKey,
-    std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
-        operatorCallback) {
-  if (std::set<std::string> validKeys{"post-op", "pre-op"};
-      callbackKey and !validKeys.contains(callbackKey.value())) {
-    throw std::runtime_error("callbackKey must be 'post-op' or 'pre-op', got " +
-                             callbackKey.value());
-  }
-  static Hooks config(callbackKey, operatorCallback);
+Hooks const &
+Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
+           std::optional<debug::Hooks::CallbackFn> postOperatorCallback) {
+  static Hooks config(preOperatorCallback, postOperatorCallback);
   return config;
 }
 

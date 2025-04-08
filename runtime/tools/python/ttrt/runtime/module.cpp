@@ -309,20 +309,25 @@ PYBIND11_MODULE(_C, m) {
       });
 
   py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
-      .def_static("get",
-                  [](std::string callbackKey, py::function func) {
+      .def_static(
+          "get",
+          [](py::function pre_op_func, py::function post_op_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-                    tt::runtime::debug::Hooks::get(
-                        callbackKey,
-                        [func](tt::runtime::Binary binary,
+            tt::runtime::debug::Hooks::get(
+                [pre_op_func](tt::runtime::Binary Binary,
+                              tt::runtime::CallbackContext programContext,
+                              tt::runtime::OpContext opContext) {
+                  pre_op_func(Binary, programContext, opContext);
+                },
+                [post_op_func](tt::runtime::Binary Binary,
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
-                          func(binary, programContext, opContext);
-                        });
+                  post_op_func(Binary, programContext, opContext);
+                });
 #else
             tt::runtime::debug::Hooks::get();
 #endif
-                  })
+          })
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;

@@ -7,7 +7,8 @@ import os
 from ttrt.common.util import *
 from ttrt.common.query import Query
 from ttrt.common.callback import (
-    get_callback_fn,
+    pre_op_get_callback_fn,
+    post_op_get_callback_fn,
     CallbackRuntimeConfig,
 )
 
@@ -447,7 +448,19 @@ class Run:
             mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
-            callback_runtime_config = CallbackRuntimeConfig(
+            pre_op_callback_runtime_config = CallbackRuntimeConfig(
+                device,
+                "",
+                self["--pcc"],
+                self["--atol"],
+                self["--rtol"],
+                self["--save-golden-tensors"],
+                self.logging,
+                not self["--disable-golden"],
+                self["--memory"],
+                self["--debugger"],
+            )
+            post_op_callback_runtime_config = CallbackRuntimeConfig(
                 device,
                 "",
                 self["--pcc"],
@@ -460,8 +473,9 @@ class Run:
                 self["--debugger"],
             )
 
-            post_op_callback_env = ttrt.runtime.DebugHooks.get(
-                "post-op", get_callback_fn(callback_runtime_config)
+            callback_env = ttrt.runtime.DebugHooks.get(
+                pre_op_get_callback_fn(pre_op_callback_runtime_config),
+                post_op_get_callback_fn(post_op_callback_runtime_config),
             )
 
             try:
@@ -493,9 +507,14 @@ class Run:
                                 f"evaluating program={program_index} for binary={bin.file_path}"
                             )
 
-                            callback_runtime_config.start_new_callback(
+                            pre_op_callback_runtime_config.start_new_callback(
                                 f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
                             )
+                            post_op_callback_runtime_config.start_new_callback(
+                                f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+                            )
+
+                            # Implement optional pre_op_callback functionality here
 
                             program = bin.get_program(program_index)
                             golden_inputs = []
@@ -696,11 +715,11 @@ class Run:
                             # if golden comparison is enabled, check golden results json file to see if test passed
                             if not self["--disable-golden"]:
                                 if self["--save-artifacts"]:
-                                    callback_runtime_config.save_golden_report(
+                                    post_op_callback_runtime_config.save_golden_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
                                     )
                                 # check operation level golden comparison result.
-                                callback_runtime_config.check_pcc()
+                                post_op_callback_runtime_config.check_pcc()
 
                                 # compare program level golden.
                                 self.logging.debug(
@@ -743,9 +762,12 @@ class Run:
                                         _, _, cal_pcc, _ = get_atol_rtol_pcc(
                                             golden_tensor_torch, output_tensor_torch
                                         )
-                                        if cal_pcc < callback_runtime_config.pcc:
+                                        if (
+                                            cal_pcc
+                                            < post_op_callback_runtime_config.pcc
+                                        ):
                                             raise PCCErrorException(
-                                                f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={callback_runtime_config.pcc}"
+                                                f"Failed: prgram-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
                                             )
                                     self.logging.debug(
                                         f"Finished comparing program level golden for output_{idx}"
@@ -753,12 +775,12 @@ class Run:
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:
-                                    callback_runtime_config.save_memory_report(
+                                    post_op_callback_runtime_config.save_memory_report(
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/memory_results.json"
                                     )
 
                                 if self["--check-memory-leak"]:
-                                    callback_runtime_config.check_memory_leak()
+                                    post_op_callback_runtime_config.check_memory_leak()
 
                     except Exception as e:
                         result = "error"
