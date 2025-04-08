@@ -11,6 +11,12 @@
 
 using namespace mlir::tt::ttnn;
 
+class Conv2dConfigOverrideTest : public ::testing::Test {
+protected:
+  static llvm::cl::opt<std::string> OverrideConv2dConfigOption;
+  Conv2dConfigOverrideParser parser{OverrideConv2dConfigOption};
+  llvm::StringMap<Conv2dConfigOverrideParams> parsedOverride;
+};
 class OutputLayoutOverrideTest : public ::testing::Test {
 protected:
   static llvm::cl::opt<std::string> OverrideOutputLayoutOption;
@@ -18,8 +24,163 @@ protected:
   llvm::StringMap<OutputLayoutOverrideParams> parsedOverride;
 };
 
+llvm::cl::opt<std::string> Conv2dConfigOverrideTest::OverrideConv2dConfigOption{
+    "override-conv2d-config"};
+
 llvm::cl::opt<std::string> OutputLayoutOverrideTest::OverrideOutputLayoutOption{
     "override-output-layout"};
+
+TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
+  std::string arg = "op0="
+                    "dtype#bf16:"
+                    "weights_dtype#bf16:"
+                    "activation#relu:"
+                    "input_channels_alignment#32:"
+                    "deallocate_activation#false:"
+                    "reallocate_halo_output#true:"
+                    "act_block_h_override#32:"
+                    "act_block_w_div#1:"
+                    "reshard_if_not_optimal#false:"
+                    "override_sharding_config#false:"
+                    "shard_layout#block_sharded:"
+                    "transpose_shards#true:"
+                    "output_layout#row_major:"
+                    "preprocess_weights_on_device#false:"
+                    "always_preprocess_weights#false:"
+                    "enable_act_double_buffer#false:"
+                    "enable_weights_double_buffer#false:"
+                    "enable_split_reader#false:"
+                    "enable_subblock_padding#false";
+
+  bool result = parser.parse(OverrideConv2dConfigOption,
+                             "override-conv2d-config", arg, parsedOverride);
+  ASSERT_FALSE(result);
+  ASSERT_EQ(parsedOverride.size(), 1);
+  ASSERT_TRUE(parsedOverride.count("op0"));
+
+  const auto &params = parsedOverride["op0"];
+  ASSERT_TRUE(params.dtype.has_value());
+  ASSERT_EQ(params.dtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_TRUE(params.weightsDtype.has_value());
+  ASSERT_EQ(params.weightsDtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_TRUE(params.activation.has_value());
+  ASSERT_EQ(params.activation.value(), "relu");
+  ASSERT_TRUE(params.inputChannelsAlignment.has_value());
+  ASSERT_EQ(params.inputChannelsAlignment.value(), 32);
+  ASSERT_TRUE(params.deallocateActivation.has_value());
+  ASSERT_FALSE(params.deallocateActivation.value());
+  ASSERT_TRUE(params.reallocateHaloOutput.has_value());
+  ASSERT_TRUE(params.reallocateHaloOutput.value());
+  ASSERT_TRUE(params.actBlockHOverride.has_value());
+  ASSERT_EQ(params.actBlockHOverride.value(), 32);
+  ASSERT_TRUE(params.actBlockWDiv.has_value());
+  ASSERT_EQ(params.actBlockWDiv.value(), 1);
+  ASSERT_TRUE(params.reshardIfNotOptimal.has_value());
+  ASSERT_FALSE(params.reshardIfNotOptimal.value());
+  ASSERT_TRUE(params.overrideShardingConfig.has_value());
+  ASSERT_FALSE(params.overrideShardingConfig.value());
+  ASSERT_TRUE(params.shardLayout.has_value());
+  ASSERT_EQ(params.shardLayout.value(), TensorMemoryLayout::BlockSharded);
+  ASSERT_TRUE(params.transposeShards.has_value());
+  ASSERT_TRUE(params.transposeShards.value());
+  ASSERT_TRUE(params.outputLayout.has_value());
+  ASSERT_EQ(params.outputLayout.value(), Layout::RowMajor);
+  ASSERT_TRUE(params.preprocessWeightsOnDevice.has_value());
+  ASSERT_FALSE(params.preprocessWeightsOnDevice.value());
+  ASSERT_TRUE(params.alwaysPreprocessWeights.has_value());
+  ASSERT_FALSE(params.alwaysPreprocessWeights.value());
+  ASSERT_TRUE(params.enableActDoubleBuffer.has_value());
+  ASSERT_FALSE(params.enableActDoubleBuffer.value());
+  ASSERT_TRUE(params.enableWeightsDoubleBuffer.has_value());
+  ASSERT_FALSE(params.enableWeightsDoubleBuffer.value());
+  ASSERT_TRUE(params.enableSplitReader.has_value());
+  ASSERT_FALSE(params.enableSplitReader.value());
+  ASSERT_TRUE(params.enableSubblockPadding.has_value());
+  ASSERT_FALSE(params.enableSubblockPadding.value());
+}
+
+TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
+  std::string arg = "op0="
+                    "dtype#f32:"
+                    "activation#none";
+
+  bool result = parser.parse(OverrideConv2dConfigOption,
+                             "override-conv2d-config", arg, parsedOverride);
+  ASSERT_FALSE(result);
+  ASSERT_EQ(parsedOverride.size(), 1);
+  ASSERT_TRUE(parsedOverride.count("op0"));
+
+  const auto &params = parsedOverride["op0"];
+  ASSERT_TRUE(params.dtype.has_value());
+  ASSERT_EQ(params.dtype.value(), mlir::tt::DataType::Float32);
+  ASSERT_TRUE(params.activation.has_value());
+  ASSERT_EQ(params.activation.value(), "none");
+  ASSERT_FALSE(params.weightsDtype.has_value());
+  ASSERT_FALSE(params.inputChannelsAlignment.has_value());
+  ASSERT_FALSE(params.deallocateActivation.has_value());
+  ASSERT_FALSE(params.reallocateHaloOutput.has_value());
+  ASSERT_FALSE(params.actBlockHOverride.has_value());
+  ASSERT_FALSE(params.actBlockWDiv.has_value());
+  ASSERT_FALSE(params.reshardIfNotOptimal.has_value());
+  ASSERT_FALSE(params.overrideShardingConfig.has_value());
+  ASSERT_FALSE(params.shardLayout.has_value());
+  ASSERT_FALSE(params.transposeShards.has_value());
+  ASSERT_FALSE(params.outputLayout.has_value());
+  ASSERT_FALSE(params.enableActDoubleBuffer.has_value());
+  ASSERT_FALSE(params.enableWeightsDoubleBuffer.has_value());
+  ASSERT_FALSE(params.enableSplitReader.has_value());
+  ASSERT_FALSE(params.enableSubblockPadding.has_value());
+}
+
+TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
+  std::string arg = "op0="
+                    "dtype#f32:"
+                    "activation#none"
+                    ","
+                    "op1=dtype#bf16:"
+                    "weights_dtype#bf16:"
+                    "activation#relu:"
+                    "input_channels_alignment#32";
+
+  bool result = parser.parse(OverrideConv2dConfigOption,
+                             "override-conv2d-config", arg, parsedOverride);
+  ASSERT_FALSE(result);
+  ASSERT_EQ(parsedOverride.size(), 2);
+  ASSERT_TRUE(parsedOverride.count("op0"));
+  ASSERT_TRUE(parsedOverride.count("op1"));
+
+  const auto &params0 = parsedOverride["op0"];
+  ASSERT_TRUE(params0.dtype.has_value());
+  ASSERT_EQ(params0.dtype.value(), mlir::tt::DataType::Float32);
+  ASSERT_TRUE(params0.activation.has_value());
+  ASSERT_EQ(params0.activation.value(), "none");
+
+  const auto &params1 = parsedOverride["op1"];
+  ASSERT_TRUE(params1.dtype.has_value());
+  ASSERT_EQ(params1.dtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_TRUE(params1.weightsDtype.has_value());
+  ASSERT_EQ(params1.weightsDtype.value(), mlir::tt::DataType::BFloat16);
+  ASSERT_TRUE(params1.activation.has_value());
+  ASSERT_EQ(params1.activation.value(), "relu");
+  ASSERT_TRUE(params1.inputChannelsAlignment.has_value());
+  ASSERT_EQ(params1.inputChannelsAlignment.value(), 32);
+}
+
+TEST_F(Conv2dConfigOverrideTest, ParseInvalidActivation) {
+  std::string arg = "op0=activation#invalid_activation";
+
+  bool result = parser.parse(OverrideConv2dConfigOption,
+                             "override-conv2d-config", arg, parsedOverride);
+  ASSERT_TRUE(result);
+}
+
+TEST_F(Conv2dConfigOverrideTest, ParseInvalidShardLayout) {
+  std::string arg = "op0=shard_layout#invalid";
+
+  bool result = parser.parse(OverrideConv2dConfigOption,
+                             "override-conv2d-config", arg, parsedOverride);
+  ASSERT_TRUE(result);
+}
 
 TEST_F(OutputLayoutOverrideTest, ParseFullOutputLayoutOverride) {
   std::string arg = "op1=2x2:dram:interleaved:tile:f32";
