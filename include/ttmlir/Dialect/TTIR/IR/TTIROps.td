@@ -1965,7 +1965,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   }];
 }
 
-def TTIR_EmptyOp : TTIR_Op<"empty",
+def TTIR_EmptyOp : TTIR_CreationOp<"empty",
   [DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
                                                       , "bufferizesToMemoryWrite"
                                                       , "bufferizesToAllocation"
@@ -1996,7 +1996,7 @@ def TTIR_EmptyOp : TTIR_Op<"empty",
     let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }
 
-def TTIR_ConstantOp : TTIR_Op<"constant",
+def TTIR_ConstantOp : TTIR_CreationOp<"constant",
   [ ConstantLike
   , AllShapesMatch<["value", "result"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
