@@ -323,7 +323,8 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
-  std::optional<::mlir::tt::DataType> dtype = op.getDtype();
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
   ::mlir::Value device = op.getDevice();
@@ -332,11 +333,7 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   }
   auto tileShape = getTensorValueTileShape(op.getResult());
   return ::tt::target::ttnn::CreateToLayoutOp(
-      *cache.fbb, input, layout,
-      dtype.has_value()
-          ? ::flatbuffers::Optional<::tt::target::DataType>(
-                ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value()))
-          : ::flatbuffers::nullopt,
+      *cache.fbb, input, layout, dtype,
       memoryConfig ? memoryConfigToFlatbuffer(
                          cache, *memoryConfig, tileShape,
                          getTensorValueCoreRangeSet(cache, op.getResult()))
@@ -533,11 +530,8 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::ArangeOp>
 createOp(FlatbufferObjectCache &cache, ArangeOp op) {
-
-  std::optional<::tt::target::DataType> dtype =
-      op.getDtype().has_value()
-          ? std::make_optional(toFlatbuffer(cache, op.getDtype().value()))
-          : std::nullopt;
+  flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
 
@@ -576,10 +570,10 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
       cache.fbb->CreateVector<int64_t>(op.getShape().getShape());
 
   ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbufferOptional(cache, op.getDtype());
+      toFlatbuffer(cache, op.getDtype());
 
   ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbufferOptional(cache, op.getLayout());
+      toFlatbuffer(cache, op.getLayout());
 
   flatbuffers::Offset<::tt::target::DeviceRef> device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
@@ -708,17 +702,14 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       toFlatbuffer(cache, op.getDilation());
 
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
-      conv2dConfig;
-  if (auto config = op.getConv2dConfig()) {
-    conv2dConfig = toFlatbuffer(cache, *config);
-  }
+      conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
 
   return ::tt::target::ttnn::CreateConv2dOp(
       *cache.fbb, input, weight, bias, output,
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), kernelSize, stride, padding, dilation, op.getGroups(),
-      conv2dConfig ? *conv2dConfig : 0);
+      conv2dConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConvTranspose2dOp>
@@ -921,9 +912,9 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
                        std::is_same_v<EltwiseOp, DequantizeOp>) {
     auto scale = op.getScale().convertToFloat();
     auto zeroPoint = op.getZeroPoint();
-    ::flatbuffers::Optional<int32_t> axis = op.getAxis();
+    ::flatbuffers::Optional<int32_t> axis = toFlatbuffer(cache, op.getAxis());
     ::flatbuffers::Optional<::tt::target::DataType> dtype =
-        toFlatbufferOptional(cache, op.getOutputDtype());
+        toFlatbuffer(cache, op.getOutputDtype());
     return ::tt::target::ttnn::CreateQuantizationOpParams(
         *cache.fbb, scale, zeroPoint, axis, dtype);
   } else if constexpr (std::is_same_v<EltwiseOp, RequantizeOp>) {
@@ -931,9 +922,9 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
     auto inZeroPoint = op.getInZeroPoint();
     auto outScale = op.getOutScale().convertToFloat();
     auto outZeroPoint = op.getOutZeroPoint();
-    ::flatbuffers::Optional<int32_t> axis = op.getAxis();
+    ::flatbuffers::Optional<int32_t> axis = toFlatbuffer(cache, op.getAxis());
     ::flatbuffers::Optional<::tt::target::DataType> dtype =
-        toFlatbufferOptional(cache, op.getOutputDtype());
+        toFlatbuffer(cache, op.getOutputDtype());
     return ::tt::target::ttnn::CreateRequantizeOpParams(
         *cache.fbb, inScale, inZeroPoint, outScale, outZeroPoint, axis, dtype);
   }
@@ -1217,8 +1208,7 @@ createReductionArgMaxOp(FlatbufferObjectCache &cache, ReductionOp op) {
                                      tileShape, coreRangeSet)
           : 0;
 
-  ::flatbuffers::Optional<int32_t> dim =
-      op.getDim() ? std::make_optional(*op.getDim()) : ::flatbuffers::nullopt;
+  ::flatbuffers::Optional<int32_t> dim = toFlatbuffer(cache, op.getDim());
 
   return ::tt::target::ttnn::CreateReductionArgMaxOp(
       *cache.fbb, in, output, dim, op.getUseMulticore(), memoryConfig);
@@ -1303,7 +1293,8 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
       getOperandThroughDPSOps(op.getWeight()));
   auto in2 = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInGradient()));
-  std::optional<::mlir::tt::DataType> dtype = op.getDtype();
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
 
@@ -1314,11 +1305,7 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
   auto tileShape = getTensorValueTileShape(outputType);
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   return ::tt::target::ttnn::CreateEmbeddingBackwardOp(
-      *cache.fbb, in0, in1, in2,
-      dtype.has_value()
-          ? ::flatbuffers::Optional<::tt::target::DataType>(
-                ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value()))
-          : ::flatbuffers::nullopt,
+      *cache.fbb, in0, in1, in2, dtype,
       memoryConfig ? memoryConfigToFlatbuffer(cache, memoryConfig.value(),
                                               tileShape, coreRangeSet)
                    : 0,
