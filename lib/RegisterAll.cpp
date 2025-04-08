@@ -52,7 +52,6 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
       mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect>();
 
-
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
   mlir::sdy::registerAllDialects(registry);

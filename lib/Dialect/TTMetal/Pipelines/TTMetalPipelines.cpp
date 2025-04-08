@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
@@ -71,6 +72,10 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttir::createTTIRGenericGenerateLoops());
   createOptimizationPasses(pm);
   pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
+  pm.addPass(tt::createConvertTTIRToTTKernelPass());
+  pm.addPass(ttkernel::createTTKernelControlDstSection());
+  pm.addPass(tt::createConvertTTIRToTTMetalPass());
+  pm.addPass(mlir::createCanonicalizerPass());
 }
 
 //===----------------------------------------------------------------------===//
