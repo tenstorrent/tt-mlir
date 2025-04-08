@@ -377,15 +377,15 @@ private:
     //
     llvm::StringMap<bool> overridenOpExists;
     llvm::StringMap<bool> overrideConv2dOp;
-    for (auto &opOverride : overrideOutputLayout) {
-      overridenOpExists[opOverride.first()] = false;
+    for (const auto &[opLoc, _] : overrideOutputLayout) {
+      overridenOpExists[opLoc] = false;
     }
-    for (auto &opOverride : overrideInputLayout) {
-      overridenOpExists[opOverride.first()] = false;
+    for (const auto &[opLoc, _] : overrideInputLayout) {
+      overridenOpExists[opLoc] = false;
     }
-    for (auto &opOverride : overrideConv2dConfig) {
-      overridenOpExists[opOverride.first()] = false;
-      overrideConv2dOp[opOverride.first()] = false;
+    for (const auto &[opLoc, _] : overrideConv2dConfig) {
+      overridenOpExists[opLoc] = false;
+      overrideConv2dOp[opLoc] = false;
     }
 
     ModuleOp moduleOp = getOperation();
@@ -399,16 +399,14 @@ private:
         overridenOpExists[opLocName] = true;
       }
       if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocName)) {
-        llvm::errs() << "Trying to override conv2d config on non-conv2d op: "
-                     << op->getName() << "\n";
-        assert(false && "Trying to override conv2d config on non-conv2d op: ");
+        op->emitOpError("Trying to override conv2d config on non-conv2d op.");
+        assert(false && "Trying to override conv2d config on non-conv2d op.");
       }
     });
 
-    for (auto &opOverride : overridenOpExists) {
-      if (!opOverride.second) {
-        llvm::errs() << "Trying to override non-existing op: "
-                     << opOverride.first() << "\n";
+    for (const auto &[opLoc, opOverridenAndExists] : overridenOpExists) {
+      if (!opOverridenAndExists) {
+        llvm::errs() << "Trying to override non-existing op: " << opLoc << "\n";
         assert(false && "Trying to override non-existing op");
       }
     }

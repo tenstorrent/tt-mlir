@@ -5,8 +5,10 @@
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <numeric>
 
@@ -309,109 +311,91 @@ std::string Conv2dConfigOverrideParser::toString(
     const llvm::StringMap<Conv2dConfigOverrideParams> &value) {
   std::string res;
   size_t count = 0;
-  for (const auto &entry : value) {
-    res += std::string(entry.getKey()) + "=";
-    const Conv2dConfigOverrideParams &params = entry.getValue();
-
-    std::vector<std::string> parts;
+  for (const auto &[opLoc, params] : value) {
+    std::string opConv2dConfigString;
+    llvm::raw_string_ostream rso(opConv2dConfigString);
 
     if (params.dtype.has_value()) {
-      parts.push_back("dtype#" +
-                      DataTypeEnumToString(params.dtype.value()).str());
+      rso << "dtype#" << DataTypeEnumToString(params.dtype.value()) << ":";
     }
     if (params.weightsDtype.has_value()) {
-      parts.push_back("weights_dtype#" +
-                      DataTypeEnumToString(params.weightsDtype.value()).str());
+      rso << "weights_dtype#"
+          << DataTypeEnumToString(params.weightsDtype.value()) << ":";
     }
     if (params.activation.has_value()) {
-      parts.push_back("activation#" + params.activation.value());
+      rso << "activation#" << params.activation.value() << ":";
     }
     if (params.inputChannelsAlignment.has_value()) {
-      parts.push_back("input_channels_alignment#" +
-                      std::to_string(params.inputChannelsAlignment.value()));
+      rso << "input_channels_alignment#"
+          << params.inputChannelsAlignment.value() << ":";
     }
     if (params.deallocateActivation.has_value()) {
-      parts.push_back(
-          "deallocate_activation#" +
-          std::string(params.deallocateActivation.value() ? "true" : "false"));
+      rso << "deallocate_activation#"
+          << (params.deallocateActivation.value() ? "true" : "false") << ":";
     }
     if (params.reallocateHaloOutput.has_value()) {
-      parts.push_back(
-          "reallocate_halo_output#" +
-          std::string(params.reallocateHaloOutput.value() ? "true" : "false"));
+      rso << "reallocate_halo_output#"
+          << (params.reallocateHaloOutput.value() ? "true" : "false") << ":";
     }
     if (params.actBlockHOverride.has_value()) {
-      parts.push_back("act_block_h_override#" +
-                      std::to_string(params.actBlockHOverride.value()));
+      rso << "act_block_h_override#" << params.actBlockHOverride.value() << ":";
     }
     if (params.actBlockWDiv.has_value()) {
-      parts.push_back("act_block_w_div#" +
-                      std::to_string(params.actBlockWDiv.value()));
+      rso << "act_block_w_div#" << params.actBlockWDiv.value() << ":";
     }
     if (params.reshardIfNotOptimal.has_value()) {
-      parts.push_back(
-          "reshard_if_not_optimal#" +
-          std::string(params.reshardIfNotOptimal.value() ? "true" : "false"));
+      rso << "reshard_if_not_optimal#"
+          << (params.reshardIfNotOptimal.value() ? "true" : "false") << ":";
     }
     if (params.overrideShardingConfig.has_value()) {
-      parts.push_back("override_sharding_config#" +
-                      std::string(params.overrideShardingConfig.value()
-                                      ? "true"
-                                      : "false"));
+      rso << "override_sharding_config#"
+          << (params.overrideShardingConfig.value() ? "true" : "false") << ":";
     }
     if (params.shardLayout.has_value()) {
-      parts.push_back(
-          "shard_layout#" +
-          stringifyTensorMemoryLayout(params.shardLayout.value()).str());
+      rso << "shard_layout#"
+          << stringifyTensorMemoryLayout(params.shardLayout.value()) << ":";
     }
     if (params.transposeShards.has_value()) {
-      parts.push_back(
-          "transpose_shards#" +
-          std::string(params.transposeShards.value() ? "true" : "false"));
+      rso << "transpose_shards#"
+          << (params.transposeShards.value() ? "true" : "false") << ":";
     }
     if (params.outputLayout.has_value()) {
-      parts.push_back("output_layout#" +
-                      stringifyLayout(params.outputLayout.value()).str());
+      rso << "output_layout#" << stringifyLayout(params.outputLayout.value())
+          << ":";
     }
     if (params.preprocessWeightsOnDevice.has_value()) {
-      parts.push_back("preprocess_weights_on_device#" +
-                      std::string(params.preprocessWeightsOnDevice.value()
-                                      ? "true"
-                                      : "false"));
+      rso << "preprocess_weights_on_device#"
+          << (params.preprocessWeightsOnDevice.value() ? "true" : "false")
+          << ":";
     }
     if (params.alwaysPreprocessWeights.has_value()) {
-      parts.push_back("always_preprocess_weights#" +
-                      std::string(params.alwaysPreprocessWeights.value()
-                                      ? "true"
-                                      : "false"));
+      rso << "always_preprocess_weights#"
+          << (params.alwaysPreprocessWeights.value() ? "true" : "false") << ":";
     }
     if (params.enableActDoubleBuffer.has_value()) {
-      parts.push_back(
-          "enable_act_double_buffer#" +
-          std::string(params.enableActDoubleBuffer.value() ? "true" : "false"));
+      rso << "enable_act_double_buffer#"
+          << (params.enableActDoubleBuffer.value() ? "true" : "false") << ":";
     }
     if (params.enableWeightsDoubleBuffer.has_value()) {
-      parts.push_back("enable_weights_double_buffer#" +
-                      std::string(params.enableWeightsDoubleBuffer.value()
-                                      ? "true"
-                                      : "false"));
+      rso << "enable_weights_double_buffer#"
+          << (params.enableWeightsDoubleBuffer.value() ? "true" : "false")
+          << ":";
     }
     if (params.enableSplitReader.has_value()) {
-      parts.push_back(
-          "enable_split_reader#" +
-          std::string(params.enableSplitReader.value() ? "true" : "false"));
+      rso << "enable_split_reader#"
+          << (params.enableSplitReader.value() ? "true" : "false") << ":";
     }
     if (params.enableSubblockPadding.has_value()) {
-      parts.push_back(
-          "enable_subblock_padding#" +
-          std::string(params.enableSubblockPadding.value() ? "true" : "false"));
+      rso << "enable_subblock_padding#"
+          << (params.enableSubblockPadding.value() ? "true" : "false") << ":";
+    }
+    rso.flush();
+    // Remove the last ':' if there are parameters
+    if (!opConv2dConfigString.empty()) {
+      opConv2dConfigString.pop_back();
     }
 
-    res += std::accumulate(parts.begin(), parts.end(), std::string(),
-                           [](const std::string &a, const std::string &b) {
-                             return a.empty() ? b : a + ":" + b;
-                           });
-
+    res += (opLoc.str() + "=" + opConv2dConfigString);
     if (++count < value.size()) {
       res += ",";
     }
