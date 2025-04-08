@@ -55,12 +55,13 @@ static uint32_t getCbId(Value value) {
 
 namespace {
 
-class MemrefStoreRewriter : public OpRewritePattern<memref::StoreOp> {
+class MemrefStoreRewriter : public OpConversionPattern<memref::StoreOp> {
 public:
-  using OpRewritePattern<memref::StoreOp>::OpRewritePattern;
+  using OpConversionPattern<memref::StoreOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(memref::StoreOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     auto cbId = index(getCbId(op.getMemref()), rewriter);
     auto storeIdx = op.getIndices().front();
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
@@ -74,11 +75,12 @@ public:
 namespace {
 
 class TTIRComputeOpsRewriter
-    : public OpTraitRewritePattern<
+    : public OpTraitConversionPattern<
           mlir::tt::ttir::TTIRGenericRegionComputeOpTrait> {
 public:
-  using OpTraitRewritePattern<
-      mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::OpTraitRewritePattern;
+  using OpTraitConversionPattern<
+      mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::
+      OpTraitConversionPattern;
 
   static Value getLoadIndex(Value tile) {
     memref::LoadOp loadOp =
@@ -98,8 +100,9 @@ public:
         cbIdxAsDstIdx ? cbId : index(0, rewriter));
   }
 
-  LogicalResult matchAndRewrite(Operation *op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const final {
     Operation *newOp;
 
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
@@ -144,11 +147,13 @@ public:
 namespace {
 
 template <typename T>
-class TTIRAwaitYieldRewriter : public OpRewritePattern<T> {
+class TTIRAwaitYieldRewriter : public OpConversionPattern<T> {
 public:
-  using OpRewritePattern<T>::OpRewritePattern;
+  using OpConversionPattern<T>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(T op, PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(T op, typename T::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     for (Value input : op.getValues()) {
       auto cbId = index(getCbId(input), rewriter);
       auto type = mlir::cast<MemRefType>(input.getType());
@@ -178,9 +183,9 @@ public:
 
 namespace {
 
-class TTIRDMARewriter : public OpRewritePattern<ttir::DMAOp> {
+class TTIRDMARewriter : public OpConversionPattern<ttir::DMAOp> {
 public:
-  using OpRewritePattern<ttir::DMAOp>::OpRewritePattern;
+  using OpConversionPattern<ttir::DMAOp>::OpConversionPattern;
 
   static std::pair<Value, Value>
   getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter,
@@ -260,8 +265,9 @@ public:
     return std::make_tuple(gridY, gridX, offset);
   }
 
-  LogicalResult matchAndRewrite(ttir::DMAOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ttir::DMAOp op, ttir::DMAOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     auto device = lookupDevice(op);
     auto chipIds = device.getChipIds();
     auto chipDescs =
@@ -464,12 +470,13 @@ public:
 } // namespace
 namespace {
 
-class TTIRCoreIndexRewriter : public OpRewritePattern<ttir::CoreIndexOp> {
+class TTIRCoreIndexRewriter : public OpConversionPattern<ttir::CoreIndexOp> {
 public:
-  using OpRewritePattern<ttir::CoreIndexOp>::OpRewritePattern;
+  using OpConversionPattern<ttir::CoreIndexOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(ttir::CoreIndexOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ttir::CoreIndexOp op, ttir::CoreIndexOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     auto device = lookupDevice(op);
     auto chipIds = device.getChipIds();
     auto chipDescs =
@@ -513,12 +520,13 @@ public:
 } // namespace
 
 namespace {
-class TTIRDMAWaitRewriter : public OpRewritePattern<ttir::DMAWaitOp> {
+class TTIRDMAWaitRewriter : public OpConversionPattern<ttir::DMAWaitOp> {
 public:
-  using OpRewritePattern<ttir::DMAWaitOp>::OpRewritePattern;
+  using OpConversionPattern<ttir::DMAWaitOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(ttir::DMAWaitOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ttir::DMAWaitOp op, ttir::DMAWaitOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     if (!op.getMemTx().getDefiningOp<ttir::DMAOp>().isSrcLocal()) {
       rewriter.replaceOpWithNewOp<ttkernel::NocAsyncReadBarrierOp>(op);
     } else {
@@ -532,12 +540,14 @@ public:
 namespace {
 
 class TTIRGetGlobalOperandRewriter
-    : public OpRewritePattern<ttir::GetGlobalOperandOp> {
+    : public OpConversionPattern<ttir::GetGlobalOperandOp> {
 public:
-  using OpRewritePattern<ttir::GetGlobalOperandOp>::OpRewritePattern;
+  using OpConversionPattern<ttir::GetGlobalOperandOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(ttir::GetGlobalOperandOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ttir::GetGlobalOperandOp op,
+                  ttir::GetGlobalOperandOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
         op, rewriter.getI32Type(), op.getOperandIndex());
     return success();

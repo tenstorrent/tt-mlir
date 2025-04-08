@@ -12,12 +12,13 @@
 namespace mlir::tt::ttmetal {
 
 namespace {
-class TTIRGenericRewriter : public OpRewritePattern<ttir::GenericOp> {
+class TTIRGenericRewriter : public OpConversionPattern<ttir::GenericOp> {
 public:
-  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
+  using OpConversionPattern<ttir::GenericOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(ttir::GenericOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(ttir::GenericOp op, ttir::GenericOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
     auto coreRanges = llvm::SmallVector<Attribute>();
     coreRanges.reserve(op.getThreads().size());
     for (size_t i = 0; i < op.getThreads().size(); i++) {
@@ -33,12 +34,13 @@ public:
 };
 } // namespace
 namespace {
-class MemrefAllocRewriter : public OpRewritePattern<memref::AllocOp> {
+class MemrefAllocRewriter : public OpConversionPattern<memref::AllocOp> {
 public:
-  using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
+  using OpConversionPattern<memref::AllocOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(memref::AllocOp op,
-                                PatternRewriter &rewriter) const final {
+  LogicalResult
+  matchAndRewrite(memref::AllocOp op, memref::AllocOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
 
     auto address = op->getAttr("address")
                        ? op->getAttrOfType<IntegerAttr>("address")

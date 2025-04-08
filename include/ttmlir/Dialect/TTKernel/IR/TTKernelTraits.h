@@ -7,9 +7,7 @@
 
 #include "mlir/IR/OpDefinition.h"
 
-namespace mlir {
-namespace tt {
-namespace ttkernel {
+namespace mlir::tt::ttkernel {
 
 template <typename ConcreteType>
 class TTKernelFPUOpTrait
@@ -23,8 +21,6 @@ template <typename ConcreteType>
 class TTKernelInitOpTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelInitOpTrait> {};
 
-} // namespace ttkernel
-} // namespace tt
-} // namespace mlir
+} // namespace mlir::tt::ttkernel
 
 #endif
