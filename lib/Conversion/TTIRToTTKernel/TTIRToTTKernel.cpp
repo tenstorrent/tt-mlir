@@ -19,21 +19,6 @@
 
 namespace mlir::tt::ttkernel {
 
-static Value i32(int32_t value, OpBuilder &builder) {
-  return builder
-      .create<arith::ConstantOp>(builder.getUnknownLoc(), builder.getI32Type(),
-                                 builder.getI32IntegerAttr(value))
-      .getResult();
-}
-
-static Value index(int64_t value, OpBuilder &builder) {
-  return builder
-      .create<arith::ConstantOp>(builder.getUnknownLoc(),
-                                 builder.getIndexType(),
-                                 builder.getIndexAttr(value))
-      .getResult();
-}
-
 static uint32_t getCbId(Value value) {
   if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
     return blockArg.getArgNumber();
@@ -57,10 +42,17 @@ public:
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto cbId = index(getCbId(op.getMemref()), rewriter);
+    auto index = [&](int64_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(value))
+          .getResult();
+    };
+
+    auto cbId = index(getCbId(op.getMemref()));
     auto storeIdx = op.getIndices().front();
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
-        op, index(0, rewriter), cbId, storeIdx, rewriter.getBoolAttr(true));
+        op, index(0), cbId, storeIdx, rewriter.getBoolAttr(true));
 
     return success();
   };
@@ -88,34 +80,51 @@ public:
 
   static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
                                   PatternRewriter &rewriter) {
-    auto cbId = index(getCbId(op.getMemref()), rewriter);
+    auto index = [&](int64_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(value))
+          .getResult();
+    };
+
+    auto cbId = index(getCbId(op.getMemref()));
     rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cbId);
-    rewriter.create<ttkernel::CopyTileOp>(
-        op.getLoc(), cbId, op.getIndices().front(),
-        cbIdxAsDstIdx ? cbId : index(0, rewriter));
+    rewriter.create<ttkernel::CopyTileOp>(op.getLoc(), cbId,
+                                          op.getIndices().front(),
+                                          cbIdxAsDstIdx ? cbId : index(0));
   }
 
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
+    auto i32 = [&](int32_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op->getLoc(), rewriter.getI32Type(),
+                                     rewriter.getI32IntegerAttr(value))
+          .getResult();
+    };
+
+    auto index = [&](int64_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op->getLoc(), rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(value))
+          .getResult();
+    };
+
     Operation *newOp;
 
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
       rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
-      newOp = rewriter.create<ttkernel::MaxTilesOp>(
-          op->getLoc(), i32(0, rewriter), i32(1, rewriter));
+      newOp =
+          rewriter.create<ttkernel::MaxTilesOp>(op->getLoc(), i32(0), i32(1));
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
-      auto dstIdx = index(0, rewriter);
+      auto dstIdx = index(0);
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(),
-          index(getCbId(op->getOperand(0)
-                            .getDefiningOp<memref::LoadOp>()
-                            .getMemref()),
-                rewriter),
-          index(getCbId(op->getOperand(1)
-                            .getDefiningOp<memref::LoadOp>()
-                            .getMemref()),
-                rewriter),
+          index(getCbId(
+              op->getOperand(0).getDefiningOp<memref::LoadOp>().getMemref())),
+          index(getCbId(
+              op->getOperand(1).getDefiningOp<memref::LoadOp>().getMemref())),
           getLoadIndex(op->getOperand(0)), getLoadIndex(op->getOperand(1)),
           dstIdx);
     } else {
@@ -149,10 +158,24 @@ public:
   LogicalResult
   matchAndRewrite(T op, typename T::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    auto i32 = [&](int32_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op.getLoc(), rewriter.getI32Type(),
+                                     rewriter.getI32IntegerAttr(value))
+          .getResult();
+    };
+
+    auto index = [&](int64_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(value))
+          .getResult();
+    };
+
     for (Value input : op.getValues()) {
-      auto cbId = index(getCbId(input), rewriter);
+      auto cbId = index(getCbId(input));
       auto type = mlir::cast<MemRefType>(input.getType());
-      auto numPages = i32(type.getNumElements(), rewriter);
+      auto numPages = i32(type.getNumElements());
       Block *block = op->getBlock();
       if (mlir::isa<ttir::AwaitOp>(op)) {
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), cbId, numPages);
@@ -183,39 +206,52 @@ public:
   using OpConversionPattern<ttir::DMAOp>::OpConversionPattern;
 
   static std::pair<Value, Value>
-  getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter,
+  getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter, Location loc,
                                     ChipDescAttr chipDesc,
                                     ValueRange dstCoreIndex) {
+    auto index = [&](int64_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(value))
+          .getResult();
+    };
+
     std::pair<Value, Value> nocCoords;
     auto offset = chipDesc.getChipPhysicalCores().getWorker().front();
     nocCoords.first =
         rewriter
             .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                   index(offset.getY(), rewriter))
+                                   index(offset.getY()))
             .getResult();
     nocCoords.second =
         rewriter
             .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                   index(offset.getX(), rewriter))
+                                   index(offset.getX()))
             .getResult();
     return nocCoords;
   }
 
-  static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
-                                                   Value &nocStartY,
-                                                   Value &nocStartX,
-                                                   OperandRange mcastShape) {
+  static std::pair<Value, Value>
+  getMcastEndCoords(PatternRewriter &rewriter, Location loc, Value &nocStartY,
+                    Value &nocStartX, OperandRange mcastShape) {
+    auto index = [&](int64_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(value))
+          .getResult();
+    };
+
     std::pair<Value, Value> nocEndCoords;
     nocEndCoords.first = rewriter.create<arith::SubIOp>(
         nocStartY.getLoc(),
         rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
                                        mcastShape[0]),
-        index(1, rewriter));
+        index(1));
     nocEndCoords.second = rewriter.create<arith::SubIOp>(
         nocStartX.getLoc(),
         rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
                                        mcastShape[1]),
-        index(1, rewriter));
+        index(1));
     return nocEndCoords;
   }
 
@@ -263,6 +299,21 @@ public:
   LogicalResult
   matchAndRewrite(ttir::DMAOp op, ttir::DMAOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+
+    auto i32 = [&](int32_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op.getLoc(), rewriter.getI32Type(),
+                                     rewriter.getI32IntegerAttr(value))
+          .getResult();
+    };
+
+    auto index = [&](int64_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(value))
+          .getResult();
+    };
+
     auto device = lookupDevice(op);
     auto chipIds = device.getChipIds();
     auto chipDescs =
@@ -282,11 +333,11 @@ public:
     // Fully Index the Operands
     while (op.getSrcIndices().size() !=
            static_cast<size_t>(op.getSrc().getType().getRank())) {
-      op.getSrcIndicesMutable().append(index(0, rewriter));
+      op.getSrcIndicesMutable().append(index(0));
     }
     while (op.getDstIndices().size() !=
            static_cast<size_t>(op.getDst().getType().getRank())) {
-      op.getDstIndicesMutable().append(index(0, rewriter));
+      op.getDstIndicesMutable().append(index(0));
     }
 
     auto applyMap = [](OpBuilder &builder, Location loc, AffineMap map,
@@ -298,9 +349,9 @@ public:
     if (op.isSrcLocal() && op.isDstLocal()) {
       // local movmement, mcast
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), index(getCbId(op.getSrc()), rewriter));
+          op.getLoc(), index(getCbId(op.getSrc())));
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
-          op.getLoc(), index(getCbId(op.getDst()), rewriter));
+          op.getLoc(), index(getCbId(op.getDst())));
 
       // AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       // std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
@@ -325,15 +376,14 @@ public:
       // auto dstAddrInt = rewriter.create<arith::AddIOp>(op.getLoc(),
       // dstOffsetInt, dstL1Start);
 
-      Value transferSize =
-          i32(getMemrefSizeBytes(op.getSrcMemRefType()), rewriter);
+      Value transferSize = i32(getMemrefSizeBytes(op.getSrcMemRefType()));
       // local movement
       if (op.isMcast()) {
         // mcast
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-            rewriter, chipDescs.front(), op.getMcastStartIndex());
-        auto [mcastEndY, mcastEndX] =
-            getMcastEndCoords(rewriter, virtY, virtX, op.getMcastShape());
+            rewriter, op.getLoc(), chipDescs.front(), op.getMcastStartIndex());
+        auto [mcastEndY, mcastEndX] = getMcastEndCoords(
+            rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
         auto numDestsIdx = rewriter.create<arith::MulIOp>(
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
@@ -343,8 +393,8 @@ public:
             nullptr);
         if (op.getSrc() == op.getDst()) {
           // no loopback
-          auto numDestsLessOne = rewriter.create<arith::SubIOp>(
-              op.getLoc(), numDests, i32(1, rewriter));
+          auto numDestsLessOne =
+              rewriter.create<arith::SubIOp>(op.getLoc(), numDests, i32(1));
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDestsLessOne,
               nullptr, nullptr, nullptr);
@@ -363,7 +413,7 @@ public:
             op.getLoc(), rewriter.getIndexType(),
             rewriter.getI64IntegerAttr(1));
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-            rewriter, chipDescs.front(), ValueRange{myY, myX});
+            rewriter, op.getLoc(), chipDescs.front(), ValueRange{myY, myX});
         auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
             op.getLoc(), virtX, virtY, dstL1Start);
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
@@ -375,11 +425,10 @@ public:
         op.setOptNumElems(getMemrefShardNumElems(op.getDst().getType()));
       }
       auto transferSize =
-          i32(op.getNumElems() * getElementSizeBytes(op.getDstMemRefType()),
-              rewriter);
+          i32(op.getNumElems() * getElementSizeBytes(op.getDstMemRefType()));
 
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), index(getCbId(op.getSrc()), rewriter));
+          op.getLoc(), index(getCbId(op.getSrc())));
 
       // AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       // std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
@@ -408,7 +457,8 @@ public:
           op.getLoc(), rewriter.getI32Type(), dstOffset);
 
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, chipDescs.front(), ValueRange{dstGridY, dstGridX});
+          rewriter, op.getLoc(), chipDescs.front(),
+          ValueRange{dstGridY, dstGridX});
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
           op.getLoc(), virtX, virtY, dstOffsetInt);
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
@@ -418,7 +468,7 @@ public:
         op.setOptNumElems(getMemrefShardNumElems(op.getSrc().getType()));
       }
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
-          op.getLoc(), index(getCbId(op.getDst()), rewriter));
+          op.getLoc(), index(getCbId(op.getDst())));
 
       // AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
       // std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
@@ -445,10 +495,10 @@ public:
       auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), srcOffset);
       auto size =
-          i32(op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()),
-              rewriter);
+          i32(op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, chipDescs.front(), ValueRange{srcGridY, srcGridX});
+          rewriter, op.getLoc(), chipDescs.front(),
+          ValueRange{srcGridY, srcGridX});
       auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
           op.getLoc(), virtX, virtY, srcOffsetInt);
       rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
@@ -472,6 +522,13 @@ public:
   LogicalResult
   matchAndRewrite(ttir::CoreIndexOp op, ttir::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    auto index = [&](int64_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(value))
+          .getResult();
+    };
+
     auto device = lookupDevice(op);
     auto chipIds = device.getChipIds();
     auto chipDescs =
@@ -492,8 +549,7 @@ public:
                                                    .getChipPhysicalCores()
                                                    .getWorker()
                                                    .front()
-                                                   .getX(),
-                                               rewriter));
+                                                   .getX()));
       rewriter.replaceAllUsesWith(op.getResult(), normalizedCoreIndex);
     } else {
       auto coreIndex = rewriter.create<ttkernel::MyYOp>(op.getLoc(), nullptr);
@@ -503,8 +559,7 @@ public:
                                                    .getChipPhysicalCores()
                                                    .getWorker()
                                                    .front()
-                                                   .getY(),
-                                               rewriter));
+                                                   .getY()));
       rewriter.replaceAllUsesWith(op.getResult(), normalizedCoreIndex);
     }
     rewriter.eraseOp(op);
