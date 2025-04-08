@@ -1626,32 +1626,15 @@ public:
     auto callee = srcOp.getCallee();
 
     // Get the input indices
-    auto inputIndices = srcOp.getInputIndices();
+    SmallVector<Value> callOperands;
+    for (Value arg : srcOp.getInputs()) {
+      callOperands.push_back(arg);
+    }
 
     // Convert result types
     SmallVector<Type> resultTypes;
     for (auto type : srcOp.getResultTypes()) {
       resultTypes.push_back(getTypeConverter()->convertType(type));
-    }
-
-    // Find the parent function to get access to its arguments
-    auto parentFunc = srcOp->getParentOfType<func::FuncOp>();
-    if (!parentFunc) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "LoadCachedOp must be inside a function");
-    }
-
-    // Collect the actual tensor arguments based on the input_indices
-    SmallVector<Value> callOperands;
-    for (uint32_t index : inputIndices) {
-      // Op verification should guarantee this.
-      assert(index < parentFunc.getNumArguments());
-
-      // Get the corresponding argument from the parent function
-      Value arg = parentFunc.getArgument(index);
-
-      // Add the argument to the call operands
-      callOperands.push_back(arg);
     }
 
     rewriter.replaceOpWithNewOp<func::CallOp>(srcOp, resultTypes, callee,
