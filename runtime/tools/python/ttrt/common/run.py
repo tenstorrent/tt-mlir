@@ -234,7 +234,7 @@ class Run:
             type=str,
             default="",
             choices=None,
-            help="Verify tensor cache statistics. Format: 'hits:N,misses:M' or path to JSON file with expected stats",
+            help="Verify tensor cache statistics. Format: 'hits:N,misses:M'",
         )
         Run.register_arg(
             name="binary",
@@ -597,12 +597,8 @@ class Run:
 
                             event = None
 
-                            self.logging.info("dirtying initial inputs")
-                            for input_tensor in inputs:
-                                ttrt.runtime.dirty_tensor(input_tensor)
-
                             # Parse the dirty tensor schedule
-                            dirty_tensor_schedule = {}
+                            update_tensor_schedule = {}
                             if self["--dirty-tensor-schedule"]:
                                 dirty_configs = self["--dirty-tensor-schedule"].split(
                                     ","
@@ -643,9 +639,9 @@ class Run:
                                             f"Invalid dirty tensor configuration: '{config}'. Iterations must be non-negative. Got {iterations}"
                                         )
 
-                                    if iterations not in dirty_tensor_schedule:
-                                        dirty_tensor_schedule[iterations] = []
-                                    dirty_tensor_schedule[iterations].append(input_idx)
+                                    if iterations not in update_tensor_schedule:
+                                        update_tensor_schedule[iterations] = []
+                                    update_tensor_schedule[iterations].append(input_idx)
 
                             # pre-upload inputs
                             inputs = convert_input_layouts(
@@ -657,13 +653,22 @@ class Run:
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
                                 # Check if we need to dirty any input tensors in this iteration
-                                if loop in dirty_tensor_schedule:
-                                    for input_idx in dirty_tensor_schedule[loop]:
+                                if loop in update_tensor_schedule:
+                                    for input_idx in update_tensor_schedule[loop]:
                                         if input_idx < len(inputs):
                                             # Get the tensor to dirty
                                             tensor_to_dirty = inputs[input_idx]
                                             # Call the dirtyTensor function to increment the version counter
-                                            ttrt.runtime.dirty_tensor(tensor_to_dirty)
+                                            expected_layout = ttrt.runtime.get_layout(
+                                                bin.fbb, program_index, input_idx
+                                            )
+                                            result_tensor = ttrt.runtime.to_layout(
+                                                tensor_to_dirty,
+                                                device,
+                                                expected_layout,
+                                                True,
+                                            )
+                                            inputs[input_idx] = result_tensor
                                             self.logging.info(
                                                 f"Marked input tensor {input_idx} as dirty after {loop} iterations"
                                             )
@@ -701,65 +706,6 @@ class Run:
                                         self.logging.debug(
                                             f"Tensor cache stats: hits={hits}, misses={misses}"
                                         )
-
-                                        # Check cache stats against expected values if specified
-                                        if self["--check-cache-stats"]:
-                                            try:
-                                                # Try to import the verification utility
-                                                import sys
-                                                import os
-
-                                                # First check if it's in the const-eval directory
-                                                sys.path.append(
-                                                    os.path.join(
-                                                        os.path.dirname(
-                                                            os.path.dirname(
-                                                                os.path.dirname(
-                                                                    os.path.dirname(
-                                                                        __file__
-                                                                    )
-                                                                )
-                                                            )
-                                                        ),
-                                                        "test",
-                                                        "python",
-                                                        "const-eval",
-                                                    )
-                                                )
-                                                import verify_cache_stats
-
-                                                binary_name = os.path.basename(
-                                                    bin.file_path
-                                                )
-                                                expected_stats = verify_cache_stats.get_expected_stats(
-                                                    self["--check-cache-stats"],
-                                                    binary_name,
-                                                )
-
-                                                if expected_stats:
-                                                    success = verify_cache_stats.verify_cache_stats(
-                                                        hits,
-                                                        misses,
-                                                        expected_stats,
-                                                        verbose=True,
-                                                    )
-                                                    if not success:
-                                                        raise AssertionError(
-                                                            "Cache statistics verification failed"
-                                                        )
-                                                else:
-                                                    self.logging.warning(
-                                                        "No expected cache stats found for verification"
-                                                    )
-                                            except ImportError:
-                                                self.logging.error(
-                                                    "Could not import verify_cache_stats module. Skipping cache stats verification."
-                                                )
-                                            except Exception as e:
-                                                self.logging.error(
-                                                    f"Error verifying cache stats: {e}"
-                                                )
-                                                raise
 
                                     ttrt.runtime.wait(runtime_outputs)
                                     for i, runtime_output_tensor in enumerate(
@@ -938,6 +884,59 @@ class Run:
                                     self.logging.debug(
                                         f"Finished comparing program level golden for output_{idx}"
                                     )
+
+                            if self["--enable-tensor-cache"]:
+                                # Check cache statistics if requested
+                                if self["--check-cache-stats"]:
+                                    # Parse the requested cache stats from the parameter
+                                    requested_stats = {}
+                                    try:
+                                        stats_configs = self[
+                                            "--check-cache-stats"
+                                        ].split(",")
+                                        for config in stats_configs:
+                                            if ":" not in config:
+                                                raise Exception(
+                                                    f"Invalid cache stats format: '{config}'. Expected format 'key:value'"
+                                                )
+                                            key, value = config.split(":", 1)
+                                            key = key.strip().lower()
+                                            value = value.strip()
+                                            if not value.isdigit():
+                                                raise Exception(
+                                                    f"Invalid cache stats value: '{value}'. Expected a non-negative integer"
+                                                )
+                                            requested_stats[key] = int(value)
+
+                                        # Get the actual cache stats from the device
+                                        cache_stats = (
+                                            device.get_tensor_cache().get_stats()
+                                        )
+
+                                        # Compare the requested stats with the actual stats
+                                        for (
+                                            key,
+                                            expected_value,
+                                        ) in requested_stats.items():
+                                            actual_value = cache_stats.get(key, 0)
+                                            self.logging.debug(
+                                                f"Checking cache stat {key}: expected={expected_value}, actual={actual_value}"
+                                            )
+
+                                            if actual_value != expected_value:
+                                                error_msg = f"Cache statistics validation failed: {key} expected={expected_value}, actual={actual_value}"
+                                                self.logging.error(error_msg)
+                                                raise Exception(error_msg)
+
+                                        self.logging.info(
+                                            f"Cache statistics validation successful: {requested_stats}"
+                                        )
+
+                                    except Exception as e:
+                                        error_msg = f"Failed to validate cache statistics: {str(e)}"
+                                        self.logging.error(error_msg)
+                                        # Wrap in a TTRTTestException so it gets properly handled as a test error
+                                        raise TTRTTestException(error_msg)
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:
