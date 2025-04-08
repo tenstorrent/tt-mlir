@@ -35,7 +35,8 @@ public:
   /**
    * Executes pre and post operation callbacks if registered
    */
-  void runCallback(const std::string &callbackKey, Binary &executableHandle,
+  void runCallback(std::optional<debug::Hooks::CallbackFn> callback,
+                   Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
