@@ -340,9 +340,9 @@ public:
       op.getDstIndicesMutable().append(index(0));
     }
 
-    auto applyMap = [](OpBuilder &builder, Location loc, AffineMap map,
-                       ValueRange index) {
-      auto apply = builder.create<affine::AffineApplyOp>(loc, map, index);
+    auto applyMap = [&](AffineMap map, ValueRange index) {
+      auto apply =
+          rewriter.create<affine::AffineApplyOp>(op.getLoc(), map, index);
       return apply;
     };
 
@@ -447,12 +447,9 @@ public:
       std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
           getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
 
-      auto dstGridY =
-          applyMap(rewriter, op.getLoc(), dstGridYMap, op.getDstIndices());
-      auto dstGridX =
-          applyMap(rewriter, op.getLoc(), dstGridXMap, op.getDstIndices());
-      auto dstOffset =
-          applyMap(rewriter, op.getLoc(), dstOffsetMap, op.getDstIndices());
+      auto dstGridY = applyMap(dstGridYMap, op.getDstIndices());
+      auto dstGridX = applyMap(dstGridXMap, op.getDstIndices());
+      auto dstOffset = applyMap(dstOffsetMap, op.getDstIndices());
       auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), dstOffset);
 
@@ -486,12 +483,9 @@ public:
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
           getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
 
-      auto srcGridY =
-          applyMap(rewriter, op.getLoc(), srcGridYMap, op.getSrcIndices());
-      auto srcGridX =
-          applyMap(rewriter, op.getLoc(), srcGridXMap, op.getSrcIndices());
-      auto srcOffset =
-          applyMap(rewriter, op.getLoc(), srcOffsetMap, op.getSrcIndices());
+      auto srcGridY = applyMap(srcGridYMap, op.getSrcIndices());
+      auto srcGridX = applyMap(srcGridXMap, op.getSrcIndices());
+      auto srcOffset = applyMap(srcOffsetMap, op.getSrcIndices());
       auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), srcOffset);
       auto size =

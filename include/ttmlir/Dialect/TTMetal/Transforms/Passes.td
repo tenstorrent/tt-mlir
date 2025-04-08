@@ -12,6 +12,7 @@ def TTMetalControlDstSection: Pass<"ttmetal-control-dst-section", "::mlir::Modul
   let description = [{
     Analyze the graph and insert tile_regs_* ops to control the dst critical section.
   }];
+  let dependentDialects = ["::mlir::tt::TTDialect", "::mlir::tt::ttkernel::TTKernelDialect"];
 }
 
 #endif

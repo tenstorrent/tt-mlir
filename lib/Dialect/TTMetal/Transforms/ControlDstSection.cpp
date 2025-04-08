@@ -62,12 +62,6 @@ public:
       return;
     }
   }
-
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttmetal::TTMetalDialect>();
-    registry.insert<mlir::tt::ttkernel::TTKernelDialect>();
-    registry.insert<mlir::tt::TTDialect>();
-  }
 };
 } // namespace
 
