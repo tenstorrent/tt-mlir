@@ -48,8 +48,7 @@ convertReductionArg(std::optional<mlir::ArrayAttr> arrayOpt) {
 // ReluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -85,8 +84,7 @@ ReluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SqrtOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 SqrtOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -122,8 +120,7 @@ SqrtOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // AddOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                         const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);
@@ -160,8 +157,7 @@ AddOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // SoftmaxOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -196,8 +192,7 @@ SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MeanOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -230,8 +225,7 @@ MeanOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ReshapeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -265,8 +259,7 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TypecastOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -299,8 +292,7 @@ TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ToLayoutOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -339,8 +331,7 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // TransposeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 TransposeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);
@@ -371,8 +362,7 @@ TransposeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MatmulOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);
@@ -411,8 +401,7 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MultiplyOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 MultiplyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2);
@@ -449,8 +438,7 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Conv2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const TTNNLayoutAttr &output) {
   assert(inputs.size() == 2 || inputs.size() == 3);
@@ -507,8 +495,7 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // MaxPool2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<
-    std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
 MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const TTNNLayoutAttr &output) {
   assert(inputs.size() == 1);

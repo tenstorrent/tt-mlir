@@ -31,10 +31,9 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
                    - The first value is the CB L1 peak allocation in bytes.
                    - The second value is the Tensor L1 peak allocation in bytes.
                    - The third value is the Output L1 buffer allocation in bytes.
-                   - The fourth value is the actual layout of the output tensor as set by the Op.
                 If the op is illegal, returns an Error with a string describing the failure.
             }],
-            /*retTy=*/"llvm::Expected<std::tuple<size_t, size_t, size_t, mlir::tt::ttnn::TTNNLayoutAttr>>",
+            /*retTy=*/"llvm::Expected<std::tuple<size_t, size_t, size_t>>",
             /*methodName=*/"getOpConstraints",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
