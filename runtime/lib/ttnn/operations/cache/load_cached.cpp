@@ -25,25 +25,21 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 using LogType = ::tt::runtime::logger::LogType;
 
 void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
-  // TODO(vwells): think this through before PR
-
   std::shared_ptr<TensorCache> cache = context.getCache();
   LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
-  // Extract function name
+  // Extract function names for cache keys.
   const std::string &parentFuncName = context.getProgramName();
   const std::string &constEvalFuncname = op->callee_name()->str();
 
-  // Initialize input versions array with the correct size
-  std::vector<uint64_t> inputVersions(op->inputs()->size());
+  std::vector<uint64_t> inputVersions;
+  inputVersions.reserve(op->inputs()->size());
 
-  // Extract versions from the context
-  for (size_t i = 0; i < inputVersions.size(); ++i) {
-    const size_t argId = op->inputs->Get(i)->global_id();
-    std::optional<uint64_t> maybeVersion =
-        context.getTensorPool().getVersion(argId);
-    LOG_ASSERT(maybeVersion.has_value());
-    inputVersions[i] = maybeVersion.value();
+  // Extract versions for each input tensor.
+  for (const auto *input : *op->inputs()) {
+    ::tt::runtime::Tensor runtimeInput =
+        context.getTensorPool().getRuntimeTensorAndValidate(input);
+    inputVersions.push_back(runtimeInput.version.load());
   }
 
   // Get the cached tensors, which will be empty if cache is invalid
@@ -56,8 +52,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     assert(cachedOutputs->size() == op->outputs()->size());
     for (size_t i = 0; i < cachedOutputs->size(); ++i) {
       auto output = (*cachedOutputs)[i].as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-      context.getTensorPool().insertTTNNTensorAndValidate(
-          op->outputs()->Get(i)->global_id(), output);
+      context.getTensorPool().insertTTNNTensorAndValidate(op->outputs()->Get(i),
+                                                          output);
     }
 
     return;
@@ -65,21 +61,10 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   LOG_DEBUG("Cache miss or invalid cache for function: ", constEvalFuncname);
 
-  // Collect input tensor IDs for execution
-  std::vector<uint32_t> funcInputIds =
-      context.getTensorPool().getProgramInputIds();
-  std::vector<uint32_t> inputIds(op->inputs_indexes()->size());
-  for (size_t i = 0; i < inputIds.size(); ++i) {
-    const size_t input = op->inputs_indexes()->Get(i);
-    LOG_ASSERT(input < funcInputIds.size(),
-               "Invalid arg index in load_cached op.");
-    inputIds[i] = funcInputIds[input];
-  }
-
   // Collect the ::ttnn::Tensor objects for execution
   std::vector<::tt::runtime::Tensor> inputs;
-  inputs.reserve(op->inputs().size());
-  for (const auto *input : op->inputs()) {
+  inputs.reserve(op->inputs()->size());
+  for (const auto *input : *op->inputs()) {
     inputs.emplace_back(
         context.getTensorPool().getRuntimeTensorAndValidate(input));
   }
@@ -91,7 +76,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   ::tt::target::ttnn::Program const *subProgram =
       fbb.programs()->Get(programIndex);
   executor::ProgramExecutor exec(subProgram, context.getExecutableHandle(),
-                                 inputs, &context.getParentMesh());
+                                 inputs, &context.getParentMesh(), nullptr);
   exec.execute();
   LOG_INFO("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();
@@ -102,8 +87,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     Tensor &runtimeOutput = outputs[i];
     ::ttnn::Tensor output =
         runtimeOutput.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-    context.getTensorPool().insertTTNNTensorAndValidate(
-        op->outputs()->Get(i)->global_id(), output);
+    context.getTensorPool().insertTTNNTensorAndValidate(op->outputs()->Get(i),
+                                                        output);
   }
 }
 } // namespace tt::runtime::ttnn::operations::cache

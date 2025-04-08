@@ -174,7 +174,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputs);
+                           std::vector<Tensor> &inputs);
 
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
