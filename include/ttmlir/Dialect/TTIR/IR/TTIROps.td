@@ -2078,7 +2078,7 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
+def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
     let summary = "Reduce scatter operation.";
     let description = [{
       Reduce scatter op.
@@ -2093,7 +2093,7 @@ def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
-def TTIR_CollectivePermuteOp : TTIR_DPSOp<"collective_permute"> {
+def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
     let summary = "Collective permute operation.";
     let description = [{
       Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].

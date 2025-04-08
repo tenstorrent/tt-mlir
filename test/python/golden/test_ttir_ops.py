@@ -651,7 +651,7 @@ def test_max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer(
     [
         (1, 1, 5, 5),
-        (1, 1, 7, 7),
+        (2, 6, 14, 18),
     ],
     inputs_types=[torch.bfloat16, torch.bfloat16],
     targets=["ttnn"],
