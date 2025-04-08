@@ -2,24 +2,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-namespace mlir::tt::ttmetal {
-#define GEN_PASS_DEF_TTMETALCONTROLDSTSECTION
-#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
+namespace mlir::tt::ttkernel {
+#define GEN_PASS_DEF_TTKERNELCONTROLDSTSECTION
+#include "ttmlir/Dialect/TTKernel/Transforms/Passes.h.inc"
 
 namespace {
 
-class TTMetalTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
+class TTKernelTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
 public:
   using OpRewritePattern<ttkernel::PackTileOp>::OpRewritePattern;
 
@@ -47,22 +45,26 @@ public:
 } // namespace
 
 namespace {
-class TTMetalControlDstSection
-    : public impl::TTMetalControlDstSectionBase<TTMetalControlDstSection> {
+class TTKernelControlDstSection
+    : public impl::TTKernelControlDstSectionBase<TTKernelControlDstSection> {
 public:
-  using impl::TTMetalControlDstSectionBase<
-      TTMetalControlDstSection>::TTMetalControlDstSectionBase;
+  using impl::TTKernelControlDstSectionBase<
+      TTKernelControlDstSection>::TTKernelControlDstSectionBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTMetalTileRegsRewriter>(&getContext());
+    patterns.add<TTKernelTileRegsRewriter>(&getContext());
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
       return;
     }
   }
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<ttkernel::TTKernelDialect>();
+  }
 };
 } // namespace
 
-} // namespace mlir::tt::ttmetal
+} // namespace mlir::tt::ttkernel

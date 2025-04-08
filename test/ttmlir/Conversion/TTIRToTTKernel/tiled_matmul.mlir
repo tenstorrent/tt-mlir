@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-ttir-to-ttkernel --ttmetal-control-dst-section %s > %t.mlir
+// RUN: ttmlir-opt --convert-ttir-to-ttkernel --ttkernel-control-dst-section %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #tt.memory_space<l1>
