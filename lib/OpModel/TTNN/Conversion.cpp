@@ -286,7 +286,7 @@ llvm::SmallVector<int64_t> GetVirtualGridShape(
     const llvm::ArrayRef<int64_t> &gridPhyCores = {8, 8}) {
 
   // Usually tensors are of rank 2, but in case of MaxPool2D or Conv2D ops, it
-  // is 4. Anyway this tensor will be flattened to {1, 1, Y, X} shape.
+  // is 4. This tensor will be flattened to {1, 1, Y, X} shape.
   assert(tensorShape.size() >= 2);
   for (size_t i = 0; i < tensorShape.size() - 2; i++) {
     assert(tensorShape[i] == 1);
@@ -321,6 +321,7 @@ mlir::tt::ttnn::TTNNLayoutAttr
 getLayoutAttrFromTensorSpec(MLIRContext *context,
                             const ::ttnn::TensorSpec &tensorSpec) {
   llvm::SmallVector<int64_t> shape = getShape(tensorSpec.logical_shape());
+
   Type elementType;
   if (tensorSpec.layout() == ::tt::tt_metal::Layout::TILE) {
     elementType = mlir::tt::TileType::get(
@@ -332,10 +333,12 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
     elementType =
         dataTypeToElementType(context, getDataType(tensorSpec.data_type()));
   }
+
   mlir::tt::ttnn::BufferType bufferType =
       getBufferType(tensorSpec.memory_config().buffer_type);
   auto memoryLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
       context, getTensorMemoryLayout(tensorSpec.memory_config().memory_layout));
+
   GridAttr grid = mlir::tt::GridAttr::get(
       context, GetVirtualGridShape(shape, memoryLayoutAttr.getValue()),
       ::mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
