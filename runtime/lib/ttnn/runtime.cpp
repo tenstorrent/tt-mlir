@@ -12,7 +12,13 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
+
+// Temporarily disable warning for covered switch default in generated code
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/TTNN/Target.h"
+#pragma GCC diagnostic pop
+
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
 
