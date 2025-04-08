@@ -200,7 +200,7 @@ PYBIND11_MODULE(_C, m) {
          std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType,
          std::unordered_map<std::string, std::string> const &strategy) {
-        std::vector<void *> data;
+        std::vector<void const *> data;
         data.reserve(ptrs.size());
         std::transform(ptrs.begin(), ptrs.end(), std::back_inserter(data),
                        [](std::uintptr_t ptr) {
