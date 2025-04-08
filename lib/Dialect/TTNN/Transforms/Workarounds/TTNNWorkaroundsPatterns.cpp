@@ -465,8 +465,7 @@ private:
   rewriteAsAllGatherLocalReduce(ttnn::AllReduceOp op,
                                 ::llvm::ArrayRef<int64_t> meshShape,
                                 PatternRewriter &rewriter) const {
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(op.getInput().getType());
+    RankedTensorType inputType = op.getInput().getType();
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
     Value deviceValue = op.getDevice();
@@ -483,7 +482,7 @@ private:
         RankedTensorType::Builder(inputType).setShape(expandedInputShape);
 
     ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
+        loc, reshapedInputType, op.getInput(), reshapedInputShapeAttr,
         /* memory_config */ nullptr);
 
     // Create a new all gather op.
@@ -492,8 +491,8 @@ private:
         RankedTensorType::Builder(reshapedInputType)
             .setShape(expandedInputShape);
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-        loc, Type(allGatherOutputType), leadingReshapeOp.getResult(),
-        deviceValue, 0, clusterAxis);
+        loc, allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
+        clusterAxis);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
