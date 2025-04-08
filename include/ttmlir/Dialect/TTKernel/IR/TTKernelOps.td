@@ -125,7 +125,11 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
       Matmul tiles operation
     }];
 
-    let arguments = (ins Index:$in0_cb_id, Index:$in1_cb_id, Index:$in0_tile_idx, Index:$in1_tile_idx, Index:$dst_tile_idx);
+    let arguments = (ins Index:$in0_cb_id,
+                         Index:$in1_cb_id,
+                         Index:$in0_tile_idx,
+                         Index:$in1_tile_idx,
+                         Index:$dst_tile_idx);
 }
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
@@ -674,7 +678,7 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
 def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
     let summary = "MyX";
     let description = [{
-      MyX
+      Lowers to the tt-metal supported MY_X macro. This represents the virtual X coordinate of the current core.
     }];
 
     let arguments = (ins Optional<I8>:$noc);
@@ -684,7 +688,7 @@ def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
 def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
     let summary = "MyY";
     let description = [{
-      MyY
+      Lowers to the tt-metal supported MY_Y macro. This represents the virtual Y coordinate of the current core.
     }];
 
     let arguments = (ins Optional<I8>:$noc);

@@ -23,7 +23,7 @@ static uint32_t getCbId(Value value) {
   if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
     return blockArg.getArgNumber();
   }
-  memref::CollapseShapeOp collapseOp =
+  auto collapseOp =
       mlir::dyn_cast<memref::CollapseShapeOp>(value.getDefiningOp());
   if (auto blockArg =
           mlir::dyn_cast<mlir::BlockArgument>(collapseOp.getSrc())) {

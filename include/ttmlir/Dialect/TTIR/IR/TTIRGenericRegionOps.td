@@ -128,6 +128,7 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
 def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul">{
     let summary = "TTIR Tile Matmul Op";
     let description = [{
+        The `tile_matmul` operation computes the matrix multiplication of two input tiles, partials are passed to the `accum` operand.
     }];
 
     let arguments = (ins TT_Tile:$a, TT_Tile:$b, TT_Tile:$accum);
