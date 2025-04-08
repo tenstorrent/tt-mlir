@@ -368,7 +368,7 @@ public:
       const int64_t sizeLimit = 200000;
       int64_t tensorSize = inputType.getNumElements();
       if (tensorSize < sizeLimit) {
-        return rewriteAsAllGatherLocalReduce(op, rewriter, meshShape);
+        return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
 
@@ -462,8 +462,9 @@ public:
 
 private:
   LogicalResult
-  rewriteAsAllGatherLocalReduce(ttnn::AllReduceOp op, PatternRewriter &rewriter,
-                                ::llvm::ArrayRef<int64_t> meshShape) const {
+  rewriteAsAllGatherLocalReduce(ttnn::AllReduceOp op,
+                                ::llvm::ArrayRef<int64_t> meshShape,
+                                PatternRewriter &rewriter) const {
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(op.getInput().getType());
     Location loc = op.getLoc();
@@ -478,7 +479,7 @@ private:
     ArrayAttr reshapedInputShapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
             expandedInputShape.begin(), expandedInputShape.end()));
-    auto reshapedInputType =
+    RankedTensorType reshapedInputType =
         RankedTensorType::Builder(inputType).setShape(expandedInputShape);
 
     ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
