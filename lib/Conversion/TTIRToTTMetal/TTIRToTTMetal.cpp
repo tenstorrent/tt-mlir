@@ -19,10 +19,10 @@ public:
   LogicalResult
   matchAndRewrite(ttir::GenericOp op, ttir::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto coreRanges = llvm::SmallVector<Attribute>();
+    llvm::SmallVector<Attribute> coreRanges;
     coreRanges.reserve(op.getThreads().size());
     for (size_t i = 0; i < op.getThreads().size(); i++) {
-      coreRanges.push_back(
+      coreRanges.emplace_back(
           rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
     }
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
@@ -45,19 +45,20 @@ public:
     auto address = op->getAttr("address")
                        ? op->getAttrOfType<IntegerAttr>("address")
                        : rewriter.getI64IntegerAttr(
-                             1000); // arbitrary default for now, remove when
-                                    // allocate pass is implemented
+                             1000); // TODO(#1909): arbitrary default for now,
+                                    // remove when allocate pass is implemented
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memroy space found, failing.");
     assert(mlir::isa<TileType>(op.getMemref().getType().getElementType()) &&
            "Expected memref to have tile element type, failing.");
-    auto size = mlir::cast<TileType>(op.getMemref().getType().getElementType())
-                    .getSizeBytes() *
-                op.getMemref().getType().getNumElements();
-    auto memorySpace = mlir::cast<tt::MemorySpaceAttr>(
-        op.getMemref().getType().getMemorySpace());
+    auto memrefType = op.getMemref().getType();
+    auto size =
+        mlir::cast<TileType>(memrefType.getElementType()).getSizeBytes() *
+        memrefType.getNumElements();
+    auto memorySpace =
+        mlir::cast<tt::MemorySpaceAttr>(memrefType.getMemorySpace());
     auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(
-        op->getLoc(), op.getMemref().getType(), address.getInt(), size,
+        op->getLoc(), memrefType, address.getInt(), size,
         memorySpace.getValue());
     rewriter.replaceOp(op, createBufferOp);
 

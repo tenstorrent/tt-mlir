@@ -4,18 +4,13 @@
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
-#include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/Dominance.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -274,7 +269,7 @@ public:
         op->getParentOfType<ModuleOp>()
             ->getAttrOfType<SystemDescAttr>(tt::SystemDescAttr::name)
             .getChipDescs();
-    assert(chipIds.size() == chipDescs.size() == 1 &&
+    assert((chipIds.size() == 1) && (chipDescs.size() == 1) &&
            "Chip ids and chip descs size must equal 1, failing.");
     assert(isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
                                op.getSrc().getType().getMemorySpace())
