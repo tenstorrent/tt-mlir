@@ -435,7 +435,7 @@ class Run:
                     )
                     inputs_converted.append(
                         ttrt.runtime.to_layout(
-                            inputs[input_index], device, input_layout
+                            inputs[input_index], device, input_layout, True
                         )
                     )
                 return inputs_converted
@@ -574,19 +574,18 @@ class Run:
                             inputs = []
                             outputs = []
                             for i in program.input_tensors:
-                                inputs.append(
-                                    ttrt.runtime.create_tensor(
-                                        i.data_ptr(),
-                                        list(i.shape),
-                                        list(i.stride()),
-                                        i.element_size(),
-                                        Binary.Program.to_data_type(i.dtype),
-                                    )
+                                new_input = ttrt.runtime.create_owned_tensor(
+                                    i.data_ptr(),
+                                    list(i.shape),
+                                    list(i.stride()),
+                                    i.element_size(),
+                                    Binary.Program.to_data_type(i.dtype),
                                 )
+                                inputs.append(new_input)
 
                             for i in program.output_tensors:
                                 outputs.append(
-                                    ttrt.runtime.create_tensor(
+                                    ttrt.runtime.create_owned_tensor(
                                         i.data_ptr(),
                                         list(i.shape),
                                         list(i.stride()),
@@ -648,6 +647,11 @@ class Run:
                             fwd_func_name = program.program["name"]
                             fwd_func_name_len = len(fwd_func_name)
                             fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EE"
+
+                            # pre-upload inputs
+                            inputs = convert_input_layouts(
+                                device, inputs, bin.fbb, program_index
+                            )
 
                             for loop in range(self["--loops"]):
                                 inputs_converted = convert_input_layouts(

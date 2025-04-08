@@ -33,7 +33,7 @@ using TensorPtrMapIterator = typename TensorPtrMap::iterator;
 // additional metadata specific to our ttnn runtime
 class TTNNTensorWrapper {
 public:
-  TTNNTensorWrapper(const ::ttnn::Tensor &tensor, bool retain = false)
+  TTNNTensorWrapper(const ::ttnn::Tensor &tensor, bool retain = true)
       : tensor(tensor), retain(retain) {}
 
   const ::ttnn::Tensor &getTensor() const { return tensor; }
