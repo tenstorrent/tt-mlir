@@ -823,7 +823,8 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getBias()),
-        /*conv2d_config=*/emitter.emit(std::nullopt),
+        emitter.emit(std::nullopt) |
+            emitter.getConv2dConfig(srcOp.getInput(), srcOp.getWeight()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
