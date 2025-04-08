@@ -122,44 +122,6 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
   return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
 }
 
-static std::vector<::tt::runtime::Tensor>
-convertInputLayouts(Device deviceHandle, Binary executableHandle,
-                    std::uint32_t programIndex,
-                    std::vector<::tt::runtime::Tensor> &inputs) {
-  // Convert input tensors to the layout expected by the program
-  std::vector<::tt::runtime::Tensor> inputsWithLayout;
-  inputsWithLayout.reserve(inputs.size());
-  for (size_t i = 0; i < inputs.size(); i++) {
-    ::tt::runtime::Tensor &input = inputs[i];
-    Layout desiredLayout =
-        ::tt::runtime::ttnn::getLayout(executableHandle, programIndex, i);
-
-    const LayoutDesc tensorLayoutDesc = LayoutDesc::fromTensor(input);
-
-    const LayoutDesc &desiredlayoutDesc =
-        desiredLayout.as<LayoutDesc>(DeviceRuntime::TTNN);
-
-    // If the input tensor already has the correct layout
-    // reuse it and continue
-    if (tensorLayoutDesc == desiredlayoutDesc) {
-      inputsWithLayout.push_back(input);
-      continue;
-    }
-
-    // Convert the input tensor to the correct layout
-    // Deallocating the original tensor if it is not retained
-    ::tt::runtime::Tensor inputWithLayout = ::tt::runtime::ttnn::toLayout(
-        input, deviceHandle, desiredLayout, /*retain=*/false);
-    inputsWithLayout.push_back(inputWithLayout);
-
-    if (!::tt::runtime::ttnn::getTensorRetain(input)) {
-      ::tt::runtime::ttnn::deallocateTensor(input);
-    }
-  }
-
-  return inputsWithLayout;
-}
-
 static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
   if (meshDevice.num_devices() == 1) {
     return std::ref(*(meshDevice.get_device(::ttnn::MeshCoordinate(0, 0))));
@@ -604,22 +566,6 @@ void wait(std::vector<Tensor> const &tensors) {
   }
 }
 
-static Tensor toHostSingleTensor(Tensor tensor, bool untilize) {
-  const ::ttnn::Tensor &deviceTensor =
-      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  std::shared_ptr<::ttnn::Tensor> hostTensor =
-      std::make_shared<::ttnn::Tensor>(::ttnn::from_device(deviceTensor));
-
-  if (untilize) {
-    hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
-        *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
-        static_cast<::ttnn::IDevice *>(nullptr)));
-  }
-
-  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-                DeviceRuntime::TTNN);
-}
-
 std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
   const ::ttnn::Tensor &multiDeviceTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
@@ -984,27 +930,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
-  // Convert input tensors to the layout expected by the program
-  std::vector<::tt::runtime::Tensor> inputsWithLayout =
-      ::tt::runtime::ttnn::convertInputLayouts(deviceHandle, executableHandle,
-                                               programIndex, inputs);
 
+  std::shared_ptr<TensorCache> cache = deviceHandle.cache;
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
   std::vector<::tt::runtime::Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      meshDevice, executableHandle, programIndex, inputsWithLayout);
+      meshDevice, executableHandle, programIndex, inputs, cache);
 
-  std::vector<::ttnn::Tensor *> ttnnInputs;
-  ttnnInputs.reserve(inputsWithLayout.size());
-  std::transform(inputsWithLayout.begin(), inputsWithLayout.end(),
-                 std::back_inserter(ttnnInputs),
-                 [](Tensor &input) -> ::ttnn::Tensor * {
-                   return &input.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-                 });
-
-  std::vector<Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      meshDevice, executableHandle, programIndex, ttnnInputs);
   return outputs;
 }
 

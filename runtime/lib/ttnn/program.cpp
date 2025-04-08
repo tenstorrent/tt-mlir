@@ -289,31 +289,16 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
                                Binary executableHandle,
                                std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs,
-                               std::shared_ptr<TensorCache> externalCache,
-                               std::vector<uint64_t> &&inputVersions) {
+                               std::vector<::tt::runtime::Tensor> &inputs,
+                               std::shared_ptr<TensorCache> externalCache) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
   ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
-                           externalCache, std::move(inputVersions));
+                           externalCache);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
-  return outputTensors;
-}
-
-std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
-                               Binary executableHandle,
-                               std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs) {
-  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
-  ::tt::target::ttnn::Program const *program =
-      fbb.programs()->Get(programIndex);
-  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
-                           nullptr, {});
-  executor.execute();
-  std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
   return outputTensors;
 }
 

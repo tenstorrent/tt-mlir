@@ -148,14 +148,6 @@ public:
   insertTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
                               const ::ttnn::Tensor &ttnnTensor,
                               bool retain = false);
-  const ::ttnn::Tensor &getAndValidate(const size_t idx) const;
-  ::ttnn::Tensor &getAndValidate(const size_t idx);
-
-  std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
-  insertAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
-                    const ::ttnn::Tensor &ttnnTensor);
-  std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
-  insertAndValidate(const size_t globalId, const ::ttnn::Tensor &ttnnTensor);
 
   std::vector<::tt::runtime::Tensor> gatherOutputTensors();
 
@@ -173,23 +165,28 @@ public:
     return programOutputIds;
   }
 
+  std::optional<uint64_t> tryGetVersion(size_t globalId) const {
+    auto it = liveTensors.find(globalId);
+    return (it == liveTensors.end())
+               ? std::nullopt
+               : std::optional<uint64_t>(it->second->version.load());
+  }
+
 private:
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;
-  // A superset of intermedTensors, containing pointers to all tensors created
-  // by the program and the input tensors passed in by the user
-  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+  TensorMap intermedTensors;
+  TensorPtrMap liveTensors;
 
-  // A subset of liveTensors, containing values of any intermediate tensors
-  // created by the program
-  std::unordered_map<std::uint32_t, ::ttnn::Tensor> intermedTensors;
+  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
+  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
 };
 
 class ProgramContext {
 public:
   ProgramContext(const std::vector<uint32_t> &programInputIds,
                  const std::vector<uint32_t> &programOutputIds,
-                 std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
+                 TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
                  ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
                  const std::string &programName)
@@ -204,17 +201,16 @@ public:
 
   ProgramContext(const std::vector<uint32_t> &programInputIds,
                  const std::vector<uint32_t> &programOutputIds,
-                 std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
+                 TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
                  ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
                  std::shared_ptr<TensorCache> externalCache,
-                 std::vector<uint64_t> &&inputVersions,
                  const std::string &programName)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
         executableHandle(executableHandle), externalCache(externalCache),
-        inputVersions(std::move(inputVersions)), programName(programName) {
+        programName(programName) {
     LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
     // If no external cache was provided, create a default one
     if (!this->externalCache) {
@@ -226,15 +222,6 @@ public:
   ProgramContext &operator=(const ProgramContext &) = delete;
   ProgramContext(ProgramContext &&) = delete;
   ProgramContext &operator=(ProgramContext &&) = delete;
-
-private:
-  std::vector<std::uint32_t> programInputIds;
-  std::vector<std::uint32_t> programOutputIds;
-  TensorMap intermedTensors;
-  TensorPtrMap liveTensors;
-
-  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
-  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
 
   //
   // Parent Mesh Operations
@@ -278,11 +265,6 @@ private:
   //
   std::shared_ptr<TensorCache> getCache() { return externalCache; }
 
-  // Get the input versions
-  const std::vector<uint64_t> &getInputVersions() const {
-    return inputVersions;
-  }
-
   const std::string &getProgramName() const { return programName; }
 
 private:
@@ -301,9 +283,6 @@ private:
 
   // The shared tensor cache
   std::shared_ptr<TensorCache> externalCache;
-
-  // Input versions
-  const std::vector<uint64_t> inputVersions;
 
   const std::string programName;
 };

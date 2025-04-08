@@ -442,19 +442,6 @@ const ::ttnn::Tensor &ProgramTensorPool::getTTNNTensorAndValidate(
   return tensorWrapper.getTensor();
 }
 
-::ttnn::Tensor &ProgramTensorPool::getAndValidate(const size_t globalId) {
-  return const_cast<::ttnn::Tensor &>(
-      static_cast<const ProgramTensorPool &>(*this).getAndValidate(globalId));
-}
-
-const ::ttnn::Tensor &
-ProgramTensorPool::getAndValidate(const size_t globalId) const {
-  LOG_ASSERT(liveTensors.contains(globalId));
-  const ::ttnn::Tensor &ttnnTensor = *liveTensors.at(globalId);
-  DEBUG_ASSERT(ttnnTensor.is_allocated());
-  return ttnnTensor;
-}
-
 ::ttnn::Tensor &ProgramTensorPool::getTTNNTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef) {
   return const_cast<::ttnn::Tensor &>(
@@ -467,7 +454,16 @@ ProgramTensorPool::insertTTNNTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef,
     const ::ttnn::Tensor &ttnnTensor, bool retain) {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
-  return insertAndValidate(tensorRef->global_id(), ttnnTensor);
+  std::uint32_t globalId = tensorRef->global_id();
+  DEBUG_ASSERT(ttnnTensor.is_allocated());
+  debug::checkTensorRefMatchesTTNNTensor(tensorRef, ttnnTensor);
+
+  ::tt::runtime::Tensor runtimeTensor =
+      utils::createRuntimeTensorFromTTNN(ttnnTensor, retain);
+  auto [iter, inserted] =
+      intermedTensors.insert_or_assign(globalId, runtimeTensor);
+
+  return liveTensors.insert_or_assign(globalId, &(iter->second));
 }
 
 std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
@@ -486,15 +482,6 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
 }
 
 TensorPtrMapIterator
-ProgramTensorPool::insertAndValidate(const size_t globalId,
-                                     const ::ttnn::Tensor &ttnnTensor) {
-  DEBUG_ASSERT(ttnnTensor.is_allocated());
-  auto [iter, inserted] =
-      intermedTensors.insert_or_assign(globalId, ttnnTensor);
-  return liveTensors.insert_or_assign(globalId, &(iter->second));
-}
-
-size_t
 ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
   std::uint32_t globalId = tensorRef->global_id();
