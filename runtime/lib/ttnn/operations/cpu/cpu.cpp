@@ -40,7 +40,8 @@ std::vector<WrappedTensor> packTensors(
   for (size_t i = 0; i < ins->size(); ++i) {
     const size_t rank = ins->Get(i)->desc()->shape()->size();
     std::vector<int64_t> sizes(rank);
-    const auto &tens = context.getTensorPool().getAndValidate(ins->Get(i));
+    const auto &tens =
+        context.getTensorPool().getTTNNTensorAndValidate(ins->Get(i));
     for (size_t j = 0; j < rank; ++j) {
       sizes[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
@@ -77,10 +78,10 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
   std::vector<std::vector<int64_t>> allSizesAndStrides;
   auto dylibInputs =
       packTensors(fbInputs, op->out(), context, allSizesAndStrides);
-  ::ttnn::Tensor out = context.getTensorPool().getAndValidate(
+  ::ttnn::Tensor out = context.getTensorPool().getTTNNTensorAndValidate(
       fbInputs->Get(fbInputs->size() - 1));
 
-  context.getTensorPool().insertAndValidate(op->out(), out);
+  context.getTensorPool().insertTTNNTensorAndValidate(op->out(), out);
   fn(dylibInputs.data());
   // We don't need to unpack any data from output, it should be written directly
   // to correct memory.

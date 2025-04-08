@@ -8,15 +8,14 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Utils.h"
 
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringExtras.h>
-#include <llvm/ADT/TypeSwitch.h>
-#include <llvm/Support/Casting.h>
-#include <mlir/IR/Builders.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/DialectImplementation.h>
-#include <mlir/Support/LLVM.h>
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectImplementation.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Casting.h"
 
 #include <cstdint>
 #include <fstream>
@@ -191,14 +190,10 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Acquire cpu descs
   std::vector<tt::CPUDescAttr> cpu_desc_list;
   for (auto const *element : *binary_cpu_desc) {
-    static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
-                      ::mlir::tt::CPURole::Device) ==
-                  static_cast<std::underlying_type_t<::tt::target::CPURole>>(
-                      ::tt::target::CPURole::Device));
-    static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
-                      ::mlir::tt::CPURole::Host) ==
-                  static_cast<std::underlying_type_t<::tt::target::CPURole>>(
-                      ::tt::target::CPURole::Host));
+    static_assert(llvm::to_underlying(::mlir::tt::CPURole::Device) ==
+                  llvm::to_underlying(::tt::target::CPURole::Device));
+    static_assert(llvm::to_underlying(::mlir::tt::CPURole::Host) ==
+                  llvm::to_underlying(::tt::target::CPURole::Host));
     const auto *flatbufferTargetTripleString = element->target_triple();
     cpu_desc_list.emplace_back(tt::CPUDescAttr::get(
         context, static_cast<mlir::tt::CPURole>(element->role()),
@@ -339,16 +334,10 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Acquire chip capabilities
   std::vector<tt::ChipCapabilityAttr> chip_capabilities_list;
   for (auto element : *chip_capabilities) {
-    static_assert(
-        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
-            ::mlir::tt::ChipCapability::PCIE) ==
-        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
-            ::tt::target::ChipCapability::PCIE));
-    static_assert(
-        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
-            ::mlir::tt::ChipCapability::HostMMIO) ==
-        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
-            ::tt::target::ChipCapability::HostMMIO));
+    static_assert(llvm::to_underlying(::mlir::tt::ChipCapability::PCIE) ==
+                  llvm::to_underlying(::tt::target::ChipCapability::PCIE));
+    static_assert(llvm::to_underlying(::mlir::tt::ChipCapability::HostMMIO) ==
+                  llvm::to_underlying(::tt::target::ChipCapability::HostMMIO));
 
     auto chip_capabilities_attr = tt::ChipCapabilityAttr::get(
         context, static_cast<::mlir::tt::ChipCapability>(element));
@@ -529,6 +518,18 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
         (logicalShape[i] + grid.getShape()[i] - 1) / grid.getShape()[i];
   }
   return shardShape;
+}
+
+MetalLayoutAttr MetalLayoutAttr::get(
+    ::mlir::MLIRContext *context, RankedTensorType ty, uint64_t gridRank,
+    bool tiled, MemorySpace memorySpace,
+    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
+    OOBVal oobVal) {
+  auto grid = GridAttr::get(context, gridRank);
+  auto elementType =
+      tiled ? TileType::get(context, ty.getElementType()) : ty.getElementType();
+  return get(context, ty.getShape(), elementType, memorySpace, grid,
+             collapseIntervals, oobVal);
 }
 
 MetalLayoutAttr MetalLayoutAttr::get(

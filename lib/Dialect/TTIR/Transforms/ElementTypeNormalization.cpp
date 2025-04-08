@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
@@ -21,8 +22,14 @@ public:
     addConversion([](Type type) -> Type { return type; });
     addConversion([enableFP32](RankedTensorType type) -> RankedTensorType {
       Type elementType = type.getElementType();
-      size_t bitWidth = type.getElementTypeBitWidth();
       MLIRContext *context = elementType.getContext();
+
+      // Skip quantized types - don't modify them.
+      if (isa<quant::QuantizedType>(elementType)) {
+        return type;
+      }
+
+      size_t bitWidth = type.getElementTypeBitWidth();
 
       // Convert bools to bf16, since not all ttnn ops
       // support uint8.

@@ -11,8 +11,8 @@
 
 func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #layout2> {
   %0 = ttir.empty() : tensor<256x32xf32, #layout2>
-  // CHECK: %{{[a-z0-9_]+}} = "ttir.view_layout"
-  // CHECK: %{{[a-z0-9_]+}} = "ttir.view_layout"
+  // CHECK: %{{[a-z0-9_]+}} = "ttir.to_layout"
+  // CHECK: %{{[a-z0-9_]+}} = "ttir.to_layout"
   %1 = "ttir.generic"(%arg0, %arg1, %0) <{
         grid = #tt.grid<1x1>,
         indexing_maps = [#map1, #map1, #map2],
@@ -37,7 +37,7 @@ func.func @reduce_large_grid(%arg0: tensor<256x384xf32, #layout1>, %arg1: tensor
             }
         "ttir.yield"() : () -> ()
         }) : (tensor<256x384xf32, #layout1>, tensor<256x384xf32, #layout1>, tensor<256x32xf32, #layout2>) -> tensor<256x32xf32, #layout2>
-  // CHECK: %{{[a-z0-9_]+}} = "ttir.view_layout"
+  // CHECK: %{{[a-z0-9_]+}} = "ttir.to_layout"
   return %1 : tensor<256x32xf32, #layout2>
 }
 

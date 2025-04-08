@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -72,9 +73,17 @@ createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
       g_defaultCollapseDims);
 
   // Force TileType for tensors
-  auto elementType = isTiled ? TileType::get(ctx, type.getElementType())
-                             : type.getElementType();
-
+  Type elementType = type.getElementType();
+  // The tile type for a quantized type is the desired type.
+  // Ex: for a quant p of fp32->int8, the storage type is int8.
+  if (auto quantType =
+          mlir::dyn_cast<mlir::quant::QuantizedType>(elementType)) {
+    elementType = isTiled ? TileType::get(ctx, quantType.getStorageType())
+                          : quantType.getStorageType();
+  } else {
+    elementType = isTiled ? TileType::get(ctx, type.getElementType())
+                          : type.getElementType();
+  }
   mlir::Attribute encoding = type.getEncoding();
   TensorMeshShardingAttr tensorMeshShardingAttr;
   if (auto encodingMeshSharding =
@@ -84,7 +93,6 @@ createLayoutAttr(MLIRContext *ctx, GridAttr deviceGrid, RankedTensorType type,
                  mlir::dyn_cast_if_present<TTNNLayoutAttr>(encoding)) {
     tensorMeshShardingAttr = layout.getTensorMeshSharding();
   }
-
   TensorMemoryLayoutAttr memoryLayoutAttr =
       getMemoryLayoutAttr(ctx, bufferType);
   return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
@@ -140,7 +148,6 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
   // Get ttnn layout from the type
   TTNNLayoutAttr ttnnLayoutAttr = mlir::cast<TTNNLayoutAttr>(ty.getEncoding());
-
   // Get buffer type (i.e DRAM/L1 etc)
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
 
@@ -149,13 +156,7 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
       ttnnLayoutAttr.getTensorMeshSharding();
 
   // Get the current element type (i.e bf16/TileType etc)
-  // If the defining op is arange, then we need to assume ROW_MAJOR (scalar)
-  // element type.
   Type currElementType = ttnnLayoutAttr.getElementType();
-  ttir::ArangeOp existingArange = input.getDefiningOp<ttir::ArangeOp>();
-  if (existingArange) {
-    currElementType = ttnnLayoutAttr.getScalarElementType();
-  }
 
   // Get mem layout. If the tensor is on host layout is null
   TensorMemoryLayoutAttr currMemLayout = ttnnLayoutAttr.getMemLayout();
@@ -164,6 +165,15 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
   Type desiredElementType =
       tiled ? rewriter.getType<TileType>(ty.getElementType())
             : ty.getElementType();
+
+  // If the element type is quantized, use the desired type.
+  // Ex: for a quant op of fp32->int8, the storage type is int8.
+  if (auto quantType =
+          mlir::dyn_cast<mlir::quant::QuantizedType>(ty.getElementType())) {
+    desiredElementType =
+        tiled ? rewriter.getType<TileType>(quantType.getStorageType())
+              : quantType.getStorageType();
+  }
 
   // If the current buffer type, element type and memory layout are the same as
   // the desired ones, we don't need to do anything
@@ -201,28 +211,6 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
                                         desiredLayout),
             existingConstant.getValue())
         .getResult();
-  }
-
-  // If the input tensor is an arange, we want to set the desired layout just
-  // like the other creation ops. However, a caveat is that in ttnn, arange is
-  // hardcoded to be ROW_MAJOR. So we must ensure that the layout we assign to
-  // it is ROW_MAJOR - and to make it tile layout we still must insert
-  // ToLayoutOp on its output. We can do this by setting the element type to
-  // ty.getElementType() in case desiredElementType is a TileType.
-  if (existingArange) {
-    TTNNLayoutAttr arangeLayout = rewriter.getAttr<TTNNLayoutAttr>(
-        ty.getShape(), ty.getElementType(), desiredBufferType,
-        ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr,
-        desiredTensorMeshSharding, g_defaultCollapseDims);
-    input =
-        rewriter
-            .replaceOpWithNewOp<ttir::ArangeOp>(
-                existingArange,
-                mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
-                                            arangeLayout),
-                existingArange.getStart(), existingArange.getEnd(),
-                existingArange.getStep(), existingArange.getArangeDimension())
-            .getResult();
   }
 
   // Create the ToLayoutOp which will convert the input tensor to the desired

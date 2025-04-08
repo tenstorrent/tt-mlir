@@ -4,7 +4,7 @@
 #include "operations/eltwise/unary/unary.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/eltwise/unary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
@@ -32,7 +32,7 @@ static void runEltwiseUnaryOp(
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig, std::nullopt);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 static void runEltwiseUnaryWithFastAndApproximateModeOp(
@@ -56,7 +56,7 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
   ::ttnn::Tensor out =
       ttnnOp(*in, false /* parameter */, outputMemoryConfig, std::nullopt);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 static void runEltwiseUnaryWithFloatParameterOp(
@@ -79,7 +79,7 @@ static void runEltwiseUnaryWithFloatParameterOp(
 
   ::ttnn::Tensor out = ttnnOp(*in, parameter, outputMemoryConfig);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {

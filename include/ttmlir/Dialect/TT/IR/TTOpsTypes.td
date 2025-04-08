@@ -63,6 +63,8 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
         }
         return cGridVolume;
       }
+
+      uint64_t getRank() const { return getShape().size(); }
   }];
 }
 
@@ -331,6 +333,13 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
 
   let extraClassDeclaration = [{
       static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                            RankedTensorType ty,
+                            uint64_t gridRank,
+                            bool tiled = false,
+                            MemorySpace memorySpace = MemorySpace::System,
+                            ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
+                            OOBVal oobVal = OOBVal::Undef);
+      static MetalLayoutAttr get(::mlir::MLIRContext *context,
                             ArrayRef<int64_t> tensorShape,
                             Type elementType,
                             MemorySpace memorySpace = MemorySpace::System,
@@ -557,7 +566,8 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let assemblyFormat = "`<` custom<DimensionList>($shape) `,` $dataType `>`";
 
     let extraClassDeclaration = [{
-      static TileType get(::mlir::MLIRContext *context, Type elementType, ArrayRef<int64_t> shape = {32, 32});
+      static constexpr std::array<int64_t, 2> getDefaultShape() { return {32, 32}; }
+      static TileType get(::mlir::MLIRContext *context, Type elementType, ArrayRef<int64_t> shape = getDefaultShape());
       SmallVector<int64_t> getScalarShape(SmallVector<int64_t> tiledShape) const;
       SmallVector<int64_t> getTiledShape(SmallVector<int64_t> scalarShape) const;
       uint64_t getSizeBytes() const;

@@ -5,7 +5,7 @@
 #include "operations/data_movement/slice.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/data_movement/slice/slice.hpp"
 #include <cstdint>
@@ -13,7 +13,7 @@
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::SliceOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   ::ttnn::SmallVector<int32_t> begins(op->begins()->begin(),
                                       op->begins()->end());
@@ -22,6 +22,6 @@ void run(const ::tt::target::ttnn::SliceOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor out = ::ttnn::slice(in, begins, ends, step);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

@@ -5,7 +5,6 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
-#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/Iterators.h>
 #include <mlir/Rewrite/FrozenRewritePatternSet.h>
@@ -79,28 +78,42 @@ struct TTIRGenericTensorLayoutRewriter
       return failure();
     }
 
+    Type originalType = op->getResult(0).getType();
     rewriter.modifyOpInPlace(op, [&]() {
-      op->getResult(0).setType(newTensorType);
-      auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
-      assert(dpsOp.getNumDpsInits() == 1 &&
-             "Only one result tensor is supported for now");
-      dpsOp.getDpsInits()[0].setType(newTensorType);
-
       // Update generic grid (match worker cores to output grid)
       op.setGridAttr(
           mlir::cast<MetalLayoutAttr>(newTensorType.getEncoding()).getGrid());
     });
 
+    auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
+    assert(dpsOp.getNumDpsInits() == 1 &&
+           "Only one result tensor is supported for now");
     for (OpOperand &operand : op->getOpOperands()) {
       auto newOperandType = calculateOptimalLayoutForTensorType(
           rewriter, operand.get(), workerGridShape);
       if (operand.get().getType() != newOperandType) {
-        auto viewLayoutOp = rewriter.create<ttir::ViewLayoutOp>(
-            op->getLoc(), newOperandType, operand.get());
+        auto emptyOp =
+            rewriter.create<ttir::EmptyOp>(op->getLoc(), newOperandType);
+        auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
+            op->getLoc(), operand.get(), emptyOp.getResult());
         rewriter.modifyOpInPlace(
-            op, [&]() { operand.set(viewLayoutOp.getResult()); });
+            op, [&]() { operand.set(toLayoutOp.getResult(0)); });
+
+        if (dpsOp.isDpsInit(&operand)) {
+          assert(newOperandType == newTensorType &&
+                 "DPS init tensor must have the same type as the result");
+          rewriter.modifyOpInPlace(
+              op, [&]() { op->getResult(0).setType(newTensorType); });
+        }
       }
     }
+
+    rewriter.setInsertionPointAfter(op);
+    auto emptyOp = rewriter.create<ttir::EmptyOp>(op->getLoc(), originalType);
+    auto toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
+        op->getLoc(), op->getResult(0), emptyOp.getResult());
+    rewriter.replaceAllUsesExcept(op->getResult(0), toLayoutOp.getResult(0),
+                                  toLayoutOp);
 
     return success();
   }
@@ -144,47 +157,6 @@ struct TTIRMemrefLayoutRewriter : public OpRewritePattern<ttir::GenericOp> {
 } // namespace
 
 namespace {
-struct TTIRFuncReturnTensorLayoutRewriter
-    : public OpRewritePattern<func::ReturnOp> {
-  TTIRFuncReturnTensorLayoutRewriter(MLIRContext *context, ArrayRef<int64_t>)
-      : OpRewritePattern<func::ReturnOp>(context) {}
-
-  LogicalResult matchAndRewrite(func::ReturnOp op,
-                                PatternRewriter &rewriter) const final {
-    auto funcOp = op->getParentOfType<func::FuncOp>();
-    auto getFuncOpResultType = [&](size_t i) {
-      return mlir::cast<RankedTensorType>(
-          funcOp.getFunctionType().getResults()[i]);
-    };
-
-    if (llvm::all_of(op->getOpOperands(), [&](OpOperand &operand) {
-          auto returnTensorType =
-              mlir::cast<RankedTensorType>(operand.get().getType());
-          return returnTensorType ==
-                 getFuncOpResultType(operand.getOperandNumber());
-        })) {
-      return failure();
-    }
-
-    for (auto &operand : op->getOpOperands()) {
-      auto funcOpResultType = getFuncOpResultType(operand.getOperandNumber());
-      auto returnTensorType =
-          mlir::cast<RankedTensorType>(operand.get().getType());
-      if (funcOpResultType == returnTensorType) {
-        continue;
-      }
-      auto viewLayoutOp = rewriter.create<ttir::ViewLayoutOp>(
-          op->getLoc(), funcOpResultType, operand.get());
-      rewriter.modifyOpInPlace(
-          op, [&]() { operand.assign(viewLayoutOp.getResult()); });
-    }
-
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 class TTIROptimizeTensorLayout
     : public impl::TTIROptimizeTensorLayoutBase<TTIROptimizeTensorLayout> {
 
@@ -201,8 +173,7 @@ class TTIROptimizeTensorLayout
 
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRFuncReturnTensorLayoutRewriter,
-                   TTIRGenericTensorLayoutRewriter>(&getContext(),
+      patterns.add<TTIRGenericTensorLayoutRewriter>(&getContext(),
                                                     workerGridShape);
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
         signalPassFailure();

@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -49,11 +50,16 @@ public:
     // TTNN doesn't support either scalars or boolean data. This transformation
     // converts boolean to bfloat16 and scalars to 1-D tensors.
     // This transformation also convert 64 bit float/integer types to 32 bit
-    // types.
+    // types. In the case of a quantized type, the type is returned as is.
     addConversion([&](RankedTensorType type) -> RankedTensorType {
       bool changed = false;
       Type elementType = type.getElementType();
       llvm::ArrayRef<int64_t> shape = type.getShape();
+
+      if (mlir::isa<mlir::quant::QuantizedType>(elementType)) {
+        return type;
+      }
+
       size_t bitWidth = type.getElementTypeBitWidth();
       mlir::Attribute encoding = type.getEncoding();
       MLIRContext *context = elementType.getContext();
@@ -101,6 +107,7 @@ struct ConvertStableHLOToTTIRPass
     target.addIllegalDialect<mlir::sdy::SdyDialect>();
     target.addIllegalOp<mlir::tensor::EmptyOp>();
 
+    target.addLegalDialect<mlir::quant::QuantDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();

@@ -142,7 +142,6 @@ def compile_as_mlir_module(
         inputs_types = [torch.float32] * len(inputs_shapes)
 
     assert inputs_types is not None and len(inputs_shapes) == len(inputs_types)
-
     with ctx, loc:
         test_fn_input_types = [
             builder.ranked_tensor_type(

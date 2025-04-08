@@ -164,7 +164,10 @@ enum EltwiseOpType: uint32 {
   Tanh,
   Pow,
   Atan,
-  Atan2
+  Atan2,
+  Quantize,
+  Dequantize,
+  Requantize
 }
 
 table ClampScalarOpParams {
@@ -181,10 +184,30 @@ table EltwiseOpWithFloatParams {
   parameter: float;
 }
 
+table QuantizationOpParams {
+  scale: float;
+  zero_point: int32;
+  axis: int32 = null;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
+table RequantizeOpParams {
+  in_scale: float;
+  in_zero_point: int32;
+  out_scale: float;
+  out_zero_point: int32;
+  axis: int32 = null;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
 union EltwiseOpParams {
   ClampScalarOpParams,
   ClampTensorOpParams,
   EltwiseOpWithFloatParams,
+  QuantizationOpParams,
+  RequantizeOpParams
 }
 
 table EltwiseOp {

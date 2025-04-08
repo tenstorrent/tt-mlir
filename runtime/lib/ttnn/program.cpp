@@ -26,6 +26,7 @@
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
+#include "operations/eltwise/quantization/quantization.h"
 #include "operations/eltwise/ternary/ternary.h"
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
@@ -80,7 +81,7 @@ class ProgramExecutor {
 public:
   ProgramExecutor(const ::tt::target::ttnn::Program *program,
                   const Binary &executableHandle,
-                  const std::vector<::ttnn::Tensor *> &programInputs,
+                  std::vector<::tt::runtime::Tensor> &programInputs,
                   ::ttnn::MeshDevice *meshDevice)
       : program(program), executableHandle(executableHandle),
         meshDevice(meshDevice) {
@@ -88,13 +89,13 @@ public:
 
     std::vector<uint32_t> programInputIds;
     int inputIndex = 0;
-    std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+    TensorPtrMap liveTensors;
     LOG_ASSERT(program->inputs()->size() == programInputs.size(),
                "Program input size mismatch: ", program->inputs()->size(),
                " != ", programInputs.size());
     for (const ::tt::target::ttnn::TensorRef *input : *program->inputs()) {
       auto [iter, inserted] = liveTensors.try_emplace(
-          input->global_id(), programInputs[inputIndex++]);
+          input->global_id(), &(programInputs[inputIndex++]));
       LOG_ASSERT(inserted, "Duplicate input tensor");
       programInputIds.push_back(input->global_id());
     }
@@ -135,7 +136,7 @@ public:
 
   ProgramContext &getContext() { return *context; }
 
-  std::vector<Tensor> gatherOutputTensors() {
+  std::vector<::tt::runtime::Tensor> gatherOutputTensors() {
     return context->getTensorPool().gatherOutputTensors();
   }
 
@@ -186,10 +187,16 @@ void ProgramExecutor::runEltwiseOperation(
     return operations::ternary::run(op, getContext());
   };
 
+  auto runQuantizationOp = [&]() {
+    return operations::quantization::run(op, getContext());
+  };
+
+  if (operations::quantization::isQuantizationOp(op)) {
+    return runQuantizationOp();
+  }
   if (operations::unary::isUnaryOp(op)) {
     return runUnaryOp();
   }
-
   if (operations::binary::isBinaryOp(op)) {
     return runBinaryOp();
   }
@@ -350,16 +357,17 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
 }
 
-std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
-                               Binary executableHandle,
-                               std::uint32_t programIndex,
-                               std::vector<::ttnn::Tensor *> const &inputs) {
+std::vector<::tt::runtime::Tensor>
+runProgram(::ttnn::MeshDevice &meshDevice, Binary executableHandle,
+           std::uint32_t programIndex,
+           std::vector<::tt::runtime::Tensor> &inputs) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
   ProgramExecutor executor(program, executableHandle, inputs, &meshDevice);
   executor.execute();
-  std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
+  std::vector<::tt::runtime::Tensor> outputTensors =
+      executor.gatherOutputTensors();
   return outputTensors;
 }
 

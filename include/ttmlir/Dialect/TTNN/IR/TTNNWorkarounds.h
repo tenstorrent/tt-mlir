@@ -265,8 +265,7 @@ public:
 
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
-  createBinaryOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
-                                    mlir::Operation *op);
+  createBinaryOpOperandsWorkarounds(mlir::Operation *op);
 
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
@@ -283,6 +282,9 @@ public:
   // Create workarounds for conv2d op operands.
   static TTNNOperandsWorkarounds
   createConv2dOpOperandsWorkarounds(bool hasBias);
+
+  // Create workarounds for arange op.
+  static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

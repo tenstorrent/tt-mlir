@@ -177,13 +177,14 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         torch.abs(golden_tensor_torch - output_tensor_torch)
     ).item()
     results["mean_absolute_error"] = torch.mean(
-        torch.abs(golden_tensor_torch - output_tensor_torch)
+        torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
     ).item()
     results["root_mean_square_error"] = torch.sqrt(
-        torch.mean((golden_tensor_torch - output_tensor_torch) ** 2)
+        torch.mean((golden_tensor_torch.float() - output_tensor_torch.float()) ** 2)
     ).item()
     results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
-        golden_tensor_torch.unsqueeze(0), output_tensor_torch.unsqueeze(0)
+        golden_tensor_torch.float().unsqueeze(0),
+        output_tensor_torch.float().unsqueeze(0),
     ).item()
 
     callback_runtime_config.golden_report[loc] = results

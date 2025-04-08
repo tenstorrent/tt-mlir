@@ -88,6 +88,7 @@ inline Tensor createTensor(Device device, Layout layout,
                                      desc.itemsize);
 }
 
+bool isTensorAllocated(Tensor tensor);
 tt::target::DataType getTensorDataType(Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor);
 std::uint32_t getTensorElementSize(Tensor tensor);
@@ -95,6 +96,8 @@ std::uint32_t getTensorVolume(Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(Tensor tensor);
 TensorDesc getTensorDesc(Tensor tensor);
+bool getTensorRetain(Tensor tensor);
+void setTensorRetain(Tensor tensor, bool retain);
 
 size_t getNumAvailableDevices();
 
@@ -118,7 +121,8 @@ void wait(std::vector<Tensor> const &tensors);
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize = false);
 
-Tensor toLayout(Tensor tensor, Device device, Layout layout);
+Tensor toLayout(Tensor tensor, Device device, Layout layout,
+                std::optional<bool> retain = std::nullopt);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
@@ -138,7 +142,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputs);
+                           std::vector<Tensor> &inputs);
 
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex, std::vector<Tensor> const &inputs,
