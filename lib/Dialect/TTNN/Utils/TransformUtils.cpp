@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn::utils {
 // Gets or inserts a GetDeviceOp at the top of the current block of the given
@@ -41,7 +42,7 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                  PatternRewriter &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
                  std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
-                 DataType targetTensorDataType) {
+                 DataType targetTensorDataType, llvm::StringRef locSuffix) {
   TTNNLayoutAttr inputLayoutAttr =
       getLayoutAttrFromTensor(inputValue.getType());
 
@@ -91,10 +92,11 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                          ? nullptr
                          : Value(utils::getOrInsertDevice(rewriter, op));
 
+  Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), locSuffix);
   // Create a ToLayoutOp to convert the input operand to the desired
-  // tensor layout, buffer type and memory layout.
+  // tensor layout, buffer type and memory layout.o
   return rewriter.create<ttnn::ToLayoutOp>(
-      op->getLoc(), toLayoutOpResultType, inputValue,
+      loc, toLayoutOpResultType, inputValue,
       LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
       DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
       outputMemConfigAttr, deviceValue);
