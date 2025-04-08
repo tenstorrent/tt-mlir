@@ -435,7 +435,7 @@ class Run:
                     )
                     inputs_converted.append(
                         ttrt.runtime.to_layout(
-                            inputs[input_index], device, input_layout
+                            inputs[input_index], device, input_layout, True
                         )
                     )
                 return inputs_converted
@@ -575,19 +575,18 @@ class Run:
                             inputs = []
                             outputs = []
                             for i in program.input_tensors:
-                                inputs.append(
-                                    ttrt.runtime.create_tensor(
-                                        i.data_ptr(),
-                                        list(i.shape),
-                                        list(i.stride()),
-                                        i.element_size(),
-                                        Binary.Program.to_data_type(i.dtype),
-                                    )
+                                new_input = ttrt.runtime.create_owned_tensor(
+                                    i.data_ptr(),
+                                    list(i.shape),
+                                    list(i.stride()),
+                                    i.element_size(),
+                                    Binary.Program.to_data_type(i.dtype),
                                 )
+                                inputs.append(new_input)
 
                             for i in program.output_tensors:
                                 outputs.append(
-                                    ttrt.runtime.create_tensor(
+                                    ttrt.runtime.create_owned_tensor(
                                         i.data_ptr(),
                                         list(i.shape),
                                         list(i.stride()),
@@ -647,6 +646,11 @@ class Run:
                                     if iterations not in dirty_tensor_schedule:
                                         dirty_tensor_schedule[iterations] = []
                                     dirty_tensor_schedule[iterations].append(input_idx)
+
+                            # pre-upload inputs
+                            inputs = convert_input_layouts(
+                                device, inputs, bin.fbb, program_index
+                            )
 
                             for loop in range(self["--loops"]):
                                 self.logging.debug(

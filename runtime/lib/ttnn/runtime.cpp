@@ -18,6 +18,8 @@
 
 namespace tt::runtime::ttnn {
 
+static std::atomic<uint64_t> tensorVersion{0};
+
 using ::tt::runtime::DeviceRuntime;
 using ::tt::tt_metal::BorrowedStorage;
 using ::tt::tt_metal::DistributedTensorConfig;
@@ -613,7 +615,10 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
   LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
   ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, targetDevice);
 
-  return utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  ::tt::runtime::Tensor result =
+      utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  result.version.store(tensorVersion++);
+  return result;
 }
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
