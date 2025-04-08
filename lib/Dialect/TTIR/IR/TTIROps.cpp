@@ -3722,3 +3722,108 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
           getOperation()));
 }
+
+//===----------------------------------------------------------------------===//
+// Sdy_ShardingRuleOpInterface
+//===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// DotGeneralOp
+//===----------------------------------------------------------------------===//
+mlir::sdy::OpShardingRuleAttr mlir::tt::ttir::DotGeneralOp::getShardingRule() {
+  mlir::Operation* op = getOperation();
+  llvm::ArrayRef<int64_t> lhsBatchDims = getBatchDimsLhs();
+  llvm::ArrayRef<int64_t> rhsBatchDims = getBatchDimsRhs();
+  llvm::ArrayRef<int64_t> lhsContractDims = getContractDimsLhs();
+  llvm::ArrayRef<int64_t> rhsContractDims = getContractDimsRhs();
+
+  mlir::RankedTensorType lhsTensorType = getLhs().getType();
+  mlir::RankedTensorType rhsTensorType = getRhs().getType();
+
+  const int64_t lhsRank = lhsTensorType.getRank();
+  const int64_t rhsRank = rhsTensorType.getRank();
+
+  mlir::sdy::OpShardingRuleBuilder builder(op, /*reserveNumFactors=*/lhsRank + rhsRank - lhsBatchDims.size() - rhsBatchDims.size());
+
+  int64_t outputDim = 0;
+
+  // We want to add all the batch dimensions first.
+  for (auto [lhsDim, rhsDim] : llvm::zip_equal(lhsBatchDims, rhsBatchDims)) {
+    builder.addFactor({lhsDim, rhsDim}, outputDim++, lhsTensorType.getDimSize(lhsDim));
+  }
+
+  // Next, we want to add the non-contracting dimension from lhs as it would appear in the output. 
+  // These factors don't appear in rhs so we set that to sdy::kNullDim.
+  for (int64_t i = 0; i < lhsRank; i++) {
+    if (!llvm::is_contained(lhsContractDims, i) && !llvm::is_contained(lhsBatchDims, i)) {
+      builder.addFactor({i, sdy::kNullDim}, outputDim++, lhsTensorType.getDimSize(i));
+    }
+  }
+
+  // Next we want to add the non-contracting dimension from rhs as it would appear in the output.
+  // These factors don't appear in lhs so we set that to sdy::kNullDim.
+  for (int64_t i = 0; i < rhsRank; i++) {
+    if (!llvm::is_contained(rhsContractDims, i) && !llvm::is_contained(rhsBatchDims, i)) {
+      builder.addFactor({sdy::kNullDim, i}, outputDim++, rhsTensorType.getDimSize(i));
+    }
+  }
+
+  // Next we add the contracting dimension factors. They will not appear in the output.
+  for (auto [lhsDim, rhsDim] : llvm::zip_equal(lhsContractDims, rhsContractDims)) {
+      builder.addFactor({lhsDim, rhsDim}, sdy::kNullDim, lhsTensorType.getDimSize(lhsDim), sdy::FactorType::kReduction);
+  }
+
+  return builder.build();
+}
+
+//===----------------------------------------------------------------------===//
+// MatmulOp
+//===----------------------------------------------------------------------===//
+mlir::sdy::OpShardingRuleAttr mlir::tt::ttir::MatmulOp::getShardingRule() {
+  mlir::Operation* op = getOperation();
+  mlir::RankedTensorType aTensorType = getA().getType();
+  mlir::RankedTensorType bTensorType = getB().getType();
+  bool transposeA = getTransposeA();
+  bool transposeB = getTransposeB();
+
+  const int64_t aRank = aTensorType.getRank();
+  const int64_t bRank = bTensorType.getRank();
+
+  mlir::sdy::OpShardingRuleBuilder builder(op, /*reserveNumFactors=*/aRank + 1);
+
+  int64_t outputDim = 0;
+  llvm::SmallVector<bool> bExists(aRank, false);
+  for (uint32_t i = bRank - 1; i < bExists.size(); i++) {
+    bExists[i] = true;
+  }
+
+  // We want to add all the batch dimensions on the lhs first.
+  for (uint32_t i = 0; i < aRank - 2; i++) {
+    llvm::SmallVector<int64_t> operandDims = {i};
+
+    if(bExists[i]) {
+      operandDims.push_back(i);
+    } else {
+      operandDims.push_back(sdy::kNullDim);
+    }
+
+    operandDims.push_back(i); // DPS empty op
+    builder.addFactor(operandDims, outputDim++, aTensorType.getDimSize(i));
+  }
+
+  // Next we want to add all the non-contracting dimensions on the lhs that don't appear on the rhs.
+  int64_t lhsOperandDim = transposeA ? aRank - 1 : aRank - 2;
+  builder.addFactor({lhsOperandDim, sdy::kNullDim, lhsOperandDim}, outputDim++, aTensorType.getDimSize(lhsOperandDim));
+
+
+  // Next we want to add all the non-contracting dimensions on the rhs that don't appear on the lhs.
+  int64_t rhsOperandDim = transposeB ? bRank - 2 : bRank - 1;
+  builder.addFactor({rhsOperandDim, sdy::kNullDim, rhsOperandDim}, outputDim++, bTensorType.getDimSize(rhsOperandDim));
+
+  // Next we want to add the contracting dimension factors. They will not appear in the output.
+  int64_t lhsContractingDim = transposeA ? aRank - 2 : aRank - 1;
+  int64_t rhsContractingDim = transposeB ? bRank - 1 : bRank - 2;
+  builder.addFactor({lhsContractingDim, rhsContractingDim, sdy::kNullDim}, sdy::kNullDim, aTensorType.getDimSize(lhsContractingDim), sdy::FactorType::kReduction);
+
+  return builder.build();
+}

@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         GenericLowerDMAs.cpp
         GenericRegionsToFuncs.cpp
         OptimizeTensorLayout.cpp
+        AutomaticDataParallelization.cpp
         HoistCPUOps.cpp
         Bufferization.cpp
         Layout.cpp
