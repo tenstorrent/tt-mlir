@@ -40,6 +40,11 @@ if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
     message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
 endif()
 
+# Enable debug logs only in Debug mode
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(TTMLIR_ENABLE_DEBUG_LOGS)
+endif()
+
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
 
 include(TTMLIRBuildTypes)
