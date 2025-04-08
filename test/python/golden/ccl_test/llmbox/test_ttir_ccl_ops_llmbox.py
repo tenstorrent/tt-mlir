@@ -21,7 +21,7 @@ def pseudo_golden_all_gather(
 
 @compile_to_flatbuffer(
     [
-        (1, 32, 256, 512),
+        (1, 1, 256, 512),
     ],
     targets=["ttnn"],
     mesh_shape=[2, 4],
@@ -46,21 +46,20 @@ def test_all_gather(in0: Operand, builder: TTIRBuilder):
     return builder.mesh_shard(
         gathered,
         shard_direction="#tt.shard_direction<shard_to_full>",
-        shard_type="#tt.shard_type<replicate>",
-        shard_shape=[1],
-        shard_dims=[-1],
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 1, 2, 1],
+        shard_dims=[2, -1],
     )
 
 
 def pseudo_golden_all_reduce(input_tensor: torch.Tensor):
-    shard_1, shard_2 = torch.chunk(input_tensor, 2, dim=3)
-    output_tensor = shard_1 + shard_2
-    return output_tensor
+    shards = torch.chunk(input_tensor, 4, dim=3)
+    return sum(shards)
 
 
 @compile_to_flatbuffer(
     [
-        (1, 1, 256, 2048),
+        (1, 1, 256, 512),
     ],
     targets=["ttnn"],
     mesh_shape=[2, 4],
@@ -85,9 +84,9 @@ def test_all_reduce(in0: Operand, builder: TTIRBuilder):
     return builder.mesh_shard(
         reduced,
         shard_direction="#tt.shard_direction<shard_to_full>",
-        shard_type="#tt.shard_type<replicate>",
-        shard_shape=[1],
-        shard_dims=[-1],
+        shard_type="#tt.shard_type<devices>",
+        shard_shape=[1, 1, 2, 1],
+        shard_dims=[2, -1],
     )
 
 
@@ -95,14 +94,13 @@ def pseudo_golden_reduce_scatter(
     input_tensor: torch.Tensor,
     scatter_dim: int,
 ):
-    shard_1, shard_2 = torch.chunk(input_tensor, 2, dim=scatter_dim)
-    output_tensor = shard_1 + shard_2
-    return output_tensor
+    shards = torch.chunk(input_tensor, 4, dim=scatter_dim)
+    return sum(shards)
 
 
 @compile_to_flatbuffer(
     [
-        (1, 1, 64, 4096),
+        (1, 1, 8192, 512),
     ],
     targets=["ttnn"],
     mesh_shape=[2, 4],
@@ -139,22 +137,22 @@ def pseudo_golden_collective_permute(
     source_target_pairs: List[Tuple[int, int]],
 ):
     # sharding
-    shards_0 = list(torch.chunk(input_tensor, 2, dim=2))
-    shards = []
-    for shard in shards_0:
-        shards.extend(torch.chunk(shard, 4, dim=3))
-    # permuting
-    permuted_tensor = shards.copy()
-    for source, target in source_target_pairs:
-        permuted_tensor[target] = shards[source]
+    shards = [
+        chunk
+        for shard in torch.chunk(input_tensor, 2, dim=2)
+        for chunk in torch.chunk(shard, 4, dim=3)
+    ]
+
+    # permute
+    permuted = [torch.zeros_like(shard) for shard in shards]
+    for src, tgt in source_target_pairs:
+        permuted[tgt] = shards[src]
 
     # unsharding
-    reconstructed_chunks = []
-    for i in range(0, len(permuted_tensor), 4):
-        group = torch.cat(permuted_tensor[i : i + 4], dim=3)
-        reconstructed_chunks.append(group)
-    result_tensor = torch.cat(reconstructed_chunks, dim=2)
-    return result_tensor
+    return torch.cat(
+        [torch.cat(permuted[i : i + 4], dim=3) for i in range(0, len(permuted), 4)],
+        dim=2,
+    )
 
 
 @compile_to_flatbuffer(
