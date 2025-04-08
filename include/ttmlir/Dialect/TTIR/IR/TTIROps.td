@@ -22,7 +22,7 @@ include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, !listconcat([TTIROpInterface, DestinationStyleOpInterface], traits)> {
+    TTIR_Op<mnemonic, [TTIROpInterface, DestinationStyleOpInterface] # traits> {
     let extraClassDeclaration = [{
       // base implementation that will detect getOutputMutable() or getOutputsMutable()
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
@@ -360,10 +360,10 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)>;
+    TTIR_DPSOp<mnemonic, [Pure] # traits>;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
+    TTIR_NamedOp<mnemonic, [AttrSizedOperandSegments, TTIR_Broadcastable] # traits> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -376,7 +376,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([FourOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, [FourOperands] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -399,7 +399,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastabl
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, [TwoOperands] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -671,7 +671,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, [ThreeOperands] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -1887,7 +1887,7 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_CreationOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat([Pure, TT_CreationOpTrait], traits)>;
+    TTIR_Op<mnemonic, [Pure, TT_CreationOpTrait] # traits>;
 
 
 def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
