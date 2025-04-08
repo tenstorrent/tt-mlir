@@ -6,7 +6,7 @@
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/tensor_cache.h"
-#include "tt/runtime/ttnn/program.h"
+#include "tt/runtime/ttnn/program_executor.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/types.h"
 
@@ -75,8 +75,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
       *getBinary(context.getExecutableHandle());
   ::tt::target::ttnn::Program const *subProgram =
       fbb.programs()->Get(programIndex);
-  executor::ProgramExecutor exec(subProgram, context.getExecutableHandle(),
-                                 inputs, &context.getParentMesh(), nullptr);
+  ProgramExecutor exec(subProgram, context.getExecutableHandle(), inputs,
+                       &context.getParentMesh(), nullptr);
   exec.execute();
   LOG_INFO("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();

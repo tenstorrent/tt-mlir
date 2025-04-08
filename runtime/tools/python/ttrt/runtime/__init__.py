@@ -41,7 +41,6 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
-        dirty_tensor,
         init_cache,
     )
 except ModuleNotFoundError:

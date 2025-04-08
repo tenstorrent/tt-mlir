@@ -110,6 +110,7 @@ inline Tensor createOwnedHostTensor(void const *data, TensorDesc const &desc) {
                                               desc.itemsize, desc.dataType);
 }
 
+
 void initCache(Device &device);
 
 inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {

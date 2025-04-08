@@ -234,7 +234,7 @@ class Run:
             type=str,
             default="",
             choices=None,
-            help="Verify tensor cache statistics. Format: 'hits:N,misses:M' or path to JSON file with expected stats",
+            help="Verify tensor cache statistics. Format: 'hits:N,misses:M'",
         )
         Run.register_arg(
             name="binary",
