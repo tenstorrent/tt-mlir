@@ -651,12 +651,13 @@ def test_max_pool2d(in0: Operand, in1: Operand, builder: TTIRBuilder):
 @compile_to_flatbuffer(
     [
         (1, 1, 5, 5),
+        (1, 1, 7, 7),
     ],
-    inputs_types=[torch.bfloat16],
+    inputs_types=[torch.bfloat16, torch.bfloat16],
     targets=["ttnn"],
 )
-def test_pad(in0: Operand, builder: TTIRBuilder):
-    return builder.pad(in0, padding=[0, 1, 2, 3, 4, 5, 6, 7], value=0)
+def test_pad(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.pad(in0, in1, padding=[0, 1, 2, 3, 4, 5, 6, 7], value=0)
 
 
 @compile_to_flatbuffer([(32, 64)], targets=["ttnn"])
