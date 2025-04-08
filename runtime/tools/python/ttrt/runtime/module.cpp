@@ -138,7 +138,15 @@ PYBIND11_MODULE(_C, m) {
       .def("clear", &tt::runtime::TensorCache::clear)
       .def("size", &tt::runtime::TensorCache::size)
       .def("get_stats", &tt::runtime::TensorCache::getStats)
-      .def("remove", &tt::runtime::TensorCache::remove);
+      .def(
+          "remove_program",
+          [](tt::runtime::TensorCache &cache, const tt::runtime::Binary &binary,
+             size_t programIndex) {
+            std::string outerKey = tt::runtime::generateCacheOuterKey(
+                binary.getUUID(), programIndex);
+            cache.remove(outerKey);
+          },
+          "Remove cache entries for a specific binary and program index");
 
   py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
       .value("DRAM", tt::runtime::MemoryBufferType::DRAM)

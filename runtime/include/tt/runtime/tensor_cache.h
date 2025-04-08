@@ -17,9 +17,19 @@
 namespace tt::runtime {
 
 /**
- * @brief A cache value that stores both input tensor versions and output
+ * Generate a cache outer key using the binary UUID and program index.
+ * This provides a unique identifier for each program in a binary.
+ * The outer key is used to avoid conflicts when sharing a cache across multiple
+ * binaries.
+ */
+inline std::string generateCacheOuterKey(const std::string &uuid,
+                                         const size_t programIndex) {
+  return uuid + ":" + std::to_string(programIndex);
+}
+
+/**
+ * A cache value that stores both input tensor versions and output
  * tensors.
- *
  * When input tensor versions change, the cached outputs need to be recomputed.
  */
 struct CacheValue {
@@ -30,8 +40,7 @@ struct CacheValue {
 };
 
 /**
- * A cache for runtime tensors.
- *
+ * Runtime cache for const-eval tensor results.
  * The cache stores tensors indexed by function name. When querying the cache,
  * both the function name and current input tensor versions are checked to
  * determine if the cached value is still valid.
@@ -105,6 +114,10 @@ public:
       return;
     }
     cache.erase(it);
+  }
+
+  void remove(const std::string &uuid, const size_t programIdx) {
+    remove(generateCacheOuterKey(uuid, programIdx));
   }
 
 private:

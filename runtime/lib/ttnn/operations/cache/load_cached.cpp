@@ -28,13 +28,13 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   std::shared_ptr<TensorCache> cache = context.getCache();
   LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
-  // Extract function names for cache keys.
-  const std::string &parentFuncName = context.getProgramName();
+  // Get the binary UUID and generate the cache outer key
+  const std::string outerKey = generateCacheOuterKey(
+      context.getExecutableHandle().getUUID(), context.getProgramIndex());
   const std::string &constEvalFuncname = op->callee_name()->str();
 
   std::vector<uint64_t> inputVersions;
   inputVersions.reserve(op->inputs()->size());
-
   // Extract versions for each input tensor.
   for (const auto *input : *op->inputs()) {
     ::tt::runtime::Tensor runtimeInput =
@@ -44,7 +44,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Get the cached tensors, which will be empty if cache is invalid
   const std::vector<Tensor> *cachedOutputs =
-      cache->getAll(parentFuncName, constEvalFuncname, inputVersions);
+      cache->getAll(outerKey, constEvalFuncname, inputVersions);
 
   if (cachedOutputs) {
     LOG_DEBUG("Cache hit for function: ", constEvalFuncname.c_str());
@@ -81,7 +81,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   LOG_INFO("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();
 
-  cache->store(parentFuncName, constEvalFuncname, outputs, inputVersions);
+  cache->store(outerKey, constEvalFuncname, outputs, inputVersions);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     Tensor &runtimeOutput = outputs[i];

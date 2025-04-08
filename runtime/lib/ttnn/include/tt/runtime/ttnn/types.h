@@ -189,28 +189,13 @@ public:
                  TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
                  ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
-                 const std::string &programName)
-      : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
-                                     std::move(liveTensors))),
-        dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
-        executableHandle(executableHandle), programName(programName) {
-    LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
-    // Create a default cache
-    externalCache = std::make_shared<TensorCache>();
-  }
-
-  ProgramContext(const std::vector<uint32_t> &programInputIds,
-                 const std::vector<uint32_t> &programOutputIds,
-                 TensorPtrMap &&liveTensors,
-                 common::DylibManager &&programDylibManager,
-                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
                  std::shared_ptr<TensorCache> externalCache,
-                 const std::string &programName)
+                 size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
         executableHandle(executableHandle), externalCache(externalCache),
-        programName(programName) {
+        programIndex(programIndex) {
     LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
     // If no external cache was provided, create a default one
     if (!this->externalCache) {
@@ -265,7 +250,8 @@ public:
   //
   std::shared_ptr<TensorCache> getCache() { return externalCache; }
 
-  const std::string &getProgramName() const { return programName; }
+  // Get the program index within the binary
+  size_t getProgramIndex() const { return programIndex; }
 
 private:
   ProgramTensorPool tensorPool;
@@ -284,7 +270,8 @@ private:
   // The shared tensor cache
   std::shared_ptr<TensorCache> externalCache;
 
-  const std::string programName;
+  // The index of the program within the binary
+  const size_t programIndex;
 };
 
 } // namespace tt::runtime::ttnn

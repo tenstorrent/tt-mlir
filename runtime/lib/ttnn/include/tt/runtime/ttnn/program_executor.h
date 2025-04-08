@@ -29,7 +29,8 @@ public:
                   const Binary &executableHandle,
                   std::vector<::tt::runtime::Tensor> &programInputs,
                   ::ttnn::MeshDevice *meshDevice,
-                  std::shared_ptr<TensorCache> externalCache);
+                  std::shared_ptr<TensorCache> externalCache,
+                  const size_t programIndex = 0);
 
   /**
    * Executes pre and post operation callbacks if registered

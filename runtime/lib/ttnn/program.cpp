@@ -82,7 +82,7 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
   ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
-                           externalCache);
+                           externalCache, programIndex);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();

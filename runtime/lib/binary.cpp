@@ -368,4 +368,16 @@ Binary::getDebugInfoGolden(std::string &loc) const {
   LOG_FATAL("Unsupported binary format for obtaining golden information");
 }
 
+std::string Binary::getUUID() const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    auto const *ttnnBinary = ttnn::getBinary(*this);
+    if (ttnnBinary && ttnnBinary->uuid()) {
+      return ttnnBinary->uuid()->str();
+    }
+    LOG_FATAL("UUID not found in TTNN binary");
+  }
+  LOG_FATAL("Unsupported binary format");
+}
+
 } // namespace tt::runtime
