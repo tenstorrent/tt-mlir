@@ -12,7 +12,7 @@ def TTKernelControlDstSection: Pass<"ttkernel-control-dst-section", "::mlir::Mod
   let description = [{
     Analyze the graph and insert tile_regs_* ops to control the dst critical section.
   }];
-  // let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
+  let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
 }
 
 #endif

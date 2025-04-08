@@ -60,10 +60,6 @@ public:
       return;
     }
   }
-
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<ttkernel::TTKernelDialect>();
-  }
 };
 } // namespace
 
