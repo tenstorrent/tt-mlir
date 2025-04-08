@@ -8,7 +8,6 @@ from ttmlir.ir import *
 from ttmlir.dialects import tt
 
 ctx = Context()
-tt.register_dialect(ctx)
 
 
 def updiv(n, d):
