@@ -314,7 +314,7 @@ class ModelRunner:
             translate_process = self.run_in_subprocess(to_flatbuffer_command)
             if translate_process.returncode != 0:
                 error = "Error while running TTNN to Flatbuffer File"
-                self.log(error, severtity=logging.error)
+                self.log(error, severity=logging.error)
                 raise ExplorerRunException(error)
 
         self.progress = 30

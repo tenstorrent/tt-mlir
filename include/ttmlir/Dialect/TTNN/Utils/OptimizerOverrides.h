@@ -19,47 +19,40 @@ public:
   OptimizerOverridesHandler() {};
   ~OptimizerOverridesHandler() {};
 
-  // Setters for the overrides
-  // These are used to enable/disable the optimizer passes
+  // Enable/disable the optimizer passes.
   void setEnableOptimizer(bool);
-  // These are used to enable/disable the memory configurations
+  // Enable/disable the memory configurations.
   void setMemoryReconfig(bool);
   void setEnableMemoryLayoutAnalysis(bool);
   void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
-  // These are used to set the input/output layout overrides
   void setInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams> &);
   void setOutputLayoutOverrides(llvm::StringMap<OutputLayoutOverrideParams> &);
-  // These are used to add system descriptor path
+  void setConv2dConfigOverrides(llvm::StringMap<Conv2dConfigOverrideParams> &);
+  // Add system descriptor path.
   void setSystemDescPath(std::string);
-  // These are used to set the maximum number of legal layouts for grid analysis
+  // Set the maximum number of legal layouts for grid analysis.
   void setMaxLegalLayouts(int64_t);
-  // These are used to set the mesh shape
   void setMeshShape(std::vector<int64_t>);
 
-  // Getters for the overrides
-  // These are used to get the current state of the optimizer passes
+  // Get the current state of the optimizer passes.
   bool getEnableOptimizer() const;
-  // These are used to get the current state of the memory configurations
+  // Get the current state of the memory configurations.
   bool getMemoryReconfig() const;
   bool getEnableMemoryLayoutAnalysis() const;
   bool getEnableMemoryLayoutAnalysisPolicy() const;
   MemoryLayoutAnalysisPolicyType getMemoryLayoutAnalysisPolicy() const;
-  // These are used to get the current input/output layout overrides
   llvm::StringMap<InputLayoutOverrideParams> getInputLayoutOverrides() const;
   llvm::StringMap<OutputLayoutOverrideParams> getOutputLayoutOverrides() const;
-  // These are used to get the current system descriptor path
+  llvm::StringMap<Conv2dConfigOverrideParams> getConv2dConfigOverrides() const;
   std::string getSystemDescPath() const;
-  // These are used to get the current maximum number of legal layouts for grid
-  // analysis
+  // Get the current maximum number of legal layouts for grid analysis.
   int64_t getMaxLegalLayouts() const;
-  // These are used to get the current mesh shape
   std::vector<int64_t> getMeshShape() const;
 
-  // Method that converts the overrides to a string
   std::string toString() const;
 
-  // Fill input/output layout overrides maps.
+  // Fill override maps.
   // This is used from tt-forge frontend where we define and compile the models.
   void addInputLayoutOverride(StringRef, InputLayoutOverrideParams);
   void addInputLayoutOverride(StringRef, SmallVector<int64_t> &);
@@ -67,18 +60,21 @@ public:
   void addOutputLayoutOverride(StringRef, SmallVector<int64_t> &, BufferType,
                                TensorMemoryLayout, tt::ttnn::Layout,
                                tt::DataType);
+  void addConv2dConfigOverride(StringRef, Conv2dConfigOverrideParams);
 
-  // Wrapper methods we use to expose the adders to the python bindings
   std::unordered_map<std::string, InputLayoutOverrideParams>
   getInputLayoutOverridesNanobindWrapper() const;
   std::unordered_map<std::string, OutputLayoutOverrideParams>
   getOutputLayoutOverridesNanobindWrapper() const;
+  std::unordered_map<std::string, Conv2dConfigOverrideParams>
+  getConv2dConfigOverridesNanobindWrapper() const;
 
-  // Wrapper methods we use to expose the adders to the python bindings
   void addInputLayoutOverrideNanobindWrapper(std::string,
                                              std::vector<int64_t> &);
   void addOutputLayoutOverrideNanobindWrapper(std::string,
                                               OutputLayoutOverrideParams);
+  void addConv2dConfigOverrideNanobindWrapper(std::string,
+                                              Conv2dConfigOverrideParams);
 
 private:
   // Flags for enabling/disabling the optimizer passes
@@ -88,13 +84,12 @@ private:
   bool enableMemoryReconfig = true;
   bool enableMemoryLayoutAnalysis = false;
 
-  // Input layout overrides
   llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides;
 
-  // Output layout overrides
   llvm::StringMap<OutputLayoutOverrideParams> outputLayoutOverrides;
 
-  // Memory layout analysis policy
+  llvm::StringMap<Conv2dConfigOverrideParams> conv2dConfigOverrides;
+
   bool enableMemoryLayoutAnalysisPolicy = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy;
 
@@ -104,7 +99,6 @@ private:
   // Maximum number of legal layouts for grid analysis
   int64_t maxLegalLayouts = 0;
 
-  // Mesh shape
   std::vector<int64_t> meshShape;
 
 }; // class OptimizerOverridesHandler
