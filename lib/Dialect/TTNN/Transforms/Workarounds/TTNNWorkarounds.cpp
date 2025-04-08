@@ -356,10 +356,8 @@ public:
     // TODO(hongseok): Restore dynamic dimension selection once the issue
     // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
     // Currently, dimension 3 must be used to produce correct outputs.
-    int32_t dimension = 3;
-    if (inputTypeShape.size() < 4) {
-      dimension = inputTypeShape.size() - 1;
-    }
+    int32_t dimension =
+        std::min(3, static_cast<int32_t>(inputTypeShape.size() - 1));
     // If the target dimension is not evenly divisible by the number of devices
     // in the cluster, use the all-gather + local reduce breakdown approach.
     if (inputTypeShape[dimension] % meshShape[clusterAxis] != 0) {
@@ -367,12 +365,9 @@ public:
       // applied when the input tensor size is small. The size_limit was
       // determined heuristically. The limit is set very conservatively, but may
       // need adjustment if issues arise.
-      const int64_t size_limit = 200000;
-      int64_t tensor_size = 1;
-      for (int64_t dim : inputTypeShape) {
-        tensor_size *= dim;
-      }
-      if (tensor_size < size_limit) {
+      const int64_t sizeLimit = 200000;
+      int64_t tensorSize = inputType.getNumElements();
+      if (tensorSize < sizeLimit) {
         return rewriteAsAllGatherLocalReduce(op, rewriter, meshShape);
       }
     }
@@ -471,13 +466,13 @@ private:
                                 ::llvm::ArrayRef<int64_t> meshShape) const {
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(op.getInput().getType());
-    llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
     Value deviceValue = op.getDevice();
 
     // Use allGather + Reduce breakdown.
     // Increase the rank of the current input shape by 1.
+    ArrayRef<int64_t> inputTypeShape = inputType.getShape();
     llvm::SmallVector<int64_t> expandedInputShape = {1};
     expandedInputShape.append(inputTypeShape.begin(), inputTypeShape.end());
     ArrayAttr reshapedInputShapeAttr =
@@ -503,20 +498,20 @@ private:
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
     switch (op.getReduceType()) {
     case ReduceType::Sum:
-      rewriter.replaceOpWithNewOp<ttnn::SumOp>(
-          op, op.getType(), allGatherOp.getResult(), false, reduceDimAttr);
+      rewriter.replaceOpWithNewOp<ttnn::SumOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
       break;
     case ReduceType::Mean:
-      rewriter.replaceOpWithNewOp<ttnn::MeanOp>(
-          op, op.getType(), allGatherOp.getResult(), false, reduceDimAttr);
+      rewriter.replaceOpWithNewOp<ttnn::MeanOp>(op, op.getType(), allGatherOp,
+                                                false, reduceDimAttr);
       break;
     case ReduceType::Max:
-      rewriter.replaceOpWithNewOp<ttnn::MaxOp>(
-          op, op.getType(), allGatherOp.getResult(), false, reduceDimAttr);
+      rewriter.replaceOpWithNewOp<ttnn::MaxOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
       break;
     case ReduceType::Min:
-      rewriter.replaceOpWithNewOp<ttnn::MinOp>(
-          op, op.getType(), allGatherOp.getResult(), false, reduceDimAttr);
+      rewriter.replaceOpWithNewOp<ttnn::MinOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
       break;
     case ReduceType::Std:
       return op.emitOpError() << "std is not supported";
