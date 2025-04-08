@@ -49,7 +49,7 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
 
 // Creates host tensor with owned storage (the buffer of the tensor is on the
 // host and its allocation/deallocation is owned by this tensor instance).
-Tensor createOwnedHostTensor(void *data,
+Tensor createOwnedHostTensor(void const *data,
                              std::vector<std::uint32_t> const &shape,
                              std::vector<std::uint32_t> const &stride,
                              std::uint32_t itemsize,
@@ -84,7 +84,8 @@ Tensor createTensor(std::shared_ptr<void> data,
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).
 Tensor createOwnedMultiDeviceHostTensor(
-    std::vector<void *> const &data, std::vector<std::uint32_t> const &shape,
+    std::vector<void const *> const &data,
+    std::vector<std::uint32_t> const &shape,
     std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     std::unordered_map<std::string, std::string> const &strategy);
@@ -101,7 +102,7 @@ Tensor createEmptyTensor(Device device, Layout layout,
                          std::vector<std::uint32_t> const &stride,
                          std::uint32_t itemsize);
 
-inline Tensor createOwnedHostTensor(void *data, TensorDesc const &desc) {
+inline Tensor createOwnedHostTensor(void const *data, TensorDesc const &desc) {
   return ::tt::runtime::createOwnedHostTensor(data, desc.shape, desc.stride,
                                               desc.itemsize, desc.dataType);
 }
@@ -112,7 +113,7 @@ inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {
 }
 
 inline Tensor createOwnedMultiDeviceHostTensor(
-    std::vector<void *> const &data, TensorDesc const &desc,
+    std::vector<void const *> const &data, TensorDesc const &desc,
     std::unordered_map<std::string, std::string> const &strategy) {
   return ::tt::runtime::createOwnedMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);

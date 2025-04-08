@@ -52,7 +52,7 @@ namespace tt::runtime::ttnn {
 // Creates host tensor with owned storage (the buffer of the tensor is on the
 // host and its allocation/deallocation is owned by this tensor instance).
 ::tt::runtime::Tensor
-createOwnedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
+createOwnedHostTensor(void const *data, std::vector<std::uint32_t> const &shape,
                       std::vector<std::uint32_t> const &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
@@ -69,7 +69,8 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).
 ::tt::runtime::Tensor createOwnedMultiDeviceHostTensor(
-    std::vector<void *> const &data, std::vector<std::uint32_t> const &shape,
+    std::vector<void const *> const &data,
+    std::vector<std::uint32_t> const &shape,
     std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     std::unordered_map<std::string, std::string> const &strategy);
@@ -84,7 +85,7 @@ createBorrowedHostTensor(void *data, std::vector<std::uint32_t> const &shape,
     Device device, Layout layout, std::vector<std::uint32_t> const &shape,
     std::vector<std::uint32_t> const &stride, std::uint32_t itemsize);
 
-inline ::tt::runtime::Tensor createOwnedHostTensor(void *data,
+inline ::tt::runtime::Tensor createOwnedHostTensor(void const *data,
                                                    TensorDesc const &desc) {
   return ::tt::runtime::ttnn::createOwnedHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
@@ -97,7 +98,7 @@ inline ::tt::runtime::Tensor createBorrowedHostTensor(void *data,
 }
 
 inline ::tt::runtime::Tensor createOwnedMultiDeviceHostTensor(
-    std::vector<void *> const &data, TensorDesc const &desc,
+    std::vector<void const *> const &data, TensorDesc const &desc,
     std::unordered_map<std::string, std::string> const &strategy) {
   return ::tt::runtime::ttnn::createOwnedMultiDeviceHostTensor(
       data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy);

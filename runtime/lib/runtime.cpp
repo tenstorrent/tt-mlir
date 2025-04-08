@@ -134,7 +134,7 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType) {
   LOG_FATAL("runtime is not enabled");
 }
 
-Tensor createOwnedHostTensor(void *data,
+Tensor createOwnedHostTensor(void const *data,
                              std::vector<std::uint32_t> const &shape,
                              std::vector<std::uint32_t> const &stride,
                              std::uint32_t itemsize,
@@ -233,7 +233,8 @@ Tensor createTensor(std::shared_ptr<void> data,
 }
 
 Tensor createOwnedMultiDeviceHostTensor(
-    std::vector<void *> const &data, std::vector<std::uint32_t> const &shape,
+    std::vector<void const *> const &data,
+    std::vector<std::uint32_t> const &shape,
     std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     std::unordered_map<std::string, std::string> const &strategy) {

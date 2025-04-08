@@ -179,10 +179,9 @@ PYBIND11_MODULE(_C, m) {
       [](std::uintptr_t ptr, std::vector<std::uint32_t> const &shape,
          std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
-        return tt::runtime::createOwnedTensor(
-            ::tt::runtime::utils::unsafe_borrow_shared(
-                reinterpret_cast<void *>(ptr)),
-            shape, stride, itemsize, dataType);
+        return tt::runtime::createOwnedHostTensor(
+            reinterpret_cast<void const *>(ptr), shape, stride, itemsize,
+            dataType);
       },
       "Create a tensor with owned memory");
   m.def(
@@ -203,9 +202,10 @@ PYBIND11_MODULE(_C, m) {
          std::unordered_map<std::string, std::string> const &strategy) {
         std::vector<void *> data;
         data.reserve(ptrs.size());
-        std::transform(
-            ptrs.begin(), ptrs.end(), std::back_inserter(data),
-            [](std::uintptr_t ptr) { return reinterpret_cast<void *>(ptr); });
+        std::transform(ptrs.begin(), ptrs.end(), std::back_inserter(data),
+                       [](std::uintptr_t ptr) {
+                         return reinterpret_cast<void const *>(ptr);
+                       });
         return tt::runtime::createOwnedMultiDeviceHostTensor(
             data, shape, stride, itemsize, dataType, strategy);
       },
