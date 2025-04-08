@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-ttir-to-ttkernel %s > %t.mlir
+// RUN: ttmlir-opt --convert-ttir-to-ttkernel --ttmetal-control-dst-section %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #tt.memory_space<l1>
@@ -58,6 +58,7 @@ module attributes {tt.system_desc = #system_desc} {
     scf.for %arg7 = %c0 to %c1 step %c1 {
       scf.for %arg8 = %c0 to %c4 step %c1 {
         scf.for %arg9 = %c0 to %c3 step %c1 {
+          // CHECK: "ttkernel.tile_regs_acquire"
           %0 = arith.muli %arg7, %c1 overflow<nsw> : index
           %1 = arith.addi %0, %arg9 : index
           %2 = memref.load %collapse_shape[%1] : memref<3x!tt.tile<32x32, f32>, #l1_>
@@ -71,10 +72,13 @@ module attributes {tt.system_desc = #system_desc} {
           %8 = memref.load %collapse_shape_1[%7] : memref<4x!tt.tile<32x32, f32>, #l1_>
           // CHECK: "ttkernel.matmul_tiles"
           // CHECK-SAME: {{.*}}%c0{{.*}}%c1
+          // CHECK: "ttkernel.tile_regs_commit"
           %9 = "ttir.tile_matmul"(%2, %5, %8) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
           %10 = arith.muli %arg7, %c4 overflow<nsw> : index
           %11 = arith.addi %10, %arg8 : index
+          // CHECK: "ttkernel.tile_regs_wait"
           // CHECK: "ttkernel.pack_tile"
+          // CHECK: "ttkernel.tile_regs_release"
           memref.store %9, %collapse_shape_1[%11] : memref<4x!tt.tile<32x32, f32>, #l1_>
         }
       }
