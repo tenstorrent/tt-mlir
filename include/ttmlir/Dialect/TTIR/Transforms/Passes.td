@@ -468,4 +468,16 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRAutomaticDataParallelization: Pass<"ttir-automatic-data-parallelization", "::mlir::ModuleOp"> 
+{
+  let summary = "Perform automatic data parallelization.";
+  let description = [{
+    This pass performs automatic data parallelization in the compiler to split the graph across multiple devices.
+  }];
+
+  let options = [
+    ListOption<"meshShape", "mesh-shape", "int64_t", "Set the mesh shape">,
+  ];
+}
+
 #endif

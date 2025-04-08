@@ -21,6 +21,9 @@ include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 
+include "shardy/dialect/sdy/ir/dialect.td"
+include "shardy/dialect/sdy/ir/op_interface.td"
+
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIROpInterface, DestinationStyleOpInterface] # traits> {
     let extraClassDeclaration = [{
@@ -326,7 +329,7 @@ def TTIR_AllocOp : TTIR_Op<"alloc"> {
     let hasVerifier = 1;
 }
 
-def TTIR_DotGeneralOp : TTIR_Op<"dot_general"> {
+def TTIR_DotGeneralOp : TTIR_Op<"dot_general", [DeclareOpInterfaceMethods<Sdy_ShardingRuleOpInterface>]> {
     let summary = "Dot general operation.";
     let description = [{
       Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
@@ -363,7 +366,7 @@ class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, [Pure] # traits>;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, [AttrSizedOperandSegments, TTIR_Broadcastable] # traits> {
+    TTIR_NamedOp<mnemonic, [AttrSizedOperandSegments, TTIR_Broadcastable, Sdy_ShardingRuleOpInterface] # traits> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -373,6 +376,14 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs);
     let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
+
+      mlir::sdy::OpShardingRuleAttr getShardingRule() {
+        return mlir::sdy::OpShardingRuleBuilder::buildPointwise(getOperation());
+      }
+    }];
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
@@ -1513,7 +1524,7 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
+def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation, DeclareOpInterfaceMethods<Sdy_ShardingRuleOpInterface>]> {
     let summary = "Reshape op.";
     let description = [{
       Reshape tensor.
@@ -1787,7 +1798,7 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_NamedOp<"matmul", [DeclareOpInterfaceMethods<Sdy_ShardingRuleOpInterface>]> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.

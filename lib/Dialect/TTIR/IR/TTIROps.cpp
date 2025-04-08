@@ -1,5 +1,9 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 //
+// SPDX-License-Identifier: Apache-2.0
+//
+// This file incorporates work covered by the following copyright and permission notice:
+// SPDX-FileCopyrightText: Copyright (c) 2024 The Shardy Authors
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -3831,4 +3835,227 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
       getOperation(),
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
           getOperation()));
+}
+
+//===----------------------------------------------------------------------===//
+// Sdy_ShardingRuleOpInterface
+//===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// DotGeneralOp
+//===----------------------------------------------------------------------===//
+mlir::sdy::OpShardingRuleAttr mlir::tt::ttir::DotGeneralOp::getShardingRule() {
+  mlir::Operation* op = getOperation();
+  llvm::ArrayRef<int64_t> lhsBatchDims = getBatchDimsLhs();
+  llvm::ArrayRef<int64_t> rhsBatchDims = getBatchDimsRhs();
+  llvm::ArrayRef<int64_t> lhsContractDims = getContractDimsLhs();
+  llvm::ArrayRef<int64_t> rhsContractDims = getContractDimsRhs();
+
+  mlir::RankedTensorType lhsTensorType = getLhs().getType();
+  mlir::RankedTensorType rhsTensorType = getRhs().getType();
+
+  const int64_t lhsRank = lhsTensorType.getRank();
+  const int64_t rhsRank = rhsTensorType.getRank();
+
+  mlir::sdy::OpShardingRuleBuilder builder(op, /*reserveNumFactors=*/lhsRank + rhsRank - lhsBatchDims.size() - rhsBatchDims.size());
+
+  int64_t outputDim = 0;
+
+  // We want to add all the batch dimensions first.
+  for (auto [lhsDim, rhsDim] : llvm::zip_equal(lhsBatchDims, rhsBatchDims)) {
+    builder.addFactor({lhsDim, rhsDim}, outputDim++, lhsTensorType.getDimSize(lhsDim));
+  }
+
+  // Next, we want to add the non-contracting dimension from lhs as it would appear in the output. 
+  // These factors don't appear in rhs so we set that to sdy::kNullDim.
+  for (int64_t i = 0; i < lhsRank; i++) {
+    if (!llvm::is_contained(lhsContractDims, i) && !llvm::is_contained(lhsBatchDims, i)) {
+      builder.addFactor({i, sdy::kNullDim}, outputDim++, lhsTensorType.getDimSize(i));
+    }
+  }
+
+  // Next we want to add the non-contracting dimension from rhs as it would appear in the output.
+  // These factors don't appear in lhs so we set that to sdy::kNullDim.
+  for (int64_t i = 0; i < rhsRank; i++) {
+    if (!llvm::is_contained(rhsContractDims, i) && !llvm::is_contained(rhsBatchDims, i)) {
+      builder.addFactor({sdy::kNullDim, i}, outputDim++, rhsTensorType.getDimSize(i));
+    }
+  }
+
+  // Next we add the contracting dimension factors. They will not appear in the output.
+  for (auto [lhsDim, rhsDim] : llvm::zip_equal(lhsContractDims, rhsContractDims)) {
+      builder.addFactor({lhsDim, rhsDim}, sdy::kNullDim, lhsTensorType.getDimSize(lhsDim), sdy::FactorType::kReduction);
+  }
+
+  return builder.build();
+}
+
+//===----------------------------------------------------------------------===//
+// MatmulOp
+//===----------------------------------------------------------------------===//
+mlir::sdy::OpShardingRuleAttr mlir::tt::ttir::MatmulOp::getShardingRule() {
+  mlir::Operation* op = getOperation();
+  mlir::RankedTensorType aTensorType = getA().getType();
+  mlir::RankedTensorType bTensorType = getB().getType();
+  bool transposeA = getTransposeA();
+  bool transposeB = getTransposeB();
+
+  const int64_t aRank = aTensorType.getRank();
+  const int64_t bRank = bTensorType.getRank();
+
+  mlir::sdy::OpShardingRuleBuilder builder(op, /*reserveNumFactors=*/aRank + 1);
+
+  int64_t outputDim = 0;
+  llvm::SmallVector<bool> bExists(aRank, false);
+  for (uint32_t i = bRank - 1; i < bExists.size(); i++) {
+    bExists[i] = true;
+  }
+
+  // We want to add all the batch dimensions on the lhs first.
+  for (uint32_t i = 0; i < aRank - 2; i++) {
+    llvm::SmallVector<int64_t> operandDims = {i};
+
+    if(bExists[i]) {
+      operandDims.push_back(i);
+    } else {
+      operandDims.push_back(sdy::kNullDim);
+    }
+
+    operandDims.push_back(i); // DPS empty op
+    builder.addFactor(operandDims, outputDim++, aTensorType.getDimSize(i));
+  }
+
+  // Next we want to add all the non-contracting dimensions on the lhs that don't appear on the rhs.
+  int64_t lhsOperandDim = transposeA ? aRank - 1 : aRank - 2;
+  builder.addFactor({lhsOperandDim, sdy::kNullDim, lhsOperandDim}, outputDim++, aTensorType.getDimSize(lhsOperandDim));
+
+
+  // Next we want to add all the non-contracting dimensions on the rhs that don't appear on the lhs.
+  int64_t rhsOperandDim = transposeB ? bRank - 2 : bRank - 1;
+  builder.addFactor({rhsOperandDim, sdy::kNullDim, rhsOperandDim}, outputDim++, bTensorType.getDimSize(rhsOperandDim));
+
+  // Next we want to add the contracting dimension factors. They will not appear in the output.
+  int64_t lhsContractingDim = transposeA ? aRank - 2 : aRank - 1;
+  int64_t rhsContractingDim = transposeB ? bRank - 1 : bRank - 2;
+  builder.addFactor({lhsContractingDim, rhsContractingDim, sdy::kNullDim}, sdy::kNullDim, aTensorType.getDimSize(lhsContractingDim), sdy::FactorType::kReduction);
+
+  return builder.build();
+}
+
+//===----------------------------------------------------------------------===//
+// ReshapeOp
+//===----------------------------------------------------------------------===//
+// The following algorithm was taken from shardy and modified for ttir reshape op
+// https://github.com/openxla/shardy/blob/main/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+// commit: c5851d9
+mlir::sdy::OpShardingRuleAttr mlir::tt::ttir::ReshapeOp::getShardingRule() {
+  mlir::Operation* op = getOperation();
+  RankedTensorType inputTensorType = mlir::cast<RankedTensorType>(getInput().getType());
+  RankedTensorType outputTensorType = mlir::cast<RankedTensorType>(getOutput().getType());
+
+  if (inputTensorType.getNumElements() == 0) {
+    // This reshape has a dimension with size 0, in which case we return
+    // an empty rule as the algorithm can't handle it. There is no point
+    // in propagating through an op with 0 elements.
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t inRank = inputTensorType.getRank();
+  int64_t outRank = outputTensorType.getRank();
+
+  int64_t inDim = 0;
+  int64_t outDim = 0;
+
+  int64_t prodDimSizesIn = 1;
+  int64_t prodDimSizesOut = 1;
+
+  int64_t prodFactorsIn = 1;
+  int64_t prodFactorsOut = 1;
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  while (inDim < inRank || outDim < outRank) {
+    if (inDim < inRank && inputTensorType.getDimSize(inDim) == 1) {
+      builder.addFactor({inDim++, mlir::sdy::kNullDim}, mlir::sdy::kNullDim, 1);
+      continue;
+    }
+    if (outDim < outRank && outputTensorType.getDimSize(outDim) == 1) {
+      outDim++;
+      builder.addFactor({mlir::sdy::kNullDim, outDim}, outDim, 1);
+      continue;
+    }
+
+    if (inDim < inRank && prodDimSizesIn == prodFactorsIn) {
+      prodDimSizesIn *= inputTensorType.getDimSize(inDim);
+    }
+    if (outDim < outRank && prodDimSizesOut == prodFactorsOut) {
+      prodDimSizesOut *= outputTensorType.getDimSize(outDim);
+    }
+
+    int64_t nextInFactor = prodDimSizesIn / prodFactorsIn;
+    int64_t nextOutFactor = prodDimSizesOut / prodFactorsOut;
+
+    int64_t nextFactorGcd = std::gcd(nextInFactor, nextOutFactor);
+
+    auto getNextFactorIfDivereged = [nextFactorGcd](
+                                        int64_t nextFactor,
+                                        int64_t smallerProdFactors,
+                                        int64_t largerProdFactors) {
+      if (largerProdFactors % smallerProdFactors == 0 &&
+          nextFactor % (largerProdFactors / smallerProdFactors) == 0) {
+        // We can add a smaller factor that would converge the in and out
+        // factors.
+        return largerProdFactors / smallerProdFactors;
+      }
+      if (nextFactor > nextFactorGcd) {
+        // We can add a smaller factor that would preserve the next factor
+        // GCD for the next iteration.
+        return nextFactor / nextFactorGcd;
+      }
+      return nextFactor;
+    };
+
+    if (prodFactorsIn == prodFactorsOut) {
+      // The current in and out accumulated factors match.
+      if (nextFactorGcd > 1) {
+        // The next in and out factors have a GCD greater than 1,
+        // therefore we can add the GCD as a common factor.
+        builder.addFactor({inDim, outDim}, outDim, nextFactorGcd);
+        prodFactorsIn *= nextFactorGcd;
+        prodFactorsOut *= nextFactorGcd;
+      } else {
+        // Otherwise, we add the next factors as unique factors, and we
+        // wouldn't be able to add a common factor until the in and out
+        // factors converge again.
+        assert(nextInFactor > 1 && nextOutFactor > 1);
+        builder.addFactor({inDim, mlir::sdy::kNullDim}, mlir::sdy::kNullDim, nextInFactor);
+        prodFactorsIn *= nextInFactor;
+        builder.addFactor({mlir::sdy::kNullDim, outDim}, outDim, nextOutFactor);
+        prodFactorsOut *= nextOutFactor;
+      }
+    } else if (prodFactorsIn < prodFactorsOut) {
+      // In and out factors have already diverged. Add a factor for the
+      // input if its factors are behind the output factors.
+      nextInFactor = getNextFactorIfDivereged(
+          nextInFactor, prodFactorsIn, prodFactorsOut);
+      builder.addFactor({inDim, mlir::sdy::kNullDim}, mlir::sdy::kNullDim, nextInFactor);
+      prodFactorsIn *= nextInFactor;
+    } else {
+      // Similarly, add a factor for the output if its factors are behind
+      // the input factors.
+      nextOutFactor = getNextFactorIfDivereged(
+          nextOutFactor, prodFactorsOut, prodFactorsIn);
+      builder.addFactor({mlir::sdy::kNullDim, outDim}, outDim, nextOutFactor);
+      prodFactorsOut *= nextOutFactor;
+    }
+
+    if (inDim < inRank && prodDimSizesIn == prodFactorsIn) {
+      inDim++;
+    }
+    if (outDim < outRank && prodDimSizesOut == prodFactorsOut) {
+      outDim++;
+    }
+  }
+
+  return builder.build();
 }

@@ -8,6 +8,7 @@
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "shardy/dialect/sdy/ir/dialect.td"
 
 //===----------------------------------------------------------------------===//
 // TTIR dialect definition.
@@ -32,7 +33,8 @@ def TTIR_Dialect : Dialect {
       "::mlir::linalg::LinalgDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
-      "::mlir::tt::TTDialect"
+      "::mlir::tt::TTDialect",
+      "::mlir::sdy::SdyDialect"
     ];
 
     let hasConstantMaterializer = 1;
