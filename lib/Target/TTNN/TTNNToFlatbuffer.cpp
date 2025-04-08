@@ -95,7 +95,7 @@ static std::string generateUUID() {
   return ss.str();
 }
 
-static std::map<std::string, unsigned int> programIdxMap;
+static llvm::StringMap<uint32_t> programIdxMap;
 
 constexpr uint64_t kHostAllocatedSize = 0;
 
@@ -2219,7 +2219,6 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   size_t programIdx = 0;
   module->walk([&](func::FuncOp func) {
-    // llvm::outs() << func.getSymName().str() << " : " << programIdx << "\n";
     programIdxMap[func.getSymName().str()] = programIdx++;
   });
 
