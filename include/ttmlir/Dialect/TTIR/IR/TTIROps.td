@@ -620,6 +620,13 @@ def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
   }];
 }
 
+def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
+    let summary = "Eltwise exponential op.";
+    let description = [{
+      Eltwise exponential operation. Calculates e^x for all elements x in input tensor.
+    }];
+}
+
 class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseUnaryOp<mnemonic, traits> {
     let summary = "Eltwise unary op with the float parameter.";
@@ -863,6 +870,39 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
         %result = "ttir.atan2"(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
         // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
       ```
+    }];
+}
+
+def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
+    let summary = "Eltwise add.";
+    let description = [{
+      Eltwise add operation.
+    }];
+}
+
+def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
+    let summary = "Eltwise multiply.";
+    let description = [{
+      Eltwise multiply operation.
+    }];
+}
+
+def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
+    let summary = "Eltwise divide.";
+    let description = [{
+      Eltwise divide operation.
+    }];
+}
+
+def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
+    let summary = "Eltwise maximum.";
+    let description = [{
+      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
     }];
 }
 
@@ -1951,58 +1991,6 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-}
-
-//===----------------------------------------------------------------------===//
-// TTIR top level generic ops
-//===----------------------------------------------------------------------===//
-
-class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseUnaryOp<mnemonic, traits> {
-}
-
-def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
-    let summary = "Eltwise exponential op.";
-    let description = [{
-      Eltwise exponential operation. Calculates e^x for all elements x in input tensor.
-    }];
-}
-
-class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseBinaryOp<mnemonic, traits> {
-}
-
-def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
-    let summary = "Eltwise add.";
-    let description = [{
-      Eltwise add operation.
-    }];
-}
-
-def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
-    let summary = "Eltwise multiply.";
-    let description = [{
-      Eltwise multiply operation.
-    }];
-}
-
-def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
-    let summary = "Eltwise divide.";
-    let description = [{
-      Eltwise divide operation.
-    }];
-}
-
-def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
-    let summary = "Eltwise maximum.";
-    let description = [{
-      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
-
-      Example:
-        %lhs: [[3, 2, 7], [1, 4, 4]]
-        %rhs: [[1, 4, 2], [1, 2, 3]]
-        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
-    }];
 }
 
 //===----------------------------------------------------------------------===//
