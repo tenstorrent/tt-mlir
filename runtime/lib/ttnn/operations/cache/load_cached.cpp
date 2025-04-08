@@ -78,7 +78,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   ProgramExecutor exec(subProgram, context.getExecutableHandle(), inputs,
                        &context.getParentMesh(), nullptr);
   exec.execute();
-  LOG_INFO("executed sub-func: ", constEvalFuncname);
+  LOG_DEBUG("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();
 
   cache->store(outerKey, constEvalFuncname, outputs, inputVersions);
