@@ -109,7 +109,8 @@ public:
         common::DylibManager(program->dylibs()), meshDevice);
   }
 
-  void runCallback(std::string callbackKey, Binary &executableHandle,
+  void runCallback(std::optional<debug::Hooks::CallbackFn> callback,
+                   Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
@@ -118,9 +119,11 @@ public:
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
-      runCallback("pre-op", executableHandle, op, context.get());
+      runCallback(debug::Hooks::get().getPreOperatorCallback(),
+                  executableHandle, op, context.get());
       runOperation(op);
-      runCallback("post-op", executableHandle, op, context.get());
+      runCallback(debug::Hooks::get().getPostOperatorCallback(),
+                  executableHandle, op, context.get());
     }
   }
 
@@ -140,11 +143,10 @@ private:
 } // namespace
 
 void ProgramExecutor::runCallback(
-    std::string callbackKey, Binary &executableHandle,
+    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
-  if (auto callback = debug::Hooks::get().getOperatorCallback();
-      callback and debug::Hooks::get().getCallbackKey() == callbackKey) {
+  if (callback) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(programContext);
     std::shared_ptr<void> opContextPtr =
