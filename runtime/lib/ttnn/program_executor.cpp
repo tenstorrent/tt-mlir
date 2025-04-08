@@ -102,12 +102,23 @@ ProgramExecutor::ProgramExecutor(
       externalCache, programIndex);
 }
 
-void runCallback(std::optional<debug::Hooks::CallbackFn> callback,
-                 Binary &executableHandle,
-                 const ::tt::target::ttnn::Operation *opContext,
-                 ProgramContext *programContext);
+void ProgramExecutor::runCallback(
+    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
+    const ::tt::target::ttnn::Operation *opContext,
+    ProgramContext *programContext) {
+  if (callback) {
+    std::shared_ptr<void> programContextPtr =
+        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+    std::shared_ptr<void> opContextPtr =
+        ::tt::runtime::utils::unsafe_borrow_shared(
+            const_cast<::tt::target::ttnn::Operation *>(opContext));
+    (*callback)(executableHandle,
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                OpContext(opContextPtr, DeviceRuntime::TTNN));
+  }
+}
 
-void execute() {
+void ProgramExecutor::execute() {
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());

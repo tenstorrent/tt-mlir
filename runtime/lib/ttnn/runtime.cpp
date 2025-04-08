@@ -24,8 +24,6 @@
 
 namespace tt::runtime::ttnn {
 
-static std::atomic<uint64_t> tensorVersion{0};
-
 using ::tt::runtime::DeviceRuntime;
 using ::tt::tt_metal::BorrowedStorage;
 using ::tt::tt_metal::DistributedTensorConfig;
@@ -623,6 +621,7 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
 
   ::tt::runtime::Tensor result =
       utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  static std::atomic<uint64_t> tensorVersion{0};
   result.version.store(tensorVersion++);
   return result;
 }

@@ -95,8 +95,6 @@ static std::string generateUUID() {
   return ss.str();
 }
 
-static llvm::StringMap<uint32_t> programIdxMap;
-
 constexpr uint64_t kHostAllocatedSize = 0;
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -1668,7 +1666,8 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
-createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
+createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
+         const llvm::StringMap<uint32_t> &programIndexMap) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
   for (auto input : op.getInputs()) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
@@ -1682,7 +1681,10 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
         cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
   }
 
-  const uint32_t programIdx = programIdxMap[op.getCallee().str()];
+  auto it = programIndexMap.find(op.getCallee().str());
+  assert(it != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t programIdx = it->second;
 
   // Create the LoadCachedOp with indices instead of inputs
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
@@ -1690,6 +1692,7 @@ createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op) {
 }
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
+                  const llvm::StringMap<uint32_t> &programIndexMap,
                   std::string const &debugString, std::string const &locInfo) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
@@ -2117,8 +2120,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
-    return createOperation(cache, createOp(cache, loadCachedOp), debugString,
-                           locInfo);
+    return createOperation(cache,
+                           createOp(cache, loadCachedOp, programIndexMap),
+                           debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
@@ -2208,7 +2212,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(
       fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
 
   size_t programIdx = 0;
+  llvm::StringMap<uint32_t> programIdxMap;
   module->walk([&](func::FuncOp func) {
+    // llvm::outs() << func.getSymName().str() << " : " << programIdx << "\n";
     programIdxMap[func.getSymName().str()] = programIdx++;
   });
 
@@ -2216,7 +2222,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   module->walk([&](func::FuncOp func) {
     Program<::tt::target::ttnn::Operation> program =
         funcOpToProgram<::tt::target::ttnn::Operation>(
-            cache, func, emitTTNNOperation, tensorValueToFlatbuffer);
+            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+            programIdxMap);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
         &dylibs, debugInfo));
