@@ -1707,81 +1707,6 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
   let hasCanonicalizer = 1;
 }
 
-def TTIR_ArangeOp : TTIR_Op<"arange", [TT_CreationOpTrait]> {
-  let summary = "Arange operation.";
-  let description = [{
-    Tensor arange operation.
-
-    Produces a tensor with values from `start` to `end` (exclusive) with a step size of `step`, along the dimension specified by `arange_dimension`.
-
-    Examples:
-      %0 = "ttir.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5xi64>
-      // %0: [0, 1, 2, 3, 4]
-
-      %1 = "ttir.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64, arange_dimension = 0 : i64} : () -> tensor<5xf32>
-      // %1: [0.0, 2.0, 4.0, 6.0, 8.0]
-
-      %2 = "ttir.arange"() {start = 0 : i64, end = 5 : i64, step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5x3xi64>
-      // %2: [
-              [0, 0, 0],
-              [1, 1, 1],
-              [2, 2, 2],
-              [3, 3, 3],
-              [4, 4, 4]
-             ]
-
-      %3 = "ttir.arange"() {start = 0 : i64, end = 3 : i64, step = 1 : i64, arange_dimension = 1 : i64} : () -> tensor<5x3xi64>
-      // %3: [
-              [0, 1, 2],
-              [0, 1, 2],
-              [0, 1, 2],
-              [0, 1, 2],
-              [0, 1, 2]
-             ]
-  }];
-
-  let arguments = (ins SI64Attr:$start,
-                       SI64Attr:$end,
-                       SI64Attr:$step,
-                       I64Attr:$arange_dimension);
-
-  let results = (outs AnyRankedTensor:$result);
-  let hasVerifier = 1;
-}
-
-class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTIR_Op<mnemonic, traits> {
-  let arguments = (ins DenseI32ArrayAttr:$shape);
-
-  let results = (outs AnyRankedTensor:$result);
-}
-
-def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
-  let summary = "Creates a tensor filled with zeros.";
-  let description = [{
-    Tensor operation to create a tensor filled with zeros.
-
-    Given a `shape`, produces a tensor with the shape, filled with zeros.
-
-    Example:
-      %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
-      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
-  }];
-}
-
-def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [TT_CreationOpTrait]> {
-  let summary = "Creates a tensor filled with ones.";
-  let description = [{
-    Tensor operation to create a tensor filled with ones.
-
-    Given a `shape`, produces a tensor with the shape, filled with ones.
-
-    Example:
-      %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
-      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
-  }];
-}
-
 def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
   let summary = "Reverse operation.";
 
@@ -1812,68 +1737,6 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
-}
-
-def TTIR_EmptyOp : TTIR_Op<"empty",
-  [ Pure
-  , TT_CreationOpTrait
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferizesToAllocation"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  ]> {
-    let summary = "Empty op.";
-    let description = [{
-      Tensor empty operation
-    }];
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let builders =
-    [
-      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType, "Attribute": $encoding),
-      [{
-        build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
-      }]>,
-      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType),
-      [{
-        build($_builder, $_state, shape, elementType, nullptr);
-      }]>
-    ];
-
-    let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
-}
-
-def TTIR_ConstantOp : TTIR_Op<"constant",
-  [ ConstantLike
-  , AllShapesMatch<["value", "result"]>
-  , TT_CreationOpTrait
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  ]> {
-    let summary = "Constant op.";
-    let description = [{
-      Produces tensor filled with given constant value.
-
-      Examples:
-        %0 = "ttir.constant"() {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
-        // %0: [[0, 0, 0], [0, 0, 0]]
-        %1 = "ttir.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
-        // %1: [0.2, 1.3]
-    }];
-
-    let arguments = (ins ElementsAttr:$value);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let hasFolder = 1;
 }
 
 def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
@@ -1993,8 +1856,6 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let hasVerifier = 1;
 }
 
-//===----------------------------------------------------------------------===//
-
 def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation";
   let description = [{
@@ -2019,6 +1880,148 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR creation ops
+//===----------------------------------------------------------------------===//
+
+class TTIR_CreationOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_DPSOp<mnemonic, !listconcat([Pure, TT_CreationOpTrait], traits)>;
+
+
+def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
+  let summary = "Arange operation.";
+  let description = [{
+    Tensor arange operation.
+
+    Produces a tensor with values from `start` to `end` (exclusive) with a step size of `step`, along the dimension specified by `arange_dimension`.
+
+    Examples:
+      %0 = "ttir.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5xi64>
+      // %0: [0, 1, 2, 3, 4]
+
+      %1 = "ttir.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64, arange_dimension = 0 : i64} : () -> tensor<5xf32>
+      // %1: [0.0, 2.0, 4.0, 6.0, 8.0]
+
+      %2 = "ttir.arange"() {start = 0 : i64, end = 5 : i64, step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5x3xi64>
+      // %2: [
+              [0, 0, 0],
+              [1, 1, 1],
+              [2, 2, 2],
+              [3, 3, 3],
+              [4, 4, 4]
+             ]
+
+      %3 = "ttir.arange"() {start = 0 : i64, end = 3 : i64, step = 1 : i64, arange_dimension = 1 : i64} : () -> tensor<5x3xi64>
+      // %3: [
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2]
+             ]
+  }];
+
+  let arguments = (ins SI64Attr:$start,
+                       SI64Attr:$end,
+                       SI64Attr:$step,
+                       I64Attr:$arange_dimension);
+
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
+class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
+  TTIR_CreationOp<mnemonic, traits> {
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
+def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
+  let summary = "Creates a tensor filled with zeros.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros.
+
+    Given a `shape`, produces a tensor with the shape, filled with zeros.
+
+    Example:
+      %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+}
+
+def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
+  let summary = "Creates a tensor filled with ones.";
+  let description = [{
+    Tensor operation to create a tensor filled with ones.
+
+    Given a `shape`, produces a tensor with the shape, filled with ones.
+
+    Example:
+      %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
+  }];
+}
+
+def TTIR_EmptyOp : TTIR_Op<"empty",
+  [DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                      , "bufferizesToMemoryWrite"
+                                                      , "bufferizesToAllocation"
+                                                      , "bufferize"
+                                                      , "getAliasingValues"
+                                                      , "getBufferType"
+                                                      ]>
+  ]> {
+    let summary = "Empty op.";
+    let description = [{
+      Tensor empty operation
+    }];
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType, "Attribute": $encoding),
+      [{
+        build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
+      }]>,
+      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType),
+      [{
+        build($_builder, $_state, shape, elementType, nullptr);
+      }]>
+    ];
+
+    let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
+}
+
+def TTIR_ConstantOp : TTIR_Op<"constant",
+  [ ConstantLike
+  , AllShapesMatch<["value", "result"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+    let summary = "Constant op.";
+    let description = [{
+      Produces tensor filled with given constant value.
+
+      Examples:
+        %0 = "ttir.constant"() {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
+        // %0: [[0, 0, 0], [0, 0, 0]]
+        %1 = "ttir.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+        // %1: [0.2, 1.3]
+    }];
+
+    let arguments = (ins ElementsAttr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
