@@ -45,6 +45,7 @@ def settings_to_overrides(settings, artifacts_dir):
     if settings.get("overrides"):
         for op_id, overrides in settings["overrides"].items():
             output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
+            conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
             op_loc = overrides["named_location"]
             for attr in overrides["attributes"]:
                 match attr["key"]:
@@ -62,9 +63,88 @@ def settings_to_overrides(settings, artifacts_dir):
                         output_layout_override.grid = [
                             int(x) for x in attr["value"].strip("[]").split(",")
                         ]
+                    case "dtype":
+                        conv2d_config_override.set_dtype_from_str(attr["value"])
+                    case "weights_dtype":
+                        conv2d_config_override.set_weights_dtype_from_str(attr["value"])
+                    case "activation":
+                        conv2d_config_override.set_activation_from_str(attr["value"])
+                    case "input_channels_alignment":
+                        conv2d_config_override.set_input_channels_alignment_from_str(
+                            attr["value"].strip("[]")
+                        )
+                    case "deallocate_activation":
+                        conv2d_config_override.set_deallocate_activation_from_str(
+                            attr["value"].lower()
+                        )
+                    case "reallocate_halo_output":
+                        conv2d_config_override.set_reallocate_halo_output_from_str(
+                            attr["value"]
+                        )
+                    case "act_block_h_override":
+                        conv2d_config_override.set_act_block_h_override_from_str(
+                            attr["value"].strip("[]")
+                        )
+                    case "act_block_w_div":
+                        conv2d_config_override.set_act_block_w_div_from_str(
+                            attr["value"].strip("[]")
+                        )
+                    case "reshard_if_not_optimal":
+                        conv2d_config_override.set_reshard_if_not_optimal_from_str(
+                            attr["value"]
+                        )
+                    case "override_sharding_config":
+                        conv2d_config_override.set_override_sharding_config_from_str(
+                            attr["value"]
+                        )
+                    case "shard_layout":
+                        if attr["value"] != "Disabled":
+                            conv2d_config_override.set_shard_layout_from_str(
+                                attr["value"]
+                            )
+                    case "core_grid":
+                        conv2d_config_override.set_core_grid_from_str(attr["value"])
+                    case "transpose_shards":
+                        conv2d_config_override.set_transpose_shards_from_str(
+                            attr["value"]
+                        )
+                    case "output_layout":
+                        conv2d_config_override.set_output_layout_from_str(attr["value"])
+                    case "preprocess_weights_on_device":
+                        conv2d_config_override.set_preprocess_weights_on_device_from_str(
+                            attr["value"]
+                        )
+                    case "always_preprocess_weights":
+                        conv2d_config_override.set_always_preprocess_weights_from_str(
+                            attr["value"]
+                        )
+                    case "enable_act_double_buffer":
+                        conv2d_config_override.set_enable_act_double_buffer_from_str(
+                            attr["value"]
+                        )
+                    case "enable_weights_double_buffer":
+                        conv2d_config_override.set_enable_weights_double_buffer_from_str(
+                            attr["value"]
+                        )
+                    case "enable_split_reader":
+                        conv2d_config_override.set_enable_split_reader_from_str(
+                            attr["value"]
+                        )
+                    case "enable_subblock_padding":
+                        conv2d_config_override.set_enable_subblock_padding_from_str(
+                            attr["value"]
+                        )
                     case _:
                         raise ValueError(f"Invalid override attribute: {attr['key']}")
-            override_handler.add_output_layout_override(op_loc, output_layout_override)
+            if not output_layout_override.empty():
+                override_handler.add_output_layout_override(
+                    op_loc, output_layout_override
+                )
+            if not conv2d_config_override.empty():
+                override_handler.add_conv2d_config_override(
+                    op_id, conv2d_config_override
+                )
+
     return override_handler
 
 

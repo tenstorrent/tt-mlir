@@ -45,6 +45,11 @@ void OptimizerOverridesHandler::setMeshShape(std::vector<int64_t> value) {
   meshShape = value;
 }
 
+void OptimizerOverridesHandler::setConv2dConfigOverrides(
+    llvm::StringMap<Conv2dConfigOverrideParams> &value) {
+  conv2dConfigOverrides = value;
+}
+
 bool OptimizerOverridesHandler::getEnableOptimizer() const {
   return enableOptimizer;
 }
@@ -82,6 +87,11 @@ OptimizerOverridesHandler::getOutputLayoutOverrides() const {
   return outputLayoutOverrides;
 }
 
+llvm::StringMap<Conv2dConfigOverrideParams>
+OptimizerOverridesHandler::getConv2dConfigOverrides() const {
+  return conv2dConfigOverrides;
+}
+
 std::unordered_map<std::string, InputLayoutOverrideParams>
 OptimizerOverridesHandler::getInputLayoutOverridesNanobindWrapper() const {
   std::unordered_map<std::string, InputLayoutOverrideParams>
@@ -100,6 +110,16 @@ OptimizerOverridesHandler::getOutputLayoutOverridesNanobindWrapper() const {
     outputLayoutOverridesWrapper[entry.getKey().str()] = entry.getValue();
   }
   return outputLayoutOverridesWrapper;
+}
+
+std::unordered_map<std::string, Conv2dConfigOverrideParams>
+OptimizerOverridesHandler::getConv2dConfigOverridesNanobindWrapper() const {
+  std::unordered_map<std::string, Conv2dConfigOverrideParams>
+      conv2dConfigOverridesWrapper;
+  for (auto &entry : conv2dConfigOverrides) {
+    conv2dConfigOverridesWrapper[entry.getKey().str()] = entry.getValue();
+  }
+  return conv2dConfigOverridesWrapper;
 }
 
 std::string OptimizerOverridesHandler::toString() const {
@@ -141,6 +161,12 @@ std::string OptimizerOverridesHandler::toString() const {
   if (outputLayoutOverrides.size() > 0) {
     options += OptionNames::overrideOutputLayout.str() + "=" +
                OutputLayoutOverrideParser::toString(outputLayoutOverrides) +
+               " ";
+  }
+
+  if (conv2dConfigOverrides.size() > 0) {
+    options += OptionNames::overrideConv2dConfig.str() + "=" +
+               Conv2dConfigOverrideParser::toString(conv2dConfigOverrides) +
                " ";
   }
 
@@ -190,6 +216,11 @@ void OptimizerOverridesHandler::addOutputLayoutOverride(
       std::move(grid), bufferType, tensorMemoryLayout, memoryLayout, dataType};
 }
 
+void OptimizerOverridesHandler::addConv2dConfigOverride(
+    StringRef opName, Conv2dConfigOverrideParams params) {
+  conv2dConfigOverrides[opName] = params;
+}
+
 void OptimizerOverridesHandler::addInputLayoutOverrideNanobindWrapper(
     std::string opName, std::vector<int64_t> &operandIdxes) {
   StringRef opNameStringRef(opName);
@@ -202,6 +233,12 @@ void OptimizerOverridesHandler::addOutputLayoutOverrideNanobindWrapper(
     std::string opName, OutputLayoutOverrideParams overrideParams) {
   StringRef opNameStringRef(opName);
   addOutputLayoutOverride(opNameStringRef, overrideParams);
+}
+
+void OptimizerOverridesHandler::addConv2dConfigOverrideNanobindWrapper(
+    std::string opName, Conv2dConfigOverrideParams overrideParams) {
+  StringRef opNameStringRef(opName);
+  addConv2dConfigOverride(opNameStringRef, overrideParams);
 }
 
 } // namespace mlir::tt::ttnn

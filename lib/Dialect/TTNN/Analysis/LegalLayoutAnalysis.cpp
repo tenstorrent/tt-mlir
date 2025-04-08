@@ -207,14 +207,20 @@ bool LegalLayoutAnalysis::applyOverrides() {
       TensorMemoryLayoutAttr::get(op->getContext(),
                                   layoutOverride.tensorMemoryLayout.value())));
 
-  // Apply conv2d config overrides if they exist and op is Conv2d.
-  if (analysisInput.conv2dConfigOverrides && isa<ttnn::Conv2dOp>(op)) {
-    auto overrideConv2dIt =
-        analysisInput.conv2dConfigOverrides->find(opLocName);
-    if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
-      applyConv2dConfigOverrides(op, overrideConv2dIt->getValue(),
-                                 analysisResult);
+  // Apply conv2d config overrides.
+  // If they do not exist, or they do not exist for a specific conv2d op, set
+  // conv2d config with default values.
+  //
+  if (isa<ttnn::Conv2dOp>(op)) {
+    Conv2dConfigOverrideParams conv2dConfigOverrides;
+    if (analysisInput.conv2dConfigOverrides) {
+      auto overrideConv2dIt =
+          analysisInput.conv2dConfigOverrides->find(opLocName);
+      if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
+        conv2dConfigOverrides = overrideConv2dIt->getValue();
+      }
     }
+    applyConv2dConfigOverrides(op, conv2dConfigOverrides, analysisResult);
   }
   return true;
 }
@@ -422,16 +428,22 @@ void LegalLayoutAnalysis::analysisImplementation() {
                          analysisResult.end());
   }
 
-  // Apply conv2d config overrides if they exist and op is Conv2d.
+  // Apply conv2d config overrides.
+  // If they do not exist, or they do not exist for a specific conv2d op, set
+  // conv2d config with default values.
+  //
   if (auto opLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
     StringRef opLocName = opLoc.getName().strref();
-    if (analysisInput.conv2dConfigOverrides && isa<ttnn::Conv2dOp>(op)) {
-      auto overrideConv2dIt =
-          analysisInput.conv2dConfigOverrides->find(opLocName);
-      if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
-        applyConv2dConfigOverrides(op, overrideConv2dIt->getValue(),
-                                   analysisResult);
+    if (isa<ttnn::Conv2dOp>(op)) {
+      Conv2dConfigOverrideParams conv2dConfigOverrides;
+      if (analysisInput.conv2dConfigOverrides) {
+        auto overrideConv2dIt =
+            analysisInput.conv2dConfigOverrides->find(opLocName);
+        if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
+          conv2dConfigOverrides = overrideConv2dIt->getValue();
+        }
       }
+      applyConv2dConfigOverrides(op, conv2dConfigOverrides, analysisResult);
     }
   }
 

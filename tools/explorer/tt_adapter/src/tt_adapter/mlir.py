@@ -594,15 +594,18 @@ def parse_conv2d_config(attr):
             },
         )
     )
+    shard_layout = "Disabled"
+    if conv2d_config.shard_layout_as_int:
+        shard_layout = str(ttnn.TensorMemoryLayout(conv2d_config.shard_layout_as_int))
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="shard_layout",
-                value=str(ttnn.TensorMemoryLayout(conv2d_config.shard_layout_as_int)),
+                value=shard_layout,
             ),
             editable={
                 "input_type": "value_list",
-                "options": [str(o) for o in ttnn.TensorMemoryLayout],
+                "options": [str(o) for o in ttnn.TensorMemoryLayout] + ["Disabled"],
             },
         )
     )
@@ -641,6 +644,30 @@ def parse_conv2d_config(attr):
             graph_builder.KeyValue(
                 key="enable_act_double_buffer",
                 value=str(conv2d_config.enable_act_double_buffer),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="preprocess_weights_on_device",
+                value=str(conv2d_config.preprocess_weights_on_device),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="always_preprocess_weights",
+                value=str(conv2d_config.always_preprocess_weights),
             ),
             editable={
                 "input_type": "value_list",

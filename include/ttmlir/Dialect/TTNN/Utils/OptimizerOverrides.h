@@ -30,6 +30,8 @@ public:
   // These are used to set the input/output layout overrides
   void setInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams> &);
   void setOutputLayoutOverrides(llvm::StringMap<OutputLayoutOverrideParams> &);
+  // These are used to set the Conv2dConfig overrides
+  void setConv2dConfigOverrides(llvm::StringMap<Conv2dConfigOverrideParams> &);
   // These are used to add system descriptor path
   void setSystemDescPath(std::string);
   // These are used to set the maximum number of legal layouts for grid analysis
@@ -56,6 +58,8 @@ public:
   // These are used to get the current mesh shape
   std::vector<int64_t> getMeshShape() const;
 
+  llvm::StringMap<Conv2dConfigOverrideParams> getConv2dConfigOverrides() const;
+
   // Method that converts the overrides to a string
   std::string toString() const;
 
@@ -67,18 +71,24 @@ public:
   void addOutputLayoutOverride(StringRef, SmallVector<int64_t> &, BufferType,
                                TensorMemoryLayout, tt::ttnn::Layout,
                                tt::DataType);
+  // Fill Conv2dConfig overrides map
+  void addConv2dConfigOverride(StringRef, Conv2dConfigOverrideParams);
 
   // Wrapper methods we use to expose the adders to the python bindings
   std::unordered_map<std::string, InputLayoutOverrideParams>
   getInputLayoutOverridesNanobindWrapper() const;
   std::unordered_map<std::string, OutputLayoutOverrideParams>
   getOutputLayoutOverridesNanobindWrapper() const;
+  std::unordered_map<std::string, Conv2dConfigOverrideParams>
+  getConv2dConfigOverridesNanobindWrapper() const;
 
   // Wrapper methods we use to expose the adders to the python bindings
   void addInputLayoutOverrideNanobindWrapper(std::string,
                                              std::vector<int64_t> &);
   void addOutputLayoutOverrideNanobindWrapper(std::string,
                                               OutputLayoutOverrideParams);
+  void addConv2dConfigOverrideNanobindWrapper(std::string,
+                                              Conv2dConfigOverrideParams);
 
 private:
   // Flags for enabling/disabling the optimizer passes
@@ -93,6 +103,9 @@ private:
 
   // Output layout overrides
   llvm::StringMap<OutputLayoutOverrideParams> outputLayoutOverrides;
+
+  // Conv2dConfig overrides
+  llvm::StringMap<Conv2dConfigOverrideParams> conv2dConfigOverrides;
 
   // Memory layout analysis policy
   bool enableMemoryLayoutAnalysisPolicy = false;
