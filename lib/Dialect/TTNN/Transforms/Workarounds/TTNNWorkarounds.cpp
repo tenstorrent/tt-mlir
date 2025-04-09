@@ -356,15 +356,29 @@ public:
     // TODO(hongseok): Restore dynamic dimension selection once the issue
     // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
     // Currently, dimension 3 must be used to produce correct outputs.
-    int32_t dimension = 3;
+    int32_t dimension =
+        std::min(3, static_cast<int32_t>(inputTypeShape.size() - 1));
+    // If the target dimension is not evenly divisible by the number of devices
+    // in the cluster, use the all-gather + local reduce breakdown approach.
+    if (inputTypeShape[dimension] % meshShape[clusterAxis] != 0) {
+      // Note: This method uses a large amount of memory, so it should only be
+      // applied when the input tensor size is small. The size_limit was
+      // determined heuristically. The limit is set very conservatively, but may
+      // need adjustment if issues arise.
+      const int64_t sizeLimit = 200000;
+      int64_t tensorSize = inputType.getNumElements();
+      if (tensorSize < sizeLimit) {
+        return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
+      }
+    }
 
     // TODO(wooseoklee): Once it supports two dimensional tensor
     // (https://github.com/tenstorrent/tt-metal/issues/15010), we can remove
     // this workaround solution.
     if (inputTypeShape.size() < 4) {
-      // We need to expand the current inputShape size to a tensor with rank=4.
-      // We do this by adding leading 1's to the inputShape to create a new
-      // shape with rank=4.
+      // We need to expand the current inputShape size to a tensor with
+      // rank=4. We do this by adding leading 1's to the inputShape to create
+      // a new shape with rank=4.
       uint32_t requiredOnesInput = 4 - inputTypeShape.size();
       llvm::SmallVector<int64_t> reshapedInputShape(requiredOnesInput, 1);
       reshapedInputShape.append(inputTypeShape);
@@ -380,13 +394,8 @@ public:
           loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr,
           /* memory_config */ nullptr);
 
-      // TODO(hongseok): Restore dynamic dimension selection once the issue
-      // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
-      // Currently, dimension 3 must be used to produce correct outputs.
-      if ((reshapedInputShape[dimension] % meshShape[clusterAxis]) != 0) {
-        return op.emitOpError()
-               << "Unable to lower all_reduce op using dimesion 3.";
-      }
+      // Determine new dimension since entire tensor shape got shifted.
+      dimension = dimension + requiredOnesInput;
 
       // Determine the shape of its input tensor. The new tensor
       // shape at the scatter_dim will be tensor_shape[scatter_dim] =
@@ -426,16 +435,9 @@ public:
           reshapedOutputShapeAttr, /* memory_config */ nullptr);
     } else {
       // TODO(wooseoklee): Once ttnn supports all_reduce op
-      // (https://github.com/tenstorrent/tt-metal/issues/13835), we can convert
-      // directly to ttnn.all_reduce.
+      // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
+      // convert directly to ttnn.all_reduce.
 
-      // TODO(hongseok): Restore dynamic dimension selection once the issue
-      // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
-      // Currently, dimension 3 must be used to produce correct outputs.
-      if ((inputTypeShape[dimension] % meshShape[clusterAxis]) != 0) {
-        return op.emitOpError()
-               << "Unable to lower all_reduce op using dimesion 3.";
-      }
       // Determine the shape of its input tensor. The new tensor
       // shape at the scatter_dim will be tensor_shape[scatter_dim] =
       // original_tensor_shape / num_devices.
@@ -455,7 +457,67 @@ public:
           op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
           clusterAxis);
     }
+    return success();
+  }
 
+private:
+  LogicalResult
+  rewriteAsAllGatherLocalReduce(ttnn::AllReduceOp op,
+                                ::llvm::ArrayRef<int64_t> meshShape,
+                                PatternRewriter &rewriter) const {
+    RankedTensorType inputType = op.getInput().getType();
+    Location loc = op.getLoc();
+    uint32_t clusterAxis = op.getClusterAxis();
+    Value deviceValue = op.getDevice();
+
+    // Use allGather + Reduce breakdown.
+    // Increase the rank of the current input shape by 1.
+    ArrayRef<int64_t> inputTypeShape = inputType.getShape();
+    llvm::SmallVector<int64_t> expandedInputShape = {1};
+    expandedInputShape.append(inputTypeShape.begin(), inputTypeShape.end());
+    ArrayAttr reshapedInputShapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
+            expandedInputShape.begin(), expandedInputShape.end()));
+    RankedTensorType reshapedInputType =
+        RankedTensorType::Builder(inputType).setShape(expandedInputShape);
+
+    ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        loc, reshapedInputType, op.getInput(), reshapedInputShapeAttr,
+        /* memory_config */ nullptr);
+
+    // Create a new all gather op.
+    expandedInputShape[0] = meshShape[clusterAxis];
+    RankedTensorType allGatherOutputType =
+        RankedTensorType::Builder(reshapedInputType)
+            .setShape(expandedInputShape);
+    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+        loc, allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
+        clusterAxis);
+    // Create a new reduce op.
+    ArrayAttr reduceDimAttr =
+        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
+    switch (op.getReduceType()) {
+    case ReduceType::Sum:
+      rewriter.replaceOpWithNewOp<ttnn::SumOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ReduceType::Mean:
+      rewriter.replaceOpWithNewOp<ttnn::MeanOp>(op, op.getType(), allGatherOp,
+                                                false, reduceDimAttr);
+      break;
+    case ReduceType::Max:
+      rewriter.replaceOpWithNewOp<ttnn::MaxOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ReduceType::Min:
+      rewriter.replaceOpWithNewOp<ttnn::MinOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ReduceType::Std:
+      return op.emitOpError() << "std is not supported";
+    case ReduceType::Var:
+      return op.emitOpError() << "var is not supported";
+    }
     return success();
   }
 };
