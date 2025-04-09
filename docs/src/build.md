@@ -11,7 +11,7 @@ These are the steps required to get the TT-MLIR project running on your machine
 
 There are two ways to set up the environment, either using a docker image or
 building the environment manually. The docker image is recommended for most users
-since it's easier to set up and use
+since it's easier to set up and use.
 
 ### Using a Docker Image
 
