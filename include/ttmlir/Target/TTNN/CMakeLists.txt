@@ -12,6 +12,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/embedding.fbs
   operations/kv_cache.fbs
   operations/layout.fbs
+  operations/load_cached.fbs
   operations/matmul.fbs
   operations/moreh_cumsum.fbs
   operations/softmax.fbs
