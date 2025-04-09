@@ -27,7 +27,7 @@ public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
   static bool isStream(Type ty) {
-    return mlir::isa<StreamLayoutAttr>(mlir::cast<MemRefType>(ty).getLayout());
+    return mlir::isa<ViewLayoutAttr>(mlir::cast<MemRefType>(ty).getLayout());
   }
 
   static bool compatibleDeviceGrid(DeviceAttr device, GridAttr grid) {

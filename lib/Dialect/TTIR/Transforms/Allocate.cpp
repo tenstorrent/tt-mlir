@@ -222,7 +222,7 @@ struct TTIRGenericFormStreams : public OpRewritePattern<ttir::GenericOp> {
   static void insertStream(PatternRewriter &rewriter, OpOperand &operand,
                            ttir::GenericOp op) {
     auto memref = mlir::cast<MemRefType>(operand.get().getType());
-    auto streamAttr = rewriter.getAttr<StreamLayoutAttr>(
+    auto streamAttr = rewriter.getAttr<ViewLayoutAttr>(
         rewriter.getMultiDimIdentityMap(memref.getRank()));
     auto streamMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,

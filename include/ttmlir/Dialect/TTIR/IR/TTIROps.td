@@ -63,14 +63,6 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
         return result;
       }
 
-      FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
-          Value value, const bufferization::BufferizationOptions &,
-          SmallVector<mlir::Value> &) {
-        auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-        return mlir::cast<tt::MetalLayoutAttr>(rankedTensorType.getEncoding())
-            .getBufferType();
-      }
-
       void $cppClass::getEffects(
           SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
               &effects) {
@@ -270,7 +262,9 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
 }
 
 def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
-  [DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+  [ DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
+  , TTIR_ViewOpInterface
+  ]> {
     let summary = "Stream Layout op.";
     let description = [{
       StreamLayout operation used to form a stream between remote and local memory spaces. Note that this op has
@@ -288,7 +282,7 @@ def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
       ```llvm
       %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
       %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3)>, #l1_>
+      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #tt.view<map(4)>, #l1_>
       ```
     }];
 
@@ -314,6 +308,7 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_ViewOpInterface
   ]> {
     let summary = "View Layout op.";
     let description = [{

@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -28,9 +30,18 @@ static std::optional<unsigned> getCapturedOperandIndex(GenericOp op,
 
 static void rewriteOperand(OpBuilder &builder, DMAOp dma, OpOperand &dmaOperand,
                            unsigned operandIndex) {
-  auto globalOperand = builder.create<GetGlobalOperandOp>(
-      dma.getLoc(), dmaOperand.get().getType(), operandIndex);
-  dmaOperand.set(globalOperand.getResult());
+  auto [memref, affineMapView] = applyViews(dmaOperand.get().getDefiningOp());
+  Operation *globalOperand =
+      builder.create<GetGlobalOperandOp>(dma.getLoc(), memref, operandIndex);
+  if (!affineMapView.isIdentity()) {
+    globalOperand = builder.create<ViewLayoutOp>(
+        dma.getLoc(),
+        mlir::MemRefType::get(memref.getShape(), memref.getElementType(),
+                              builder.getAttr<ViewLayoutAttr>(affineMapView),
+                              memref.getMemorySpace()),
+        globalOperand->getResult(0));
+  }
+  dmaOperand.set(globalOperand->getResult(0));
 }
 
 static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
