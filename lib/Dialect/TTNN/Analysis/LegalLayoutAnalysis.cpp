@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
 #include "ttmlir/OpModel//TTNN/TTNNOpModel.h"
@@ -85,6 +86,73 @@ bool cantChangeOutputLayout(Operation *op) {
   return false;
 }
 
+void applyConv2dConfigOverrides(
+    Operation *op, const Conv2dConfigOverrideParams &conv2dConfigOverrides,
+    std::vector<OpConfig> &analysisResult) {
+  // Apply conv2d config overrides to all legal (layout) configurations of
+  // current op.
+  // TODO(vkovacevic): Currently conv2d config overrides are applied without any
+  // analysis, but will need to go through analysis in the future to check if
+  // they are valid.
+  //
+  MLIRContext *context = op->getContext();
+  DataType newDtype = conv2dConfigOverrides.dtype.value_or(DataType::BFloat16);
+  DataType newWeightsDtype =
+      conv2dConfigOverrides.weightsDtype.value_or(DataType::BFloat16);
+  StringAttr newActivation =
+      StringAttr::get(context, conv2dConfigOverrides.activation.value_or(""));
+  uint32_t newInputChannelsAlignment =
+      conv2dConfigOverrides.inputChannelsAlignment.value_or(32);
+  bool newDeallocateActivation =
+      conv2dConfigOverrides.deallocateActivation.value_or(false);
+  bool newReallocateHaloOutput =
+      conv2dConfigOverrides.reallocateHaloOutput.value_or(true);
+  uint32_t newActBlockHOverride =
+      conv2dConfigOverrides.actBlockHOverride.value_or(0);
+  uint32_t newActBlockWDiv = conv2dConfigOverrides.actBlockWDiv.value_or(1);
+  bool newReshardIfNotOptimal =
+      conv2dConfigOverrides.reshardIfNotOptimal.value_or(false);
+  bool newOverrideShardingConfig =
+      conv2dConfigOverrides.overrideShardingConfig.value_or(false);
+  ttnn::TensorMemoryLayoutAttr newShardLayout;
+  if (conv2dConfigOverrides.shardLayout.has_value()) {
+    newShardLayout = TensorMemoryLayoutAttr::get(
+        context, conv2dConfigOverrides.shardLayout.value());
+  }
+  ttnn::CoreRangeSetAttr newCoreGrid =
+      conv2dConfigOverrides.coreGrid.value_or(ttnn::CoreRangeSetAttr());
+  bool newTransposeShards =
+      conv2dConfigOverrides.transposeShards.value_or(false);
+  Layout newOutputLayout =
+      conv2dConfigOverrides.outputLayout.value_or(Layout::Tile);
+  bool newPreprocessWeightsOnDevice =
+      conv2dConfigOverrides.preprocessWeightsOnDevice.value_or(false);
+  bool newAlwaysPreprocessWeights =
+      conv2dConfigOverrides.alwaysPreprocessWeights.value_or(false);
+  bool newEnableActDoubleBuffer =
+      conv2dConfigOverrides.enableActDoubleBuffer.value_or(false);
+  bool newEnableWeightsDoubleBuffer =
+      conv2dConfigOverrides.enableWeightsDoubleBuffer.value_or(false);
+  bool newEnableSplitReader =
+      conv2dConfigOverrides.enableSplitReader.value_or(false);
+  bool newEnableSubblockPadding =
+      conv2dConfigOverrides.enableSubblockPadding.value_or(false);
+
+  for (auto &opConfig : analysisResult) {
+    assert(!opConfig.config &&
+           "OpConfig should not have a config set before applying overrides");
+    opConfig.config = Conv2dConfigAttr::get(
+        context, newDtype, newWeightsDtype, newActivation,
+        newInputChannelsAlignment, newDeallocateActivation,
+        newReallocateHaloOutput, newActBlockHOverride, newActBlockWDiv,
+        newReshardIfNotOptimal, newOverrideShardingConfig, newShardLayout,
+        newCoreGrid, newTransposeShards, newOutputLayout,
+        newPreprocessWeightsOnDevice, newAlwaysPreprocessWeights,
+        newEnableActDoubleBuffer, newEnableWeightsDoubleBuffer,
+        newEnableSplitReader, newEnableSubblockPadding);
+  }
+}
+
 bool LegalLayoutAnalysis::applyOverrides() {
   // Lookup layout overrides based on location information for current
   // operation.
@@ -139,6 +207,15 @@ bool LegalLayoutAnalysis::applyOverrides() {
       TensorMemoryLayoutAttr::get(op->getContext(),
                                   layoutOverride.tensorMemoryLayout.value())));
 
+  // Apply conv2d config overrides if they exist and op is Conv2d.
+  if (analysisInput.conv2dConfigOverrides && isa<ttnn::Conv2dOp>(op)) {
+    auto overrideConv2dIt =
+        analysisInput.conv2dConfigOverrides->find(opLocName);
+    if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
+      applyConv2dConfigOverrides(op, overrideConv2dIt->getValue(),
+                                 analysisResult);
+    }
+  }
   return true;
 }
 
@@ -343,6 +420,19 @@ void LegalLayoutAnalysis::analysisImplementation() {
                                         analysisResult.end(),
                                         shouldRemoveLayout),
                          analysisResult.end());
+  }
+
+  // Apply conv2d config overrides if they exist and op is Conv2d.
+  if (auto opLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
+    StringRef opLocName = opLoc.getName().strref();
+    if (analysisInput.conv2dConfigOverrides && isa<ttnn::Conv2dOp>(op)) {
+      auto overrideConv2dIt =
+          analysisInput.conv2dConfigOverrides->find(opLocName);
+      if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
+        applyConv2dConfigOverrides(op, overrideConv2dIt->getValue(),
+                                   analysisResult);
+      }
+    }
   }
 
   if (analysisResult.empty()) {

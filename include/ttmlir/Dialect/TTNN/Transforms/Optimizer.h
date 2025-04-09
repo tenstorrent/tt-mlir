@@ -18,6 +18,8 @@ struct TTNNOptimizerOptions {
       llvm::StringMap<InputLayoutOverrideParams>();
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout =
       llvm::StringMap<OutputLayoutOverrideParams>();
+  llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
+      llvm::StringMap<Conv2dConfigOverrideParams>();
   bool memoryLayoutAnalysisEnabled = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
       MemoryLayoutAnalysisPolicyType::DFSharding;
