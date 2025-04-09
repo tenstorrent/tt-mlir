@@ -39,11 +39,15 @@ struct IDevice;
 
 struct Tensor;
 
-namespace operations::creation::detail {
-
+namespace operations {
+namespace creation::detail {
 struct OptionalAnyDevice;
+} // namespace creation::detail
 
-} // namespace operations::creation::detail
+namespace conv::conv2d {
+struct Conv2dConfig;
+} // namespace conv::conv2d
+} // namespace operations
 } // namespace ttnn
 
 namespace mlir {
@@ -157,6 +161,12 @@ struct TypeName<::ttnn::operations::creation::detail::OptionalAnyDevice> {
 template <>
 struct TypeName<::ttnn::Tensor> {
   inline static const std::string value = "::ttnn::Tensor";
+};
+
+template <>
+struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
+  inline static const std::string value =
+      "::ttnn::operations::conv::conv2d::Conv2dConfig";
 };
 
 template <>
@@ -937,6 +947,31 @@ public:
                                     /*shardSpec=*/nullptr, tensorMemoryLayout);
 
     return emit(memoryConfigAttr);
+  }
+
+  // TODO (azecevic): This is a temporary solution for handling the case when
+  // the value of the Conv2dConfigAttr is nullptr. This should be removed once
+  // https://github.com/tenstorrent/tt-mlir/issues/2852 lands.
+  mlir::Attribute getConv2dConfig(mlir::Value input, mlir::Value weight) {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+
+    auto inputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+    auto weightLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
+
+    DataType inputDataType = inputLayoutAttr.getDataType();
+    DataType weightDataType = weightLayoutAttr.getDataType();
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "{";
+    rso << ".dtype = " << convert(inputDataType) << ", ";
+    rso << ".weights_dtype = " << convert(weightDataType);
+    rso << "}";
+
+    return rewriter.getType<emitc::OpaqueAttr>(buf);
   }
 
 private:
