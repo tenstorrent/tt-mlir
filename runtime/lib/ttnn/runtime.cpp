@@ -798,8 +798,28 @@ std::string getOpLocInfo(OpContext opContextHandle) {
     tensorRef = opContext.type_as_FullOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::EltwiseOp: {
-    tensorRef = opContext.type_as_EltwiseOp()->out();
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    tensorRef = opContext.type_as_EltwiseBinaryOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    tensorRef = opContext.type_as_EltwiseBinaryCompositeOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
+    tensorRef = opContext.type_as_EltwiseTernaryWhereOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    tensorRef = opContext.type_as_EltwiseQuantizationOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    tensorRef = opContext.type_as_EltwiseUnaryOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    tensorRef = opContext.type_as_EltwiseUnaryCompositeOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::LinearOp: {

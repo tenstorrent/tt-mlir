@@ -1,0 +1,11 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table CpuOp {
+  ins: [tt.target.ttnn.TensorRef];
+  out: tt.target.ttnn.TensorRef;
+  func_name: string;
+  dylib_id: uint32;
+}

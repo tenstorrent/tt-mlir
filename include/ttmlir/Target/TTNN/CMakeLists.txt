@@ -1,9 +1,29 @@
 include(BuildFlatbuffers)
 
+set(TTNN_OPERATIONS_FBS_GEN_SOURCES
+  operations/ccl.fbs
+  operations/get_device.fbs
+  operations/conv.fbs
+  operations/cpu.fbs
+  operations/creation.fbs
+  operations/data_movement.fbs
+  operations/deallocate.fbs
+  operations/eltwise.fbs
+  operations/embedding.fbs
+  operations/kv_cache.fbs
+  operations/layout.fbs
+  operations/matmul.fbs
+  operations/moreh_cumsum.fbs
+  operations/softmax.fbs
+  operations/pool.fbs
+  operations/reduction.fbs
+)
+
 set(TTNN_FBS_GEN_SOURCES
   types.fbs
-  binary.fbs
+  ${TTNN_OPERATIONS_FBS_GEN_SOURCES}
   program.fbs
+  binary.fbs
 )
 
 build_flatbuffers("${TTNN_FBS_GEN_SOURCES}" TTNN_FBS COMMON_FBS)
