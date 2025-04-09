@@ -28,6 +28,10 @@ class Kernel:
     def dump(self):
         print(self.kernel_string)
 
-    def dump_to_file(self, file_path):
+    def dump_to_file(self, file_path=""):
+        if not file_path:
+            file_path = "generated/pykernels/{}.cpp".format(self.kernel_name)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "w") as f:
             f.write(self.kernel_string)
+        return file_path

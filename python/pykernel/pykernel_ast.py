@@ -106,6 +106,8 @@ class TTKernelCompiler(ast.NodeVisitor):
         "noc_async_read_barrier": ttkernel.noc_async_read_barrier,
         "noc_async_write_barrier": ttkernel.noc_async_write_barrier,
         "get_interleaved_addr_gen_fast": ttkernel.get_interleaved_addr_gen_fast,
+        "exp_tile_init": ttkernel.exp_tile_init,
+        "exp_tile": ttkernel.exp_tile,
     }
 
     def __init__(self, name, *args, **kwargs):
@@ -735,17 +737,17 @@ def ttkernel_compile(kernel_type=None, verbose: bool = False, optimize: bool = T
                 kwargs["verbose"] = True
             m = ast.parse(inspect.getsource(f))
             b = TTKernelCompiler(f.__name__, *args, **kwargs)
-            print(ast.dump(m, indent=4) + "\n")
+            # print(ast.dump(m, indent=4) + "\n")
             b.visit(m)
 
             # Check if generated IR is valid
-            print(b.module)
+            # print(b.module)
             b.module.operation.verify()
 
             # Run the PyKernel Compile Pipeline to fit model for Translation
             if optimize:
                 pykernel_compile_pipeline(b.module)
-                print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
+                # print("---- Optimized PyKernel Module ----", b.module, sep="\n\n")
 
             if kernel_type:
                 assert kernel_type in ["noc", "tensix"], "Invalid kernel type"
