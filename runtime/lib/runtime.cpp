@@ -609,6 +609,14 @@ void deallocateTensor(Tensor &tensor, bool force) {
   LOG_FATAL("runtime is not enabled");
 }
 
+void setDumpDeviceRate(std::uint32_t rate) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    ::tt::runtime::ttnn::setDumpDeviceRate(rate);
+  }
+#endif
+}
+
 std::string getOpDebugString(OpContext opContextHandle) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {

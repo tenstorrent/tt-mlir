@@ -269,6 +269,10 @@ PYBIND11_MODULE(_C, m) {
       },
       py::arg("tensors"));
   m.def(
+      "set_dump_device_rate",
+      [](std::uint32_t rate) { tt::runtime::setDumpDeviceRate(rate); },
+      "Set the number of ops run before dumping the device performance data");
+  m.def(
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
@@ -279,10 +283,6 @@ PYBIND11_MODULE(_C, m) {
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
       "Get the output tensor of the op");
-  m.def(
-      "set_dump_device_rate",
-      [](std::uint32_t rate) { tt::runtime::setDumpDeviceRate(rate); },
-      "Set the number of ops run before dumping the device performance data");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

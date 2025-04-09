@@ -478,8 +478,6 @@ class Run:
                 post_op_get_callback_fn(post_op_callback_runtime_config),
             )
 
-            ttrt.runtime.set_dump_device_rate(1)
-
             try:
                 for bin in binaries:
                     try:
