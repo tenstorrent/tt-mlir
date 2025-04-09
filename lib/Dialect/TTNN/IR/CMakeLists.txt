@@ -5,7 +5,7 @@ add_mlir_dialect_library(MLIRTTNNDialect
         TTNNOpModelInterface.cpp
         TTNNOpsTypes.cpp
         TTNNWorkaroundInterface.cpp
-        TTNNWorkarounds.cpp
+        TTNNWorkaroundsPass.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_IR_TTNNWORKAROUNDS_H
-#define TTMLIR_DIALECT_TTNN_IR_TTNNWORKAROUNDS_H
+#ifndef TTMLIR_DIALECT_TTNN_IR_TTNNWORKAROUNDSPASS_H
+#define TTMLIR_DIALECT_TTNN_IR_TTNNWORKAROUNDSPASS_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
@@ -289,4 +289,4 @@ public:
 
 } // namespace mlir::tt::ttnn::wa
 
-#endif
+#endif // TTMLIR_DIALECT_TTNN_IR_TTNNWORKAROUNDSPASS_H
