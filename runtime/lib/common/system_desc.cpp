@@ -92,22 +92,12 @@ static void sort(std::vector<::tt::target::Dim2d> &vec) {
             });
 }
 
-// Gather all physical cores by type for the device using metal device APIs
-static flatbuffers::Offset<::tt::target::ChipPhysicalCores>
-createChipPhysicalCores(const ::tt::tt_metal::IDevice *device,
-                        flatbuffers::FlatBufferBuilder &fbb) {
+// Gather physical helper cores by type for the device using metal device APIs
+static flatbuffers::Offset<::tt::target::ChipPhysicalHelperCores>
+createChipPhysicalHelperCores(const ::tt::tt_metal::IDevice *device,
+                              flatbuffers::FlatBufferBuilder &fbb) {
 
-  std::vector<::tt::target::Dim2d> worker_cores, dram_cores, eth_cores,
-      eth_inactive_cores;
-
-  CoreCoord logical_grid_size = device->compute_with_storage_grid_size();
-  for (uint32_t y = 0; y < logical_grid_size.y; y++) {
-    for (uint32_t x = 0; x < logical_grid_size.x; x++) {
-      CoreCoord physical =
-          device->worker_core_from_logical_core(CoreCoord(x, y));
-      worker_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
-    }
-  }
+  std::vector<::tt::target::Dim2d> dram_cores, eth_cores, eth_inactive_cores;
 
   for (int dram_channel = 0; dram_channel < device->num_dram_channels();
        ++dram_channel) {
@@ -130,11 +120,20 @@ createChipPhysicalCores(const ::tt::tt_metal::IDevice *device,
   sort(eth_cores);
   sort(eth_inactive_cores);
 
-  return ::tt::target::CreateChipPhysicalCores(
-      fbb, fbb.CreateVectorOfStructs(worker_cores),
-      fbb.CreateVectorOfStructs(dram_cores),
+  return ::tt::target::CreateChipPhysicalHelperCores(
+      fbb, fbb.CreateVectorOfStructs(dram_cores),
       fbb.CreateVectorOfStructs(eth_cores),
       fbb.CreateVectorOfStructs(eth_inactive_cores));
+}
+
+::tt::target::Dim2d
+getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
+  const CoreCoord worker_nw_corner =
+      device->worker_core_from_logical_core({0, 0});
+  const CoreCoord worker_nw_corner_translated =
+      device->virtual_noc0_coordinate(0, worker_nw_corner);
+  return ::tt::target::Dim2d(worker_nw_corner_translated.y,
+                             worker_nw_corner_translated.x);
 }
 
 // Calculate the end of the DRAM region that is not usable by compiler.  This
@@ -198,8 +197,17 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     ::tt::target::Dim2d deviceGrid =
         toFlatbuffer(device->compute_with_storage_grid_size());
 
-    // Extract physical core coordinates for worker, dram, eth cores
-    auto chipPhysicalCores = createChipPhysicalCores(device, fbb);
+    assert(device->compute_with_storage_grid_size().x ==
+               static_cast<size_t>(deviceGrid.x()) &&
+           device->compute_with_storage_grid_size().y ==
+               static_cast<size_t>(deviceGrid.y()));
+
+    // Get the physical-to-translated coordinate translation offset of the
+    // worker cores
+    auto coordTranslationOffsets = getCoordinateTranslationOffsets(device);
+
+    // Extract physical core coordinates for dram and eth cores
+    auto chipPhysicalHelperCores = createChipPhysicalHelperCores(device, fbb);
 
     // The following is temporary place-holder value to be replaced by API
     // value.
@@ -228,11 +236,11 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     constexpr std::uint32_t kNumDatamovementThreads = 2;
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
-        device->l1_size_per_core(), device->num_dram_channels(),
-        device->dram_size_per_channel(), l1Alignment, pcieAlignment,
-        dramAlignment, l1UnreservedBase,
+        &coordTranslationOffsets, device->l1_size_per_core(),
+        device->num_dram_channels(), device->dram_size_per_channel(),
+        l1Alignment, pcieAlignment, dramAlignment, l1UnreservedBase,
         ::eth_l1_mem::address_map::ERISC_L1_UNRESERVED_BASE, dramUnreservedBase,
-        dramUnreservedEnd, chipPhysicalCores, supportedDataTypes,
+        dramUnreservedEnd, chipPhysicalHelperCores, supportedDataTypes,
         supportedTileSizes, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
         kNumDatamovementThreads));
     chipDescIndices.push_back(device->id());

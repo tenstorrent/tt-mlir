@@ -63,6 +63,9 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   // Populate dummy values for single chip or multi chip config.
   llvm::SmallVector<std::int64_t> gridShape = {8, 8};
 
+  // Physical-to-translated coordinate translation offsets
+  llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18};
+
   // Populate a placeholder for supported tile sizes.
   llvm::SmallVector<DataTypeAttr> supported_data_types = {
       DataTypeAttr::get(context, DataType::Float32),
@@ -87,14 +90,6 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
       TileSizeAttr::get(context, 16, 32), TileSizeAttr::get(context, 32, 32),
   };
 
-  llvm::SmallVector<CoreCoordAttr> workerCores;
-  workerCores.reserve(gridShape[0] * gridShape[1]);
-  for (std::int64_t y = 0; y < gridShape[0]; ++y) {
-    for (std::int64_t x = 0; x < gridShape[1]; ++x) {
-      workerCores.push_back(CoreCoordAttr::get(context, y, x));
-    }
-  }
-
   llvm::SmallVector<CoreCoordAttr> dramCores;
   for (std::int64_t x = 0; x < 4; ++x) {
     for (std::int64_t y = 0; y < 3; ++y) {
@@ -112,11 +107,12 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
 
   for (auto i = 0; i < numberOfChips; i++) {
     chipDescs.push_back(ChipDescAttr::get(
-        context, ArchAttr::get(context, Arch::WormholeB0), gridShape, l1Size,
-        numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
-        pcieAddressAlignBytes, nocDRAMAddressAlignBytes, l1UnreservedBase,
-        eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,
-        ChipPhysicalCoresAttr::get(context, workerCores, dramCores, {}, {}),
+        context, ArchAttr::get(context, Arch::WormholeB0), gridShape,
+        coordTranslationOffsets, l1Size, numDramChannels, dramChannelSize,
+        nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
+        l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
+        dramUnreservedEnd,
+        ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
         supported_data_types, supported_tile_sizes, numCBs, numComputeThreads,
         numDatamovementThreads));
   }
@@ -205,31 +201,27 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chip_desc_list;
   for (auto const *element : *binary_chip_desc) {
-    std::vector<tt::CoreCoordAttr> worker_cores, dram_cores, eth_cores,
-        eth_inactive_cores;
-    auto const *physical_cores = element->physical_cores();
+    std::vector<tt::CoreCoordAttr> dram_cores, eth_cores, eth_inactive_cores;
+    auto const *physical_helper_cores = element->physical_helper_cores();
 
     // Populate all vecrors with CoreCoordAttr instances
-    for (auto const &core : *physical_cores->worker()) {
-      worker_cores.emplace_back(
-          tt::CoreCoordAttr::get(context, core->y(), core->x()));
-    }
-    for (auto const &core : *physical_cores->dram()) {
+    for (auto const &core : *physical_helper_cores->dram()) {
       dram_cores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
-    for (auto const &core : *physical_cores->eth()) {
+    for (auto const &core : *physical_helper_cores->eth()) {
       eth_cores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
-    for (auto const &core : *physical_cores->eth_inactive()) {
+    for (auto const &core : *physical_helper_cores->eth_inactive()) {
       eth_inactive_cores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
 
-    // Create ChipPhysicalCoresAttr from the list of CoreCoordAttr instances
-    auto chip_physical_cores_attr = tt::ChipPhysicalCoresAttr::get(
-        context, worker_cores, dram_cores, eth_cores, eth_inactive_cores);
+    // Create ChipPhysicalHelperCoresAttr from the list of CoreCoordAttr
+    // instances
+    auto chip_physical_helper_cores_attr = tt::ChipPhysicalHelperCoresAttr::get(
+        context, dram_cores, eth_cores, eth_inactive_cores);
 
     tt::Arch arch;
     switch (element->arch()) {
@@ -313,12 +305,14 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
     auto current_chip_desc_attr = tt::ChipDescAttr::get(
         context, tt::ArchAttr::get(context, arch),
         {element->grid_size()->y(), element->grid_size()->x()},
+        {element->coord_translation_offsets()->y(),
+         element->coord_translation_offsets()->x()},
         element->l1_size(), element->num_dram_channels(),
         element->dram_channel_size(), element->noc_l1_address_align_bytes(),
         element->pcie_address_align_bytes(),
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
-        element->dram_unreserved_end(), chip_physical_cores_attr,
+        element->dram_unreserved_end(), chip_physical_helper_cores_attr,
         supported_data_types_attr, supported_tile_sizes_attr,
         element->num_cbs(), element->num_compute_threads(),
         element->num_datamovement_threads());
@@ -999,14 +993,14 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      ::llvm::ArrayRef<unsigned> chipIds,
                                      unsigned dramPageSize) {
   auto chipDesc = systemDesc.getChipDescs().front();
-  auto chipPhysicalCores = chipDesc.getChipPhysicalCores();
-  auto firstDramCores = chipPhysicalCores.getDram();
+  auto chipPhysicalHelperCores = chipDesc.getChipPhysicalHelperCores();
+  auto firstDramCores = chipPhysicalHelperCores.getDram();
   assert(!firstDramCores.empty() && "expected at least one dram core");
 
   for (unsigned chipId : chipIds) {
     auto chipDesc = systemDesc.getChipDescs()[chipId];
-    auto chipPhysicalCores = chipDesc.getChipPhysicalCores();
-    auto dramCores = chipPhysicalCores.getDram();
+    auto chipPhysicalHelperCores = chipDesc.getChipPhysicalHelperCores();
+    auto dramCores = chipPhysicalHelperCores.getDram();
     assert(dramCores.size() == firstDramCores.size());
   }
 
