@@ -708,6 +708,45 @@ createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
                                                  op.getDim(), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dWeightsOp>
+createOp(FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op) {
+  auto weightTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeightTensor()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedSize);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      memoryConfigToFlatbuffer(
+          cache, op.getInputMemoryConfig(),
+          getTensorValueTileShape(op.getResult()),
+          getTensorValueCoreRangeSet(cache, op.getResult()));
+
+  ::tt::target::TensorLayout inputTensorLayout =
+      toFlatbuffer(cache, op.getInputTensorLayout());
+  ::flatbuffers::Offset<::flatbuffers::String> weightsFormat =
+      toFlatbuffer(cache, op.getWeightsFormat());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
+      conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
+
+  return ::tt::target::ttnn::CreatePrepareConv2dWeightsOp(
+      *cache.fbb, weightTensor, output, memoryConfig, inputTensorLayout,
+      weightsFormat, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
+      dilation, op.getHasBias(), op.getGroups(),
+      cache.at<::tt::target::DeviceRef>(device), conv2dConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
 createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1925,6 +1964,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
+                           debugString, locInfo);
+  }
+  if (auto prepareConv2dWeightsOp = dyn_cast<PrepareConv2dWeightsOp>(op);
+      prepareConv2dWeightsOp) {
+    return createOperation(cache, createOp(cache, prepareConv2dWeightsOp),
                            debugString, locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {

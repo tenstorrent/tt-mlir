@@ -8,6 +8,7 @@
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv_transpose2d.h"
+#include "operations/conv/prepare_conv2d_weights.h"
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
@@ -298,6 +299,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    return operations::conv::run(op->type_as_PrepareConv2dWeightsOp(),
+                                 getContext());
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), getContext());
