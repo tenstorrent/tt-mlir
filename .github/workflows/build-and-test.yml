@@ -335,6 +335,7 @@ jobs:
         if-no-files-found: 'ignore'
 
     - name: Show Test Report
+      continue-on-error: true
       uses: mikepenz/action-junit-report@v4
       if: success() || failure()
       with:
@@ -400,7 +401,15 @@ jobs:
         source env/activate
         python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
 
+    - name: Upload clang-tidy fixes
+      uses: actions/upload-artifact@v4
+      if: failure() && steps.lint.outcome == 'failure'
+      with:
+        name: clang-tidy-result
+        path: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+
     - name: Clang-tidy PR Comments
+      continue-on-error: true
       uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
       if: failure() && steps.lint.outcome == 'failure'
       with:
