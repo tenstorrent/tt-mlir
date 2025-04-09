@@ -4,7 +4,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"

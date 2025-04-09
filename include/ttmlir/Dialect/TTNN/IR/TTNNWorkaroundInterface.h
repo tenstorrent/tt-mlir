@@ -4,7 +4,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_IR_TTNNWORKAROUNDINTERFACE_H
 #define TTMLIR_DIALECT_TTNN_IR_TTNNWORKAROUNDINTERFACE_H
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 
 #include "mlir/IR/Operation.h"
 
