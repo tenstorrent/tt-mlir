@@ -13,11 +13,9 @@ from pykernel.types import *
 # / ----------------- PYKERNELS --------------- /
 # / ------------------------------------------- /
 @ttkernel_tensix_compile()
-def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer):
-    # per_core_block_cnt = compile_args[0] #get_compile_time_arg_val(int, 0)
-    # per_core_block_dim = compile_args[1] #get_compile_time_arg_val(int, 1)
-    per_core_block_cnt = 4  # get_compile_time_arg_val(int, 0)
-    per_core_block_dim = 1  # get_compile_time_arg_val(int, 1)
+def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer, ct_args=[]):
+    per_core_block_cnt = ct_args[0]
+    per_core_block_dim = ct_args[1]
 
     unary_op_init_common(cb_in, cb_out)
     for i in range(0, per_core_block_cnt, 1):
@@ -43,12 +41,14 @@ def eltwise_sfpu(cb_in: CircularBuffer, cb_out: CircularBuffer):
 
 
 @ttkernel_noc_compile()
-def writer_unary_interleaved(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
+def writer_unary_interleaved(
+    cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args, ct_args=[]
+):
     dst_addr: int = rt_args[0]
     num_tiles = rt_args[1]
     start_id = rt_args[2]
 
-    dst_is_dram = True  # compile_args[1]
+    dst_is_dram = ct_args[1]  # True
     onetile = 1
     tile_bytes = get_tile_size(cb_out)
     dataformat = get_dataformat(cb_out)
@@ -68,12 +68,14 @@ def writer_unary_interleaved(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_a
 
 
 @ttkernel_noc_compile()
-def reader_unary_interleaved(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
+def reader_unary_interleaved(
+    cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args, ct_args=[]
+):
     src_addr: int = rt_args[0]
     num_tiles = rt_args[1]
     start_id = rt_args[2]
 
-    src_is_dram = True  # compile_args[0]
+    src_is_dram = ct_args[0]  # True
     onetile = 1
     tile_bytes = get_tile_size(cb_in)
     dataformat = get_dataformat(cb_in)
@@ -149,20 +151,23 @@ def run_pykernel_demo(device):
         cb_out_id: output_cb_attributes,
     }
 
-    is_dram_input = 1
+    is_dram_input = True
     reader_compile_time_args = [is_dram_input]
     writer_compile_time_args = [cb_out_id, is_dram_input]
+    compute_compile_time_args = [num_tiles, 1]
     reader_rt_args = [input_tensor.buffer_address(), num_tiles, 0]
     writer_rt_args = [output_tensor.buffer_address(), num_tiles, 0]
-
-    compute_compile_time_args = [num_tiles, 1]
 
     # Create and dump pykernels to files
     cb_in = CircularBuffer(0)
     cb_out = CircularBuffer(16)
-    reader_string = reader_unary_interleaved(cb_in, cb_out, reader_rt_args)
-    writer_string = writer_unary_interleaved(cb_in, cb_out, writer_rt_args)
-    compute_string = eltwise_sfpu(cb_in, cb_out)
+    reader_string = reader_unary_interleaved(
+        cb_in, cb_out, reader_rt_args, ct_args=reader_compile_time_args
+    )
+    writer_string = writer_unary_interleaved(
+        cb_in, cb_out, writer_rt_args, ct_args=writer_compile_time_args
+    )
+    compute_string = eltwise_sfpu(cb_in, cb_out, ct_args=compute_compile_time_args)
 
     reader_kernel = Kernel("reader_unary", reader_string)
     writer_kernel = Kernel("writer_unary", writer_string)

@@ -122,6 +122,9 @@ class TTKernelCompiler(ast.NodeVisitor):
 
         self.cb_args = args
         self.rt_args = None
+        self.ct_args = None
+        if "ct_args" in kwargs:
+            self.ct_args = kwargs["ct_args"]
 
         self.verbose = kwargs.get("verbose", False)
         self.source_code = kwargs.get("source_code", "")
@@ -208,6 +211,10 @@ class TTKernelCompiler(ast.NodeVisitor):
                 # We don't want this to be defined in the EmitC module since it's bootstrapped to call get_arg_val
                 # Instead set a flag for ast.Subscript to check if this value is being called.
                 self.rt_args = arg
+                continue
+            elif arg.arg == "ct_args":
+                if self.ct_args == None:
+                    raise ValueError("ct_args must be defined")
                 continue
 
             if not arg.annotation:
@@ -672,9 +679,10 @@ class TTKernelCompiler(ast.NodeVisitor):
     # Subscript Value
     def visit_Subscript(self, node):
         # This is where we can invoke the rt_args for the kernel to be loaded in
-        if self.rt_args is not None:
-            # rt_args has been defined, we know that the id of the array to reference from is "rt_args"
-            if node.value.id == self.rt_args.arg:
+        if node.value.id == "rt_args":
+            if self.rt_args is not None:
+                # rt_args has been defined, we know that the id of the array to reference from is "rt_args"
+                # if node.value.id == self.rt_args.arg:
                 # Get index from slice and ensure it's a single integral value
                 if isinstance(node.slice, ast.Constant):
                     # Now we have a single integral constant here, construct and return the get_arg_val call.
@@ -696,6 +704,23 @@ class TTKernelCompiler(ast.NodeVisitor):
                         int_type = IntegerType.get_signless(32, self.ctx)
                         result.append(ttkernel.get_arg_val(int_type, arg_index))
                     return result
+        elif node.value.id == "ct_args":
+            # TODO: error checking, support slicing
+            # assume only single integer values is passed into subscript for now
+            ct_args_index = node.slice.value
+            ct_args_value = self.ct_args[ct_args_index]
+            if isinstance(ct_args_value, bool):
+                # have to look for bool first, or else it'll be picked up as an integer :/
+                return arith.ConstantOp(
+                    IntegerType.get_signless(1, self.ctx), ct_args_value
+                )
+            elif isinstance(ct_args_value, int):
+                return arith.ConstantOp(
+                    IntegerType.get_signless(32, self.ctx), ct_args_value
+                )
+            else:
+                raise TypeError("ct_args must be int or bool")
+
         raise NotImplementedError(
             "Loading from Subscripts except Runtime Args not supported"
         )
