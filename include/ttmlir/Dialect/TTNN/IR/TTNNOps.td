@@ -1111,7 +1111,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
 def TTNN_Conv2dOp : TTNN_Op<"conv2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpRuntime"]>]
       > {
     let summary = "Conv2d operation.";
     let description = [{
@@ -1194,6 +1194,9 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
             getBias() != nullptr
         );
       }
+
+      llvm::Expected<std::tuple<size_t, size_t, size_t>> getOpConstraints(
+        const std::vector<TTNNLayoutAttr> &inputs, const TTNNLayoutAttr &output, Conv2dConfigAttr conv2dConfigAttr = nullptr);
     }];
 }
 
