@@ -114,6 +114,8 @@ public:
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
+  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
+
   void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
@@ -124,6 +126,7 @@ public:
       runOperation(op);
       runCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
+      dumpPerfCountersIfNeeded(context->getParentMesh());
     }
   }
 
@@ -156,6 +159,21 @@ void ProgramExecutor::runCallback(
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
   }
+}
+
+void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  static uint32_t counter = 0;
+  if (counter++ >= debug::APIInfo::get().getDumpDeviceRate()) {
+    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
+                                           std::to_string(counter) +
+                                           " operations");
+    for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
+      ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+    }
+    counter = 0;
+  }
+#endif
 }
 
 void ProgramExecutor::runEltwiseOperation(

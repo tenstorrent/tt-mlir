@@ -21,6 +21,11 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
   return config;
 }
 
+APIInfo const &APIInfo::get(std::optional<std::uint32_t> dumpRate) {
+  static APIInfo config(dumpRate);
+  return config;
+}
+
 } // namespace tt::runtime::debug
 
 #endif

@@ -146,6 +146,8 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src);
 
 void deallocateTensor(::tt::runtime::Tensor &tensor, bool force = false);
 
+void setDumpDeviceRate(std::uint32_t rate);
+
 std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);

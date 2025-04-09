@@ -279,6 +279,10 @@ PYBIND11_MODULE(_C, m) {
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
       "Get the output tensor of the op");
+  m.def(
+      "set_dump_device_rate",
+      [](std::uint32_t rate) { tt::runtime::setDumpDeviceRate(rate); },
+      "Set the number of ops run before dumping the device performance data");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
@@ -370,8 +374,11 @@ PYBIND11_MODULE(_C, m) {
    */
   auto cleanup_callback = []() {
     ::tt::runtime::debug::Hooks::get().unregisterHooks();
+    ::tt::runtime::debug::APIInfo::get().unregisterAPIInfo();
   };
   m.add_object("_cleanup", py::capsule(cleanup_callback));
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+  m.def("unregister_apiInfo",
+        []() { ::tt::runtime::debug::APIInfo::get().unregisterAPIInfo(); });
 }

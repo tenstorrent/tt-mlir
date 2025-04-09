@@ -33,6 +33,7 @@ try:
         to_host,
         to_layout,
         get_layout,
+        set_dump_device_rate,
         get_op_output_tensor,
         get_op_debug_str,
         memcpy,

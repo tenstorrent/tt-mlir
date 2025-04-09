@@ -100,6 +100,47 @@ inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
      << "}";
   return os;
 }
+
+struct APIInfo {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  static APIInfo const &get(std::optional<std::uint32_t> dumpRate = 1000);
+#else
+  constexpr static APIInfo get() { return APIInfo(); }
+#endif
+
+  void setDumpDeviceRate(std::optional<std::uint32_t> rate = 1000) const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    dumpRate = rate;
+#endif
+  }
+
+  std::optional<std::uint32_t> getDumpDeviceRate() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return dumpRate;
+#else
+    return 1000;
+#endif
+  }
+
+  void unregisterAPIInfo() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    dumpRate = 1000;
+#endif
+  }
+
+private:
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  APIInfo(std::optional<std::uint32_t> dumpRate) : dumpRate(dumpRate) {}
+
+  mutable std::optional<std::uint32_t> dumpRate;
+
+#else
+  constexpr APIInfo() = default;
+#endif
+};
+
+// Skipping ostream
+
 } // namespace tt::runtime::debug
 
 #endif // TT_RUNTIME_DETAIL_DEBUG_H
