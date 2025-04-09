@@ -272,49 +272,32 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
 }
 
 llvm::SmallVector<int64_t>
-GetTensorShapeInTiles(const llvm::ArrayRef<int64_t> &tensorShape) {
-  llvm::SmallVector<int64_t> shapeInTiles;
-  for (const auto &dim : tensorShape) {
-    shapeInTiles.push_back(ttmlir::utils::alignUp(dim, 32L));
-  }
-  return shapeInTiles;
-}
+GetVirtualGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
+                    const llvm::ArrayRef<int64_t> &gridPhyCores = {8, 8}) {
 
-llvm::SmallVector<int64_t> GetVirtualGridShape(
-    const llvm::ArrayRef<int64_t> &tensorShape,
-    const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
-    const llvm::ArrayRef<int64_t> &gridPhyCores = {8, 8}) {
-
-  // Usually tensors are of rank 2, but in case of MaxPool2D or Conv2D ops, it
-  // is 4. This tensor will be flattened to {1, 1, Y, X} shape.
-  assert(tensorShape.size() >= 2);
-  for (size_t i = 0; i < tensorShape.size() - 2; i++) {
-    assert(tensorShape[i] == 1);
-  }
-  int32_t tensorRank = tensorShape.size();
-  int64_t tensorSizeX = tensorShape[tensorRank - 1];
-  int64_t tensorSizeY = tensorShape[tensorRank - 2];
-
-  llvm::SmallVector<int64_t> tensorShapeTiles =
-      GetTensorShapeInTiles({tensorSizeY, tensorSizeX});
-
-  int64_t tensorTiles = 1;
-  for (const auto &dim : tensorShapeTiles) {
-    tensorTiles *= dim;
+  if (memoryConfig.memory_layout ==
+      ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED) {
+    assert(memoryConfig.shard_spec.has_value());
+    return {memoryConfig.shard_spec->num_cores(), 1};
   }
 
-  switch (tensorMemoryLayout) {
-  case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
-    return {1, std::min(tensorTiles, gridPhyCores[0] * gridPhyCores[1])};
-  case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
-    return {std::min(tensorTiles, gridPhyCores[0] * gridPhyCores[1]), 1};
-  case mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
-    assert(tensorShapeTiles.size() == 2);
-    return {std::min(gridPhyCores[0], tensorShapeTiles[0]),
-            std::min(gridPhyCores[1], tensorShapeTiles[1])};
-  default:
-    return {gridPhyCores[0], gridPhyCores[1]};
+  if (memoryConfig.memory_layout ==
+      ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED) {
+    assert(memoryConfig.shard_spec.has_value());
+    return {1, memoryConfig.shard_spec->num_cores()};
   }
+
+  if (memoryConfig.memory_layout ==
+      ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED) {
+    assert(memoryConfig.shard_spec.has_value());
+    CoreRange boundingGrid = memoryConfig.shard_spec->grid.bounding_box();
+    assert(memoryConfig.shard_spec->num_cores() == boundingGrid.size());
+    return {static_cast<long>(boundingGrid.grid_size().x),
+            static_cast<long>(boundingGrid.grid_size().y)};
+  }
+
+  // interleaved
+  return {gridPhyCores[0], gridPhyCores[1]};
 }
 
 mlir::tt::ttnn::TTNNLayoutAttr
@@ -340,7 +323,7 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
       context, getTensorMemoryLayout(tensorSpec.memory_config().memory_layout));
 
   GridAttr grid = mlir::tt::GridAttr::get(
-      context, GetVirtualGridShape(shape, memoryLayoutAttr.getValue()),
+      context, GetVirtualGridShape(tensorSpec.memory_config()),
       ::mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
           context, memoryLayoutAttr.getValue(), {8, 8}));
 
