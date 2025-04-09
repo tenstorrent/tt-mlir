@@ -62,11 +62,13 @@ public:
       auto chipDesc = chipDescs[chipId];
       auto chipGrid = chipDesc.getGrid();
       assert(chipGrid == firstChipGrid);
-      ChipPhysicalCoresAttr chipPhysicalCores = chipDesc.getChipPhysicalCores();
-      assert(chipPhysicalCores.getWorker().size() ==
-             static_cast<size_t>(grid[0] * grid[1]));
-      for (auto worker : chipPhysicalCores.getWorker()) {
-        physCores.push_back({worker.getY(), worker.getX()});
+      const ArrayRef<int64_t> coordTranslationOffsets =
+          chipDesc.getCoordTranslationOffsets();
+      for (int64_t y = 0; y < grid[0]; y++) {
+        for (int64_t x = 0; x < grid[1]; x++) {
+          physCores.push_back(
+              {y + coordTranslationOffsets[0], x + coordTranslationOffsets[1]});
+        }
       }
     }
     assert(physCores.size() == chipIds.size() * grid[0] * grid[1]);
@@ -77,7 +79,7 @@ public:
   getDramMapping(ArrayRef<unsigned> chipIds,
                  ArrayRef<tt::ChipDescAttr> chipDescs) {
     ArrayRef<CoreCoordAttr> firstChipDramCores =
-        chipDescs[chipIds.front()].getChipPhysicalCores().getDram();
+        chipDescs[chipIds.front()].getChipPhysicalHelperCores().getDram();
 
     std::array<int64_t, 2> grid = {
         1, static_cast<int64_t>(firstChipDramCores.size())};
@@ -85,10 +87,11 @@ public:
     physCores.reserve(chipIds.size() * grid[0] * grid[1]);
     for (auto chipId : chipIds) {
       auto chipDesc = chipDescs[chipId];
-      ChipPhysicalCoresAttr chipPhysicalCores = chipDesc.getChipPhysicalCores();
-      assert(chipPhysicalCores.getDram().size() ==
+      ChipPhysicalHelperCoresAttr chipPhysicalHelperCores =
+          chipDesc.getChipPhysicalHelperCores();
+      assert(chipPhysicalHelperCores.getDram().size() ==
              static_cast<size_t>(grid[0] * grid[1]));
-      for (auto dram : chipPhysicalCores.getDram()) {
+      for (auto dram : chipPhysicalHelperCores.getDram()) {
         physCores.push_back({dram.getY(), dram.getX()});
       }
     }
