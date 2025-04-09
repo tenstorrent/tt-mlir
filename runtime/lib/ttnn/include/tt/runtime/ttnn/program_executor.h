@@ -64,11 +64,6 @@ private:
    * Executes a single operation
    */
   void runOperation(const ::tt::target::ttnn::Operation *op);
-
-  /**
-   * Executes an eltwise operation
-   */
-  void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
 
 } // namespace tt::runtime::ttnn

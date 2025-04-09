@@ -110,7 +110,6 @@ inline Tensor createOwnedHostTensor(void const *data, TensorDesc const &desc) {
                                               desc.itemsize, desc.dataType);
 }
 
-
 void initCache(Device &device);
 
 inline Tensor createBorrowedHostTensor(void *data, TensorDesc const &desc) {
@@ -189,7 +188,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
-                           std::vector<Tensor> const &inputs);
+                           std::vector<Tensor> &inputs);
 
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex, std::vector<Tensor> const &inputs,
