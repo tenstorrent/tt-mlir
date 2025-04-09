@@ -479,9 +479,6 @@ TEST_F(OpModelBase, typecastOp) {
 }
 
 TEST_F(OpModelBase, Conv2dInterface) {
-  // Enable test once #2588 is fixed.
-  GTEST_SKIP();
-
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
@@ -506,9 +503,11 @@ TEST_F(OpModelBase, Conv2dInterface) {
 
   // test Conv2dOp interface
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
-  // TODO(odjuricic): This will change to EXPECT_TRUE once a fix lands in metal.
-  EXPECT_FALSE(static_cast<bool>(constraintsExp));
-  llvm::consumeError(constraintsExp.takeError());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cb_size, peak_size, output_size] = constraintsExp.get();
+  EXPECT_EQ(cb_size, 229440);
+  EXPECT_EQ(peak_size, 190568);
+  EXPECT_EQ(output_size, 26624);
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();

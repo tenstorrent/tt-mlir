@@ -1087,12 +1087,9 @@ class OpModelConv2dParam
                      llvm::SmallVector<int32_t>, // padding
                      llvm::SmallVector<int32_t>, // dilation
                      uint32_t,                   // groups
-                     bool, bool>> {};
+                     detail::ExpectedResult>> {};
 
 TEST_P(OpModelConv2dParam, Conv2d) {
-  // Enable test once #2588 is fixed.
-  GTEST_SKIP();
-
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
@@ -1110,8 +1107,8 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   const auto padding = std::get<10>(params);
   const auto dilation = std::get<11>(params);
   const auto groups = std::get<12>(params);
-  const auto constraintsLegal = std::get<13>(params);
-  const auto runtimeLegal = std::get<14>(params);
+  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+              expectedOutputSize] = std::get<13>(params);
 
   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout = CreateTiledLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
@@ -1130,12 +1127,12 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       outputShape, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
-  EXPECT_EQ(static_cast<bool>(constraintsExp), constraintsLegal);
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
     const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
-    EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
-    EXPECT_GT(outputSize, 0);
+    EXPECT_EQ(cbSize, expectedCbSize);
+    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
@@ -1151,7 +1148,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       outputShape, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
-  EXPECT_EQ(static_cast<bool>(runtimeExp), runtimeLegal);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
     const auto runtime = runtimeExp.get();
     EXPECT_GT(runtime, 0);
@@ -1176,14 +1173,14 @@ INSTANTIATE_TEST_SUITE_P(
                                mlir::tt::ttnn::BufferType::DRAM},
             3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
             llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{3, 3},
-            llvm::SmallVector<int32_t>{1, 1}, 1, false, true),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024L1, 3, 64, 32, 224, 224,
-                        llvm::SmallVector<int32_t>{7, 7},
-                        llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{1, 1}, 1, false, false)));
+            llvm::SmallVector<int32_t>{1, 1}, 1,
+            detail::ExpectedResult{true, 229440, 190568, 0}),
+        std::make_tuple(
+            detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
+            detail::interleavedN300X1024L1, 3, 64, 32, 224, 224,
+            llvm::SmallVector<int32_t>{7, 7}, llvm::SmallVector<int32_t>{2, 2},
+            llvm::SmallVector<int32_t>{3, 3}, llvm::SmallVector<int32_t>{1, 1},
+            1, detail::ExpectedResult{false, 0, 0, 0})));
 
 class OpModelMaxPool2DParam
     : public OpModelTest,
