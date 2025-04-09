@@ -116,9 +116,6 @@ class TTIRBuilder:
         self._ctx = ctx
         self._loc = location
 
-        tt.register_dialect(self._ctx)
-        ttir.register_dialect(self._ctx)
-
         self._seed = 0
         # Dictionary to store Golden for each Operand we encounter in MLIR
         # graph.
@@ -1292,7 +1289,6 @@ class TTIRBuilder:
                 i = i + 4
                 golden_padding.append(padding[(2 * i) + 1])
                 golden_padding.append(padding[2 * i])
-
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,

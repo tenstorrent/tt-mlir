@@ -118,6 +118,5 @@ if __name__ == "__main__":
 
     with Context() as ctx, open(args.mlir, "r") as mlir_fd:
         ctx.allow_unregistered_dialects = True
-        ttir.register_dialect(ctx)
         module = Module.parse(mlir_fd.read(), ctx)
         print(parted(module))

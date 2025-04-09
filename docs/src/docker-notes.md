@@ -46,6 +46,41 @@ sudo docker run -it -d --rm \
 > The base or CI image can also be used in the same way, but the IRD image is
 > recommended for development.
 
+## Using the Docker Image via IRD (_Internal Developers Only_)
+
+Internally we use a tool called IRD.  As part of your `reserve` command, you
+can specify the docker image to use:
+
+```bash
+ird reserve \
+  --docker-image ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-22-04:latest
+```
+
+See `ird reserve --help` for more information on the `reserve` command. Typical
+ird usage might look like:
+
+```bash
+# list machine availability
+ird list-machines
+
+# reserve a machine
+ird reserve \
+  --volumes /localdev/$USER:/localdev/$USER \
+  --docker-image ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-22-04:latest \
+  --timeout 720 \
+  wormhole_b0 \
+  --machine [MACHINE_NAME]
+
+# list your currently reserved machines
+ird list
+
+# connect to the first reserved machine
+ird connect-to 1
+
+# release the first reserved machine
+ird release 1
+```
+
 ## Building the Docker Image using GitHub Actions
 
 The GitHub Actions workflow [Build and Publish Docker Image](.github/workflows/build-image.yml) builds the Docker images and uploads them to GitHub Packages at [https://github.com/orgs/tenstorrent/packages?repo_name=tt-mlir](https://github.com/orgs/tenstorrent/packages?repo_name=tt-mlir). We use the git SHA we build from as the tag.
