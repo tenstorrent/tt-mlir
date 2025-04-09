@@ -466,7 +466,8 @@ MultiplyOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const TTNNLayoutAttr &output) {
+                           const TTNNLayoutAttr &output,
+                           Conv2dConfigAttr conv2dConfigAttr) {
   assert(inputs.size() == 2 || inputs.size() == 3);
 
   const auto inputShape = getInput().getType().getShape();
@@ -487,12 +488,16 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
   GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
 
+  // If a conv config has been specified, use that. If not, read the op property
+  auto config = conv2dConfigAttr != nullptr
+                    ? std::make_optional(conv2dConfigAttr)
+                    : getConv2dConfig();
+
   return op_model::ttnn::Conv2dOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], weightShape, inputs[1], biasShape,
-      biasLayout, getInChannels(), getOutChannels(), getBatchSize(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getDilation(), getGroups(), getConv2dConfig(), outputShape,
-      output);
+      deviceGrid, inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(),
+      getDilation(), getGroups(), config, outputShape, output);
 }
 
 llvm::Expected<size_t>
