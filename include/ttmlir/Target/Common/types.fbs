@@ -80,6 +80,7 @@ table ChipDesc {
   dram_unreserved_base: uint32;
   dram_unreserved_end: uint32;
   physical_cores: ChipPhysicalCores;
+  coord_translation_offsets: Dim2d;
   supported_data_types: [DataType];
   supported_tile_sizes: [Dim2d];
   num_cbs: uint32;

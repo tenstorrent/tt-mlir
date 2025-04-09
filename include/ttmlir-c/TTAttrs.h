@@ -31,9 +31,10 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
-    MlirAttribute chipPhysicalCores, MlirAttribute *supportedDataTypes,
-    MlirAttribute *supportedTileSizes, unsigned numCBs,
-    unsigned numComputeThreads, unsigned numDatamovementThreads);
+    MlirAttribute chipPhysicalCores, int64_t *coordTranslationOffsets,
+    MlirAttribute *supportedDataTypes, MlirAttribute *supportedTileSizes,
+    unsigned numCBs, unsigned numComputeThreads,
+    unsigned numDatamovementThreads);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipCoordAttrGet(
     MlirContext ctx, unsigned rack, unsigned shelf, unsigned y, unsigned x);

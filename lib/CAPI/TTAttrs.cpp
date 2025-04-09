@@ -39,16 +39,21 @@ MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
     unsigned dramUnreservedEnd, MlirAttribute chipPhysicalCores,
+    int64_t *coordTranslationOffsets, size_t coordTranslationOffsetsSize,
     MlirAttribute *supportedDataTypes, MlirAttribute *supportedTileSizes,
     unsigned numCBs, unsigned numComputeThreads,
     unsigned numDatamovementThreads) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
+  std::vector<int64_t> coordTranslationOffsetsVec(
+      coordTranslationOffsets,
+      coordTranslationOffsets + coordTranslationOffsetsSize);
   return wrap(ChipDescAttr::get(
       unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec, l1Size,
       numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
       pcieAddressAlignBytes, nocDRAMAddressAlignBytes, l1UnreservedBase,
       eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,
       mlir::dyn_cast<ChipPhysicalCoresAttr>(unwrap(chipPhysicalCores)),
+      coordTranslationOffsetsVec,
       mlir::dyn_cast<DataTypeAttr>(unwrap(*supportedDataTypes)),
       mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes)), numCBs,
       numComputeThreads, numDatamovementThreads));

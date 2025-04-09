@@ -110,6 +110,9 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   llvm::SmallVector<tt::ChipDescAttr> chipDescs;
   chipDescs.reserve(numberOfChips);
 
+  // Physical-to-translated coordinate translation offsets
+  llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18};
+
   for (auto i = 0; i < numberOfChips; i++) {
     chipDescs.push_back(ChipDescAttr::get(
         context, ArchAttr::get(context, Arch::WormholeB0), gridShape, l1Size,
@@ -117,8 +120,8 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
         pcieAddressAlignBytes, nocDRAMAddressAlignBytes, l1UnreservedBase,
         eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,
         ChipPhysicalCoresAttr::get(context, workerCores, dramCores, {}, {}),
-        supported_data_types, supported_tile_sizes, numCBs, numComputeThreads,
-        numDatamovementThreads));
+        coordTranslationOffsets, supported_data_types, supported_tile_sizes,
+        numCBs, numComputeThreads, numDatamovementThreads));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -319,6 +322,8 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
         element->dram_unreserved_end(), chip_physical_cores_attr,
+        {element->coord_translation_offsets()->x(),
+         element->coord_translation_offsets()->y()},
         supported_data_types_attr, supported_tile_sizes_attr,
         element->num_cbs(), element->num_compute_threads(),
         element->num_datamovement_threads());

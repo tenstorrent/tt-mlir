@@ -314,6 +314,9 @@ inline flatbuffers::Offset<::tt::target::ChipDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
   assert(chipDesc.getGrid().size() == 2 && "expected a 2D grid");
   auto grid = ::tt::target::Dim2d(chipDesc.getGrid()[0], chipDesc.getGrid()[1]);
+  auto coordTranslationOffsets =
+      ::tt::target::Dim2d(chipDesc.getCoordTranslationOffsets()[0],
+                          chipDesc.getCoordTranslationOffsets()[1]);
   return ::tt::target::CreateChipDesc(
       *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
       chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
@@ -323,6 +326,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getEriscL1UnreservedBase(), chipDesc.getDramUnreservedBase(),
       chipDesc.getDramUnreservedEnd(),
       toFlatbuffer(cache, chipDesc.getChipPhysicalCores()),
+      &coordTranslationOffsets,
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
       chipDesc.getNumCBs(), chipDesc.getNumComputeThreads(),

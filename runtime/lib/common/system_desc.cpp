@@ -136,6 +136,16 @@ createChipPhysicalCores(const ::tt::tt_metal::IDevice *device,
       fbb.CreateVectorOfStructs(eth_inactive_cores));
 }
 
+::tt::target::Dim2d
+getCoordinateTranslationOffsets(const ::tt::tt_metal::IDevice *device) {
+  const CoreCoord north_west_corner_worker =
+      device->worker_core_from_logical_core({0, 0});
+  const CoreCoord north_west_corner_worker_translated =
+      device->virtual_noc0_coordinate(0, north_west_corner_worker);
+  return ::tt::target::Dim2d(north_west_corner_worker_translated.x,
+                             north_west_corner_worker_translated.y);
+}
+
 // Calculate the end of the DRAM region that is not usable by compiler.  This
 // upper region of memory is where kernel programs get allocated to.  This
 // function intends to estimate some conservative max number.
@@ -201,6 +211,10 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     // Extract physical core coordinates for worker, dram, eth cores
     auto chipPhysicalCores = createChipPhysicalCores(device, fbb);
 
+    // Get the physical-to-translated coordinate translation offset of the
+    // worker cores
+    auto coordTranslationOffsets = getCoordinateTranslationOffsets(device);
+
     // The following is temporary place-holder value to be replaced by API
     // value.
     std::vector<::tt::target::DataType> supportedDataTypesVector = {
@@ -232,9 +246,9 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         device->dram_size_per_channel(), l1Alignment, pcieAlignment,
         dramAlignment, l1UnreservedBase,
         ::eth_l1_mem::address_map::ERISC_L1_UNRESERVED_BASE, dramUnreservedBase,
-        dramUnreservedEnd, chipPhysicalCores, supportedDataTypes,
-        supportedTileSizes, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
-        kNumDatamovementThreads));
+        dramUnreservedEnd, chipPhysicalCores, &coordTranslationOffsets,
+        supportedDataTypes, supportedTileSizes, NUM_CIRCULAR_BUFFERS,
+        kNumComputeThreads, kNumDatamovementThreads));
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =

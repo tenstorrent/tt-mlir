@@ -107,6 +107,16 @@ def TT_ChipPhysicalCoresAttr : TT_Attr<"ChipPhysicalCores", "chip_physical_cores
   let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ `]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
 }
 
+def TT_CoordTranslationOffsetsAttr : TT_Attr<"CoordTranslationOffsets", "coord_translation_offsets"> {
+  let summary = "TT coord_translation_offsets attribute";
+  let description = [{
+    TT coord_translation_offsets attribute containing the offsets that translate physical coordinates to translated coordinates for the worker cores.
+  }];
+
+  let parameters = (ins ArrayRefParameter<"int64_t">:$offset_pair);
+  let assemblyFormat = "custom<DimensionList>($offset_pair)";
+}
+
 def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
   let summary = "TT chip_desc attribute";
   let description = [{
@@ -126,6 +136,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$dramUnreservedBase,
                     "unsigned":$dramUnreservedEnd,
                     "ChipPhysicalCoresAttr":$chipPhysicalCores,
+                    ArrayRefParameter<"int64_t">:$coordTranslationOffsets,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
                     ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
                     "unsigned":$numCBs,
@@ -144,6 +155,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                              `dram_unreserved_base` `=` $dramUnreservedBase `,`
                              `dram_unreserved_end` `=` $dramUnreservedEnd `,`
                              `physical_cores` `=` $chipPhysicalCores `,`
+                             `coord_translation_offsets` `=` custom<DimensionList>($coordTranslationOffsets) `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
                              `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `,`
                              `num_cbs` `=` $numCBs `,`
