@@ -48,7 +48,7 @@ def writer_unary_interleaved(
     num_tiles = rt_args[1]
     start_id = rt_args[2]
 
-    dst_is_dram = ct_args[1]  # True
+    dst_is_dram = ct_args[1]
     onetile = 1
     tile_bytes = get_tile_size(cb_out)
     dataformat = get_dataformat(cb_out)
