@@ -1961,7 +1961,7 @@ void mlir::tt::ttir::StreamLayoutOp::getCanonicalizationPatterns(
     }
 
     auto currentResultMemref = mlir::cast<MemRefType>(op.getResult().getType());
-    auto streamAttr = rewriter.getAttr<StreamLayoutAttr>(
+    auto streamAttr = rewriter.getAttr<ViewLayoutAttr>(
         viewMemref.getLayout().getAffineMap().compose(
             currentResultMemref.getLayout().getAffineMap()));
     auto newMemref = MemRefType::get(
@@ -3313,7 +3313,7 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
         // shape.
         assert(memref.getRank() % 2 == 0);
         expectedShardShape = memref.getShape().take_back(memref.getRank() / 2);
-        isStream = mlir::isa<tt::StreamLayoutAttr>(memref.getLayout());
+        isStream = mlir::isa<tt::ViewLayoutAttr>(memref.getLayout());
       }
 
       if (!isStream && expectedMemorySpace != blockMemref.getMemorySpace()) {
