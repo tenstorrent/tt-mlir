@@ -38,7 +38,7 @@ static void runEltwiseBinaryOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(lhs, rhs, outputDataType, outputMemoryConfig,
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, {}, {}, {});
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
