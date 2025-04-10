@@ -27,12 +27,12 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOp
       Enqueue program operation
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
+    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$inputs,
+                         Variadic<AnyNon0RankedMemRef>:$outputs,
+                         ArrayAttr:$threads,
                          TTMetal_CoreRangeArrayAttr:$core_ranges,
                          TTKernel_KernelConfigArrayAttr:$kernelConfigs);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region VariadicRegion<AnyRegion>:$regions);
+    let results = (outs Variadic<AnyNon0RankedMemRef>:$results);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
@@ -47,8 +47,8 @@ def TTMetal_EnqueueWriteBufferOp : TTMetal_Op<"enqueue_write_buffer", [Destinati
       Enqueue write buffer operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$output, ElementsAttr:$value);
-    let results = (outs AnyRankedTensor:$result);
+    let arguments = (ins AnyNon0RankedMemRef:$output, ElementsAttr:$value);
+    let results = (outs AnyNon0RankedMemRef:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -63,9 +63,9 @@ def TTMetal_EnqueueReadBufferOp : TTMetal_Op<"enqueue_read_buffer", [Destination
       Enqueue read buffer operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
-    let results = (outs AnyRankedTensor:$result);
+    let arguments = (ins AnyNon0RankedMemRef:$input,
+                         AnyNon0RankedMemRef:$output);
+    let results = (outs AnyNon0RankedMemRef:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -81,7 +81,7 @@ def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer"> {
     }];
 
     let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
-    let results = (outs AnyRankedTensor:$result);
+    let results = (outs AnyNon0RankedMemRef:$result);
 
     let hasVerifier = 1;
 }
@@ -92,7 +92,7 @@ def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer"> {
       Deallocate buffer operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input);
+    let arguments = (ins AnyNon0RankedMemRef:$input);
 }
 
 #endif
