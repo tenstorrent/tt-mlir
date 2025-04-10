@@ -12,6 +12,7 @@
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv_transpose2d.h"
+#include "operations/conv/prepare_conv2d_weights.h"
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
@@ -118,23 +119,20 @@ void ProgramExecutor::runCallback(
   }
 }
 
-void ProgramExecutor::execute() {
-  for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN,
-              "Executing operation: ", op->debug_info()->c_str());
-    tracyLogOpLocation(op);
-    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
-                op, context.get());
-    runOperation(op);
-    runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
-                op, context.get());
+void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
+                                               std::uint32_t sampleRate) {
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  static uint32_t counter = 0;
+  if (counter++ >= sampleRate) {
+    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
+                                           std::to_string(counter) +
+                                           " operations");
+    for (::ttnn::IDevice *ttnnDevice : meshDevice.get_devices()) {
+      ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+    }
+    counter = 0;
   }
-}
-
-ProgramContext &ProgramExecutor::getContext() { return *context; }
-
-std::vector<Tensor> ProgramExecutor::gatherOutputTensors() {
-  return context->getTensorPool().gatherOutputTensors();
+#endif
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
@@ -201,9 +199,11 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::LinearOp: {
     return operations::matmul::run(op->type_as_LinearOp(), getContext());
   }
+  // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {
     return operations::matmul::run(op->type_as_MatmulOp(), getContext());
   }
+  // ANCHOR_END: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MorehCumSumOp: {
     return operations::moreh::run(op->type_as_MorehCumSumOp(), getContext());
   }
@@ -225,19 +225,30 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::embedding_backward::run(
         op->type_as_EmbeddingBackwardOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::SliceOp: {
-    return operations::data_movement::run(op->type_as_SliceOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::ConcatOp: {
-    return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
+  case ::tt::target::ttnn::OpType::SoftmaxOp: {
+    return operations::normalization::run(op->type_as_SoftmaxOp(),
+                                          getContext());
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
     return operations::data_movement::run(op->type_as_TransposeOp(),
                                           getContext());
   }
+  case ::tt::target::ttnn::OpType::PadOp: {
+    return operations::data_movement::run(op->type_as_PadOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::ConcatOp: {
+    return operations::data_movement::run(op->type_as_ConcatOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     return operations::data_movement::run(op->type_as_PermuteOp(),
                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::ReshapeOp: {
+    return operations::data_movement::run(op->type_as_ReshapeOp(),
+                                          getContext());
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    return operations::data_movement::run(op->type_as_SliceOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), getContext());
@@ -246,12 +257,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
                                           getContext());
   }
-  case ::tt::target::ttnn::OpType::ReshapeOp: {
-    return operations::data_movement::run(op->type_as_ReshapeOp(),
-                                          getContext());
-  }
-  case ::tt::target::ttnn::OpType::PadOp: {
-    return operations::data_movement::run(op->type_as_PadOp(), getContext());
+  case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
+    return operations::conv::run(op->type_as_PrepareConv2dWeightsOp(),
+                                 getContext());
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), getContext());
@@ -259,18 +267,11 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     return operations::conv::run(op->type_as_ConvTranspose2dOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::CpuOp: {
-    return operations::cpu::run(op->type_as_CpuOp(), getContext());
+  case ::tt::target::ttnn::OpType::DeallocateOp: {
+    return operations::deletion::run(op->type_as_DeallocateOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
     return operations::pool::run(op->type_as_MaxPool2dOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::UpsampleOp: {
-    return operations::pool::run(op->type_as_UpsampleOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::SoftmaxOp: {
-    return operations::normalization::run(op->type_as_SoftmaxOp(),
-                                          getContext());
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
@@ -285,23 +286,31 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     return operations::ccl::run(op->type_as_MeshShardOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::DeallocateOp: {
-    return operations::deletion::run(op->type_as_DeallocateOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::LoadCachedOp: {
-    return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::FillCacheOp: {
-    return operations::kv_cache::run(op->type_as_FillCacheOp(), getContext());
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    return operations::creation::run(op->type_as_ArangeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
     return operations::kv_cache::run(op->type_as_UpdateCacheOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    return operations::kv_cache::run(op->type_as_FillCacheOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    return operations::pool::run(op->type_as_UpsampleOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    return operations::cpu::run(op->type_as_CpuOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     return operations::creation::run(op->type_as_ConstantOp(), getContext());
   }
-  default:
-    LOG_FATAL("Unsupported operation type");
+  case ::tt::target::ttnn::OpType::LoadCachedOp: {
+    return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
+  }
+  default: {
+    LOG_FATAL("Unsupported operation type: ",
+              ::tt::target::ttnn::EnumNameOpType(op->type_type()));
+  }
   }
 }
 
