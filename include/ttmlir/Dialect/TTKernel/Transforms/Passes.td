@@ -15,4 +15,12 @@ def TTKernelControlDstSection: Pass<"ttkernel-control-dst-section", "::mlir::Mod
   let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
 }
 
+def TTKernelEraseFunctionArgs: Pass<"ttkernel-erase-function-args", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Erase the CB and Semaphore kernel function arguments and lower to in-body constants.
+  }];
+  let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
+}
+
 #endif

@@ -55,6 +55,18 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::GenericOp>();
     target.addIllegalOp<memref::StoreOp>();
 
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      if (!op->hasAttr("ttir.thread_type")) {
+        return true;
+      }
+      if (std::all_of(
+              op.getArgumentTypes().begin(), op.getArgumentTypes().end(),
+              [&](Type type) { return !mlir::isa<MemRefType>(type); })) {
+        return true;
+      }
+      return false;
+    });
+
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
 

@@ -77,7 +77,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
       the reserved section of the circular buffer to the consumer.
     }];
 
-    let arguments = (ins Index:$dst_index, Index:$out_cb, Index:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
+    let arguments = (ins Index:$dst_index, TTKernel_CB:$out_cb, Index:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
 }
 
 def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
@@ -86,7 +86,7 @@ def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
       Must be called before copy_tile.
     }];
 
-    let arguments = (ins Index:$cb0);
+    let arguments = (ins TTKernel_CB:$cb0);
 }
 
 def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
@@ -103,7 +103,7 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
       engine.
     }];
 
-    let arguments = (ins Index:$cb0, Index:$tile_index_cb, Index:$tile_index_dst);
+    let arguments = (ins TTKernel_CB:$cb0, Index:$tile_index_cb, Index:$tile_index_dst);
 }
 
 //===----------------------------------------------------------------------===//
@@ -125,8 +125,8 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
       Matmul tiles operation
     }];
 
-    let arguments = (ins Index:$in0_cb_id,
-                         Index:$in1_cb_id,
+    let arguments = (ins TTKernel_CB:$in0_cb_id,
+                         TTKernel_CB:$in1_cb_id,
                          Index:$in0_tile_idx,
                          Index:$in1_tile_idx,
                          Index:$dst_tile_idx);
@@ -302,7 +302,7 @@ def TTKernel_CBPushBackOp : TTKernel_Op<"cb_push_back"> {
       CBPushBack operation
     }];
 
-    let arguments = (ins Index:$cb, I32:$numPages);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -313,7 +313,7 @@ def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
       CBPopFront operation
     }];
 
-    let arguments = (ins Index:$cb, I32:$numPages);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -324,7 +324,7 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
       CBReserveBack operation
     }];
 
-    let arguments = (ins Index:$cb, I32:$numPages);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -335,7 +335,7 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
       CBWaitFront operation
     }];
 
-    let arguments = (ins Index:$cb, I32:$numPages);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -695,6 +695,15 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
     let results = (outs Index:$y);
 }
 
+def TTKernel_GetCBOp : TTKernel_Op<"get_cb"> {
+  let summary = "Get CB";
+  let description = [{
+     Returns a CB type.
+    }];
+
+  let results = (outs TTKernel_CB:$cb);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//
@@ -801,7 +810,7 @@ def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
       GetWritePtr operation
     }];
 
-    let arguments = (ins Index:$cb);
+    let arguments = (ins TTKernel_CB:$cb);
     let results = (outs I32:$writePtr);
 }
 
@@ -811,7 +820,7 @@ def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
       GetReadPtr operation
     }];
 
-    let arguments = (ins Index:$cb);
+    let arguments = (ins TTKernel_CB:$cb);
     let results = (outs I32:$readPtr);
 }
 

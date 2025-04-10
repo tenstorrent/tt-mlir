@@ -22,14 +22,14 @@ module attributes {tt.system_desc = #system_desc} {
         %1 = ttir.get_global_operand(0) : memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 12288 + d3 * 4096)>, #l1_>
         // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_addr_xy"
         // CHECK: "ttkernel.noc_async_read"
-        %tx = ttir.dma %1 [%c0, %arg7], %arg0 : (memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 12288 + d3 * 4096)>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+        %tx = ttir.dma %1 [%c0, %arg7, %c0, %c0], %arg0 [%c0, %c0] : (memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 12288 + d3 * 4096)>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_read_barrier"
         ttir.dma_wait %tx
         // ttir.semaphore_wait %arg3, %c7 reset %c0
         // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_multicast_addr"
         // CHECK: "ttkernel.noc_async_write_multicast"
-        %tx_0 = ttir.dma %arg0, %arg0 core[%core0, %c0] mcast[%c1, %c8] : (memref<1x3x!tt.tile<32x32, f32>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+        %tx_0 = ttir.dma %arg0 [%c0, %c0], %arg0 [%c0, %c0] core[%core0, %c0] mcast[%c1, %c8] : (memref<1x3x!tt.tile<32x32, f32>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_write_barrier"
         ttir.dma_wait %tx_0
         // ttir.semaphore_set %arg4, %c1, core[%core0, %c0] mcast[%c1, %c8]
