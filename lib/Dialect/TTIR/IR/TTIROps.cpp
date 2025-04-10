@@ -403,6 +403,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   mlir::RankedTensorType inputType = getInput().getType();
   mlir::RankedTensorType weightType = getWeight().getType();
   mlir::RankedTensorType outputType = getOutput().getType();
+  llvm::ArrayRef<std::int64_t> weightShape = weightType.getShape();
   std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
@@ -424,8 +425,10 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       return emitOpError("Bias must be a 4D tensor");
     }
     auto biasShape = bias->getShape();
-    if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
-      return emitOpError("Bias must only have data on the final dimenstion");
+    if (!verifyBias(biasShape)) {
+      return emitOpError() << "Bias should have shape [1, 1, 1, "
+                           << getOutputChannelSize() << "] but got ["
+                           << biasShape << "]";
     }
   }
   // FLATTEN_DIM corresponds to the second last dimension as it is where N, H, W
@@ -529,7 +532,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
                          << groups << " groups";
   }
 
-  llvm::ArrayRef<std::int64_t> weightShape = weightType.getShape();
   if (outChannels != weightShape[WEIGHT_OUT_CHANNEL_DIM]) {
     return emitOpError() << "Number of output channels from output tensor must "
                             "match the first dimension of the weight tensor. "
@@ -585,6 +587,22 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
   return success();
 }
+
+// Get number of output channels
+int64_t mlir::tt::ttir::Conv2dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0];
+}
+
+// Verify that bias dimensions are compatible with conv2d operation
+bool mlir::tt::ttir::Conv2dOp::verifyBias(llvm::ArrayRef<int64_t> bias) {
+  return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
+         bias[3] == getOutputChannelSize();
+}
+
+//===----------------------------------------------------------------------===//
+// Quantize ops
+//===----------------------------------------------------------------------===//
 
 // Common verifier for all Quantize ops.
 static ::mlir::LogicalResult verifyQuantizeOpCommon(

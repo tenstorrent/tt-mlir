@@ -16,6 +16,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Layout.cpp
         ElementTypeNormalization.cpp
         Transforms.cpp
+        TTIRFusing.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

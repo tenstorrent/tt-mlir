@@ -11,8 +11,8 @@
 #ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 900 + d1 * 30 + d2, d3), <1x1>, memref<29x2x!tt.tile<32x32, bf16>, #system_memory>>
 
 #conv2d_config = #ttnn.conv2d_config<
-  dtype = bf16,
-  weights_dtype = bf16,
+  dtype = #tt.supportedDataTypes<bf16>,
+  weights_dtype = #tt.supportedDataTypes<bf16>,
   activation = "",
   input_channels_alignment = 32,
   deallocate_activation = false,
@@ -24,7 +24,7 @@
   shard_layout = #ttnn.tensor_memory_layout<height_sharded>,
   core_grid = #ttnn.core_range_set<>,
   transpose_shards = true,
-  output_layout = tile,
+  output_layout = #ttnn.layout<row_major>,
   preprocess_weights_on_device = true,
   always_preprocess_weights = true,
   enable_act_double_buffer = false,

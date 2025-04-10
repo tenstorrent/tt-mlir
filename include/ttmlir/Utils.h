@@ -414,6 +414,39 @@ static mlir::Region *getRegionWithParentOfType(mlir::Operation *op) {
   return region;
 }
 
+// Check if all users of an op are of same type.
+template <typename... UserOps>
+inline bool allUsers(mlir::Operation *srcOp) {
+  auto check = [](mlir::Operation *op) { return mlir::isa<UserOps...>(op); };
+  return all_of(srcOp->getResult(0).getUsers(), check);
+}
+
+// Return list of op operands from userOp and drop dps operand (if exists) and
+// srcOp operand.
+inline llvm::SmallVector<mlir::OpOperand *>
+getOtherOperands(mlir::Operation *srcOp, mlir::Operation *userOp) {
+  llvm::SmallVector<mlir::OpOperand *> operands;
+  for (auto &opOperand : userOp->getOpOperands()) {
+    if (auto dpsUserOp =
+            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(userOp)) {
+      if (dpsUserOp.isDpsInit(&opOperand)) {
+        continue;
+      }
+    }
+
+    if (mlir::Operation *op = opOperand.get().getDefiningOp()) {
+      if (op != srcOp) {
+        operands.push_back(&opOperand);
+      }
+    } else {
+      // This is block argument.
+      operands.push_back(&opOperand);
+    }
+  }
+
+  return operands;
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

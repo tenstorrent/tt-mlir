@@ -133,4 +133,11 @@ def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::ml
   }];
 }
 
+def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
+{
+  let summary = "TTNN fusing pass.";
+
+  let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+}
+
 #endif
