@@ -417,4 +417,55 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
   let dependentDialects = ["::mlir::tt::TTDialect",  "::mlir::tt::ttir::TTIRDialect", "::mlir::func::FuncDialect"];
 }
 
+def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
+{
+  let summary = "Flatten sliding window ops.";
+  let description = [{
+    This is a compatibility pass for converting to the TTNN dialect.
+    This pass walks through the graph and flattens sliding window ops (ttir.conv2d, ttir.max_pool2d).
+
+    Example:
+      Before:
+         %dps = ttir.empty() : tensor<3x15x31x16xbf16>
+         %1 = "ttir.conv2d"(%input, %weight, %bias, %dps)
+            <{
+              stride = 2: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<3x32x64x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<3x15x31x16xbf16>) -> tensor<3x15x31x16xbf16>
+
+      After:
+        %reshape_dps = ttir.empty() : tensor<1x1x6144x8xbf16>
+        %0 = "ttir.reshape"(%input, %reshape_dps) <{[i32: 1, i32: 1, i32: 6144, i32: 8]}> : (tensor<3x32x64x8xbf16>, tensor<1x1x6144x8xbf16>) -> tensor<1x1x6144x8xbf16>
+        %new_conv_dps = ttir.empty() : tensor<1x1x1395x16xbf16>
+        %1 = "ttir.conv2d"(%0, %weight, %bias, %new_conv_dps)
+            <{
+              stride = 2: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32,
+              flattened_compat_info = #ttir<flattened_compat in_channels = 8, out_channels = 16, batch_size = 3, input_height = 32, input_width = 64,>
+            }> : (tensor<1x1x6144x8xbf16>, tensor<16x8x3x3xbf16>, tensor<1x1x1x16xbf16>, tensor<1x1x1395x16xbf16>) -> tensor<1x1x1395x16xbf16>
+          %output_reshape_dps = ttir.empty() : tensor<3x15x30x16xbf16>
+          %2 = "ttir.reshape"(%1, %output_reshape_dps) <{[i32: 3, i32: 15, i32: 31, i32: 16]}> : (tensor<1x1x1395x16xbf16>, tensor<3x15x31x16xbf16>) -> tensor<3x15x31x16xbf16>
+  }];
+}
+
+def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
+{
+  let summary = "Erase inverse ops.";
+  let description = [{
+    This pass walks through the graph and erases inverse operations.
+
+    For example:
+      ttir.permute(0, 1, 3, 2) -> ttir.exp -> ttir.permute(0, 1, 3, 2)
+
+    The above sequence can be reduced to simply: "ttir.exp" as the permutations
+    on either end are inverses.
+  }];
+
+  let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif
