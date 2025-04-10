@@ -16,8 +16,14 @@ static void runEltwiseBinaryCompositeOp(
         ::ttnn::Tensor(const ::ttnn::Tensor &, const ::ttnn::Tensor &,
                        const std::optional<::ttnn::MemoryConfig> &)> &ttnnOp) {
 
-  const ::ttnn::Tensor &lhs = tensorPool.getTTNNTensorAndValidate(op->lhs());
-  const ::ttnn::Tensor &rhs = tensorPool.getTTNNTensorAndValidate(op->rhs());
+  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
+
+  if (op->type() != ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter &&
+      operations::utils::shouldSwapBinaryOperands(*lhs, *rhs)) {
+    std::swap(lhs, rhs);
+  }
+
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
@@ -25,7 +31,7 @@ static void runEltwiseBinaryCompositeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(lhs, rhs, outputMemoryConfig);
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -22,6 +22,9 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef);
 ::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
     const ::tt::target::ttnn::DistributionStrategy *strategy);
 
+bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
+                              const ::ttnn::Tensor &rhs);
+
 template <std::integral T>
 inline ::ttnn::Shape toTTNNShape(const flatbuffers::Vector<T> &vec) {
   std::vector<uint32_t> rawShape;
