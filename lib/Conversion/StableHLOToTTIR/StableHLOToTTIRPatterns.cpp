@@ -2189,13 +2189,9 @@ public:
       value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
     }
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
-        srcOp,
-        outputType,                            // result type
-        adaptor.getOperand(),                  // input
-        rewriter.getDenseI32ArrayAttr(padDim), // padding dimensions
-        rewriter.getF32FloatAttr(value)        // padding value
-    );
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        rewriter.getDenseI32ArrayAttr(padDim), rewriter.getF32FloatAttr(value));
 
     return success();
   }
