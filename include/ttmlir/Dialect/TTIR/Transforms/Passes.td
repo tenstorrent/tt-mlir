@@ -417,4 +417,11 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
   let dependentDialects = ["::mlir::tt::TTDialect",  "::mlir::tt::ttir::TTIRDialect", "::mlir::func::FuncDialect"];
 }
 
+def Fusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
+{
+  let summary = "Fusing pass.";
+
+  let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+}
+
 #endif

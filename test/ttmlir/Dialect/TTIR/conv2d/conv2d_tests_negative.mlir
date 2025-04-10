@@ -166,7 +166,7 @@ module {
 // Verify the parsing fails if number of channels are incorrect
 // -----
 module {
-  func.func @conv2d_input_channels_not_divisible_by_groups(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<100x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x100xbf16> {
+  func.func @conv2d_input_channels_not_divisible_by_groups(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x100xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x100xbf16>
     // CHECK: error: 'ttir.conv2d' op Number of input channels from input tensor must be divisible by the number of groups. Got 64 input channels and 10 groups
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
@@ -175,14 +175,14 @@ module {
               padding = 0: i32,
               dilation = 1: i32,
               groups = 10: i32
-            }> : (tensor<1x32x32x64xbf16>, tensor<100x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x100xbf16>) -> tensor<1x30x30x100xbf16>
+            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x100xbf16>) -> tensor<1x30x30x100xbf16>
     return %1 : tensor<1x30x30x100xbf16>
   }
 }
 
 // -----
 module {
-  func.func @conv2d_output_channels_not_divisible_by_groups(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<128x64x3x3xbf16>, %arg2: tensor<1x1x1x102xbf16>) -> tensor<1x30x30x102xbf16> {
+  func.func @conv2d_output_channels_not_divisible_by_groups(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<128x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x102xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x102xbf16>
     // CHECK: error: 'ttir.conv2d' op Number of output channels from output tensor must be divisible by the number of groups. Got 102 output channels and 8 groups
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
@@ -191,7 +191,7 @@ module {
               padding = 0: i32,
               dilation = 1: i32,
               groups = 8: i32
-            }> : (tensor<1x32x32x64xbf16>, tensor<128x64x3x3xbf16>, tensor<1x1x1x102xbf16>, tensor<1x30x30x102xbf16>) -> tensor<1x30x30x102xbf16>
+            }> : (tensor<1x32x32x64xbf16>, tensor<128x64x3x3xbf16>, tensor<1x1x1x128xbf16>, tensor<1x30x30x102xbf16>) -> tensor<1x30x30x102xbf16>
     return %1 : tensor<1x30x30x102xbf16>
   }
 }
@@ -214,7 +214,7 @@ module {
 
 // -----
 module {
-  func.func @conv2d_output_channels_missmatch_with_weight(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<128x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_output_channels_missmatch_with_weight(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<128x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK:  error: 'ttir.conv2d' op Number of output channels from output tensor must match the first dimension of the weight tensor. Got 64 output channels and 128 in the weight tensor
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
@@ -223,16 +223,16 @@ module {
               padding = 0: i32,
               dilation = 1: i32,
               groups = 1: i32
-            }> : (tensor<1x32x32x64xbf16>, tensor<128x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+            }> : (tensor<1x32x32x64xbf16>, tensor<128x64x3x3xbf16>, tensor<1x1x1x128xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %1 : tensor<1x30x30x64xbf16>
   }
 }
 
 // -----
 module {
-  func.func @conv2d_output_channels_missmatch_with_bias(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x64xbf16> {
+  func.func @conv2d_weight_and_bias_missmatch(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x128xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // CHECK: error: 'ttir.conv2d' op Mismatch in bias tensor dimensions. Bias tensor has 128 channels, but the output tensor has 64 channels
+    // CHECK: error: 'ttir.conv2d' op Bias should have shape [1, 1, 1, 64] but got [1, 1, 1, 128]
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
