@@ -11,6 +11,7 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
+#include "ttmlir/Utils.h"
 
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -645,30 +646,95 @@ toFlatbuffer(FlatbufferObjectCache &cache,
           fusedActivation);
 }
 
+template <typename RetTy>
+inline ::flatbuffers::Optional<RetTy>
+toFlatbufferOpt(FlatbufferObjectCache &cache, IntegerAttr integerAttr) {
+  if (integerAttr) {
+    return ::ttmlir::utils::integerAs<RetTy>(integerAttr.getValue());
+  }
+
+  return {};
+}
+
+inline ::flatbuffers::Optional<bool>
+toFlatbufferOpt(FlatbufferObjectCache &cache, BoolAttr boolAttr) {
+  if (boolAttr) {
+    return boolAttr.getValue();
+  }
+
+  return {};
+}
+
+inline ::flatbuffers::Optional<::tt::target::DataType>
+toFlatbufferOpt(FlatbufferObjectCache &cache, DataTypeAttr dataTypeAttr) {
+  if (dataTypeAttr) {
+    return toFlatbuffer(cache, dataTypeAttr.getValue());
+  }
+
+  return {};
+}
+
+inline ::flatbuffers::Optional<::tt::target::TensorLayout>
+toFlatbufferOpt(FlatbufferObjectCache &cache, ttnn::LayoutAttr layoutAttr) {
+  if (layoutAttr) {
+    return toFlatbuffer(cache, layoutAttr.getValue());
+  }
+
+  return {};
+}
+
+inline ::flatbuffers::Optional<::tt::target::ttnn::TensorMemoryLayout>
+toFlatbufferOpt(FlatbufferObjectCache &cache,
+                ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  if (memLayoutAttr) {
+    return toFlatbuffer(cache, memLayoutAttr.getValue());
+  }
+
+  return {};
+}
+
+inline ::flatbuffers::Offset<::flatbuffers::String>
+toFlatbufferOpt(FlatbufferObjectCache &cache, StringAttr strAttr) {
+  if (strAttr) {
+    return toFlatbuffer(cache, strAttr.getValue());
+  }
+
+  return 0;
+}
+
+inline ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
+toFlatbufferOpt(FlatbufferObjectCache &cache,
+                ttnn::CoreRangeSetAttr coreRangeSetAttr) {
+  if (coreRangeSetAttr) {
+    return toFlatbuffer(cache, coreRangeSetAttr);
+  }
+
+  return 0;
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
-toFlatbuffer(FlatbufferObjectCache &cache,
-             ttnn::Conv2dConfigAttr conv2dConfigAttr) {
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
   return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
-      toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
-      toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
-      conv2dConfigAttr.getInputChannelsAlignment(),
-      conv2dConfigAttr.getDeallocateActivation(),
-      conv2dConfigAttr.getReallocateHaloOutput(),
-      conv2dConfigAttr.getActBlockHOverride(),
-      conv2dConfigAttr.getActBlockWDiv(),
-      conv2dConfigAttr.getReshardIfNotOptimal(),
-      conv2dConfigAttr.getOverrideShardingConfig(),
-      toFlatbuffer(cache, conv2dConfigAttr.getShardLayout()),
-      toFlatbuffer(cache, conv2dConfigAttr.getCoreGrid()),
-      conv2dConfigAttr.getTransposeShards(),
-      toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
-      conv2dConfigAttr.getPreprocessWeightsOnDevice(),
-      conv2dConfigAttr.getAlwaysPreprocessWeights(),
-      conv2dConfigAttr.getEnableActDoubleBuffer(),
-      conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
-      conv2dConfigAttr.getEnableSplitReader(),
-      conv2dConfigAttr.getEnableSubblockPadding());
+      *cache.fbb, toFlatbufferOpt(cache, config.getDtype()),
+      toFlatbufferOpt(cache, config.getWeightsDtype()),
+      toFlatbufferOpt(cache, config.getActivation()),
+      toFlatbufferOpt<uint32_t>(cache, config.getInputChannelsAlignment()),
+      toFlatbufferOpt(cache, config.getDeallocateActivation()),
+      toFlatbufferOpt(cache, config.getReallocateHaloOutput()),
+      toFlatbufferOpt<uint32_t>(cache, config.getActBlockHOverride()),
+      toFlatbufferOpt<uint32_t>(cache, config.getActBlockWDiv()),
+      toFlatbufferOpt(cache, config.getReshardIfNotOptimal()),
+      toFlatbufferOpt(cache, config.getOverrideShardingConfig()),
+      toFlatbufferOpt(cache, config.getShardLayout()),
+      toFlatbufferOpt(cache, config.getCoreGrid()),
+      toFlatbufferOpt(cache, config.getTransposeShards()),
+      toFlatbufferOpt(cache, config.getOutputLayout()),
+      toFlatbufferOpt(cache, config.getPreprocessWeightsOnDevice()),
+      toFlatbufferOpt(cache, config.getAlwaysPreprocessWeights()),
+      toFlatbufferOpt(cache, config.getEnableActDoubleBuffer()),
+      toFlatbufferOpt(cache, config.getEnableWeightsDoubleBuffer()),
+      toFlatbufferOpt(cache, config.getEnableSplitReader()),
+      toFlatbufferOpt(cache, config.getEnableSubblockPadding()));
 }
 
 } // namespace mlir::tt

@@ -4,6 +4,7 @@
 
 #include "mlir/CAPI/AffineMap.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include "ttmlir/Utils.h"
 
 #include "ttmlir-c/TTNNAttrs.h"
 
@@ -152,6 +153,7 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("data_type_as_int", [](tt::ttnn::TTNNLayoutAttr self) {
         return static_cast<uint32_t>(self.getDataType());
       });
+
   tt_attribute_class<tt::ttnn::Conv2dConfigAttr>(m, "Conv2dConfigAttr")
       .def_static(
           "get",
@@ -166,58 +168,146 @@ void populateTTNNModule(nb::module_ &m) {
              bool alwaysPreprocessWeights, bool enableActDoubleBuffer,
              bool enableWeightsDoubleBuffer, bool enableSplitReader,
              bool enableSubblockPadding) {
+            MLIRContext *context = unwrap(ctx);
+            Builder builder(context);
+
+            tt::DataTypeAttr dtypeAttr = tt::DataTypeAttr::get(context, dtype);
+            tt::DataTypeAttr weightsDtypeAttr =
+                tt::DataTypeAttr::get(context, weightsDtype);
+
+            tt::ttnn::LayoutAttr outputLayoutAttr =
+                tt::ttnn::LayoutAttr::get(context, outputLayout);
+
+            IntegerAttr inputChannelsAlignmentAttr = builder.getIntegerAttr(
+                builder.getIntegerType(32, false), inputChannelsAlignment);
+            IntegerAttr actBlockHOverrideAttr = builder.getIntegerAttr(
+                builder.getIntegerType(32, false), actBlockHOverride);
+            IntegerAttr actBlockWDivAttr = builder.getIntegerAttr(
+                builder.getIntegerType(32, false), actBlockWDiv);
+
+            BoolAttr deallocateActivationAttr =
+                builder.getBoolAttr(deallocateActivation);
+            BoolAttr reallocateHaloOutputAttr =
+                builder.getBoolAttr(reallocateHaloOutput);
+            BoolAttr reshardIfNotOptimalAttr =
+                builder.getBoolAttr(reshardIfNotOptimal);
+            BoolAttr overrideShardingConfigAttr =
+                builder.getBoolAttr(overrideShardingConfig);
+            BoolAttr transposeShardsAttr = builder.getBoolAttr(transposeShards);
+            BoolAttr preprocessWeightsOnDeviceAttr =
+                builder.getBoolAttr(preprocessWeightsOnDevice);
+            BoolAttr alwaysPreprocessWeightsAttr =
+                builder.getBoolAttr(alwaysPreprocessWeights);
+            BoolAttr enableActDoubleBufferAttr =
+                builder.getBoolAttr(enableActDoubleBuffer);
+            BoolAttr enableWeightsDoubleBufferAttr =
+                builder.getBoolAttr(enableWeightsDoubleBuffer);
+            BoolAttr enableSplitReaderAttr =
+                builder.getBoolAttr(enableSplitReader);
+            BoolAttr enableSubblockPaddingAttr =
+                builder.getBoolAttr(enableSubblockPadding);
+
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
-                unwrap(ctx), dtype, weightsDtype, activation,
-                inputChannelsAlignment, deallocateActivation,
-                reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
-                reshardIfNotOptimal, overrideShardingConfig, shardLayout,
-                coreGrid, transposeShards, outputLayout,
-                preprocessWeightsOnDevice, alwaysPreprocessWeights,
-                enableActDoubleBuffer, enableWeightsDoubleBuffer,
-                enableSplitReader, enableSubblockPadding));
+                context, dtypeAttr, weightsDtypeAttr, activation,
+                inputChannelsAlignmentAttr, deallocateActivationAttr,
+                reallocateHaloOutputAttr, actBlockHOverrideAttr,
+                actBlockWDivAttr, reshardIfNotOptimalAttr,
+                overrideShardingConfigAttr, shardLayout, coreGrid,
+                transposeShardsAttr, outputLayoutAttr,
+                preprocessWeightsOnDeviceAttr, alwaysPreprocessWeightsAttr,
+                enableActDoubleBufferAttr, enableWeightsDoubleBufferAttr,
+                enableSplitReaderAttr, enableSubblockPaddingAttr));
           })
       .def_prop_ro("dtype_as_int",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return static_cast<uint32_t>(self.getDtype());
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, uint32_t> {
+                     if (!self.getDtype()) {
+                       return nb::none();
+                     }
+                     return static_cast<uint32_t>(self.getDtype().getValue());
                    })
       .def_prop_ro("weights_dtype_as_int",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return static_cast<uint32_t>(self.getDtype());
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, uint32_t> {
+                     if (!self.getWeightsDtype()) {
+                       return nb::none();
+                     }
+                     return static_cast<uint32_t>(
+                         self.getWeightsDtype().getValue());
                    })
       .def_prop_ro("activation",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getActivation().str();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, std::string> {
+                     if (!self.getActivation()) {
+                       return nb::none();
+                     }
+                     return self.getActivation().getValue().str();
                    })
       .def_prop_ro("input_channels_alignment",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getInputChannelsAlignment();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, uint32_t> {
+                     if (!self.getInputChannelsAlignment()) {
+                       return nb::none();
+                     }
+                     return ::ttmlir::utils::integerAs<uint32_t>(
+                         self.getInputChannelsAlignment().getValue());
                    })
       .def_prop_ro("deallocate_activation",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getDeallocateActivation();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getDeallocateActivation()) {
+                       return nb::none();
+                     }
+                     return self.getDeallocateActivation().getValue();
                    })
       .def_prop_ro("reallocate_halo_output",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getReallocateHaloOutput();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getReallocateHaloOutput()) {
+                       return nb::none();
+                     }
+                     return self.getReallocateHaloOutput().getValue();
                    })
       .def_prop_ro("act_block_h_override",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getActBlockHOverride();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, uint32_t> {
+                     if (!self.getActBlockHOverride()) {
+                       return nb::none();
+                     }
+                     return ::ttmlir::utils::integerAs<uint32_t>(
+                         self.getActBlockHOverride().getValue());
                    })
       .def_prop_ro("act_block_w_div",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getActBlockWDiv();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, uint32_t> {
+                     if (!self.getActBlockWDiv()) {
+                       return nb::none();
+                     }
+                     return ::ttmlir::utils::integerAs<uint32_t>(
+                         self.getActBlockWDiv().getValue());
                    })
       .def_prop_ro("reshard_if_not_optimal",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getReshardIfNotOptimal();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getReshardIfNotOptimal()) {
+                       return nb::none();
+                     }
+                     return self.getReshardIfNotOptimal().getValue();
                    })
       .def_prop_ro("override_sharding_config",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getOverrideShardingConfig();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getOverrideShardingConfig()) {
+                       return nb::none();
+                     }
+                     return self.getOverrideShardingConfig().getValue();
                    })
       .def_prop_ro("shard_layout_as_int",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, uint32_t> {
+                     if (!self.getShardLayout()) {
+                       return nb::none();
+                     }
                      return static_cast<uint32_t>(
                          self.getShardLayout().getValue());
                    })
@@ -225,36 +315,69 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("core_grid",
                    [](tt::ttnn::Conv2dConfigAttr self) { return nb::none(); })
       .def_prop_ro("transpose_shards",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getTransposeShards();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getTransposeShards()) {
+                       return nb::none();
+                     }
+                     return self.getTransposeShards().getValue();
                    })
       .def_prop_ro("output_layout_as_int",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return static_cast<uint32_t>(self.getOutputLayout());
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, uint32_t> {
+                     if (!self.getOutputLayout()) {
+                       return nb::none();
+                     }
+                     return static_cast<uint32_t>(
+                         self.getOutputLayout().getValue());
                    })
       .def_prop_ro("preprocess_weights_on_device",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getPreprocessWeightsOnDevice();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getPreprocessWeightsOnDevice()) {
+                       return nb::none();
+                     }
+                     return self.getPreprocessWeightsOnDevice().getValue();
                    })
       .def_prop_ro("always_preprocess_weights",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getAlwaysPreprocessWeights();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getAlwaysPreprocessWeights()) {
+                       return nb::none();
+                     }
+                     return self.getAlwaysPreprocessWeights().getValue();
                    })
       .def_prop_ro("enable_act_double_buffer",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getEnableActDoubleBuffer();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getEnableActDoubleBuffer()) {
+                       return nb::none();
+                     }
+                     return self.getEnableActDoubleBuffer().getValue();
                    })
       .def_prop_ro("enable_weights_double_buffer",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getEnableWeightsDoubleBuffer();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getEnableWeightsDoubleBuffer()) {
+                       return nb::none();
+                     }
+                     return self.getEnableWeightsDoubleBuffer().getValue();
                    })
       .def_prop_ro("enable_split_reader",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getEnableSplitReader();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getEnableSplitReader()) {
+                       return nb::none();
+                     }
+                     return self.getEnableSplitReader().getValue();
                    })
       .def_prop_ro("enable_subblock_padding",
-                   [](tt::ttnn::Conv2dConfigAttr self) {
-                     return self.getEnableSubblockPadding();
+                   [](tt::ttnn::Conv2dConfigAttr self)
+                       -> std::variant<nb::object, bool> {
+                     if (!self.getEnableSubblockPadding()) {
+                       return nb::none();
+                     }
+                     return self.getEnableSubblockPadding().getValue();
                    });
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")

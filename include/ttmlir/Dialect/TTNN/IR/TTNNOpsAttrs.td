@@ -5,12 +5,14 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
 
+include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
+
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 
 //===----------------------------------------------------------------------===//
 // TTNN attr definitions
@@ -374,26 +376,26 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   }];
 
   let parameters = (ins
-                        "DataType":$dtype,
-                        "DataType":$weights_dtype,
-                        "StringAttr":$activation,
-                        "uint32_t":$input_channels_alignment,
-                        "bool":$deallocate_activation,
-                        "bool":$reallocate_halo_output,
-                        "uint32_t":$act_block_h_override,
-                        "uint32_t":$act_block_w_div,
-                        "bool":$reshard_if_not_optimal,
-                        "bool":$override_sharding_config,
+                        OptionalParameter<"DataTypeAttr">:$dtype,
+                        OptionalParameter<"DataTypeAttr">:$weights_dtype,
+                        OptionalParameter<"StringAttr">:$activation,
+                        OptionalParameter<"IntegerAttr">:$input_channels_alignment,
+                        OptionalParameter<"BoolAttr">:$deallocate_activation,
+                        OptionalParameter<"BoolAttr">:$reallocate_halo_output,
+                        OptionalParameter<"IntegerAttr">:$act_block_h_override,
+                        OptionalParameter<"IntegerAttr">:$act_block_w_div,
+                        OptionalParameter<"BoolAttr">:$reshard_if_not_optimal,
+                        OptionalParameter<"BoolAttr">:$override_sharding_config,
                         OptionalParameter<"TensorMemoryLayoutAttr">:$shard_layout,
                         OptionalParameter<"CoreRangeSetAttr">:$core_grid,
-                        "bool":$transpose_shards,
-                        "Layout":$output_layout,
-                        "bool":$preprocess_weights_on_device,
-                        "bool":$always_preprocess_weights,
-                        "bool":$enable_act_double_buffer,
-                        "bool":$enable_weights_double_buffer,
-                        "bool":$enable_split_reader,
-                        "bool":$enable_subblock_padding);
+                        OptionalParameter<"BoolAttr">:$transpose_shards,
+                        OptionalParameter<"LayoutAttr">:$output_layout,
+                        OptionalParameter<"BoolAttr">:$preprocess_weights_on_device,
+                        OptionalParameter<"BoolAttr">:$always_preprocess_weights,
+                        OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
+                        OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
+                        OptionalParameter<"BoolAttr">:$enable_split_reader,
+                        OptionalParameter<"BoolAttr">:$enable_subblock_padding);
 
   let assemblyFormat = [{
     `<` struct(
