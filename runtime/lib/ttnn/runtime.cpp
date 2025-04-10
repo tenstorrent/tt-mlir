@@ -622,6 +622,10 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
       utils::createRuntimeTensorFromTTNN(out, shouldRetain);
   static std::atomic<uint64_t> tensorVersion{0};
   result.version.store(tensorVersion++);
+
+  if (!shouldRetain) {
+    ::tt::runtime::ttnn::deallocateTensor(tensor);
+  }
   return result;
 }
 
