@@ -12,7 +12,6 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
@@ -321,12 +320,6 @@ struct is_leaf_type<T, std::void_t<decltype(std::declval<T>().begin())>>
 template <typename T>
 constexpr bool is_leaf_type_v = is_leaf_type<T>::value;
 
-// Type trait that recursively extracts the underlying element type from a
-// container.
-//
-// For non-container types (leaf types), it simply removes const, volatile, and
-// reference qualifiers. For container types, it recursively traverses the
-// container hierarchy to find the underlying element type.
 template <typename T, typename = void>
 struct get_value_type {
   using type = llvm::remove_cvref_t<T>;
@@ -337,7 +330,8 @@ using get_value_type_t = typename get_value_type<T>::type;
 
 template <typename T>
 struct get_value_type<T, std::enable_if_t<!is_leaf_type_v<T>>> {
-  using type = get_value_type_t<typename std::iterator_traits<typename T::iterator>::value_type>;
+  using type = get_value_type_t<typename std::iterator_traits<
+      decltype(std::declval<T>().begin())>::value_type>;
 };
 
 template <typename T, typename U>
@@ -353,24 +347,10 @@ append(llvm::SmallVector<U> &result, T &&value) {
 }
 } // namespace detail
 
-// Returns `FirstTy` if it's not `void`, otherwise returns `FallbackTy`.
 template <typename FirstTy, typename FallbackTy>
 using type_or_fallback_t =
     std::conditional_t<std::is_void_v<FirstTy>, FallbackTy, FirstTy>;
 
-// Flattens an arbitrary number of containers and elements into a single
-// SmallVector.
-//
-// This function recursively traverses nested containers and collects all
-// elements into a single flat vector. It works with any combination of
-// containers (vectors, arrays, ranges) and individual elements, as long as the
-// underlying element types are convertible to the return type.
-//
-// Example:
-//   flatten(1, 2, 3) -> [1, 2, 3]
-//   flatten(std::vector{1, 2}, 3, std::array{4, 5}) -> [1, 2, 3, 4, 5]
-//   flatten(std::vector{std::vector{1, 2}, std::vector{3}}, 4) -> [1, 2, 3, 4]
-//   flatten<float>(1, 2.5) -> [1.0f, 2.5f]
 template <typename ReturnTy = void, typename FirstTy, typename... RestTy>
 llvm::SmallVector<
     type_or_fallback_t<ReturnTy, detail::get_value_type_t<FirstTy>>>
