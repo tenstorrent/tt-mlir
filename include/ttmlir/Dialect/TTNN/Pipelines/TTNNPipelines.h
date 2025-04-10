@@ -261,21 +261,6 @@ void createTTNNPipelineLayoutDecompositionPass(
 void createTTNNPipelineDeallocPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
-void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
-                                            std::string options);
-
-void createTTNNPipelineAnalysisPassesFromString(OpPassManager &pm,
-                                                std::string options);
-
-void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
-                                                std::string options);
-
-void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
-                                                         std::string options);
-
-void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
-                                             std::string options);
-
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
