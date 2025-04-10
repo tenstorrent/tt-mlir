@@ -119,6 +119,20 @@ void ProgramExecutor::runCallback(
   }
 }
 
+void ProgramExecutor::execute() {
+  for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+    LOG_DEBUG(LogType::LogRuntimeTTNN,
+              "Executing operation: ", op->debug_info()->c_str());
+    tracyLogOpLocation(op);
+    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
+                op, context.get());
+    runOperation(op);
+    runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
+                op, context.get());
+    dumpPerfCountersIfNeeded(context->getParentMesh());
+  }
+}
+
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
                                                std::uint32_t sampleRate) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)

@@ -48,12 +48,14 @@ public:
   /**
    * Returns the program context
    */
-  ProgramContext &getContext();
+  ProgramContext &getContext() { return *context; }
 
   /**
    * Gathers and returns output tensors from the program
    */
-  std::vector<Tensor> gatherOutputTensors();
+  std::vector<::tt::runtime::Tensor> gatherOutputTensors() {
+    return context->getTensorPool().gatherOutputTensors();
+  }
 
 private:
   const ::tt::target::ttnn::Program *program;
@@ -64,6 +66,9 @@ private:
    * Executes a single operation
    */
   void runOperation(const ::tt::target::ttnn::Operation *op);
+
+  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
+                                std::uint32_t sampleRate = 1000);
 };
 
 } // namespace tt::runtime::ttnn
