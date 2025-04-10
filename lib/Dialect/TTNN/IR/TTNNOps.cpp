@@ -22,6 +22,40 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
+//===----------------------------------------------------------------------===//
+// Utils
+//===----------------------------------------------------------------------===//
+
+template <typename T>
+static ::mlir::LogicalResult
+foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
+  // Fold two consecutive data type cast ops into a single one
+  T previousDataCastOp = op.getInput().template getDefiningOp<T>();
+
+  // If there is no previous data cast op, return failure.
+  if (!previousDataCastOp) {
+    return ::mlir::failure();
+  }
+
+  // Check if the previous cast op has only one use. We can only fold if the
+  // previous op has single use.
+  if (!previousDataCastOp->hasOneUse()) {
+    return ::mlir::failure();
+  }
+
+  // Replace the previous op with the merged data type cast op.
+  Value foldedTypecastOp = rewriter.replaceOpWithNewOp<T>(
+      previousDataCastOp, op.getType(), previousDataCastOp.getInput(),
+      op.getDtypeAttr());
+
+  // Replace all uses of the current op with the merged TypecastOp.
+  rewriter.replaceAllUsesWith(op, foldedTypecastOp);
+
+  // Erase the current op.
+  rewriter.eraseOp(op);
+
+  return ::mlir::success();
+}
 
 //===----------------------------------------------------------------------===//
 // ConstantOp
@@ -574,8 +608,62 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 }
 
 //===----------------------------------------------------------------------===//
+// Typecast Op
+//===----------------------------------------------------------------------===//
+
+// Typecast Op verification
+::mlir::LogicalResult mlir::tt::ttnn::TypecastOp::verify() {
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  TTNNLayoutAttr outputLayout =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (getDtype() != outputLayout.getDataType()) {
+    return emitOpError() << "Output tensor data type "
+                         << DataTypeEnumToString(outputLayout.getDataType())
+                         << " must match the data type of dtype attribute "
+                         << DataTypeEnumToString(getDtype()) << ".";
+  }
+
+  return success();
+}
+
+// TypecastOp folder
+::mlir::OpFoldResult mlir::tt::ttnn::TypecastOp::fold(FoldAdaptor adaptor) {
+
+  // If the input and output are same, fold to the input.
+  if (getType() == getInput().getType()) {
+    return getInput();
+  }
+
+  return nullptr;
+}
+
+// Typecast canonicalizer method
+::llvm::LogicalResult
+mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
+                                         ::mlir::PatternRewriter &rewriter) {
+  return foldConsecutiveDataCastOps(typecastOp, rewriter);
+}
+
+//===----------------------------------------------------------------------===//
 // ToDTypeOp
 //===----------------------------------------------------------------------===//
+
+// ToDTypeOp verification
+::mlir::LogicalResult mlir::tt::ttnn::ToDTypeOp::verify() {
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  TTNNLayoutAttr outputLayout =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (getDtype() != outputLayout.getDataType()) {
+    return emitOpError() << "Output tensor data type "
+                         << DataTypeEnumToString(outputLayout.getDataType())
+                         << " must match the data type of dtype attribute "
+                         << DataTypeEnumToString(getDtype()) << ".";
+  }
+
+  return success();
+}
 
 // ToDTypeOp folder
 ::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
@@ -586,6 +674,14 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   return nullptr;
+}
+
+// ToDTypeOp canonicalizer method
+::llvm::LogicalResult
+mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
+                                        ::mlir::PatternRewriter &rewriter) {
+  // NOLINTNEXTLINE
+  return foldConsecutiveDataCastOps(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
