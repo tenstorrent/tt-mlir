@@ -206,6 +206,22 @@ getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
   return memoryConfig;
 }
 
+template <typename OpType>
+static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
+  // TODO (#620): Once we add a full support for shard spec, we can
+  // remove obtaining tileShape and coreRangeSet from output tensor.
+  // TODO (#2415): Once we have this pass, we can remove ternary if
+  // and just get memory config attr from the op.
+  auto result = op.getResult();
+  auto tileShape = getTensorValueTileShape(result);
+  auto coreRangeSet = getTensorValueCoreRangeSet(cache, result);
+  return op.getMemoryConfig()
+             ? memoryConfigToFlatbuffer(cache, *op.getMemoryConfig(), tileShape,
+                                        coreRangeSet)
+             : getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+}
+
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
   auto desc = lookupDevice(device.getParentBlock()->getParentOp());
@@ -1100,7 +1116,7 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
   ::tt::target::DataType targetDtype =
       ::tt::mlir::ttnn::utils::toTargetDataType(outputDtype);
 
-  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   return ::tt::target::ttnn::CreateEltwiseBinaryOp(
       *cache.fbb, type, lhs, rhs, targetDtype, memoryConfig, out);
@@ -1141,10 +1157,7 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
 
   auto result = op.getResult();
 
-  // TODO (#2856): we should be getting memory config from the binary
-  // composite op directly instead of deriving from the output tensor.
-  // Requires compiler support.
-  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto out =
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
@@ -1165,10 +1178,7 @@ createEltwiseTernaryWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
 
   auto result = op.getResult();
 
-  // TODO (#2857): we should be getting memory config from the where op
-  // directly instead of deriving from the output tensor.
-  // Requires compiler support.
-  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto out =
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
@@ -1319,10 +1329,7 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
 
   auto result = op.getResult();
 
-  // TODO (#2859): we should be getting memory config from the unary op
-  // directly instead of deriving from the output tensor
-  // Requires compiler support.
-  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto out =
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);
@@ -1372,10 +1379,7 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
 
   auto result = op.getResult();
 
-  // TODO (#2859): we should be getting memory config from the unary
-  // composite op directly instead of deriving from the output tensor
-  // Requires compiler support.
-  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto out =
       cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize);

@@ -22,7 +22,7 @@ include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, !listconcat([TTIROpInterface, DestinationStyleOpInterface], traits)> {
+    TTIR_Op<mnemonic, [TTIROpInterface, DestinationStyleOpInterface] # traits> {
     let extraClassDeclaration = [{
       // base implementation that will detect getOutputMutable() or getOutputsMutable()
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
@@ -360,10 +360,10 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat([Pure], traits)>;
+    TTIR_DPSOp<mnemonic, [Pure] # traits>;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_NamedOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
+    TTIR_NamedOp<mnemonic, [AttrSizedOperandSegments, TTIR_Broadcastable] # traits> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -376,7 +376,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([FourOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, [FourOperands] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -399,7 +399,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_PartiallyBroadcastabl
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, [TwoOperands] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -620,6 +620,13 @@ def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
   }];
 }
 
+def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
+    let summary = "Eltwise exponential op.";
+    let description = [{
+      Eltwise exponential operation. Calculates e^x for all elements x in input tensor.
+    }];
+}
+
 class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseUnaryOp<mnemonic, traits> {
     let summary = "Eltwise unary op with the float parameter.";
@@ -664,7 +671,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
+    TTIR_ElementwiseOp<mnemonic, [ThreeOperands] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -863,6 +870,39 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
         %result = "ttir.atan2"(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
         // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
       ```
+    }];
+}
+
+def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
+    let summary = "Eltwise add.";
+    let description = [{
+      Eltwise add operation.
+    }];
+}
+
+def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
+    let summary = "Eltwise multiply.";
+    let description = [{
+      Eltwise multiply operation.
+    }];
+}
+
+def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
+    let summary = "Eltwise divide.";
+    let description = [{
+      Eltwise divide operation.
+    }];
+}
+
+def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
+    let summary = "Eltwise maximum.";
+    let description = [{
+      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
     }];
 }
 
@@ -1488,7 +1528,7 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape"> {
     let hasFolder = 1;
 }
 
-def TTIR_PadOp: TTIR_Op<"pad"> {
+def TTIR_PadOp: TTIR_NamedOp<"pad"> {
     let summary = "Pad op.";
     let description = [{
       Pad input tensor with tuple of padding values.
@@ -1515,6 +1555,7 @@ def TTIR_PadOp: TTIR_Op<"pad"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
                          DenseI32ArrayAttr:$padding,
                          F32Attr:$value);
 
@@ -1666,81 +1707,6 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
   let hasCanonicalizer = 1;
 }
 
-def TTIR_ArangeOp : TTIR_Op<"arange", [TT_CreationOpTrait]> {
-  let summary = "Arange operation.";
-  let description = [{
-    Tensor arange operation.
-
-    Produces a tensor with values from `start` to `end` (exclusive) with a step size of `step`, along the dimension specified by `arange_dimension`.
-
-    Examples:
-      %0 = "ttir.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5xi64>
-      // %0: [0, 1, 2, 3, 4]
-
-      %1 = "ttir.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64, arange_dimension = 0 : i64} : () -> tensor<5xf32>
-      // %1: [0.0, 2.0, 4.0, 6.0, 8.0]
-
-      %2 = "ttir.arange"() {start = 0 : i64, end = 5 : i64, step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5x3xi64>
-      // %2: [
-              [0, 0, 0],
-              [1, 1, 1],
-              [2, 2, 2],
-              [3, 3, 3],
-              [4, 4, 4]
-             ]
-
-      %3 = "ttir.arange"() {start = 0 : i64, end = 3 : i64, step = 1 : i64, arange_dimension = 1 : i64} : () -> tensor<5x3xi64>
-      // %3: [
-              [0, 1, 2],
-              [0, 1, 2],
-              [0, 1, 2],
-              [0, 1, 2],
-              [0, 1, 2]
-             ]
-  }];
-
-  let arguments = (ins SI64Attr:$start,
-                       SI64Attr:$end,
-                       SI64Attr:$step,
-                       I64Attr:$arange_dimension);
-
-  let results = (outs AnyRankedTensor:$result);
-  let hasVerifier = 1;
-}
-
-class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTIR_Op<mnemonic, traits> {
-  let arguments = (ins DenseI32ArrayAttr:$shape);
-
-  let results = (outs AnyRankedTensor:$result);
-}
-
-def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
-  let summary = "Creates a tensor filled with zeros.";
-  let description = [{
-    Tensor operation to create a tensor filled with zeros.
-
-    Given a `shape`, produces a tensor with the shape, filled with zeros.
-
-    Example:
-      %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
-      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
-  }];
-}
-
-def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [TT_CreationOpTrait]> {
-  let summary = "Creates a tensor filled with ones.";
-  let description = [{
-    Tensor operation to create a tensor filled with ones.
-
-    Given a `shape`, produces a tensor with the shape, filled with ones.
-
-    Example:
-      %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
-      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
-  }];
-}
-
 def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
   let summary = "Reverse operation.";
 
@@ -1771,68 +1737,6 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
-}
-
-def TTIR_EmptyOp : TTIR_Op<"empty",
-  [ Pure
-  , TT_CreationOpTrait
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferizesToAllocation"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  ]> {
-    let summary = "Empty op.";
-    let description = [{
-      Tensor empty operation
-    }];
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let builders =
-    [
-      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType, "Attribute": $encoding),
-      [{
-        build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
-      }]>,
-      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType),
-      [{
-        build($_builder, $_state, shape, elementType, nullptr);
-      }]>
-    ];
-
-    let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
-}
-
-def TTIR_ConstantOp : TTIR_Op<"constant",
-  [ ConstantLike
-  , AllShapesMatch<["value", "result"]>
-  , TT_CreationOpTrait
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  ]> {
-    let summary = "Constant op.";
-    let description = [{
-      Produces tensor filled with given constant value.
-
-      Examples:
-        %0 = "ttir.constant"() {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
-        // %0: [[0, 0, 0], [0, 0, 0]]
-        %1 = "ttir.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
-        // %1: [0.2, 1.3]
-    }];
-
-    let arguments = (ins ElementsAttr:$value);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let hasFolder = 1;
 }
 
 def TTIR_FillOp : TTIR_NamedOp<"fill", [AllShapesMatch<["value", "result"]>]> {
@@ -1952,60 +1856,6 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let hasVerifier = 1;
 }
 
-//===----------------------------------------------------------------------===//
-// TTIR top level generic ops
-//===----------------------------------------------------------------------===//
-
-class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseUnaryOp<mnemonic, traits> {
-}
-
-def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
-    let summary = "Eltwise exponential op.";
-    let description = [{
-      Eltwise exponential operation. Calculates e^x for all elements x in input tensor.
-    }];
-}
-
-class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseBinaryOp<mnemonic, traits> {
-}
-
-def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_FullyBroadcastable]> {
-    let summary = "Eltwise add.";
-    let description = [{
-      Eltwise add operation.
-    }];
-}
-
-def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_PartiallyBroadcastable]> {
-    let summary = "Eltwise multiply.";
-    let description = [{
-      Eltwise multiply operation.
-    }];
-}
-
-def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div", [TTIR_PartiallyBroadcastable]> {
-    let summary = "Eltwise divide.";
-    let description = [{
-      Eltwise divide operation.
-    }];
-}
-
-def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
-    let summary = "Eltwise maximum.";
-    let description = [{
-      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
-
-      Example:
-        %lhs: [[3, 2, 7], [1, 4, 4]]
-        %rhs: [[1, 4, 2], [1, 2, 3]]
-        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
-    }];
-}
-
-//===----------------------------------------------------------------------===//
-
 def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation";
   let description = [{
@@ -2030,6 +1880,148 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR creation ops
+//===----------------------------------------------------------------------===//
+
+class TTIR_CreationOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_Op<mnemonic, [Pure, TT_CreationOpTrait] # traits>;
+
+
+def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
+  let summary = "Arange operation.";
+  let description = [{
+    Tensor arange operation.
+
+    Produces a tensor with values from `start` to `end` (exclusive) with a step size of `step`, along the dimension specified by `arange_dimension`.
+
+    Examples:
+      %0 = "ttir.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5xi64>
+      // %0: [0, 1, 2, 3, 4]
+
+      %1 = "ttir.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64, arange_dimension = 0 : i64} : () -> tensor<5xf32>
+      // %1: [0.0, 2.0, 4.0, 6.0, 8.0]
+
+      %2 = "ttir.arange"() {start = 0 : i64, end = 5 : i64, step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5x3xi64>
+      // %2: [
+              [0, 0, 0],
+              [1, 1, 1],
+              [2, 2, 2],
+              [3, 3, 3],
+              [4, 4, 4]
+             ]
+
+      %3 = "ttir.arange"() {start = 0 : i64, end = 3 : i64, step = 1 : i64, arange_dimension = 1 : i64} : () -> tensor<5x3xi64>
+      // %3: [
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2]
+             ]
+  }];
+
+  let arguments = (ins SI64Attr:$start,
+                       SI64Attr:$end,
+                       SI64Attr:$step,
+                       I64Attr:$arange_dimension);
+
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
+class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
+  TTIR_CreationOp<mnemonic, traits> {
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
+def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
+  let summary = "Creates a tensor filled with zeros.";
+  let description = [{
+    Tensor operation to create a tensor filled with zeros.
+
+    Given a `shape`, produces a tensor with the shape, filled with zeros.
+
+    Example:
+      %0 = "ttir.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
+  }];
+}
+
+def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
+  let summary = "Creates a tensor filled with ones.";
+  let description = [{
+    Tensor operation to create a tensor filled with ones.
+
+    Given a `shape`, produces a tensor with the shape, filled with ones.
+
+    Example:
+      %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
+  }];
+}
+
+def TTIR_EmptyOp : TTIR_CreationOp<"empty",
+  [DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                      , "bufferizesToMemoryWrite"
+                                                      , "bufferizesToAllocation"
+                                                      , "bufferize"
+                                                      , "getAliasingValues"
+                                                      , "getBufferType"
+                                                      ]>
+  ]> {
+    let summary = "Empty op.";
+    let description = [{
+      Tensor empty operation
+    }];
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders =
+    [
+      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType, "Attribute": $encoding),
+      [{
+        build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
+      }]>,
+      OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType),
+      [{
+        build($_builder, $_state, shape, elementType, nullptr);
+      }]>
+    ];
+
+    let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
+}
+
+def TTIR_ConstantOp : TTIR_CreationOp<"constant",
+  [ ConstantLike
+  , AllShapesMatch<["value", "result"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+    let summary = "Constant op.";
+    let description = [{
+      Produces tensor filled with given constant value.
+
+      Examples:
+        %0 = "ttir.constant"() {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
+        // %0: [[0, 0, 0], [0, 0, 0]]
+        %1 = "ttir.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+        // %1: [0.2, 1.3]
+    }];
+
+    let arguments = (ins ElementsAttr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2086,7 +2078,7 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
+def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
     let summary = "Reduce scatter operation.";
     let description = [{
       Reduce scatter op.
@@ -2101,7 +2093,7 @@ def TTIR_ReduceScatterOp : TTIR_DPSOp<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
-def TTIR_CollectivePermuteOp : TTIR_DPSOp<"collective_permute"> {
+def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
     let summary = "Collective permute operation.";
     let description = [{
       Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].

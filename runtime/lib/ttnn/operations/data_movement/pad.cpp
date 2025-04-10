@@ -22,9 +22,9 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor out;
 
-  ::ttnn::SmallVector<::ttnn::operations::data_movement::PadSpecDim> padding;
+  std::vector<std::pair<uint32_t, uint32_t>> padding;
   for (uint32_t i = 0; i < op->padding()->size(); i += 2) {
-    padding.push_back({op->padding()->Get(i), op->padding()->Get(i + 1)});
+    padding.emplace_back(op->padding()->Get(i), op->padding()->Get(i + 1));
   }
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =

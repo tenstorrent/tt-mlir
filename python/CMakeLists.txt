@@ -82,6 +82,7 @@ declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
   SOURCES
     ttir_builder.py
     test_utils.py
+    ccl_golden.py
 )
 
 # Enable Site Initialization Target to be piped into _mlir_libs/__init__.py
