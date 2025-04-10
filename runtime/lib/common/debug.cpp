@@ -23,9 +23,8 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
 }
 
 RuntimeModifications const &
-RuntimeModifications::get(std::optional<std::uint32_t> dumpDeviceRate,
-                          std::unordered_set<op> taggedOps) {
-  static RuntimeModifications config(dumpDeviceRate, taggedOps);
+RuntimeModifications::get(std::optional<std::uint32_t> dumpDeviceRate) {
+  static RuntimeModifications config(dumpDeviceRate);
   return config;
 }
 

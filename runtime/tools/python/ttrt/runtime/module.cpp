@@ -11,6 +11,7 @@
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
 #include "tt/runtime/ttnn/test/dylib.h"
 #include "tt/runtime/ttnn/test/utils.h"
+// #include "tt/runtime/ttnn/types.h"
 #endif
 
 #include <pybind11/functional.h>
@@ -287,10 +288,13 @@ PYBIND11_MODULE(_C, m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
-  m.def("get_output_tensors", tt::runtime::ttnn::gatherOutputTensors,
-        "Get output tensors off device");
-  // m.def("get_input_tensors", tt::runtime::ttnn::gatherInputTensors, "Get
-  // input tensors off device");
+  m.def("get_all_op_loc_info", &tt::runtime::getAllOpLocInfo,
+        "Get the location info of all of the ops");
+  // m.def("get_output_tensors",
+  // tt::runtime::ttnn::ProgramTensorPool::gatherOutputTensors,
+  //       "Get output tensors off device");
+  //  m.def("get_input_tensors", tt::runtime::ttnn::gatherInputTensors, "Get
+  //  input tensors off device");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {

@@ -701,6 +701,18 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
+std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
+                                         std::uint32_t programIndex) {
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
+  std::vector<std::string> locInfo;
+  for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+    locInfo.push_back(std::string(op->loc_info()->c_str()));
+  }
+  return locInfo;
+}
+
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle) {
   auto const &programContext =

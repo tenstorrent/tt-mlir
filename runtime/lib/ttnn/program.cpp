@@ -155,18 +155,17 @@ void ProgramExecutor::runCallback(
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
-    std::unordered_set<::tt::target::ttnn::Operation> taggedOps =
-        debug::RuntimeModifications::get().getTaggedOps();
-    if (taggedOps && taggedOps.contains(opContext)) {
-      std::shared_ptr<void> programContextPtr =
-          ::tt::runtime::utils::unsafe_borrow_shared(programContext);
-      std::shared_ptr<void> opContextPtr =
-          ::tt::runtime::utils::unsafe_borrow_shared(
-              const_cast<::tt::target::ttnn::Operation *>(opContext));
-      (*callback)(executableHandle,
-                  CallbackContext(programContextPtr, DeviceRuntime::TTNN),
-                  OpContext(opContextPtr, DeviceRuntime::TTNN));
-    }
+    // std::unordered_set<::tt::target::ttnn::Operation> taggedOps =
+    //     debug::RuntimeModifications::get().getTaggedOps();
+    // if (taggedOps && taggedOps.contains(opContext)) {
+    std::shared_ptr<void> programContextPtr =
+        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+    std::shared_ptr<void> opContextPtr =
+        ::tt::runtime::utils::unsafe_borrow_shared(
+            const_cast<::tt::target::ttnn::Operation *>(opContext));
+    (*callback)(executableHandle,
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                OpContext(opContextPtr, DeviceRuntime::TTNN));
   }
 }
 

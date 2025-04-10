@@ -104,11 +104,9 @@ inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
 
 // Will have to move to another file
 struct RuntimeModifications {
-  using op = ::tt::target::ttnn::Operation;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static RuntimeModifications const &
-  get(std::optional<std::uint32_t> dumpDeviceRate = 1000,
-      std::unordered_set<op> taggedOps = {});
+  get(std::optional<std::uint32_t> dumpDeviceRate = 1000);
 #else
   constexpr static RuntimeModifications get() { return RuntimeModifications(); }
 #endif
@@ -127,36 +125,19 @@ struct RuntimeModifications {
 #endif
   }
 
-  void addTaggedOps(std::unordered_set<op> newTaggedOps) const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    taggedOps.merge(newTaggedOps);
-#endif
-  }
-
-  std::unordered_set<op> getTaggedOps() const {
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    return taggedOps;
-#else
-    return {};
-#endif
-  }
-
   void unregisterRuntimeModifications() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     dumpDeviceRate = 1000;
-    taggedOps = {};
 
 #endif
   }
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  RuntimeModifications(std::optional<std::uint32_t> dumpDeviceRate,
-                       std::unordered_set<op> taggedOps)
-      : dumpDeviceRate(dumpDeviceRate), taggedOpIDs(taggedOps) {}
+  RuntimeModifications(std::optional<std::uint32_t> dumpDeviceRate)
+      : dumpDeviceRate(dumpDeviceRate) {}
 
   mutable std::optional<std::uint32_t> dumpDeviceRate;
-  mutable std::unordered_set<op> taggedOps;
 #else
   constexpr RuntimeModifications() = default;
 #endif
