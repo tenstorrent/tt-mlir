@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <ostream>
+#include <unordered_set>
 
 #include "tt/runtime/types.h"
 
@@ -101,41 +102,63 @@ inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
   return os;
 }
 
-struct APIInfo {
+// Will have to move to another file
+struct RuntimeModifications {
+  using op = ::tt::target::ttnn::Operation;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  static APIInfo const &get(std::optional<std::uint32_t> dumpRate = 1000);
+  static RuntimeModifications const &
+  get(std::optional<std::uint32_t> dumpDeviceRate = 1000,
+      std::unordered_set<op> taggedOps = {});
 #else
-  constexpr static APIInfo get() { return APIInfo(); }
+  constexpr static RuntimeModifications get() { return RuntimeModifications(); }
 #endif
 
-  void setDumpDeviceRate(std::optional<std::uint32_t> rate = 1000) const {
+  void setDumpDeviceRate(std::uint32_t rate) const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    dumpRate = rate;
+    dumpDeviceRate = rate;
 #endif
   }
 
   std::optional<std::uint32_t> getDumpDeviceRate() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    return dumpRate;
+    return dumpDeviceRate;
 #else
     return 1000;
 #endif
   }
 
-  void unregisterAPIInfo() const {
+  void addTaggedOps(std::unordered_set<op> newTaggedOps) const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    dumpRate = 1000;
+    taggedOps.merge(newTaggedOps);
+#endif
+  }
+
+  std::unordered_set<op> getTaggedOps() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return taggedOps;
+#else
+    return {};
+#endif
+  }
+
+  void unregisterRuntimeModifications() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    dumpDeviceRate = 1000;
+    taggedOps = {};
+
 #endif
   }
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  APIInfo(std::optional<std::uint32_t> dumpRate) : dumpRate(dumpRate) {}
+  RuntimeModifications(std::optional<std::uint32_t> dumpDeviceRate,
+                       std::unordered_set<op> taggedOps)
+      : dumpDeviceRate(dumpDeviceRate), taggedOpIDs(taggedOps) {}
 
-  mutable std::optional<std::uint32_t> dumpRate;
-
+  mutable std::optional<std::uint32_t> dumpDeviceRate;
+  mutable std::unordered_set<op> taggedOps;
 #else
-  constexpr APIInfo() = default;
+  constexpr RuntimeModifications() = default;
 #endif
 };
 

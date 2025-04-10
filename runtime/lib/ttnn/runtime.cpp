@@ -682,8 +682,12 @@ void deallocateTensor(::tt::runtime::Tensor &tensor, bool force) {
 }
 
 void setDumpDeviceRate(std::uint32_t rate) {
-  debug::APIInfo::get().setDumpDeviceRate(rate);
+  debug::RuntimeModifications::get().setDumpDeviceRate(rate);
 }
+
+// void setLogPreferences() {
+//  setDumpDeviceRate();
+//}
 
 std::string getOpDebugString(OpContext opContextHandle) {
   auto const &opContext =

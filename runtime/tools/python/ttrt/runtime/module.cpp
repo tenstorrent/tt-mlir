@@ -287,6 +287,10 @@ PYBIND11_MODULE(_C, m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
+  m.def("get_output_tensors", tt::runtime::ttnn::gatherOutputTensors,
+        "Get output tensors off device");
+  // m.def("get_input_tensors", tt::runtime::ttnn::gatherInputTensors, "Get
+  // input tensors off device");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
@@ -374,11 +378,14 @@ PYBIND11_MODULE(_C, m) {
    */
   auto cleanup_callback = []() {
     ::tt::runtime::debug::Hooks::get().unregisterHooks();
-    ::tt::runtime::debug::APIInfo::get().unregisterAPIInfo();
+    ::tt::runtime::debug::RuntimeModifications::get()
+        .unregisterRuntimeModifications();
   };
   m.add_object("_cleanup", py::capsule(cleanup_callback));
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
-  m.def("unregister_apiInfo",
-        []() { ::tt::runtime::debug::APIInfo::get().unregisterAPIInfo(); });
+  m.def("unregister_runtime_modifications", []() {
+    ::tt::runtime::debug::RuntimeModifications::get()
+        .unregisterRuntimeModifications();
+  });
 }

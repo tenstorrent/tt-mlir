@@ -481,6 +481,9 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
   return outputs;
 }
 
+// std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherInputTensors() {
+// }
+
 TensorPtrMapIterator
 ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");

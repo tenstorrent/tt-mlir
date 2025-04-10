@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/debug.h"
-#include <set>
+
+#include <unordered_set>
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 
@@ -21,8 +22,10 @@ Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
   return config;
 }
 
-APIInfo const &APIInfo::get(std::optional<std::uint32_t> dumpRate) {
-  static APIInfo config(dumpRate);
+RuntimeModifications const &
+RuntimeModifications::get(std::optional<std::uint32_t> dumpDeviceRate,
+                          std::unordered_set<op> taggedOps) {
+  static RuntimeModifications config(dumpDeviceRate, taggedOps);
   return config;
 }
 

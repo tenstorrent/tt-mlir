@@ -55,6 +55,9 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include <fstream>
+#include <iostream>
+#include <unordered_set>
 
 #ifdef TT_RUNTIME_ENABLE_PERF_TRACE
 #include "tracy/Tracy.hpp"
@@ -114,6 +117,8 @@ public:
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
+  void callbackActions(::ttnn::MeshDevice &meshDevice);
+
   void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
 
   void execute() {
@@ -126,7 +131,7 @@ public:
       runOperation(op);
       runCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
-      dumpPerfCountersIfNeeded(context->getParentMesh());
+      callbackActions(context->getParentMesh());
     }
   }
 
@@ -150,21 +155,29 @@ void ProgramExecutor::runCallback(
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
-    std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
-    std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(
-            const_cast<::tt::target::ttnn::Operation *>(opContext));
-    (*callback)(executableHandle,
-                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
-                OpContext(opContextPtr, DeviceRuntime::TTNN));
+    std::unordered_set<::tt::target::ttnn::Operation> taggedOps =
+        debug::RuntimeModifications::get().getTaggedOps();
+    if (taggedOps && taggedOps.contains(opContext)) {
+      std::shared_ptr<void> programContextPtr =
+          ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+      std::shared_ptr<void> opContextPtr =
+          ::tt::runtime::utils::unsafe_borrow_shared(
+              const_cast<::tt::target::ttnn::Operation *>(opContext));
+      (*callback)(executableHandle,
+                  CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                  OpContext(opContextPtr, DeviceRuntime::TTNN));
+    }
   }
+}
+
+void ProgramExecutor::callbackActions(::ttnn::MeshDevice &meshDevice) {
+  dumpPerfCountersIfNeeded(meshDevice);
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   static uint32_t counter = 0;
-  if (counter++ >= debug::APIInfo::get().getDumpDeviceRate()) {
+  if (counter++ >= debug::RuntimeModifications::get().getDumpDeviceRate()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter - 1) +
                                            " operations");
@@ -175,6 +188,8 @@ void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
   }
 #endif
 }
+
+// void ProgramExecutor::
 
 void ProgramExecutor::runEltwiseOperation(
     const ::tt::target::ttnn::EltwiseOp *op) {
