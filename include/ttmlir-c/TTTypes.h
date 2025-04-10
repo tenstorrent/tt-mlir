@@ -15,6 +15,11 @@ MLIR_CAPI_EXPORTED MlirType ttmlirTTTileTypeGet(MlirContext ctx,
                                                 unsigned height, unsigned width,
                                                 uint32_t dataType);
 
+// Tuple type declaration
+MLIR_CAPI_EXPORTED MlirType ttmlirTTTupleTypeGet(MlirContext ctx,
+                                                 MlirType *elements,
+                                                 size_t numElements);
+
 #ifdef __cplusplus
 }
 #endif
