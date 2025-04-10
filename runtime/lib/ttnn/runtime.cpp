@@ -13,11 +13,7 @@
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 
-// Temporarily disable warning for covered switch default in generated code
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/TTNN/Target.h"
-#pragma GCC diagnostic pop
 
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
@@ -560,38 +556,41 @@ void wait(Event event) {
   LOG_ASSERT(event.matchesRuntime(DeviceRuntime::TTNN));
 }
 
-void wait(Tensor tensor) {
+void wait(::tt::runtime::Tensor tensor) {
   LOG_ASSERT(tensor.matchesRuntime(DeviceRuntime::TTNN),
              "Expected ttnn tensor");
   ::tt::runtime::ttnn::wait(tensor.event);
 }
 
-void wait(std::vector<Tensor> const &tensors) {
-  for (const Tensor &tensor : tensors) {
+void wait(std::vector<::tt::runtime::Tensor> const &tensors) {
+  for (const ::tt::runtime::Tensor &tensor : tensors) {
     ::tt::runtime::ttnn::wait(tensor);
   }
 }
 
-std::vector<Tensor> toHost(Tensor tensor, bool untilize) {
-  const ::ttnn::Tensor &multiDeviceTensor =
-      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  std::vector<Tensor> host_tensors;
+std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
+                                          bool untilize) {
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+
+  const ::ttnn::Tensor &multiDeviceTensor = tensorWrapper.getTensor();
+  bool shouldRetain = tensorWrapper.shouldRetain();
+
+  std::vector<::tt::runtime::Tensor> hostTensors;
   if (multiDeviceTensor.storage_type() ==
           ::ttnn::StorageType::MULTI_DEVICE_HOST ||
       multiDeviceTensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE) {
-    std::vector<::ttnn::Tensor> single_tensors =
+    std::vector<::ttnn::Tensor> singleTensors =
         ::ttnn::distributed::get_device_tensors(multiDeviceTensor);
-    for (auto &tensor : single_tensors) {
-      host_tensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
-          Tensor(std::make_shared<::ttnn::Tensor>(tensor), nullptr,
-                 DeviceRuntime::TTNN),
-          untilize));
+    for (auto &tensor : singleTensors) {
+      hostTensors.push_back(::tt::runtime::ttnn::toHostSingleTensor(
+          utils::createRuntimeTensorFromTTNN(tensor, shouldRetain), untilize));
     }
   } else {
-    host_tensors.push_back(
+    hostTensors.push_back(
         ::tt::runtime::ttnn::toHostSingleTensor(tensor, untilize));
   }
-  return host_tensors;
+  return hostTensors;
 }
 
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
