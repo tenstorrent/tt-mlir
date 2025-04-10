@@ -659,3 +659,89 @@ TEST_F(Conversion, TensorSpecToLayout) {
     }
   }
 }
+
+TEST_F(Conversion, TensorSpecToLayoutReversed) {
+  const ttnn::Shape tensorShape{56 * 32, 56 * 32};
+  const std::vector<tt::tt_metal::TensorSpec> tensorSpecs = {
+      tt::tt_metal::TensorSpec{
+          tensorShape,
+          tt::tt_metal::TensorLayout{
+              tt::tt_metal::DataType::BFLOAT16,
+              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
+              tt::tt_metal::MemoryConfig{
+                  tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
+                  tt::tt_metal::BufferType::DRAM}}},
+      tt::tt_metal::TensorSpec{
+          tensorShape,
+          tt::tt_metal::TensorLayout{
+              tt::tt_metal::DataType::BFLOAT16,
+              tt::tt_metal::PageConfig{tt::tt_metal::Layout::ROW_MAJOR},
+              tt::tt_metal::MemoryConfig{
+                  tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
+                  tt::tt_metal::BufferType::DRAM}}},
+      tt::tt_metal::TensorSpec{
+          tensorShape,
+          tt::tt_metal::TensorLayout{
+              tt::tt_metal::DataType::BFLOAT16,
+              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
+              tt::tt_metal::MemoryConfig{
+                  tt::tt_metal::TensorMemoryLayout::INTERLEAVED,
+                  tt::tt_metal::BufferType::L1}}},
+      tt::tt_metal::TensorSpec{
+          tensorShape,
+          tt::tt_metal::TensorLayout{
+              tt::tt_metal::DataType::BFLOAT16,
+              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
+              tt::tt_metal::MemoryConfig{
+                  tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
+                  tt::tt_metal::BufferType::L1,
+                  tt::tt_metal::ShardSpec{
+                      tt::tt_metal::CoreRange{tt::tt_metal::CoreCoord{0, 0},
+                                              tt::tt_metal::CoreCoord{3, 3}},
+                      {14 * 32, 14 * 32}}}}},
+
+      tt::tt_metal::TensorSpec{
+          tensorShape,
+          tt::tt_metal::TensorLayout{
+              tt::tt_metal::DataType::BFLOAT16,
+              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
+              tt::tt_metal::MemoryConfig{
+                  tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED,
+                  tt::tt_metal::BufferType::L1,
+                  tt::tt_metal::ShardSpec{
+                      tt::tt_metal::CoreRange{tt::tt_metal::CoreCoord{0, 0},
+                                              tt::tt_metal::CoreCoord{3, 0}},
+                      {14 * 32, 56 * 32}}}}},
+      tt::tt_metal::TensorSpec{
+          tensorShape,
+          tt::tt_metal::TensorLayout{
+              tt::tt_metal::DataType::BFLOAT16,
+              tt::tt_metal::PageConfig{tt::tt_metal::Layout::TILE},
+              tt::tt_metal::MemoryConfig{
+                  tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED,
+                  tt::tt_metal::BufferType::L1,
+                  tt::tt_metal::ShardSpec{
+                      tt::tt_metal::CoreRange{tt::tt_metal::CoreCoord{0, 0},
+                                              tt::tt_metal::CoreCoord{3, 0}},
+                      {56 * 32, 14 * 32}}}}}};
+
+  for (tt::tt_metal::TensorSpec originalTensorSpec : tensorSpecs) {
+    const auto layout =
+        mlir::tt::op_model::ttnn::conversion::getLayoutAttrFromTensorSpec(
+            &context, originalTensorSpec);
+    const auto reconvertedTensorSpec =
+        mlir::tt::op_model::ttnn::conversion::getTensorSpec(
+            mlir::tt::op_model::ttnn::conversion::getShape(tensorShape),
+            layout);
+    EXPECT_EQ(reconvertedTensorSpec, originalTensorSpec);
+    EXPECT_EQ(reconvertedTensorSpec.layout(), originalTensorSpec.layout());
+    EXPECT_EQ(reconvertedTensorSpec.logical_shape(),
+              originalTensorSpec.logical_shape());
+    EXPECT_EQ(reconvertedTensorSpec.data_type(),
+              originalTensorSpec.data_type());
+    EXPECT_EQ(reconvertedTensorSpec.page_config(),
+              originalTensorSpec.page_config());
+    EXPECT_EQ(reconvertedTensorSpec.memory_config(),
+              originalTensorSpec.memory_config());
+  }
+}
