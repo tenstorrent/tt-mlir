@@ -19,8 +19,10 @@ static void runEltwiseBinaryOp(
         const std::optional<const ::ttnn::DataType> &,
         const std::optional<::ttnn::MemoryConfig> &,
         std::optional<::ttnn::Tensor>,
-        std::optional<::ttnn::operations::unary::FusedActivations>,
-        std::optional<::ttnn::operations::unary::UnaryWithParam>)> &ttnnOp) {
+        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>)>
+        &ttnnOp) {
 
   ::ttnn::Tensor *lhs = nullptr;
   ::ttnn::Tensor *rhs = nullptr;
@@ -36,8 +38,8 @@ static void runEltwiseBinaryOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
-                              std::nullopt, std::nullopt, std::nullopt);
+  ::ttnn::Tensor out = ttnnOp(lhs, rhs, outputDataType, outputMemoryConfig,
+                              std::nullopt, {}, {}, {});
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
