@@ -4,12 +4,10 @@
 
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 
-#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
