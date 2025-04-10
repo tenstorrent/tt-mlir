@@ -18,6 +18,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectResourceBlobManager.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -1058,10 +1059,22 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
+
   if (getType() == getOperand(0).getType()) {
     return getOperand(0);
   }
-  return nullptr;
+
+  ElementsAttr foldedAttr;
+  if (auto value = dyn_cast_or_null<DenseElementsAttr>(adaptor.getInput())) {
+    foldedAttr = value.reshape(getType());
+  } else if (auto value = dyn_cast_or_null<DenseResourceElementsAttr>(
+                 adaptor.getInput())) {
+    foldedAttr =
+        DenseResourceElementsAttr::get(getType(), value.getRawHandle());
+  } else {
+    return nullptr;
+  }
+  return foldedAttr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1609,6 +1622,85 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
         return mlir::success();
       });
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+mlir::DenseElementsAttr
+permuteDenseElementsAttr(mlir::DenseElementsAttr elementsAttr,
+                         llvm::ArrayRef<int64_t> permutation) {
+  uint32_t rank = elementsAttr.getType().getRank();
+  auto shape = elementsAttr.getType().getShape();
+  llvm::SmallVector<uint32_t> initialStrides(rank, 1);
+  for (int32_t i = rank - 2; i >= 0; i--) {
+    initialStrides[i] = initialStrides[i + 1] * shape[i + 1];
+  }
+
+  llvm::SmallVector<int64_t> newShape;
+  for (uint32_t i : permutation) {
+    newShape.push_back(shape[i]);
+  }
+
+  llvm::SmallVector<uint32_t> newStrides(rank, 1);
+  for (int32_t i = rank - 2; i >= 0; i--) {
+    newStrides[i] = newStrides[i + 1] * newShape[i + 1];
+  }
+
+  uint32_t elementBitWidth =
+      elementsAttr.getElementType().getIntOrFloatBitWidth();
+  assert(elementBitWidth % 8 == 0 &&
+         "Element bit width must be a multiple of 8.");
+  uint32_t elementByteWidth = elementBitWidth / 8;
+
+  auto data = elementsAttr.getRawData();
+  llvm::SmallVector<char> newVals(
+      elementByteWidth * elementsAttr.getNumElements(), 0);
+
+  for (int64_t rawIndex = 0; rawIndex < elementsAttr.getNumElements();
+       rawIndex++) {
+    int64_t newRawIndex = 0;
+    for (uint32_t i = 0; i < rank; i++) {
+      newRawIndex += ((rawIndex / initialStrides[permutation[i]]) %
+                      shape[permutation[i]]) *
+                     newStrides[i];
+    }
+
+    for (uint32_t byte = 0; byte < elementByteWidth; byte++) {
+      newVals[newRawIndex * elementByteWidth + byte] =
+          data[rawIndex * elementByteWidth + byte];
+    }
+  }
+
+  return mlir::DenseElementsAttr::getFromRawBuffer(
+      elementsAttr.getType().cloneWith(newShape, elementsAttr.getElementType()),
+      newVals);
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
+  DenseElementsAttr elementsAttr;
+  if (auto attr = dyn_cast_or_null<DenseElementsAttr>(adaptor.getInput())) {
+    elementsAttr = attr;
+  } else if (auto attr =
+                 dyn_cast_or_null<DenseResourceElementsAttr>(elementsAttr)) {
+    elementsAttr =
+        DenseElementsAttr::getFromRawBuffer(attr.getType(), attr.getData());
+  } else {
+    return nullptr;
+  }
+
+  uint32_t elementBitWidth =
+      elementsAttr.getElementType().getIntOrFloatBitWidth();
+  if (elementBitWidth % 8 != 0) {
+    return nullptr;
+  }
+
+  uint32_t rank = elementsAttr.getType().getRank();
+
+  llvm::SmallVector<int64_t> permutation;
+  for (uint32_t i = 0; i < rank; i++) {
+    permutation.push_back(i);
+  }
+  std::swap(permutation[getDim0()], permutation[getDim1()]);
+
+  return permuteDenseElementsAttr(elementsAttr, permutation);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3141,6 +3233,25 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
         return mlir::failure();
       });
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::PermuteOp::fold(FoldAdaptor adaptor) {
+  DenseElementsAttr elementsAttr;
+  if (auto attr = dyn_cast_or_null<DenseElementsAttr>(adaptor.getInput())) {
+    elementsAttr = attr;
+  } else if (auto attr =
+                 dyn_cast_or_null<DenseResourceElementsAttr>(elementsAttr)) {
+    elementsAttr =
+        DenseElementsAttr::getFromRawBuffer(attr.getType(), attr.getData());
+  } else {
+    return nullptr;
+  };
+  uint32_t elementBitWidth =
+      elementsAttr.getElementType().getIntOrFloatBitWidth();
+  if (elementBitWidth % 8 != 0) {
+    return nullptr;
+  }
+  return permuteDenseElementsAttr(elementsAttr, getPermutation());
 }
 
 //===----------------------------------------------------------------------===//
