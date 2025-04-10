@@ -297,6 +297,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
     return operations::kv_cache::run(op->type_as_UpdateCacheOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ConstantOp: {
+    return operations::creation::run(op->type_as_ConstantOp(), getContext());
+  }
   default:
     LOG_FATAL("Unsupported operation type");
   }
