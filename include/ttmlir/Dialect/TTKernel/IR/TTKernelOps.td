@@ -77,7 +77,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
       the reserved section of the circular buffer to the consumer.
     }];
 
-    let arguments = (ins I32:$dst_index, TTKernel_CB:$out_cb, I32:$out_index);
+    let arguments = (ins Index:$dst_index, TTKernel_CB:$out_cb, Index:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
 }
 
 def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
@@ -103,14 +103,14 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
       engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$cb0, I32:$tile_index_cb, I32:$tile_index_dst);
+    let arguments = (ins TTKernel_CB:$cb0, Index:$tile_index_cb, Index:$tile_index_dst);
 }
 
 //===----------------------------------------------------------------------===//
 // TTKernel FPU operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_BinaryOpInitCommonOp : TTKernel_Op<"binary_op_init_common"> {
+def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
     let summary = "Init function for all binary ops";
     let description = [{
       Followed by the specific init required with an opcode (binrary_op_specific_init).
@@ -119,7 +119,20 @@ def TTKernel_BinaryOpInitCommonOp : TTKernel_Op<"binary_op_init_common"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb);
 }
 
-def TTKernel_AddTilesInitOp : TTKernel_Op<"add_tiles_init"> {
+def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
+    let summary = "Matmul tiles operation";
+    let description = [{
+      Matmul tiles operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb_id,
+                         TTKernel_CB:$in1_cb_id,
+                         Index:$in0_tile_idx,
+                         Index:$in1_tile_idx,
+                         Index:$dst_tile_idx);
+}
+
+def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
     let summary = "Short init function";
     let description = [{
       Must be run before add_tiles.
@@ -128,7 +141,7 @@ def TTKernel_AddTilesInitOp : TTKernel_Op<"add_tiles_init"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
 }
 
-def TTKernel_AddTilesOp : TTKernel_Op<"add_tiles"> {
+def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles"> {
     let summary = "Add operation";
     let description = [{
       Performs element-wise addition C=A+B of tiles in two CBs at given indices
@@ -140,7 +153,7 @@ def TTKernel_AddTilesOp : TTKernel_Op<"add_tiles"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
 }
 
-def TTKernel_MulTilesInitOp : TTKernel_Op<"mul_tiles_init"> {
+def TTKernel_MulTilesInitOp : TTKernel_InitOp<"mul_tiles_init"> {
     let summary = "Short init function";
     let description = [{
       Must be run before mul_tiles.
@@ -149,14 +162,14 @@ def TTKernel_MulTilesInitOp : TTKernel_Op<"mul_tiles_init"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb);
 }
 
-def TTKernel_MulTilesInitFOp : TTKernel_Op<"mul_tiles_init_f"> {
+def TTKernel_MulTilesInitFOp : TTKernel_InitOp<"mul_tiles_init_f"> {
     let summary = "Short init function. Init for math only.";
     let description = [{
       Must be run before mul_tiles.
     }];
 }
 
-def TTKernel_MulTilesOp : TTKernel_Op<"mul_tiles"> {
+def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles"> {
     let summary = "Mul operation";
     let description = [{
       Performs element-wise multiplication C=A*B of tiles in two CBs at given
@@ -168,7 +181,7 @@ def TTKernel_MulTilesOp : TTKernel_Op<"mul_tiles"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
 }
 
-def TTKernel_UnaryOpInitCommonOp : TTKernel_Op<"unary_op_init_common"> {
+def TTKernel_UnaryOpInitCommonOp : TTKernel_InitOp<"unary_op_init_common"> {
     let summary = "Initialization function for unary operations.";
     let description = [{
       This operation initializes all necessary components for unary operations,
@@ -178,14 +191,14 @@ def TTKernel_UnaryOpInitCommonOp : TTKernel_Op<"unary_op_init_common"> {
     let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
 }
 
-def TTKernel_ExpTileInitOp : TTKernel_Op<"exp_tile_init"> {
+def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of exp_tile.";
     let description = [{
       Must be run before exp_tile.
     }];
 }
 
-def TTKernel_ExpTileOp : TTKernel_Op<"exp_tile"> {
+def TTKernel_ExpTileOp : TTKernel_FPUOp<"exp_tile"> {
     let summary = "Exp operation";
     let description = [{
       Performs element-wise computation of exponential on each element of a tile
@@ -197,14 +210,14 @@ def TTKernel_ExpTileOp : TTKernel_Op<"exp_tile"> {
     let arguments = (ins I32:$tile_index);
 }
 
-def TTKernel_RecipTileInitOp : TTKernel_Op<"recip_tile_init"> {
+def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
     let summary = "Init function for recip_tile operation. Refer to documentation for any init function.";
     let description = [{
       Must be called before recip_tile function.
     }];
 }
 
-def TTKernel_RecipTileOp : TTKernel_Op<"recip_tile"> {
+def TTKernel_RecipTileOp : TTKernel_FPUOp<"recip_tile"> {
     let summary = "Recip tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of the reciprocal on each element of a tile
@@ -217,7 +230,7 @@ def TTKernel_RecipTileOp : TTKernel_Op<"recip_tile"> {
     let arguments = (ins I32:$tile_index);
 }
 
-def TTKernel_ReduceInitOp : TTKernel_Op<"reduce_init"> {
+def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
     let summary = "Init function";
     let description = [{
       Must be run before reduce_tile.
@@ -230,7 +243,7 @@ def TTKernel_ReduceInitOp : TTKernel_Op<"reduce_init"> {
                          TTKernel_ReduceDimAttr:$reduce_dim);
 }
 
-def TTKernel_ReduceTileOp : TTKernel_Op<"reduce_tile"> {
+def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile"> {
     let summary = "Reduce operation";
     let description = [{
       Performs a reduction operation *B = reduce(A)* using reduce_func for
@@ -258,7 +271,7 @@ def TTKernel_ReduceTileOp : TTKernel_Op<"reduce_tile"> {
 // TTKernel SFPU operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_MaxTilesInitOp : TTKernel_Op<"max_tile_init"> {
+def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
     let summary = "Short init function";
     let description = [{
       Must be run before max_tile.
@@ -267,7 +280,7 @@ def TTKernel_MaxTilesInitOp : TTKernel_Op<"max_tile_init"> {
     let arguments = (ins);
 }
 
-def TTKernel_MaxTilesOp : TTKernel_Op<"max_tile"> {
+def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile"> {
     let summary = "Max operation";
     let description = [{
       Performs element-wise computation of maximum operation
@@ -385,7 +398,7 @@ def TTKernel_GetNocAddrXYOp : TTKernel_Op<"get_noc_addr_xy"> {
       GetNocAddr api including core coordinates
     }];
 
-    let arguments = (ins I32:$x, I32:$y, I32:$l1Address);
+    let arguments = (ins Index:$x, Index:$y, I32:$l1Address);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
@@ -623,7 +636,7 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
       Get compile-time argument value at specified index.
     }];
 
-    let arguments = (ins I32:$arg_index);
+    let arguments = (ins I32Attr:$arg_index);
 
     let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
 }
@@ -662,6 +675,35 @@ def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen
     let results = (outs TTKernel_InterleavedAddrGenFast:$result);
 }
 
+def TTKernel_MyXOp : TTKernel_Op<"my_x"> {
+    let summary = "MyX";
+    let description = [{
+      Lowers to the tt-metal supported MY_X macro. This represents the virtual X coordinate of the current core.
+    }];
+
+    let arguments = (ins Optional<I8>:$noc);
+    let results = (outs Index:$x);
+}
+
+def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
+    let summary = "MyY";
+    let description = [{
+      Lowers to the tt-metal supported MY_Y macro. This represents the virtual Y coordinate of the current core.
+    }];
+
+    let arguments = (ins Optional<I8>:$noc);
+    let results = (outs Index:$y);
+}
+
+def TTKernel_GetCBOp : TTKernel_Op<"get_cb"> {
+  let summary = "Get CB";
+  let description = [{
+     Returns a CB type.
+    }];
+
+  let results = (outs TTKernel_CB:$cb);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//
@@ -672,7 +714,7 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
     GetNocMulticastAddr
   }];
 
-  let arguments = (ins I32:$noc_x_start, I32:$noc_y_start, I32:$noc_x_end, I32:$noc_y_end, I32:$addr, Optional<I8>:$noc);
+  let arguments = (ins Index:$noc_x_start, Index:$noc_y_start, Index:$noc_x_end, Index:$noc_y_end, I32:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 }
 
