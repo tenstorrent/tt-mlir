@@ -24,11 +24,9 @@ from ..utils import (
 from .constants import FLATBUFFER_BASE_PATH
 
 
-def get_device_inputs(device, runtime_inputs):
+def get_to_layout_inputs(device, runtime_inputs, binary, program_index):
     input_layouts = [
-        ttrt.runtime.testing.get_dram_interleaved_tile_layout(
-            runtime_inputs[i].get_dtype()
-        )
+        ttrt.runtime.get_layout(binary.fbb, program_index, i)
         for i in range(len(runtime_inputs))
     ]
     runtime_inputs_with_layout = [
@@ -66,20 +64,23 @@ def run_and_verify(helper: Helper, retain_flags, storage, enable_async):
     )
 
     with DeviceContext(mesh_shape=[1, 2], enable_async=enable_async) as parent_mesh:
-        if storage == Storage.Device:
-            runtime_inputs = get_device_inputs(parent_mesh, runtime_inputs)
+        runtime_inputs_with_layouts = get_to_layout_inputs(
+            parent_mesh, runtime_inputs, helper.binary, 0
+        )
+        if storage == Storage.Device or storage == Storage.Owned:
+            runtime_inputs = runtime_inputs_with_layouts
 
         for i, retain_flag in enumerate(retain_flags):
-            runtime_inputs[i].set_retain(retain_flag)
+            runtime_inputs_with_layouts[i].set_retain(retain_flag)
 
-        output = ttrt.runtime.submit(parent_mesh, helper.binary.fbb, 0, runtime_inputs)[
-            0
-        ]
+        output = ttrt.runtime.submit(
+            parent_mesh, helper.binary.fbb, 0, runtime_inputs_with_layouts
+        )[0]
         output_host = ttrt.runtime.to_host(output, untilize=True)[0]
         for i, runtime_input in enumerate(runtime_inputs):
             assert (
                 should_retain[i] == runtime_input.is_allocated()
-            ), f"Retain flag and tensor allocation mismatch ({should_retain[i]} != {runtime_input.is_allocated()})"
+            ), f"Retain flag and tensor allocation mismatch ({should_retain[i]} != {runtime_input.is_allocated()} at idx: {i})"
 
         torch_output = get_torch_output_container(program)
         ttrt.runtime.memcpy(torch_output.data_ptr(), output_host)
