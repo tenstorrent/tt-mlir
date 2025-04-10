@@ -734,14 +734,5 @@ TEST_F(Conversion, TensorSpecToLayoutReversed) {
             mlir::tt::op_model::ttnn::conversion::getShape(tensorShape),
             layout);
     EXPECT_EQ(reconvertedTensorSpec, originalTensorSpec);
-    EXPECT_EQ(reconvertedTensorSpec.layout(), originalTensorSpec.layout());
-    EXPECT_EQ(reconvertedTensorSpec.logical_shape(),
-              originalTensorSpec.logical_shape());
-    EXPECT_EQ(reconvertedTensorSpec.data_type(),
-              originalTensorSpec.data_type());
-    EXPECT_EQ(reconvertedTensorSpec.page_config(),
-              originalTensorSpec.page_config());
-    EXPECT_EQ(reconvertedTensorSpec.memory_config(),
-              originalTensorSpec.memory_config());
   }
 }
