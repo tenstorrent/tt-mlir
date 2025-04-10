@@ -949,18 +949,11 @@ public:
     }
 
     auto paddingArrayRef = paddingAttr->asArrayRef();
-    if (paddingArrayRef[0] != paddingArrayRef[2] ||
-        paddingArrayRef[1] != paddingArrayRef[3]) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "TTNN only supports padding height/width attributes. Thus, "
-          "padding_top/padding_left must equal padding_bottom/padding_right "
-          "for the op to execute as expected.");
-    }
 
-    // Padding only supports 2 values in ttnn
-    auto reducedPaddingAttr =
-        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1]});
+    // Padding only supports 2 or 4 values in ttnn
+    auto PaddingAttr =
+        rewriter.getDenseI32ArrayAttr({paddingArrayRef[0], paddingArrayRef[1],
+                                       paddingArrayRef[2], paddingArrayRef[3]});
 
     auto dilationAttr =
         attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
@@ -990,7 +983,7 @@ public:
         op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
         adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
         batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *dilationAttr, groupsAttr, nullptr);
+        *strideAttr, PaddingAttr, *dilationAttr, groupsAttr, nullptr);
 
     Value output = ttir_to_ttnn::utils::generateReshape(newConv, outputShape,
                                                         rewriter, "_unflatten");
