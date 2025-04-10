@@ -5,12 +5,13 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
 
+include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
+
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 
 //===----------------------------------------------------------------------===//
 // TTNN attr definitions
@@ -378,52 +379,36 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     TTNN conv2d config attribute
   }];
 
-  let parameters = (ins
-                        "DataType":$dtype,
-                        "DataType":$weights_dtype,
-                        "StringAttr":$activation,
-                        "uint32_t":$input_channels_alignment,
-                        "bool":$deallocate_activation,
-                        "bool":$reallocate_halo_output,
-                        "uint32_t":$act_block_h_override,
-                        "uint32_t":$act_block_w_div,
-                        "bool":$reshard_if_not_optimal,
-                        "bool":$override_sharding_config,
-                        OptionalParameter<"TensorMemoryLayoutAttr">:$shard_layout,
+  let parameters = (ins OptionalParameter<"std::optional<DataType>">:$dtype,
+                        OptionalParameter<"std::optional<DataType>">:$weights_dtype,
+                        OptionalParameter<"StringAttr">:$activation,
+                        OptionalParameter<"std::optional<uint32_t>">:$input_channels_alignment,
+                        OptionalParameter<"BoolAttr">:$deallocate_activation,
+                        OptionalParameter<"BoolAttr">:$reallocate_halo_output,
+                        OptionalParameter<"std::optional<uint32_t>">:$act_block_h_override,
+                        OptionalParameter<"std::optional<uint32_t>">:$act_block_w_div,
+                        OptionalParameter<"BoolAttr">:$reshard_if_not_optimal,
+                        OptionalParameter<"BoolAttr">:$override_sharding_config,
+                        OptionalParameter<"std::optional<TensorMemoryLayout>">:$shard_layout,
                         OptionalParameter<"CoreRangeSetAttr">:$core_grid,
-                        "bool":$transpose_shards,
-                        "Layout":$output_layout,
-                        "bool":$preprocess_weights_on_device,
-                        "bool":$always_preprocess_weights,
-                        "bool":$enable_act_double_buffer,
-                        "bool":$enable_weights_double_buffer,
-                        "bool":$enable_split_reader,
-                        "bool":$enable_subblock_padding);
+                        OptionalParameter<"BoolAttr">:$transpose_shards,
+                        OptionalParameter<"std::optional<Layout>">:$output_layout,
+                        OptionalParameter<"BoolAttr">:$preprocess_weights_on_device,
+                        OptionalParameter<"BoolAttr">:$always_preprocess_weights,
+                        OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
+                        OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
+                        OptionalParameter<"BoolAttr">:$enable_split_reader,
+                        OptionalParameter<"BoolAttr">:$enable_subblock_padding);
 
-  let assemblyFormat = [{
-    `<` struct(
-      qualified($dtype),
-      qualified($weights_dtype),
-      $activation,
-      $input_channels_alignment,
-      $deallocate_activation,
-      $reallocate_halo_output,
-      $act_block_h_override,
-      $act_block_w_div,
-      $reshard_if_not_optimal,
-      $override_sharding_config,
-      qualified($shard_layout),
-      qualified($core_grid),
-      $transpose_shards,
-      qualified($output_layout),
-      $preprocess_weights_on_device,
-      $always_preprocess_weights,
-      $enable_act_double_buffer,
-      $enable_weights_double_buffer,
-      $enable_split_reader,
-      $enable_subblock_padding
-    ) `>`
+  let builders = [
+    AttrBuilder<(ins )>
+  ];
+
+  let extraClassDeclaration = [{
+    Conv2dConfigAttr withActivation(StringRef activation) const;
   }];
+
+  let assemblyFormat = "`<` struct(params) `>`";
 }
 
 def TTNN_MeshShapeAttr : TTNN_Mesh2DCoordAttr<"MeshShape", "mesh_shape"> {
