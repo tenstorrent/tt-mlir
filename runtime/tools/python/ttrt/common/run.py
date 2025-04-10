@@ -443,7 +443,6 @@ class Run:
 
             mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
-            mesh_options.device_ids = self.query.device_ids
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)

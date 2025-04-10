@@ -5,6 +5,7 @@ namespace tt.target.ttnn;
 
 table GetDeviceOp {
   mesh: tt.target.Dim2d;
+  offset: tt.target.Dim2d;
   chip_ids: [uint32];
   out: tt.target.DeviceRef;
 }

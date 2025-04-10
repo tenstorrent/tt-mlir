@@ -481,10 +481,16 @@ private:
     if (meshShape.empty()) {
       meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
     }
+    // TODO (jnie): Currently hardcoding the mesh offset to 0x0
+    // Need a proper plan to dynamically determine this.
+    llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
+
     auto deviceOp = builder.create<ttnn::GetDeviceOp>(
         contextOp->getLoc(), builder.getType<DeviceType>(),
         ttnn::MeshShapeAttr::get(contextOp->getContext(), meshShape[0],
-                                 meshShape[1]));
+                                 meshShape[1]),
+        ttnn::MeshOffsetAttr::get(contextOp->getContext(), meshOffset[0],
+                                  meshOffset[1]));
     builder.restoreInsertionPoint(currentInsertionPoint);
     return deviceOp;
   }
