@@ -30,6 +30,9 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/ErrorHandling.h"
 
+using namespace mlir;
+using namespace mlir::tt;
+
 namespace mlir::tt {
 // Helper functions for propagateTensorMeshSharding.
 
@@ -257,7 +260,7 @@ public:
             getTypeConverter()->convertType(localArgType));
 
         auto meshShardOp =
-            mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+            ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
                 rewriter, loc, outputType, globalOperand,
                 meshSharding.getShardType(), meshSharding.getShardDirection(),
                 meshSharding.getShardShape(), meshSharding.getShardDims());

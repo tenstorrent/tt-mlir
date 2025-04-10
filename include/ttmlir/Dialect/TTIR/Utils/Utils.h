@@ -13,7 +13,6 @@
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <iterator>
 #include <type_traits>
 #include <utility>
 
@@ -64,23 +63,18 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
     // build(::mlir::OpBuilder &, ::mlir::OperationState &odsState,
     // ::mlir::TypeRange resultTypes, ::mlir::ValueRange operands,
     // ::llvm::ArrayRef<::mlir::NamedAttribute> attributes = {})`.
-    if constexpr (sizeof...(Js) == 0 && sizeof...(Is) == 1) {
+    if constexpr (sizeof...(Js) == 1 &&
+                  std::is_convertible_v<
+                      std::tuple_element_t<
+                          sizeof...(Is) + sizeof...(Js) - 1,
+                          std::tuple<llvm::remove_cvref_t<ArgsTy>...>>,
+                      mlir::ArrayRef<mlir::NamedAttribute>>) {
       return builder.create<OpTy>(
           loc, output.getType(),
-          ttmlir::utils::flatten(std::get<Is>(std::forward_as_tuple(
-                                     std::forward<ArgsTy>(args)...))...,
-                                 output));
-    } else if constexpr (sizeof...(Js) == 1 &&
-                         std::is_convertible_v<
-                             std::tuple_element_t<
-                                 sizeof...(Is) + sizeof...(Js) - 1,
-                                 std::tuple<llvm::remove_cvref_t<ArgsTy>...>>,
-                             mlir::ArrayRef<mlir::NamedAttribute>>) {
-      return builder.create<OpTy>(
-          loc, output.getType(),
-          ttmlir::utils::flatten(std::get<Is>(std::forward_as_tuple(
-                                     std::forward<ArgsTy>(args)...))...,
-                                 output),
+          ttmlir::utils::flatten<mlir::Value>(
+              std::get<Is>(
+                  std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
+              output),
           std::get<sizeof...(Is) + sizeof...(Js) - 1>(
               std::forward_as_tuple(std::forward<ArgsTy>(args)...)));
       // Otherwise, call the op specific builder that provides positional
@@ -117,6 +111,11 @@ auto splitAndCall(mlir::OpBuilder &builder, mlir::Location loc,
 }
 } // namespace detail
 
+// Check if the given OpTy has the DestinationStyleOpInterface trait.
+template <typename OpTy>
+constexpr bool has_dps_trait_v =
+    OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>();
+
 // Wrapper for creating a DPS op with a given output type. It's assumed that a
 // DPS op has exactly one output that comes after all of the inputs and before
 // any of the attributes in the builder of an op. The output is generated using
@@ -131,8 +130,7 @@ auto splitAndCall(mlir::OpBuilder &builder, mlir::Location loc,
 template <typename OpTy, typename... ArgsTy>
 OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
                  mlir::RankedTensorType outputType, ArgsTy &&...args) {
-  static_assert(
-      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
+  static_assert(has_dps_trait_v<OpTy>);
 
   auto output = builder.create<mlir::tt::ttir::EmptyOp>(
       loc, outputType.getShape(), outputType.getElementType(),
@@ -161,8 +159,7 @@ OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
                  llvm::ArrayRef<int64_t> outputShape,
                  mlir::Type outputElementType, mlir::Attribute outputEncoding,
                  ArgsTy &&...args) {
-  static_assert(
-      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
+  static_assert(has_dps_trait_v<OpTy>);
 
   auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
                                                 outputEncoding);
@@ -185,8 +182,7 @@ template <typename OpTy, typename... ArgsTy>
 OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
                            mlir::RankedTensorType outputType,
                            ArgsTy &&...args) {
-  static_assert(
-      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
+  static_assert(has_dps_trait_v<OpTy>);
 
   auto newOp = createDPSOp<OpTy>(rewriter, op->getLoc(), outputType,
                                  std::forward<ArgsTy>(args)...);
@@ -214,8 +210,7 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
                            llvm::ArrayRef<int64_t> outputShape,
                            mlir::Type outputElementType,
                            mlir::Attribute outputEncoding, ArgsTy &&...args) {
-  static_assert(
-      OpTy::template hasTrait<mlir::DestinationStyleOpInterface::Trait>());
+  static_assert(has_dps_trait_v<OpTy>);
 
   auto newOp =
       createDPSOp<OpTy>(rewriter, op->getLoc(), outputShape, outputElementType,
