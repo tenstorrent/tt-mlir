@@ -16,7 +16,7 @@ namespace conversion {
 tt::DataType getDataType(const ::tt::tt_metal::DataType dataType);
 
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape);
-llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape shape);
+llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape &shape);
 
 const std::array<uint32_t, 2>
 getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
@@ -70,12 +70,13 @@ std::array<To, N> convertLLVMArrayRefToStdArray(::llvm::ArrayRef<From> vec) {
   return stdArray;
 }
 
+llvm::SmallVector<int64_t>
+getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
+                    const llvm::ArrayRef<int64_t> &gridPhyCores);
+
 mlir::tt::ttnn::TTNNLayoutAttr
 getLayoutAttrFromTensorSpec(MLIRContext *context,
                             const ::ttnn::TensorSpec &tensorSpec);
-
-mlir::tt::ttnn::TTNNLayoutAttr getLayoutAttrFromTensorSpec(
-    MLIRContext *context, const std::optional<::ttnn::TensorSpec> &tensorSpec);
 
 } // namespace conversion
 } // namespace mlir::tt::op_model::ttnn

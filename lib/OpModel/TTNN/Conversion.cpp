@@ -73,12 +73,8 @@ tt::DataType getDataType(const ::tt::tt_metal::DataType dataType) {
   return ::ttnn::Shape(small_vector_shape);
 }
 
-llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape shape) {
-  llvm::SmallVector<int64_t> llvmShape;
-  for (auto it = shape.cbegin(); it < shape.cend(); ++it) {
-    llvmShape.push_back(static_cast<uint64_t>(*it));
-  }
-  return llvmShape;
+llvm::SmallVector<int64_t> getShape(const ::ttnn::Shape &shape) {
+  return llvm::SmallVector<int64_t>(shape.cbegin(), shape.cend());
 }
 
 const std::array<uint32_t, 2>
@@ -272,8 +268,8 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> getConv2dConfig(
 }
 
 llvm::SmallVector<int64_t>
-GetVirtualGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
-                    const llvm::ArrayRef<int64_t> &gridPhyCores = {8, 8}) {
+getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
+                    const llvm::ArrayRef<int64_t> &gridPhyCores) {
 
   if (memoryConfig.memory_layout ==
       ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED) {
@@ -303,6 +299,8 @@ GetVirtualGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
 mlir::tt::ttnn::TTNNLayoutAttr
 getLayoutAttrFromTensorSpec(MLIRContext *context,
                             const ::ttnn::TensorSpec &tensorSpec) {
+  // TODO(@arminaleTT) pass in the device grid size
+  llvm::SmallVector<int64_t> deviceMaxGrid{8, 8};
   llvm::SmallVector<int64_t> shape = getShape(tensorSpec.logical_shape());
 
   Type elementType;
@@ -323,18 +321,12 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
       context, getTensorMemoryLayout(tensorSpec.memory_config().memory_layout));
 
   GridAttr grid = mlir::tt::GridAttr::get(
-      context, GetVirtualGridShape(tensorSpec.memory_config()),
+      context, getLogicalGridShape(tensorSpec.memory_config(), deviceMaxGrid),
       ::mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
-          context, memoryLayoutAttr.getValue(), {8, 8}));
+          context, memoryLayoutAttr.getValue(), deviceMaxGrid));
 
   return mlir::tt::ttnn::TTNNLayoutAttr::get(
       context, shape, elementType, bufferType, grid, memoryLayoutAttr);
-}
-
-mlir::tt::ttnn::TTNNLayoutAttr getLayoutAttrFromTensorSpec(
-    MLIRContext *context, const std::optional<::ttnn::TensorSpec> &tensorSpec) {
-  return tensorSpec ? getLayoutAttrFromTensorSpec(context, tensorSpec.value())
-                    : nullptr;
 }
 
 } // namespace conversion
