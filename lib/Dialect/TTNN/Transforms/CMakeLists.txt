@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
+        TTNNOptimizeConv2d.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
