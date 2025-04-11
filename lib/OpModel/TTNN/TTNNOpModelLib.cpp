@@ -17,6 +17,7 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <array>
 #include <cstddef>
@@ -54,8 +55,8 @@ getOpConstraints(std::string_view name, Callable &callable) {
     // We expect that query will handle exceptions and set error message. If
     // not, we should not continue.
     // TODO(rpavlovicTT): This should be a TT_FATAL.
-    std::cerr << "Exception thrown during op constraints query: " << e.what()
-              << std::endl;
+    llvm::errs() << "Exception thrown during op constraints query: " << e.what()
+                 << "\n";
     assert(false && "Exception thrown during op constraints query");
   }
 

@@ -103,9 +103,9 @@ void MemoryLayoutAnalysis::analysisImplementation() {
           std::vector<OpConfig>{opL1MemSpec.config};
     }
 
-    analysisResult.memReconfigEdges.insert(
-        l1ChainConfig.getMemReconfigEdges().begin(),
-        l1ChainConfig.getMemReconfigEdges().end());
+    analysisResult.memReconfigEntryMap.insert(
+        l1ChainConfig.getMemReconfigEntryMap().begin(),
+        l1ChainConfig.getMemReconfigEntryMap().end());
 
     if (l1ChainConfig.spillEndToDRAM) {
       analysisResult.spillToDramOps.push_back(l1ChainConfig.getLastOp());

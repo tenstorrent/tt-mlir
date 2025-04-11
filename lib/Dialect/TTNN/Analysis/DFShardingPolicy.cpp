@@ -231,11 +231,11 @@ void DFShardingPolicy::run() {
 
     ShardSolverSolution resolvedShardSolution = shardSolver.finish();
     l1ChainConfig.complete(resolvedShardSolution.selectedOpConfig,
-                           resolvedShardSolution.memReconfigEdges);
+                           resolvedShardSolution.memReconfigEntryMap);
 
     // TODO(odjuricic): Add constraint check if op can write to dram.
-    if (not resolvedShardSolution.selectedOpConfig[l1ChainConfig.getLastOp()]
-                .outputLayout.hasDRAMBufferType()) {
+    if (!resolvedShardSolution.selectedOpConfig[l1ChainConfig.getLastOp()]
+             .outputLayout.hasDRAMBufferType()) {
       l1ChainConfig.spillEndToDRAM = true;
     }
   }
@@ -243,9 +243,11 @@ void DFShardingPolicy::run() {
 
 void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
                                           const L1ChainConfig &l1ChainConfig) {
+
   assert(l1ChainConfig.getState() == L1ChainState::Resolved);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> accMaxCoreUsage =
       shardSolver.produceMaxCoreUsage();
+
   for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
     Operation *op = shardSpec.op;
     ShardSolver::RemainingConfigAttrs validConfigs = shardSolver.at(op);
