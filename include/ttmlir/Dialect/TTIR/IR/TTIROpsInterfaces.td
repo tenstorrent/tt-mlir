@@ -82,4 +82,16 @@ def TTIR_GenericParent : OpInterface<"GenericParent"> {
   }];
 }
 
+def TTIR_ElementwiseUnary : OpInterface<"ElementwiseUnary"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
+def TTIR_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
+def TTIR_TensorManipulation : OpInterface<"TensorManipulation"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 #endif

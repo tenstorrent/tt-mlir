@@ -8,8 +8,15 @@ import ttrt.runtime
 import torch
 from ttrt.common.query import Query
 from ttrt.common.util import *
+from enum import Enum
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
+
+
+class Storage(Enum):
+    Borrowed = "Borrowed"
+    Owned = "Owned"
+    Device = "Device"
 
 
 class Helper:
@@ -63,9 +70,14 @@ class DeviceContext:
         ttrt.runtime.close_mesh_device(self.device)
 
 
-def get_runtime_tensor_from_torch(torch_tensor):
+def get_runtime_tensor_from_torch(torch_tensor, storage=Storage.Borrowed):
+    if storage == Storage.Borrowed:
+        creator_fn = ttrt.runtime.create_tensor
+    elif storage == Storage.Owned:
+        creator_fn = ttrt.runtime.create_owned_tensor
+
     runtime_dtype = Binary.Program.to_data_type(torch_tensor.dtype)
-    runtime_tensor = ttrt.runtime.create_tensor(
+    runtime_tensor = creator_fn(
         torch_tensor.data_ptr(),
         list(torch_tensor.shape),
         list(torch_tensor.stride()),
@@ -75,10 +87,9 @@ def get_runtime_tensor_from_torch(torch_tensor):
     return runtime_tensor
 
 
-def get_torch_and_runtime_inputs(program):
+def get_torch_inputs(program):
     inputs_torch = []
-    inputs_runtime = []
-    for i, program_input in enumerate(program.program["inputs"]):
+    for program_input in program.program["inputs"]:
         torch_tensor = torch.randn(
             program_input["desc"]["shape"],
             dtype=Binary.Program.from_data_type(
@@ -86,8 +97,7 @@ def get_torch_and_runtime_inputs(program):
             ),
         )
         inputs_torch.append(torch_tensor)
-        inputs_runtime.append(get_runtime_tensor_from_torch(torch_tensor))
-    return inputs_torch, inputs_runtime
+    return inputs_torch
 
 
 def get_torch_output_container(program):

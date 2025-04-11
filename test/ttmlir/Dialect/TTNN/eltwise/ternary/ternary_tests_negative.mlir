@@ -7,7 +7,7 @@ module attributes {} {
     %1 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<2x4>>, <interleaved>>, shape = #ttnn.shape<64x128>}> : (!ttnn.device) -> tensor<64x128xf32, #ttnn_layout>
     %2 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<2x4>>, <interleaved>>, shape = #ttnn.shape<64x128>}> : (!ttnn.device) -> tensor<64x128xf32, #ttnn_layout>
     %3 = "ttnn.where"(%arg0, %arg1, %1, %2) : (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout>
-    // CHECK: error: 'ttnn.where' op Operation ttnn.where must have exactly 3 operands.
+    // CHECK: error: 'ttnn.where' op expected 3 operands, but found 4
     return %2 : tensor<64x128xf32, #ttnn_layout>
   }
 }

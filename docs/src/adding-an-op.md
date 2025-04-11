@@ -16,6 +16,8 @@ This guide will cover the following steps:
   - [4. Add a compiler unit test for the Op](#4-add-a-compiler-unit-test-for-the-op)
       - [`test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir`](#testttmlirdialectttnnmatmulsimple_matmulmlir)
   - [5. Define flatbuffer schema for the Op](#5-define-flatbuffer-schema-for-the-op)
+      - [`include/ttmlir/Target/TTNN/CMakeLists.txt`](#includettmlirtargetttnncmakeliststxt)
+      - [`include/ttmlir/Target/TTNN/operations/matmul.fbs`](#includettmlirtargetttnnoperationsmatmulfbs)
       - [`include/ttmlir/Target/TTNN/program.fbs`](#includettmlirtargetttnnprogramfbs)
   - [6. Serialize the Op in the flatbuffer format](#6-serialize-the-op-in-the-flatbuffer-format)
   - [7. Add runtime support for the Op](#7-add-runtime-support-for-the-op)
@@ -261,17 +263,39 @@ Next we will define the flatbuffer schema for the Op.  The schema must capture
 all tensor inputs, outputs, and attributes of the Op, i.e. everything the
 runtime needs to execute the Op.
 
-#### `include/ttmlir/Target/TTNN/program.fbs`
+The schema can be placed in an existing `.fbs` file located in the `include/ttmlir/Target/TTNN/operations` directory.
+
+If no suitable `.fbs` file exists for the operation category, feel free to create new `.fbs` files as needed. After creating a new `.fbs` file, remember to add a corresponding cmake target in the `include/ttmlir/Target/TTNN/CMakeLists.txt` file.
+
+#### `include/ttmlir/Target/TTNN/CMakeLists.txt`
+```cmake
+{{#include ../../../include/ttmlir/Target/TTNN/CMakeLists.txt:adding_an_op_matmul_fbs_cmake}}
+```
+
+In our case, we can add our schema to `include/ttmlir/Target/TTNN/operations/matmul.fbs` directly, without needing to create a new file.
+
+#### `include/ttmlir/Target/TTNN/operations/matmul.fbs`
 ```cpp
-{{#include ../../../include/ttmlir/Target/TTNN/program.fbs:adding_an_op_matmul_fbs}}
+{{#include ../../../include/ttmlir/Target/TTNN/operations/matmul.fbs:adding_an_op_matmul_fbs}}
 ```
 
 Type `TensorRef`, flatbuffer tables with suffix `Ref` are used to represent live values
 during the runtime, decoupled from the underlying `Desc` suffixes which carry the
 type and attribute information for the object.
 
-We also add this new op to the `union OpType`, which is the variant type for all
-ops.
+After creating the schema for our new operation type, we need to register it in the `OpType` union
+within `program.fbs`. This file serves as the main entry point for all program information,
+where the `OpType` union collects and defines all supported operation types and their corresponding schemas.
+
+#### `include/ttmlir/Target/TTNN/program.fbs`
+```cpp
+{{#include ../../../include/ttmlir/Target/TTNN/program.fbs:adding_an_op_matmul_fbs_op_type}}
+```
+
+If a new `.fbs` file was created, don't forget to include the new file in `include/ttmlir/Target/TTNN/program.fbs`.
+```cpp
+{{#include ../../../include/ttmlir/Target/TTNN/program.fbs:adding_an_op_matmul_fbs_include}}
+```
 
 > More information about writing flatbuffer schemas can be found in the
 > [flatbuffers documentation](https://flatbuffers.dev/flatbuffers_guide_writing_schema.html)

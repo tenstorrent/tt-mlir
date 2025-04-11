@@ -9,7 +9,6 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -101,11 +100,6 @@ IntType volume(mlir::ArrayRef<IntType> shape) {
     result *= dim;
   }
   return result;
-}
-
-template <typename Enum>
-constexpr std::underlying_type_t<Enum> enum_as_int(Enum e) {
-  return static_cast<std::underlying_type_t<Enum>>(e);
 }
 
 // Returns a string that is the concatenation of the string representations of
@@ -525,7 +519,7 @@ broadcastValue(mlir::PatternRewriter &rewriter, mlir::Value input,
                mlir::RankedTensorType desiredType, mlir::Value &output,
                mlir::Location loc, bool frontUnsqueeze) {
   auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-  auto inputShape = inputType.getShape();
+  llvm::SmallVector<int64_t> inputShape(inputType.getShape());
   llvm::SmallVector<int64_t, 4> broadcastedShape;
   if (!mlir::OpTrait::util::getBroadcastedShape(
           inputShape, desiredType.getShape(), broadcastedShape)) {

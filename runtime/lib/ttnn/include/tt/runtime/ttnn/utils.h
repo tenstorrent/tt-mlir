@@ -59,7 +59,8 @@ getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
 
-Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor);
+::tt::runtime::Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
+                                                  bool retain = false);
 
 // Translates a flatbuffer DataType to the native (C++) type.
 template <::tt::target::DataType DataType>

@@ -8,7 +8,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/CumSumOpRewritePattern.cpp
         Workarounds/Decomposition/ReduceOpsRewritePattern.cpp
         Workarounds/Decomposition/RepeatOpRewritePattern.cpp
-        Workarounds/TTNNWorkarounds.cpp
+        Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

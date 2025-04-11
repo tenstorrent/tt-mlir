@@ -725,6 +725,122 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRQuantizeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::UniformQuantizeOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::UniformQuantizeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::UniformQuantizeOp srcOp,
+                  mlir::stablehlo::UniformQuantizeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
+
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+
+    // Call the Quantize op if the input type is float.
+    if (mlir::isa<FloatType>(inputType.getElementType())) {
+      return matchAndRewriteInternal<mlir::tt::ttir::QuantizeOp>(srcOp, adaptor,
+                                                                 rewriter);
+    }
+
+    // Call the Requantize op if the input type is quantized
+    // per-tensor/per-channel.
+    if (mlir::isa<mlir::quant::UniformQuantizedType,
+                  mlir::quant::UniformQuantizedPerAxisType>(
+            inputType.getElementType())) {
+      return matchAndRewriteInternal<mlir::tt::ttir::RequantizeOp>(
+          srcOp, adaptor, rewriter);
+    }
+
+    return failure();
+  }
+
+private:
+  LogicalResult checkBasicLegality(mlir::stablehlo::UniformQuantizeOp &srcOp,
+                                   ConversionPatternRewriter &rewriter) const {
+    // Expect a single input/output.
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Expected a single input/output.");
+    }
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Get the element type of the output tensor.
+    if (!isa<mlir::quant::QuantizedType>(outputType.getElementType())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Expected output element type to be quant.uniform");
+    }
+
+    return success();
+  }
+
+  template <typename DestOp>
+  LogicalResult
+  matchAndRewriteInternal(mlir::stablehlo::UniformQuantizeOp srcOp,
+                          mlir::stablehlo::UniformQuantizeOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    // Replace the StableHLO UniformQuantizeOp with the TTIR QuantizeOp or
+    // RequantizeOp.
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                                 adaptor.getOperand());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRDequantizeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::UniformDequantizeOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::UniformDequantizeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::UniformDequantizeOp srcOp,
+                  mlir::stablehlo::UniformDequantizeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand());
+
+    return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(mlir::stablehlo::UniformDequantizeOp &srcOp,
+                                   ConversionPatternRewriter &rewriter) const {
+    // Expect a single input/output.
+    if (srcOp->getNumOperands() != 1 || srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Expected a single input/output.");
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRConvolutionOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConvolutionOp> {
   using OpConversionPattern<
@@ -2073,13 +2189,9 @@ public:
       value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
     }
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
-        srcOp,
-        outputType,                            // result type
-        adaptor.getOperand(),                  // input
-        rewriter.getDenseI32ArrayAttr(padDim), // padding dimensions
-        rewriter.getF32FloatAttr(value)        // padding value
-    );
+    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
+        rewriter, srcOp, outputType, adaptor.getOperand(),
+        rewriter.getDenseI32ArrayAttr(padDim), rewriter.getF32FloatAttr(value));
 
     return success();
   }
@@ -2246,6 +2358,16 @@ static void addConv2dOpConversionPattern(MLIRContext *ctx,
                                                               ctx);
 }
 
+static void addQuantizeOpsConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  // Add the Quant and Requant ops.
+  patterns.add<StableHLOToTTIRQuantizeOpConversionPattern>(typeConverter, ctx);
+  // Add the Dequant op.
+  patterns.add<StableHLOToTTIRDequantizeOpConversionPattern>(typeConverter,
+                                                             ctx);
+}
+
 static void addReduceWindowOpConversionPattern(MLIRContext *ctx,
                                                RewritePatternSet &patterns,
                                                TypeConverter &typeConverter) {
@@ -2361,6 +2483,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                      TypeConverter &typeConverter) {
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addQuantizeOpsConversionPattern(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
   addDotGeneralOpConversionPatterns(ctx, patterns, typeConverter);
   addGetDimensionSizeOpsConversionPatterns(ctx, patterns, typeConverter);

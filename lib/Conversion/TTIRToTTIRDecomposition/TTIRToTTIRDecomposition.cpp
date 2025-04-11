@@ -419,7 +419,8 @@ public:
 
     ttir::Conv2dOp newConv = ttmlir::utils::createDPSOp<ttir::Conv2dOp>(
         rewriter, op.getLoc(), outputType, Value(input), Value(weight),
-        adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr);
+        adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr,
+        /*flattenedCompatInfo=*/nullptr);
 
     // Applying the inverse of permutation to the output will restore the
     // tensor to the original layout.

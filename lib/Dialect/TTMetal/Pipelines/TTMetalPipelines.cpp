@@ -50,16 +50,15 @@ void createTTIRToTTMetalBackendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(tt::createTTRegisterDevicePass(registerDeviceOptions));
-  pm.addPass(ttir::createTTIRConstantAsFill());
-  ttir::TTIRAttachMetalLayoutOptions attachMetalLayoutOptions;
-  pm.addPass(ttir::createTTIRAttachMetalLayout(attachMetalLayoutOptions));
   pm.addPass(tt::createTTIRToTTIRGenericPass());
+  pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIROptimizeTensorLayoutOptions optimizeTensorLayoutOptions;
   {
     optimizeTensorLayoutOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
   }
   pm.addPass(ttir::createTTIROptimizeTensorLayout(optimizeTensorLayoutOptions));
+  pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm);
   pm.addPass(ttir::createTTIRPlaceholderAllocate());
   pm.addPass(mlir::createCanonicalizerPass());

@@ -32,6 +32,6 @@ void run(const ::tt::target::ttnn::ConstructTensorOp *op,
   ::ttnn::Tensor out(::tt::tt_metal::OwnedStorage{ownedBuffer}, shape, dtype,
                      ::ttnn::Layout::ROW_MAJOR);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation

@@ -9,20 +9,15 @@ import ttrt
 import ttrt.runtime
 import torch
 from ttrt.common.util import *
-import gc
+from .constants import FLATBUFFER_BASE_PATH
 
 from ..utils import (
-    TT_MLIR_HOME,
     Helper,
     DeviceContext,
     assert_pcc,
-    get_torch_and_runtime_inputs,
+    get_torch_inputs,
     get_runtime_tensor_from_torch,
     get_torch_output_container,
-)
-
-FLATBUFFER_BASE_PATH = (
-    f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/n300/runtime/data_parallel/Output"
 )
 
 
@@ -50,7 +45,7 @@ def test_eltwise_binary_add_data_parallel(helper: Helper, request):
 
     program: Binary.Program = helper.binary.get_program(0)
     assert program.num_inputs() == 2
-    inputs_torch = [get_torch_and_runtime_inputs(program)[0] for _ in range(2)]
+    inputs_torch = [get_torch_inputs(program) for _ in range(2)]
     batched_tensors = [
         torch.stack([t1, t2], dim=0) for t1, t2 in zip(inputs_torch[0], inputs_torch[1])
     ]

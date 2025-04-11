@@ -4,78 +4,79 @@
 #include "operations/eltwise/binary/binary_composite.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
-#include "tt/runtime/ttnn/operations/eltwise/binary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
-namespace tt::runtime::ttnn::operations::binary::composite {
+namespace tt::runtime::ttnn::operations::eltwise::binary {
 
 static void runEltwiseBinaryCompositeOp(
-    const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
+    const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
+    ProgramTensorPool &tensorPool,
     const std::function<
         ::ttnn::Tensor(const ::ttnn::Tensor &, const ::ttnn::Tensor &,
                        const std::optional<::ttnn::MemoryConfig> &)> &ttnnOp) {
 
-  ::ttnn::Tensor *lhs = nullptr;
-  ::ttnn::Tensor *rhs = nullptr;
+  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
 
-  getEltwiseBinaryOpInputTensors(op, tensorPool, &lhs, &rhs);
+  if (op->type() != ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter &&
+      operations::utils::shouldSwapBinaryOperands(*lhs, *rhs)) {
+    std::swap(lhs, rhs);
+  }
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+          op->memory_config());
   LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
+void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
+         ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
-  case ::tt::target::ttnn::EltwiseOpType::Maximum: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Maximum: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::maximum);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Minimum: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::minimum);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Remainder: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::remainder);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Scatter: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::scatter);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Pow: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::pow);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Atan2: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::atan2);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::BitwiseAnd: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseAnd: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_and);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::BitwiseOr: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseOr: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_or);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::BitwiseXor: {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseXor: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_xor);
     break;
   }
-  default:
-    LOG_FATAL("Unsupported Eltwise Binary Composite operation");
   }
 }
 
-} // namespace tt::runtime::ttnn::operations::binary::composite
+} // namespace tt::runtime::ttnn::operations::eltwise::binary

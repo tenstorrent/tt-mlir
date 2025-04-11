@@ -13,8 +13,6 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/Common/version_generated.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
-#include "ttmlir/Target/TTNN/types_generated.h"
-
 #pragma clang diagnostic pop
 
 #endif

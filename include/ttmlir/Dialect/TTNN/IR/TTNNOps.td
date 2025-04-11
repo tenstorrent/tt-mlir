@@ -19,7 +19,7 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
+def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TT_DuplicateConstEvalTrait]> {
     let summary = "Get Device op.";
     let description = [{
       This op returns the current runtime device.
@@ -123,79 +123,76 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-
-class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-    }];
-}
-
-class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, traits> {
-
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-}
-
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([OneOperand], traits)> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
     }];
 
+    let arguments = (ins AnyRankedTensor:$input,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Type": $outputType),
+      OpBuilder<(ins "Value": $input),
       [{
-        build($_builder, $_state, {outputType}, in);
+        build($_builder, $_state, {input.getType()}, input, /*memory_config=*/nullptr);
       }]>,
-      OpBuilder<(ins "Value": $in),
+      OpBuilder<(ins "Type": $resultType, "Value": $input),
       [{
-        build($_builder, $_state, in, in.getType());
+        build($_builder, $_state, resultType, input, /*memory_config=*/nullptr);
       }]>
     ];
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
     }];
 
-    let builders =
-    [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Type": $outputType),
-      [{
-        build($_builder, $_state, {outputType}, {lhs, rhs});
-      }]>
-    ];
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getInputs();
-        mlir::Operation *op = getOperation();
         return
-          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
-                                                                        inputs, op);
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
       }
     }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+      [{
+        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+      }]>
+    ];
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
     }];
 
+    let arguments = (ins AnyRankedTensor:$first,
+                         AnyRankedTensor:$second,
+                         AnyRankedTensor:$third,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
     let builders =
     [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Type": $outputType),
+      OpBuilder<(ins "Type": $resultType, "Value": $first, "Value": $second, "Value": $third),
       [{
-        build($_builder, $_state, {outputType}, {first, second, third});
+        build($_builder, $_state, resultType, first, second, third, /*memory_config=*/nullptr);
       }]>
     ];
 }
@@ -208,7 +205,7 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::Operation::operand_range inputs = getInputs();
+        ::mlir::Operation::operand_range inputs = getOperands();
         return
           wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
                                                                         inputs);
@@ -421,20 +418,25 @@ def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
 }
 
 class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseUnaryOp<mnemonic, traits> {
+    TTNN_ElementwiseUnaryOp<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise unary op with the float parameter.";
     let description = [{
       Eltwise unary op with the float parameter.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         F32Attr:$parameter);
+    let arguments = (ins AnyRankedTensor:$input,
+                         F32Attr:$parameter,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "FloatAttr":$parameter),
+      OpBuilder<(ins "Value": $input, "::llvm::APFloat": $parameter),
       [{
-        build($_builder, $_state, {in.getType()}, {in}, parameter);
+        build($_builder, $_state, {input.getType()}, input, parameter, /* memory_config */ nullptr);
+      }]>,
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "::llvm::APFloat": $parameter),
+      [{
+        build($_builder, $_state, resultType, input, parameter, /* memory_config */ nullptr);
       }]>
     ];
 }
@@ -1152,6 +1154,32 @@ def TTNN_MatmulOp : TTNN_Op<"matmul",
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
+def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
+    let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
+
+    let arguments = (ins AnyRankedTensor:$weight_tensor,
+                         TTNN_MemoryConfigAttr:$input_memory_config,
+                         TTNN_LayoutAttr:$input_tensor_layout,
+                         StrAttr:$weights_format,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         BoolAttr:$has_bias,
+                         I32Attr:$groups,
+                         TTNN_Device:$device,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_Conv2dOp : TTNN_Op<"conv2d",
       [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
@@ -1356,7 +1384,7 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
     let hasVerifier = 1;
 }
 
-def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar"> {
+def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [HasMemoryConfigTrait]> {
     let summary = "Clamp op.";
     let description = [{
       Clamp tensor values to a specified range.
@@ -1370,16 +1398,25 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar"> {
         -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins AnyRankedTensor:$input,
                          F32Attr:$min,
-                         F32Attr:$max);
+                         F32Attr:$max,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs Variadic<AnyRankedTensor>:$result);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "::llvm::APFloat": $min, "::llvm::APFloat": $max),
+      [{
+        build($_builder, $_state, resultType, input, min, max, /* memory_config */ nullptr);
+      }]>
+    ];
 }
 
-def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
+def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait]> {
   let summary = "Clamp op.";
   let description = [{
     Clamp tensor values to a specified range using min/max as tensor.
@@ -1393,14 +1430,23 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
       %out:  [[2, 2, 2, 3, 4, 5, 6, 6]]
   }];
 
-  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+  let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$min,
-                       AnyRankedTensor:$max);
+                       AnyRankedTensor:$max,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-  let results = (outs Variadic<AnyRankedTensor>:$result);
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "Value": $min, "Value": $max),
+      [{
+        build($_builder, $_state, resultType, input, min, max, /* memory_config */ nullptr);
+      }]>
+    ];
 }
 
-def TTNN_EmptyOp : TTNN_Op<"empty"> {
+def TTNN_EmptyOp : TTNN_Op<"empty", [TT_CreationOpTrait]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -1432,7 +1478,7 @@ def TTNN_ConstructTensorOp : TTNN_Op<"construct_tensor"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ArangeOp : TTNN_Op<"arange"> {
+def TTNN_ArangeOp : TTNN_Op<"arange", [TT_CreationOpTrait]> {
   let summary = "Arange operation.";
   let description = [{
     Tensor arange operation.
@@ -1454,12 +1500,18 @@ def TTNN_ArangeOp : TTNN_Op<"arange"> {
                        Optional<TTNN_Device>:$device,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
+  let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createArangeOpOperandsWorkarounds();
+      }
+    }];
+
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
-  TTNN_Op<mnemonic, !listconcat([HasMemoryConfigTrait], traits)> {
+  TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
   let arguments = (ins TTNN_ShapeAttr:$shape,
                        OptionalAttr<TT_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
@@ -1467,9 +1519,11 @@ class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
-def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
+def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     Tensor operation to create a tensor filled with zeros.
@@ -1482,7 +1536,7 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
   }];
 }
 
-def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
+def TTNN_OnesOp : TTNN_NamedFullOp<"ones", [TT_CreationOpTrait]> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     Tensor operation to create a tensor filled with ones.
@@ -1495,7 +1549,7 @@ def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {
   }];
 }
 
-def TTNN_FullOp : TTNN_Op<"full"> {
+def TTNN_FullOp : TTNN_Op<"full", [TT_CreationOpTrait]> {
     let summary = "Full op.";
     let description = [{
       Tensor full operation
@@ -1513,7 +1567,7 @@ def TTNN_FullOp : TTNN_Op<"full"> {
     }];
 }
 
-def TTNN_AllocOp : TTNN_Op<"alloc"> {
+def TTNN_AllocOp : TTNN_Op<"alloc", [TT_CreationOpTrait]> {
     let summary = "Alloc op.";
     let description = [{
       Tensor Alloc operation
@@ -1736,4 +1790,112 @@ def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]>
     let hasVerifier = 1;
 }
 
+def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
+    let summary = "Quantize operation.";
+    let description = [{
+      Applies quantization to the input tensor.
+
+      Inputs:
+        - `input` AnyRankedTensor: The input tensor to be quantized.
+        - `scale` f32: The scale factor.
+        - `zero_point` i32: The zero point value.
+        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
+        - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
+      ```
+      output[i] = (input[i] / scale) + zero_point
+      ```
+      Example:
+      ```mlir
+      %input = ttir.empty() : () -> tensor<64x128xf32>
+      %output = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      %quantized = "ttir.quantize"(%input, %output) : (tensor<64x128xf32>, tensor<64x128x!quant.uniform<i32:f32, 0.1>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         F32Attr:$scale,
+                         I32Attr:$zero_point,
+                         OptionalAttr<I32Attr>:$axis,
+                         OptionalAttr<TT_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_DequantizeOp : TTNN_Op<"dequantize"> {
+    let summary = "Dequantize operation.";
+    let description = [{
+      Applies dequantization to the input tensor.
+
+      Inputs:
+        - `input` AnyRankedTensor: The input tensor to be dequantized.
+        - `scale` f32: The scale factor.
+        - `zero_point` i32: The zero point value.
+        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
+        - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
+      ```
+      output[i] = (input[i] - zero_point) * scale
+      ```
+      Example:
+      ```mlir
+      %input = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      %output = ttir.empty() : () -> tensor<64x128xf32>
+      %dequantized = "ttnn.dequantize"(%input, %output) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>, tensor<64x128xf32>) -> tensor<64x128xf32>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         F32Attr:$scale,
+                         I32Attr:$zero_point,
+                         OptionalAttr<I32Attr>:$axis,
+                         OptionalAttr<TT_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
+    let summary = "Requantize operation.";
+    let description = [{
+      Applies requantization to the input tensor.
+
+      Inputs:
+        - `input` AnyRankedTensor: The input tensor to be requantized.
+        - `in_scale` f32: The input scale factor.
+        - `in_zero_point` i32: The input zero point value.
+        - `out_scale` f32: The output scale factor.
+        - `out_zero_point` i32: The output zero point value.
+        - `axis` Optional<i32>: The axis along which quantization is applied.
+        - `output_dtype` Optional<TT_DataTypeAttr>: The data type of the output tensor.
+        - `memory_config` Optional<TTNN_MemoryConfigAttr>: The memory configuration for the output tensor.
+      ```
+      output[i] = round((input[i] - input_zero_point) * (input_scale / output_scale)) + output_zero_point
+      ```
+      Example:
+      ```mlir
+      %input = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      %output = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
+      %requantized = "ttnn.requantize"(%input, %output) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>, tensor<64x128x!quant.uniform<i32:f32, 0.2>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         F32Attr:$in_scale,
+                         I32Attr:$in_zero_point,
+                         F32Attr:$out_scale,
+                         I32Attr:$out_zero_point,
+                         OptionalAttr<I32Attr>:$axis,
+                         OptionalAttr<TT_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
 #endif

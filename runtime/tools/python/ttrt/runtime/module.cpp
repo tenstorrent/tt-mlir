@@ -79,6 +79,18 @@ PYBIND11_MODULE(_C, m) {
                           value.cast<tt::runtime::DispatchCoreType>());
           });
   py::class_<tt::runtime::Tensor>(m, "Tensor")
+      .def("is_allocated",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::isTensorAllocated(self);
+           })
+      .def("get_retain",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorRetain(self);
+           })
+      .def("set_retain",
+           [](tt::runtime::Tensor self, bool retain) {
+             tt::runtime::setTensorRetain(self, retain);
+           })
       .def("get_shape",
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorShape(self);
@@ -161,14 +173,24 @@ PYBIND11_MODULE(_C, m) {
                 reinterpret_cast<void *>(ptr)),
             shape, stride, itemsize, dataType);
       },
-      "Create a tensor with borrowed memory");
+      "Create a host tensor with borrowed memory");
+  m.def(
+      "create_owned_tensor",
+      [](std::uintptr_t ptr, std::vector<std::uint32_t> const &shape,
+         std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+         ::tt::target::DataType dataType) {
+        return tt::runtime::createOwnedHostTensor(
+            reinterpret_cast<void const *>(ptr), shape, stride, itemsize,
+            dataType);
+      },
+      "Create a tensor with owned memory");
   m.def(
       "create_empty_tensor",
       [](::tt::runtime::Device device, ::tt::runtime::Layout layout,
          std::vector<std::uint32_t> const &shape,
          std::vector<std::uint32_t> const &stride, std::uint32_t itemsize) {
-        return tt::runtime::createTensor(device, layout, shape, stride,
-                                         itemsize);
+        return tt::runtime::createEmptyTensor(device, layout, shape, stride,
+                                              itemsize);
       },
       "Create an empty tensor with the specified layout");
   m.def(
@@ -178,15 +200,14 @@ PYBIND11_MODULE(_C, m) {
          std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType,
          std::unordered_map<std::string, std::string> const &strategy) {
-        std::vector<std::shared_ptr<void>> data;
+        std::vector<void const *> data;
         data.reserve(ptrs.size());
         std::transform(ptrs.begin(), ptrs.end(), std::back_inserter(data),
                        [](std::uintptr_t ptr) {
-                         return ::tt::runtime::utils::unsafe_borrow_shared(
-                             reinterpret_cast<void *>(ptr));
+                         return reinterpret_cast<void const *>(ptr);
                        });
-        return tt::runtime::createTensor(data, shape, stride, itemsize,
-                                         dataType, strategy);
+        return tt::runtime::createOwnedMultiDeviceHostTensor(
+            data, shape, stride, itemsize, dataType, strategy);
       },
       "Create a multi-device host tensor with owned memory");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
@@ -204,7 +225,7 @@ PYBIND11_MODULE(_C, m) {
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
         py::arg("untilize") = false, "Copy the tensor to the host");
   m.def("to_layout", &tt::runtime::toLayout, py::arg("tensor"),
-        py::arg("device"), py::arg("layout"),
+        py::arg("device"), py::arg("layout"), py::arg("retain") = py::none(),
         "Create a copy of the tensor with the specified layout");
   m.def("get_layout", &tt::runtime::getLayout, py::arg("executable"),
         py::arg("program_index"), py::arg("input_index"),
@@ -212,14 +233,14 @@ PYBIND11_MODULE(_C, m) {
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
-         std::uint32_t programIndex,
-         const std::vector<::tt::runtime::Tensor> &inputs)
+         std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs)
           -> std::vector<::tt::runtime::Tensor> {
         return ::tt::runtime::submit(device, executable, programIndex, inputs);
       },
       py::arg("device"), py::arg("executable"), py::arg("program_index"),
       py::arg("inputs"),
-      "Submit a ttnn binary for execution, returns a vector of output tensors");
+      "Submit a ttnn binary for execution, returns a vector of output tensors."
+      "The input tensors will be moved and consumed.");
   m.def(
       "submit",
       [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
@@ -286,19 +307,25 @@ PYBIND11_MODULE(_C, m) {
       });
 
   py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
-      .def_static("get",
-                  [](py::function func) {
+      .def_static(
+          "get",
+          [](py::function pre_op_func, py::function post_op_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-                    tt::runtime::debug::Hooks::get(
-                        [func](tt::runtime::Binary binary,
+            tt::runtime::debug::Hooks::get(
+                [pre_op_func](tt::runtime::Binary Binary,
+                              tt::runtime::CallbackContext programContext,
+                              tt::runtime::OpContext opContext) {
+                  pre_op_func(Binary, programContext, opContext);
+                },
+                [post_op_func](tt::runtime::Binary Binary,
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
-                          func(binary, programContext, opContext);
-                        });
+                  post_op_func(Binary, programContext, opContext);
+                });
 #else
             tt::runtime::debug::Hooks::get();
 #endif
-                  })
+          })
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;

@@ -10,32 +10,55 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/types.h"
 
+#include <atomic>
 #include <optional>
 #include <unordered_map>
 
 namespace tt::runtime::ttnn {
 using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
                                    std::reference_wrapper<::ttnn::MeshDevice>>;
+using TensorMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor>;
+using TensorPtrMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor *>;
+using TensorPtrMapIterator = typename TensorPtrMap::iterator;
+
+// Wrapper for ttnn::Tensor that contains
+// additional metadata specific to our ttnn runtime
+class TTNNTensorWrapper {
+public:
+  TTNNTensorWrapper(const ::ttnn::Tensor &tensor, bool retain = false)
+      : tensor(tensor), retain(retain) {}
+
+  const ::ttnn::Tensor &getTensor() const { return tensor; }
+  ::ttnn::Tensor &getTensor() { return tensor; }
+
+  bool shouldRetain() const { return retain.load(std::memory_order_relaxed); }
+  void setRetain(bool val) { retain.store(val, std::memory_order_relaxed); }
+
+private:
+  ::ttnn::Tensor tensor;
+  // Whether the tensor should be retained during execution
+  // Setting this to true will prohibit deallocate ops within
+  // the program from deallocating the tensor
+  std::atomic<bool> retain;
+};
+
 struct LayoutDesc {
   ::ttnn::StorageType storageType;
   ::ttnn::Layout layout;
   ::ttnn::DataType dataType;
   std::optional<::ttnn::MemoryConfig> memoryConfig;
 
+  static LayoutDesc fromTensor(const ::tt::runtime::Tensor &tensor);
+
   LayoutDesc(const ::ttnn::StorageType &storageType,
              const ::ttnn::Layout &layout, const ::ttnn::DataType &dataType,
-             const std::optional<::ttnn::MemoryConfig> &memoryConfig)
-      : storageType(storageType), layout(layout), dataType(dataType),
-        memoryConfig(memoryConfig) {}
+             const std::optional<::ttnn::MemoryConfig> &memoryConfig);
 
-  bool isOnHost() const {
-    return (storageType == ::ttnn::StorageType::OWNED) ||
-           (storageType == ::ttnn::StorageType::BORROWED) ||
-           (storageType == ::ttnn::StorageType::MULTI_DEVICE_HOST);
-  }
-  bool isOnDevice() const { return !isOnHost(); }
+  bool isOnHost() const;
+  bool isOnDevice() const;
+  bool isTilized() const;
 
-  bool isTilized() const { return layout == ::ttnn::Layout::TILE; }
+  bool operator==(const LayoutDesc &other) const;
 };
 
 class LayoutConverter {
@@ -88,10 +111,9 @@ private:
 
 class ProgramTensorPool {
 public:
-  ProgramTensorPool(
-      const std::vector<uint32_t> &programInputIds,
-      const std::vector<uint32_t> &programOutputIds,
-      std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors)
+  ProgramTensorPool(const std::vector<uint32_t> &programInputIds,
+                    const std::vector<uint32_t> &programOutputIds,
+                    TensorPtrMap &&liveTensors)
       : programInputIds(programInputIds), programOutputIds(programOutputIds),
         liveTensors(std::move(liveTensors)) {}
   ProgramTensorPool(const ProgramTensorPool &) = delete;
@@ -99,18 +121,29 @@ public:
   ProgramTensorPool(ProgramTensorPool &&) = default;
   ProgramTensorPool &operator=(ProgramTensorPool &&) = default;
 
-  const ::ttnn::Tensor &
-  getAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef) const;
+  const ::tt::runtime::Tensor &getRuntimeTensorAndValidate(
+      const ::tt::target::ttnn::TensorRef *tensorRef) const;
+  ::tt::runtime::Tensor &
+  getRuntimeTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
+
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &getTTNNTensorWrapperAndValidate(
+      const ::tt::target::ttnn::TensorRef *tensorRef) const;
+  ::tt::runtime::ttnn::TTNNTensorWrapper &getTTNNTensorWrapperAndValidate(
+      const ::tt::target::ttnn::TensorRef *tensorRef);
+
+  const ::ttnn::Tensor &getTTNNTensorAndValidate(
+      const ::tt::target::ttnn::TensorRef *tensorRef) const;
   ::ttnn::Tensor &
-  getAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
+  getTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-  std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
-  insertAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
-                    const ::ttnn::Tensor &ttnnTensor);
+  std::pair<TensorPtrMapIterator, bool>
+  insertTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
+                              const ::ttnn::Tensor &ttnnTensor,
+                              bool retain = false);
 
-  size_t erase(const ::tt::target::ttnn::TensorRef *tensorRef);
+  std::vector<::tt::runtime::Tensor> gatherOutputTensors();
 
-  std::vector<Tensor> gatherOutputTensors();
+  TensorPtrMapIterator erase(const ::tt::target::ttnn::TensorRef *tensorRef);
 
   bool contains(const ::tt::target::ttnn::TensorRef *tensorRef) const {
     return liveTensors.contains(tensorRef->global_id());
@@ -127,20 +160,18 @@ public:
 private:
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;
-  // A superset of intermedTensors, containing pointers to all tensors created
-  // by the program and the input tensors passed in by the user
-  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+  TensorMap intermedTensors;
+  TensorPtrMap liveTensors;
 
-  // A subset of liveTensors, containing values of any intermediate tensors
-  // created by the program
-  std::unordered_map<std::uint32_t, ::ttnn::Tensor> intermedTensors;
+  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
+  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
 };
 
 class ProgramContext {
 public:
   ProgramContext(const std::vector<uint32_t> &programInputIds,
                  const std::vector<uint32_t> &programOutputIds,
-                 std::unordered_map<uint32_t, ::ttnn::Tensor *> &&liveTensors,
+                 TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
                  ::ttnn::MeshDevice *parentMesh)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,

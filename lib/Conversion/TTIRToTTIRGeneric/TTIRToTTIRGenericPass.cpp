@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -63,6 +64,9 @@ struct TTIRToTTIRGenericPass final
 #undef GET_OP_LIST
           >();
     }
+
+    DeviceAttr deviceAttr = lookupDevice(getOperation());
+
     TypeConverter typeConverter;
     {
       // Dialect conversion requires 1:1 (null) type conversion rule at a
@@ -71,7 +75,8 @@ struct TTIRToTTIRGenericPass final
     }
 
     mlir::RewritePatternSet patterns{&ctx};
-    populateTTIRToTTIRGenericPatterns(&ctx, patterns, typeConverter);
+    populateTTIRToTTIRGenericPatterns(&ctx, patterns, typeConverter,
+                                      deviceAttr.getWorkerGrid().getRank());
 
     if (failed(mlir::applyFullConversion(op, target, std::move(patterns)))) {
       signalPassFailure();

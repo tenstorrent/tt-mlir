@@ -5,7 +5,7 @@
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "tt/runtime/ttnn/debug_apis.h"
+
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -26,7 +26,7 @@ static void runReductionOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  const ::ttnn::Tensor &in = tensorPool.getAndValidate(op->in());
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   const auto *fbDimArg = op->dim_arg();
   std::optional<::ttnn::SmallVector<int>> dimArg =
@@ -38,7 +38,7 @@ static void runReductionOp(
       in, dimArg, op->keep_dim(), outputMemoryConfig /* memory_config_arg */,
       std::nullopt /* compute_kernel_config */, 1.0f /* scalar */);
 
-  tensorPool.insertAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
