@@ -196,7 +196,7 @@ jobs:
     - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar xvf artifact.tar
+      run: tar xf artifact.tar
 
     - name: Remove existing whls files
       shell: bash
@@ -229,7 +229,7 @@ jobs:
       if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
       shell: bash
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: tar xvf artifact.tar
+      run: tar xf artifact.tar
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
