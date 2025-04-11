@@ -71,7 +71,7 @@ jobs:
 
     - name: Fetch job id
       id: fetch-job-id
-      uses: tenstorrent/tt-github-actions/.github/actions/job_id@ 78941479a3a9e79963cb8e5e36104f4e536da128
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@78941479a3a9e79963cb8e5e36104f4e536da128
       with:
         job_name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
 
@@ -166,7 +166,7 @@ jobs:
 
     - name: Fetch job id
       id: fetch-job-id
-      uses: tenstorrent/tt-github-actions/.github/actions/job_id@ 78941479a3a9e79963cb8e5e36104f4e536da128
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@78941479a3a9e79963cb8e5e36104f4e536da128
       with:
         job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type}})"
 
