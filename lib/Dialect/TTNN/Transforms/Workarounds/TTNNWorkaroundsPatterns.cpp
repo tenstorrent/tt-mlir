@@ -361,13 +361,15 @@ public:
     // If the target dimension is not evenly divisible by the number of devices
     // in the cluster, use the all-gather + local reduce breakdown approach.
     if (inputTypeShape[dimension] % meshShape[clusterAxis] != 0) {
-      // Note: This method uses a large amount of memory, so it should only be
-      // applied when the input tensor size is small. The size_limit was
-      // determined heuristically. The limit is set very conservatively, but may
-      // need adjustment if issues arise.
-      const int64_t sizeLimit = 200000;
-      int64_t tensorSize = inputType.getNumElements();
-      if (tensorSize < sizeLimit) {
+      // Note: The AllGather + LocalReduce method requires significant memory,
+      // so we check if there's enough DRAM capacity before applying it. The
+      // function checkAllGatherLocalReduceMemoryLimit simulates memory usage
+      // and verifies it's within the specified limit (10% of total DRAM
+      // capacity by default). This factor can be adjusted if memory pressure
+      // issues arise.
+      if (checkAllGatherLocalReduceMemoryLimit(getCurrentScopeSystemDesc(op),
+                                               inputType,
+                                               meshShape[clusterAxis], 0.1)) {
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
@@ -519,6 +521,29 @@ private:
       return op.emitOpError() << "var is not supported";
     }
     return success();
+  }
+  bool checkAllGatherLocalReduceMemoryLimit(
+      tt::SystemDescAttr systemDesc, RankedTensorType inputType,
+      int64_t numOfDevicesInCluster, float memoryLimitFactor = 0.1) const {
+    auto chipDesc = systemDesc.getChipDescs()[0];
+    size_t dramCapacity =
+        chipDesc.getUsableDramChannelSize() * chipDesc.getNumDramChannels();
+    size_t inputTensorSize =
+        inputType.getNumElements() * inputType.getElementTypeBitWidth() / 8;
+
+    // Calculate memory requirements for operations
+    size_t expectedAllGatherMemorySize =
+        inputTensorSize * numOfDevicesInCluster;
+    // tt-metal transpose the tensor and pad it to tile size. Refer to the
+    // issue: https://github.com/tenstorrent/tt-metal/issues/20540
+    // Formula: ((n + 31) / 32) * 32 rounds up to the next multiple of 32
+    int64_t paddedDeviceNumber = ((numOfDevicesInCluster + 31) / 32) * 32;
+    size_t expectedLocalReduceMemorySize = inputTensorSize * paddedDeviceNumber;
+
+    // Check if operations fit within memory limit
+    size_t availableMemory = dramCapacity * memoryLimitFactor;
+    return availableMemory >= expectedAllGatherMemorySize &&
+           availableMemory >= expectedLocalReduceMemorySize;
   }
 };
 
