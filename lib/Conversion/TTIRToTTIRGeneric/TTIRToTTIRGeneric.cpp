@@ -3,19 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/LogicalResult.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/LogicalResult.h"
 
 #include <array>
 

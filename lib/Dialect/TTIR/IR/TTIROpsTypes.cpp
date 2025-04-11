@@ -2,14 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsTypes.h"
 
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/DialectImplementation.h"
 
 using namespace mlir::tt::ttir;
 

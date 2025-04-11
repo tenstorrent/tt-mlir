@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
-
 #include "ttmlir/Utils.h"
 
 #include "llvm/Support/MathExtras.h"

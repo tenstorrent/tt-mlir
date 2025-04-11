@@ -2,20 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/Support/LogicalResult.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "llvm/ADT/SmallSet.h"
-#include <llvm/Support/LogicalResult.h>
-#include <mlir/IR/Diagnostics.h>
-#include <mlir/Support/LLVM.h>
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/Support/LLVM.h"
 
 namespace mlir::tt {
 

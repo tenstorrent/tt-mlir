@@ -6,8 +6,9 @@
 #define TTMLIR_TARGET_TTKERNEL_TTKERNELTOCPP_H
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
-#include <mlir/IR/Operation.h>
-#include <mlir/Support/LogicalResult.h>
+
+#include "mlir/IR/Operation.h"
+#include "mlir/Support/LogicalResult.h"
 
 namespace mlir::tt::ttkernel {
 

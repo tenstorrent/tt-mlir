@@ -6,18 +6,18 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-#include "Conversion.hpp"
-#include "MetalHeaders.h"
-#include "SingletonDeviceContext.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "llvm/Support/Casting.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
-#include "llvm/Support/Casting.h"
 
+#include "Conversion.hpp"
+#include "MetalHeaders.h"
+#include "SingletonDeviceContext.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>

@@ -2,9 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTKernel/Pipelines/TTKernelPipelines.h"
-
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TTKernel/Pipelines/TTKernelPipelines.h"
 
 #include "mlir/Dialect/EmitC/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"

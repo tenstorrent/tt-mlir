@@ -6,9 +6,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
-#include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
 namespace tt {

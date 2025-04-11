@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir-c/TTNNAttrs.h"
-#include "mlir/CAPI/IR.h"
-#include "mlir/CAPI/Support.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include "mlir/CAPI/IR.h"
+#include "mlir/CAPI/Support.h"
 
 using namespace mlir::tt::ttnn;
 

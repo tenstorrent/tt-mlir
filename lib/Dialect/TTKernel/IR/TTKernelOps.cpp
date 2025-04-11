@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.cpp.inc"

@@ -2,21 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdint>
-
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 
-#include <llvm/ADT/ArrayRef.h>
-#include <mlir/IR/ValueRange.h>
-
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
-#include "llvm/ADT/SmallVector.h"
+
+#include <cstdint>
 
 mlir::LogicalResult
 mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {

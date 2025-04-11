@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-
-#include "mlir/IR/DialectImplementation.h"
-#include "mlir/InitAllDialects.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+
 #include "llvm/ADT/TypeSwitch.h"
+#include "mlir/IR/DialectImplementation.h"
+#include "mlir/InitAllDialects.h"
 
 using namespace mlir;
 using namespace mlir::tt::ttnn;

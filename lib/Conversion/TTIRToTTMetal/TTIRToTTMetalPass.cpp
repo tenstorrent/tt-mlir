@@ -3,8 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -13,10 +17,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
-#include <mlir/Dialect/Func/IR/FuncOps.h>
 
 using namespace mlir;
 using namespace mlir::tt;

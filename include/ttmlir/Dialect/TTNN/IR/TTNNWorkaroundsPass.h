@@ -7,11 +7,11 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-#include "mlir/IR/Operation.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Operation.h"
 
-#include <mlir/IR/BuiltinTypes.h>
 #include <optional>
 
 namespace mlir::tt::ttnn::wa {

@@ -2,14 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/LogicalResult.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -20,11 +24,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLForwardCompat.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
 #include <numeric>

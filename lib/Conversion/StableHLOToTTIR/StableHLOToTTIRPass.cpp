@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
-
 #include "ttmlir/Conversion/StableHLOToTTIR/EmptyOpTypeConversion.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -21,9 +21,9 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
-#include "llvm/ADT/ArrayRef.h"
 
 using namespace mlir;
 using namespace mlir::tt;

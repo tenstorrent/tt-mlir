@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+
 #include <cassert>
 
 namespace mlir::tt::ttnn {

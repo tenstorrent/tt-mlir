@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// clang-format off
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TT/IR/Utils.h"
@@ -9,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+// clang-format on
 
 #include "mlir/IR/Operation.h"
 

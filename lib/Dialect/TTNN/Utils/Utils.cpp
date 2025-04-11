@@ -2,14 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/Support/Casting.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
-#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn::utils {
 // Map TT::MemorySpace to TTNN::BufferType

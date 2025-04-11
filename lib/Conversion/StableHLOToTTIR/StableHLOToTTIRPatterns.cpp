@@ -2,9 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
-
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/Mesh.h"
@@ -13,6 +12,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/STLExtras.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Traits.h"
@@ -27,10 +28,8 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "stablehlo/dialect/StablehloOps.h"
-#include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/STLExtras.h"
 
+#include "stablehlo/dialect/StablehloOps.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>

@@ -2,20 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/DialectImplementation.h"
-#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectImplementation.h"
+#include "mlir/Support/LLVM.h"
 
 #include <cstdint>
 #include <fstream>

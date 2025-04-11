@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
@@ -14,29 +13,29 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Utils.h"
 
-#include <llvm/ADT/DenseMap.h>
-#include <llvm/ADT/MapVector.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/Support/ErrorHandling.h>
-#include <llvm/Support/LogicalResult.h>
-#include <mlir/Analysis/Liveness.h>
-#include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/Math/IR/Math.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/SCF/IR/SCF.h>
-#include <mlir/IR/Block.h>
-#include <mlir/IR/Builders.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/Location.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/IR/Types.h>
-#include <mlir/IR/Value.h>
-#include <mlir/IR/ValueRange.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Support/LogicalResult.h>
-#include <mlir/Transforms/DialectConversion.h>
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/LogicalResult.h"
+#include "mlir/Analysis/Liveness.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Block.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 #include <cstdint>
 #include <utility>

@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/StableHLOToTTIR/EmptyOpTypeConversion.h"
-
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"

@@ -6,14 +6,13 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.cpp.inc"
 
+#include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Interfaces/FoldInterfaces.h"
 #include "mlir/Transforms/InliningUtils.h"
-#include "llvm/ADT/StringSet.h"
-#include "llvm/ADT/TypeSwitch.h"
-
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"

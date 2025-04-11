@@ -6,13 +6,13 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/STLForwardCompat.h"
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/STLForwardCompat.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRALLOCATE

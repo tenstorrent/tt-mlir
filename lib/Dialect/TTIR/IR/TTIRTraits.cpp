@@ -2,9 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
-
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Utils.h"
 
 // Check if all operands and result have the same type. Function assumes op has

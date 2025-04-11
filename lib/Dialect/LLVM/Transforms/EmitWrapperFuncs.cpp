@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
+
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
@@ -11,12 +17,6 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
-
-#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
 
 namespace mlir::tt::llvm_util {
 #define GEN_PASS_DEF_LLVMEMITCALLINGCONVENTIONWRAPPERFUNCS

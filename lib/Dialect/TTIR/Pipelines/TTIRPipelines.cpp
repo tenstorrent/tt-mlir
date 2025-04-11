@@ -2,7 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
@@ -18,10 +21,6 @@
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "mlir/Transforms/Passes.h"
-
-#include "ttmlir/Conversion/Passes.h"
-#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
-#include "ttmlir/Transforms/Passes.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/transforms/Passes.h"

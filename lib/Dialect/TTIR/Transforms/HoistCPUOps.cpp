@@ -6,14 +6,14 @@
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRHOISTTRANSFORM

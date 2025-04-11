@@ -2,11 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
-
 #include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 

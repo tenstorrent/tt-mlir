@@ -5,11 +5,10 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
+#include "llvm/ADT/ScopeExit.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
-
-#include "llvm/ADT/ScopeExit.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_CONVERTTTNNTOEMITC

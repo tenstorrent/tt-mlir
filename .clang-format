@@ -1,2 +1,20 @@
 BasedOnStyle: LLVM
 AlwaysBreakTemplateDeclarations: Yes
+
+# Include structure complies with coding guidelines: docs/src/coding-guidelines.md
+IncludeIsMainRegex: "^$"
+IncludeCategories:
+  - Regex:           '^"ttmlir'
+    Priority:        1
+    SortPriority:    1
+  - Regex:           '^"mlir/.*"'
+    Priority:        2
+    SortPriority:    2
+  - Regex:           '^"(llvm|llvm-c|clang|clang-c)/'
+    Priority:        2
+    SortPriority:    2
+  - Regex:           '.*'
+    Priority:        3
+    SortPriority:    3
+SortIncludes: true
+IncludeBlocks: Regroup

@@ -2,23 +2,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
-
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/raw_ostream.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Support/LLVM.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/Error.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <unordered_set>
 #include <utility>

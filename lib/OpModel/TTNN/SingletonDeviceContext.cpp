@@ -3,10 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-#include "SingletonDeviceContext.h"
-
 #include "Constants.h"
 #include "MetalHeaders.h"
+#include "SingletonDeviceContext.h"
 
 namespace mlir::tt::op_model::ttnn {
 

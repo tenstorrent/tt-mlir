@@ -5,9 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_OPTIMIZER_H
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_OPTIMIZER_H
 
-#include <mlir/Pass/PassRegistry.h>
-
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+
+#include "mlir/Pass/PassRegistry.h"
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//

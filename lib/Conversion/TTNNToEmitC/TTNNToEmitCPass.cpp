@@ -2,9 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
-
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
+#include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"

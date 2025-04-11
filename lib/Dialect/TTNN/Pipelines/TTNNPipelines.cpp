@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
-
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
@@ -12,6 +10,7 @@
 #include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
 

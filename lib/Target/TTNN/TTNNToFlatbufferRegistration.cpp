@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
+
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -9,11 +14,6 @@
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
-
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
 using namespace mlir;
 

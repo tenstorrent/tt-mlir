@@ -4,13 +4,13 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/raw_ostream.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/Pass.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn_to_emitc::utils {
 

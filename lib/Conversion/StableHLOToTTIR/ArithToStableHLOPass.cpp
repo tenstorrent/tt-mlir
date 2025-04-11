@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
-
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
@@ -15,6 +14,7 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
 

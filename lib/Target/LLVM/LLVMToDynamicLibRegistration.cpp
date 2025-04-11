@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
+
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
-
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
 using namespace mlir;
 

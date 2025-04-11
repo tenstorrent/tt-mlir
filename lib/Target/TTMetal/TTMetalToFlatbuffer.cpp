@@ -12,16 +12,16 @@
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
 
-#include "flatbuffers/buffer.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
 
+#include "flatbuffers/buffer.h"
 #include <cassert>
 #include <cstddef>
 #include <memory>

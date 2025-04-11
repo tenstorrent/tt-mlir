@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
+#include "llvm/ADT/TypeSwitch.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Interfaces/FoldInterfaces.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace mlir::tt::ttmetal;

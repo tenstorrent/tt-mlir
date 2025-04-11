@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
-
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -20,6 +18,7 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
+#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -29,14 +28,14 @@
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
 
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Support/LogicalResult.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt {
 

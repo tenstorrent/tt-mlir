@@ -6,12 +6,12 @@
 #include <optional>
 #include <stdexcept>
 #ifdef TTMLIR_ENABLE_OPMODEL
-#include "Conversion.hpp"
-
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/ArrayRef.h"
+
+#include "Conversion.hpp"
 
 namespace mlir::tt::op_model::ttnn {
 

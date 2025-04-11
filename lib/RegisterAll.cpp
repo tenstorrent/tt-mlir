@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/RegisterAll.h"
-
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
@@ -19,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/RegisterAll.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
