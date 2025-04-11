@@ -367,7 +367,8 @@ TEST_F(OpModelBase, toLayoutOp) {
   // device
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
       builder.getUnknownLoc(), builder.getType<DeviceType>(),
-      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
   ToLayoutOp toLayout = builder.create<ToLayoutOp>(
       builder.getUnknownLoc(), tensor.getType(), tensor, Layout::Tile, nullptr,
       nullptr, deviceOp);
@@ -493,7 +494,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
       builder.getUnknownLoc(), builder.getType<DeviceType>(),
-      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
   Conv2dOp conv2d = builder.create<Conv2dOp>(
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,

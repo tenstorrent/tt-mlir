@@ -23,6 +23,11 @@ class TTNN_Attr<string name, string attrMnemonic, list<Trait> traits = [],
   let attrName = "ttnn." # attrMnemonic;
 }
 
+class TTNN_Mesh2DCoordAttr<string name, string mnemonic> : TTNN_Attr<name, mnemonic> {
+  let parameters = (ins "int64_t":$y, "int64_t":$x);
+  let assemblyFormat = "custom<VargDimensionList>($y, $x)";
+}
+
 def TTNN_CoreCoordAttr : TTNN_Attr<"CoreCoord", "core_coord"> {
   let summary = "A 2D coordinate of a core in the core grid";
   let description = [{
@@ -421,14 +426,18 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   }];
 }
 
-def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {
+def TTNN_MeshShapeAttr : TTNN_Mesh2DCoordAttr<"MeshShape", "mesh_shape"> {
   let summary = "TTNN Mesh Shape";
   let description = [{
-    TTNN mesh shape
+    TTNN mesh shape representing the dimensions of a 2D mesh.
   }];
+}
 
-  let parameters = (ins "int64_t":$y, "int64_t":$x);
-  let assemblyFormat = "custom<VargDimensionList>($y, $x)";
+def TTNN_MeshOffsetAttr : TTNN_Mesh2DCoordAttr<"MeshOffset", "mesh_offset"> {
+  let summary = "TTNN Mesh Offset";
+  let description = [{
+    TTNN mesh offset representing the starting coordinates in a 2D mesh.
+  }];
 }
 
 def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
