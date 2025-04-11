@@ -150,7 +150,7 @@ def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles"> {
       is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, Index:$in0_tile_index, Index:$in1_tile_index, Index:$dst_index);
 }
 
 def TTKernel_MulTilesInitOp : TTKernel_InitOp<"mul_tiles_init"> {
@@ -695,13 +695,16 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
     let results = (outs Index:$y);
 }
 
-def TTKernel_GetCBOp : TTKernel_Op<"get_cb"> {
+def TTKernel_GetCBOp : TTKernel_Op<"get_cb", [Pure, ConstantLike]> {
   let summary = "Get CB";
   let description = [{
      Returns a CB type.
     }];
 
+  let arguments = (ins I32Attr:$cb_index);
   let results = (outs TTKernel_CB:$cb);
+
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -840,6 +843,17 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
     }];
     let arguments = (ins TTKernel_CB:$cb);
     let results = (outs TTKernel_DataFormat:$dataFormat);
+}
+
+def TTKernel_CBReinterpretShapeOp : TTKernel_Op<"cb_reinterpret_shape"> {
+    let summary = "Get the data format of a given CB";
+    let description = [{
+      get_dataformat operation
+    }];
+    let arguments = (ins TTKernel_CB:$input);
+    let results = (outs TTKernel_CB:$output);
+
+    let hasVerifier = 1;
 }
 
 #endif

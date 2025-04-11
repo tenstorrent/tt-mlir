@@ -353,6 +353,14 @@ def TTIR_NullTxOp : TTIR_GenericRegionDatamovementOp<"null_tx", [Pure]> {
 
     let results = (outs TTIR_MemTx:$result);
 
+    let builders =
+    [
+      OpBuilder<(ins),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>());
+      }]>
+    ];
+
     let assemblyFormat = [{ attr-dict }];
 }
 

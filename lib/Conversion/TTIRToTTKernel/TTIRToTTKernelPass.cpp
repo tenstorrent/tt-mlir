@@ -12,12 +12,14 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -44,31 +46,45 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<memref::MemRefDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
+    target.addLegalDialect<tt::TTDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
-    target.addLegalOp<tt::DeviceOp>();
+    target.addLegalOp<ttir::ToLayoutOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
+    // target.addIllegalOp<memref::LoadOp>();
     target.addIllegalOp<memref::StoreOp>();
-
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      if (!op->hasAttr("ttir.thread_type")) {
-        return true;
-      }
-      return std::all_of(
-          op.getArgumentTypes().begin(), op.getArgumentTypes().end(),
-          [&](Type type) { return !mlir::isa<MemRefType>(type); });
-    });
+    target.addIllegalOp<memref::CollapseShapeOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
+    typeConverter.addConversion([](ttir::MemTxType memtx) {
+      return IndexType::get(memtx.getContext());
+    });
+    typeConverter.addConversion([](MemRefType memref) {
+      return ttkernel::CBType::get(
+          memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
+    });
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return !op->hasAttr(ttir::ThreadAttr::name) ||
+             (op.getFunctionType().getNumInputs() == 0);
+    });
+
+    ttir::AssociatedDMAWaits associatedDMAWaits =
+        getAnalysis<ttir::AssociatedDMAWaits>();
 
     RewritePatternSet patterns(&getContext());
-    populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter);
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
+    populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter,
+                                   associatedDMAWaits);
+    populateAffineToStdConversionPatterns(patterns);
+    scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
+                                                         patterns, target);
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
