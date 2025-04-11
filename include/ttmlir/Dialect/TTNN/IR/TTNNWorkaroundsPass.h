@@ -228,6 +228,10 @@ public:
 
   // Create workarounds for full op operands.
   static TTNNOperandsWorkarounds
+  createZerosOpOperandsWorkarounds(RankedTensorType outputType);
+
+  // Create workarounds for full op operands.
+  static TTNNOperandsWorkarounds
   createFullOpOperandsWorkarounds(RankedTensorType outputType);
 
   // Create workarounds for mesh shard op operands.
