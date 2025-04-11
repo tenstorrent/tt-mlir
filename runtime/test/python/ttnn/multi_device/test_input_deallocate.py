@@ -19,21 +19,10 @@ from ..utils import (
     get_runtime_tensor_from_torch,
     get_torch_output_container,
     assert_pcc,
+    get_to_layout_inputs,
 )
 
 from .constants import FLATBUFFER_BASE_PATH
-
-
-def get_to_layout_inputs(device, runtime_inputs, binary, program_index):
-    input_layouts = [
-        ttrt.runtime.get_layout(binary.fbb, program_index, i)
-        for i in range(len(runtime_inputs))
-    ]
-    runtime_inputs_with_layout = [
-        ttrt.runtime.to_layout(runtime_input, device, layout)
-        for runtime_input, layout in zip(runtime_inputs, input_layouts)
-    ]
-    return runtime_inputs_with_layout
 
 
 def verify_to_layout_deallocation(helper: Helper, retain_flags, storage, enable_async):
