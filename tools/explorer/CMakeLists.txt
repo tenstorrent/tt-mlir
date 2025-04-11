@@ -10,7 +10,7 @@ ExternalProject_Add(
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer
   GIT_REPOSITORY https://github.com/tenstorrent/model-explorer.git
   GIT_TAG ${MODEL_EXPLORER_VERSION}
-  GIT_PROGRESS ON
+  GIT_PROGRESS OFF
   CONFIGURE_COMMAND ""
   BUILD_COMMAND ""
   INSTALL_COMMAND ""
@@ -40,8 +40,8 @@ add_custom_target(explorer
   COMMAND pip uninstall -y ai-edge-model-explorer
   COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package/build
   COMMAND pip install --upgrade ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package
-  COMMAND python -m pip wheel ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter --wheel-dir ${TTMLIR_BUILD_BIN_DIR}/wheels --verbose
-  COMMAND python -m pip wheel ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package --wheel-dir ${TTMLIR_BUILD_BIN_DIR}/wheels --verbose
+  COMMAND python -m pip wheel ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter --wheel-dir ${TTMLIR_BUILD_BIN_DIR}/wheels
+  COMMAND python -m pip wheel ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package --wheel-dir ${TTMLIR_BUILD_BIN_DIR}/wheels
 
   DEPENDS TTMLIRPythonModules model-explorer ttrt ttmlir-opt ttmlir-translate
 )

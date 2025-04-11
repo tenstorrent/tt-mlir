@@ -191,10 +191,12 @@ jobs:
         name: install-artifacts-${{ matrix.build.image }}
         path: ${{ steps.strings.outputs.install-output-dir }}
 
-    - name: Add execute permissions
+    # This is needed to preserve file permissions
+    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
+    - name: 'Untar install directory'
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: chmod -R +x bin
+      run: tar xf artifact.tar
 
     - name: Remove existing whls files
       shell: bash
@@ -223,11 +225,11 @@ jobs:
         name: build-artifacts-${{ matrix.build.image }}
         path: ${{ steps.strings.outputs.build-output-dir }}
 
-    - name: Add execute permissions
+    - name: 'Untar build directory'
       if: ${{ matrix.build.type }} == "unit" || ${{ matrix.build.suite }} == "explorer"
       shell: bash
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: chmod -R +x bin
+      run: tar xf artifact.tar
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
