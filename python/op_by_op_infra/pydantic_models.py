@@ -23,7 +23,7 @@ class TensorDesc(BaseModel):
     data_type: str = Field(
         description="Data type of the tensor, e.g. Float32, " "BFloat16, etc."
     )
-    # Only TTNN ops have the following attributes. Thus set to optional.
+    # TODO Only TTNN ops have the following attributes. Thus set to optional.
     buffer_type: Optional[str] = Field(
         default=None,
         description="Memory space of the tensor, e.g. Dram, L1, " "System.",
@@ -54,7 +54,7 @@ class OpTest(BaseModel):
         default=None,
         description="Identifier for the Github Actions CI job, which ran the test.",
     )
-    # Set by frontend.
+    # TODO Set by frontend.
     full_test_name: Optional[str] = Field(
         default=None, description="Test name plus config."
     )
@@ -68,7 +68,7 @@ class OpTest(BaseModel):
     test_case_name: Optional[str] = Field(
         default=None, description="Name of the pytest function."
     )
-    # Set by frontend.
+    # TODO Set by frontend.
     filepath: Optional[str] = Field(
         default=None, description="Test file path and name."
     )
@@ -84,17 +84,16 @@ class OpTest(BaseModel):
     config: Optional[dict] = Field(
         default=None, description="Test configuration, as key/value pairs."
     )
-    # Set by frontend.
+    # TODO Set by frontend.
     frontend: Optional[str] = Field(
         default=None, description="ML frontend or framework used to run the test."
     )
-    # Set by frontend.
+    # TODO Set by frontend.
     model_name: Optional[str] = Field(
         default=None,
         description="Name of the ML model in which this operation is used.",
     )
-    # TODO is this important? How to determine it?
-    # Set as optional for now.
+    # TODO is this important? How to determine it? Set as optional for now.
     op_kind: Optional[str] = Field(
         default=None, description="Kind of operation, e.g. Eltwise."
     )
@@ -107,7 +106,7 @@ class OpTest(BaseModel):
     )
     inputs: List[TensorDesc] = Field(description="List of input tensors.")
     outputs: List[TensorDesc] = Field(description="List of output tensors.")
-    # Unused.
+    # TODO Unused.
     op_params: Optional[dict] = Field(
         default=None,
         description="Parametrization criteria for the operation, based on its kind, "

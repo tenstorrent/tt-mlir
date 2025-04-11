@@ -361,15 +361,6 @@ class ModuleWrapper:
     def wrap_op(self, op: OpView) -> OpWrapper:
         return OpWrapper(op, self._attributes)
 
-    def copy(self) -> Module:
-        """
-        Creates a copy of underlying MLIR Module.
-
-        This is useful to not mess up the original module in compilation steps which are
-        done in-place.
-        """
-        return parse_module_str(str(self.module)).module
-
     # ----- Private methods and properties -----
 
     @property
@@ -475,27 +466,10 @@ class TTNNModuleWrapper(ModuleWrapper):
         return self._nested_module.module.body.operations
 
 
-def is_top_level_ttnn_module(
-    module: Module, dialect: Optional[ModuleDialect] = None
-) -> bool:
-    """
-    Returns True only if module is in TTNN dialect and contains one nested
-    tt.device_module.
-    """
-    dialect = dialect or ModuleDialect.detect(module)
-    return (
-        True
-        if dialect == ModuleDialect.TTNN
-        and len(module.body.operations) == 1
-        and isinstance(module.body.operations[0], tt.DeviceModuleOp)
-        else False
-    )
-
-
-def parse_module_str(module_str: str) -> ModuleWrapper:
+def create_mlir_module_from_string(module_str: str) -> Module:
     """
     Within a temporary context registers necessary dialects and parses `module_str`
-    returning ModuleWrapper instance.
+    returning Module instance.
     """
 
     def preprocess_module_str(module_str: str) -> str:
@@ -528,12 +502,37 @@ def parse_module_str(module_str: str) -> ModuleWrapper:
         dialect = ModuleDialect.detect(cleaned_module_str)
         # Must register dialect in order for parsing to work.
         register_dialect(dialect, ctx)
-        mlir_module = Module.parse(cleaned_module_str)
-        return (
-            TTNNModuleWrapper(mlir_module, dialect=dialect)
-            if is_top_level_ttnn_module(mlir_module, dialect)
-            else ModuleWrapper(mlir_module, dialect=dialect)
-        )
+        return Module.parse(cleaned_module_str)
+
+
+def is_top_level_ttnn_module(
+    module: Module, dialect: Optional[ModuleDialect] = None
+) -> bool:
+    """
+    Returns True only if module is in TTNN dialect and contains one nested
+    tt.device_module.
+    """
+    dialect = dialect or ModuleDialect.detect(module)
+    return (
+        True
+        if dialect == ModuleDialect.TTNN
+        and len(module.body.operations) == 1
+        and isinstance(module.body.operations[0], tt.DeviceModuleOp)
+        else False
+    )
+
+
+def parse_module_str(module_str: str) -> ModuleWrapper:
+    """
+    Within a temporary context registers necessary dialects and parses `module_str`
+    returning ModuleWrapper instance.
+    """
+    mlir_module = create_mlir_module_from_string(module_str)
+    return (
+        TTNNModuleWrapper(mlir_module)
+        if is_top_level_ttnn_module(mlir_module)
+        else ModuleWrapper(mlir_module)
+    )
 
 
 def convert_to_module_wrapper(func: Callable) -> Callable:
@@ -559,8 +558,10 @@ def convert_to_module_wrapper(func: Callable) -> Callable:
                 if is_top_level_ttnn_module(module)
                 else ModuleWrapper(module)
             )
-        else:
+        elif isinstance(module, ModuleWrapper):
             m = module
+        else:
+            raise TypeError(f"Unexpected module type {type(module)}")
 
         # Call the original function with the converted module.
         return func(self, m, *args, **kwargs)

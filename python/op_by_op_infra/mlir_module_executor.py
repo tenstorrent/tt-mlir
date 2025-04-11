@@ -166,7 +166,7 @@ class MLIRModuleExecutor:
         # which it modifies in-place. Make copy of the original underlying module and
         # work on it. Also, don't lose track of the origin op.
         try:
-            shlo = self._module.copy()
+            shlo = self._module.module
 
             ttir = stablehlo_to_ttir(shlo)
             self._mark_execution_step(
@@ -200,7 +200,7 @@ class MLIRModuleExecutor:
         module.
         """
         try:
-            ttir = self._module.copy()
+            ttir = self._module.module
 
             ttnn = ttir_to_ttnn(ttir)
             self._mark_execution_step(
