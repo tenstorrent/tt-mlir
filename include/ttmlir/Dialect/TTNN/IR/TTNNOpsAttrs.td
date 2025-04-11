@@ -373,8 +373,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     TTNN conv2d config attribute
   }];
 
-  let parameters = (ins
-                        "DataType":$dtype,
+  let parameters = (ins "DataType":$dtype,
                         "DataType":$weights_dtype,
                         "StringAttr":$activation,
                         "uint32_t":$input_channels_alignment,
@@ -393,7 +392,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         "bool":$enable_act_double_buffer,
                         "bool":$enable_weights_double_buffer,
                         "bool":$enable_split_reader,
-                        "bool":$enable_subblock_padding);
+                        "bool":$enable_subblock_padding,
+                        "bool":$in_place);
 
   let assemblyFormat = [{
     `<` struct(
@@ -416,7 +416,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
       $enable_act_double_buffer,
       $enable_weights_double_buffer,
       $enable_split_reader,
-      $enable_subblock_padding
+      $enable_subblock_padding,
+      $in_place
     ) `>`
   }];
 }

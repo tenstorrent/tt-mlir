@@ -24,6 +24,7 @@ table Conv2dConfig {
   enable_weights_double_buffer: bool;
   enable_split_reader: bool;
   enable_subblock_padding: bool;
+  in_place: bool;
 }
 
 table PrepareConv2dWeightsOp {

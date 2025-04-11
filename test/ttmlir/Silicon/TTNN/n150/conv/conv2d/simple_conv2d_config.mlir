@@ -21,7 +21,6 @@
   act_block_w_div = 1,
   reshard_if_not_optimal = false,
   override_sharding_config = false,
-  shard_layout = #ttnn.tensor_memory_layout<height_sharded>,
   transpose_shards = true,
   output_layout = tile,
   preprocess_weights_on_device = true,

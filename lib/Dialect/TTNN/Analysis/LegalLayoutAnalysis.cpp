@@ -137,6 +137,8 @@ void applyConv2dConfigOverrides(
       conv2dConfigOverrides.enableSplitReader.value_or(false);
   bool newEnableSubblockPadding =
       conv2dConfigOverrides.enableSubblockPadding.value_or(false);
+  // TODO(vkovacevic): Add inPlace support.
+  bool newInPlace = false;
 
   for (auto &opConfig : analysisResult) {
     assert(!opConfig.config &&
@@ -149,7 +151,7 @@ void applyConv2dConfigOverrides(
         newCoreGrid, newTransposeShards, newOutputLayout,
         newPreprocessWeightsOnDevice, newAlwaysPreprocessWeights,
         newEnableActDoubleBuffer, newEnableWeightsDoubleBuffer,
-        newEnableSplitReader, newEnableSubblockPadding);
+        newEnableSplitReader, newEnableSubblockPadding, newInPlace);
   }
 }
 

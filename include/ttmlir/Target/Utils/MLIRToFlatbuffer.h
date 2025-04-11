@@ -283,6 +283,16 @@ toFlatbuffer(FlatbufferObjectCache &cache, const std::optional<T> &optValue) {
       optValue, [&](const T &val) { return toFlatbuffer(cache, val); });
 }
 
+template <typename T>
+inline ::flatbuffers::Optional<ToFlatbufferReturnType<T>>
+toFlatbufferOptionalAttr(FlatbufferObjectCache &cache, T attr) {
+  if (!attr) {
+    return {};
+  }
+
+  return toFlatbuffer(cache, attr);
+}
+
 template <typename T, std::enable_if_t<IsNativeFlatbufferTypeV<T>, int> = 0>
 flatbuffers::Offset<flatbuffers::Vector<ToFlatbufferReturnType<T> const *>>
 toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
@@ -659,8 +669,9 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       conv2dConfigAttr.getActBlockWDiv(),
       conv2dConfigAttr.getReshardIfNotOptimal(),
       conv2dConfigAttr.getOverrideShardingConfig(),
-      toFlatbuffer(cache, conv2dConfigAttr.getShardLayout()),
-      toFlatbuffer(cache, conv2dConfigAttr.getCoreGrid()),
+      toFlatbufferOptionalAttr(cache, conv2dConfigAttr.getShardLayout()),
+      toFlatbufferOptionalAttr(cache, conv2dConfigAttr.getCoreGrid())
+          .value_or(0),
       conv2dConfigAttr.getTransposeShards(),
       toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
       conv2dConfigAttr.getPreprocessWeightsOnDevice(),
@@ -668,7 +679,8 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       conv2dConfigAttr.getEnableActDoubleBuffer(),
       conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
       conv2dConfigAttr.getEnableSplitReader(),
-      conv2dConfigAttr.getEnableSubblockPadding());
+      conv2dConfigAttr.getEnableSubblockPadding(),
+      conv2dConfigAttr.getInPlace());
 }
 
 } // namespace mlir::tt

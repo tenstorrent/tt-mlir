@@ -165,7 +165,7 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::Layout outputLayout, bool preprocessWeightsOnDevice,
              bool alwaysPreprocessWeights, bool enableActDoubleBuffer,
              bool enableWeightsDoubleBuffer, bool enableSplitReader,
-             bool enableSubblockPadding) {
+             bool enableSubblockPadding, bool inPlace) {
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
                 unwrap(ctx), dtype, weightsDtype, activation,
                 inputChannelsAlignment, deallocateActivation,
@@ -174,7 +174,7 @@ void populateTTNNModule(nb::module_ &m) {
                 coreGrid, transposeShards, outputLayout,
                 preprocessWeightsOnDevice, alwaysPreprocessWeights,
                 enableActDoubleBuffer, enableWeightsDoubleBuffer,
-                enableSplitReader, enableSubblockPadding));
+                enableSplitReader, enableSubblockPadding, inPlace));
           })
       .def_prop_ro("dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self) {
@@ -255,8 +255,10 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("enable_subblock_padding",
                    [](tt::ttnn::Conv2dConfigAttr self) {
                      return self.getEnableSubblockPadding();
-                   });
-
+                   })
+      .def_prop_ro("in_place", [](tt::ttnn::Conv2dConfigAttr self) {
+        return self.getInPlace();
+      });
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")
       .def_static("get",
                   [](MlirContext ctx, MlirAttribute start, MlirAttribute end) {

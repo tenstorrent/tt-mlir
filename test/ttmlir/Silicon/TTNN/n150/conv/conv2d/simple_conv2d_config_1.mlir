@@ -13,7 +13,7 @@
 #conv2d_config = #ttnn.conv2d_config<
   dtype = bf16,
   weights_dtype = bf16,
-  activation = "",
+  activation = "relu",
   input_channels_alignment = 32,
   deallocate_activation = false,
   reallocate_halo_output = true,
@@ -22,6 +22,7 @@
   reshard_if_not_optimal = false,
   override_sharding_config = false,
   shard_layout = #ttnn.tensor_memory_layout<height_sharded>,
+  core_grid = #ttnn.core_range_set<>,
   transpose_shards = true,
   output_layout = tile,
   preprocess_weights_on_device = true,
