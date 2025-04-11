@@ -156,7 +156,8 @@ std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
                                          std::uint32_t programIndex);
 
 std::vector<::tt::runtime::Tensor>
-getInputTensors(CallbackContext programContextHandle);
+getInputTensors(CallbackContext programContextHandle, Binary executableHandle,
+                std::uint32_t programIndex);
 
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle);

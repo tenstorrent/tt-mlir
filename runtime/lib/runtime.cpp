@@ -666,10 +666,12 @@ std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
 
 // Might not be neccessary, tbd:
 std::vector<::tt::runtime::Tensor>
-getInputTensors(CallbackContext programContextHandle) {
+getInputTensors(CallbackContext programContextHandle, Binary executableHandle,
+                std::uint32_t programIndex) {
 #ifdef TT_RUNTIME_ENABLE_TTNN
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getInputTensors(programContextHandle);
+    return ::tt::runtime::ttnn::getInputTensors(programContextHandle,
+                                                executableHandle, programIndex);
   }
 #endif
   throw std::runtime_error("runtime is not enabled");

@@ -81,12 +81,9 @@ std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 
-Tensor getTensorFromTensorRef(::tt::target::ttnn::TensorRef tensorRef,
-                              const ttnn::ProgramTensorPool &tensorPool)
-
-    using InputBuffer =
-        std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,
-                   std::shared_ptr<::tt::tt_metal::Event>>;
+using InputBuffer =
+    std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,
+               std::shared_ptr<::tt::tt_metal::Event>>;
 
 using OutputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>;

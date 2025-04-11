@@ -9,7 +9,9 @@
 #include <functional>
 #include <vector>
 
+#include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/types.h"
+#include "ttmlir/Target/TTNN/Target.h"
 
 namespace tt::runtime {
 
@@ -143,12 +145,13 @@ std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
                                          std::uint32_t programIndex);
 
 std::vector<::tt::runtime::Tensor>
-getInputTensors(CallbackContext programContextHandle);
+getInputTensors(CallbackContext programContextHandle, Binary executableHandle,
+                std::uint32_t programIndex);
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 
-Tensor getTensorFromTensorRef(ttnn::TensorRef tensorRef,
+Tensor getTensorFromTensorRef(const ::tt::target::ttnn::TensorRef *tensorRef,
                               const ttnn::ProgramTensorPool &tensorPool);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
