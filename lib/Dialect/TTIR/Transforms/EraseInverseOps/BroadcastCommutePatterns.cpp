@@ -49,6 +49,9 @@ public:
     for (auto *user : users) {
       assert(checkIdenticalTms(transposeUser, user) &&
              "shouldCommute should have ensured this is true");
+    }
+
+    for (auto *user : users) {
       rewriter.replaceOp(user, newBroadcast);
     }
   }
@@ -292,6 +295,9 @@ public:
     for (auto *user : users) {
       assert(checkIdenticalTms(reshapeUser, user) &&
              "shouldCommute should have ensured this is true");
+    }
+
+    for (auto *user : users) {
       rewriter.replaceOp(user, newBroadcast);
     }
   }
@@ -362,6 +368,9 @@ public:
     for (auto *user : users) {
       assert(checkIdenticalTms(permuteUser, user) &&
              "shouldCommute should have ensured this is true");
+    }
+
+    for (auto *user : users) {
       rewriter.replaceOp(user, newBroadcast);
     }
   }
