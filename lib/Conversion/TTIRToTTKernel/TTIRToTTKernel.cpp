@@ -124,6 +124,30 @@ public:
           getCb(op->getOperand(1).getDefiningOp<memref::LoadOp>().getMemref()),
           getLoadIndex(op->getOperand(0)), getLoadIndex(op->getOperand(1)),
           dstIdx);
+    } else if (mlir::isa<ttir::TileAddOp>(op)) {
+      auto dstIdx = index(0);
+      newOp = rewriter.create<ttkernel::AddTilesOp>(
+          op->getLoc(),
+          getCb(op->getOperand(0).getDefiningOp<memref::LoadOp>().getMemref()),
+          getCb(op->getOperand(1).getDefiningOp<memref::LoadOp>().getMemref()),
+          getLoadIndex(op->getOperand(0)), getLoadIndex(op->getOperand(1)),
+          dstIdx);
+    } else if (mlir::isa<ttir::TileTilizeBlockOp>(op)) {
+      assert(operands.size() == 2);
+      op->dump();
+      operands[1].getType().dump();
+      auto numTiles = i32(
+          mlir::cast<MemRefType>(op->getOperandTypes()[1]).getNumElements());
+      newOp = rewriter.create<ttkernel::TilizeBlockOp>(
+          op->getLoc(), getCb(op->getOperand(0)), numTiles,
+          getCb(op->getOperand(1)));
+    } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
+      assert(operands.size() == 2);
+      auto numTiles = i32(
+          mlir::cast<MemRefType>(op->getOperandTypes()[0]).getNumElements());
+      newOp = rewriter.create<ttkernel::UntilizeBlockOp>(
+          op->getLoc(), getCb(op->getOperand(0)), numTiles,
+          getCb(op->getOperand(1)));
     } else {
       return failure();
     }
@@ -142,11 +166,17 @@ public:
     // This is necessary to remove the invalid CollapseShapeOp that references a
     // CB once it has no more uses.
     for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      rewriter.eraseOp(op->getOperand(i)
-                           .getDefiningOp<memref::LoadOp>()
-                           .getMemref()
-                           .getDefiningOp<memref::CollapseShapeOp>());
-      rewriter.eraseOp(op->getOperand(i).getDefiningOp<memref::LoadOp>());
+      if (auto load = op->getOperand(i).getDefiningOp<memref::LoadOp>()) {
+        rewriter.eraseOp(op->getOperand(i)
+                             .getDefiningOp<memref::LoadOp>()
+                             .getMemref()
+                             .getDefiningOp<memref::CollapseShapeOp>());
+        rewriter.eraseOp(op->getOperand(i).getDefiningOp<memref::LoadOp>());
+      } else if (auto collapse =
+                     op->getOperand(i)
+                         .getDefiningOp<memref::CollapseShapeOp>()) {
+        rewriter.eraseOp(collapse);
+      }
     }
 
     rewriter.eraseOp(op);
@@ -284,10 +314,11 @@ public:
   }
 
   static std::tuple<AffineMap, AffineMap, AffineMap>
-  getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
+  getIndividualResultMaps(Operation *op, tt::DeviceAttr device,
                           OpBuilder &builder) {
-    size_t pageSize = getMemrefShardSizeBytes(memref);
-    AffineMap memoryMap = device.getMemoryMap(memref, pageSize, 0)
+    std::pair<MemRefType, AffineMap> memrefAndView = ttir::applyViews(op);
+    size_t pageSize = getMemrefShardSizeBytes(memrefAndView.first);
+    AffineMap memoryMap = device.getMemoryMap(memrefAndView, pageSize, 0)
                               .dropResult(0); // drop the device index
     assert(memoryMap.getNumResults() == 3);
     auto gridY = memoryMap.dropResults({1, 2});
@@ -435,7 +466,8 @@ public:
 
       AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
       std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-          getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
+          getIndividualResultMaps(op.getDst().getDefiningOp(), device,
+                                  rewriter);
 
       auto dstGridY = applyMap(dstGridYMap, op.getDstIndices());
       auto dstGridX = applyMap(dstGridXMap, op.getDstIndices());
@@ -471,7 +503,8 @@ public:
 
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-          getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
+          getIndividualResultMaps(op.getSrc().getDefiningOp(), device,
+                                  rewriter);
 
       auto srcGridY = applyMap(srcGridYMap, op.getSrcIndices());
       auto srcGridX = applyMap(srcGridXMap, op.getSrcIndices());
@@ -614,8 +647,8 @@ public:
   matchAndRewrite(func::FuncOp op, func::FuncOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    if (!op->hasAttr("ttir.thread_type")) { // TODO(nsmith/jdesousa): String
-                                            // constant somewhere for this?
+    if (!op->hasAttr(ttir::ThreadAttr::name)) { // TODO(nsmith/jdesousa): String
+                                                // constant somewhere for this?
       return failure();
     }
 

@@ -50,21 +50,20 @@ struct ConvertTTIRToTTKernel
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     target.addLegalOp<tt::DeviceOp>();
+    target.addLegalOp<ttir::ToLayoutOp>();
+    target.addLegalOp<ttir::NullTxOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
     target.addIllegalOp<memref::StoreOp>();
 
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      if (!op->hasAttr("ttir.thread_type")) {
+      if (!op->hasAttr(ttir::ThreadAttr::name)) {
         return true;
       }
-      if (std::all_of(
-              op.getArgumentTypes().begin(), op.getArgumentTypes().end(),
-              [&](Type type) { return !mlir::isa<MemRefType>(type); })) {
-        return true;
-      }
-      return false;
+      return std::all_of(
+          op.getArgumentTypes().begin(), op.getArgumentTypes().end(),
+          [&](Type type) { return !mlir::isa<MemRefType>(type); });
     });
 
     TypeConverter typeConverter;
