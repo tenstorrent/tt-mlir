@@ -19,16 +19,23 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
   } else {
     device = ttnn::utils::getOrInsertDevice(rewriter, op);
   }
-  float fillValue = 0;
-  ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
 
-  // Create a zero Full Op to be used with AddOp
-  ttnn::FullOp zeroOp = rewriter.create<ttnn::FullOp>(
-      op->getLoc(), op.getResult().getType(), device, fillValueAttr);
+  auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+  auto shapeAttr =
+      ttnn::ShapeAttr::get(rewriter.getContext(), resultType.getShape());
+  auto dTypeAttr =
+      DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+  auto layout = ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
+
+  // Create a ZerosOp to be used with AddOp
+  ttnn::ZerosOp zerosOp = rewriter.create<ttnn::ZerosOp>(
+      op->getLoc(), resultType, shapeAttr, dTypeAttr, layout, device,
+      ttnn::MemoryConfigAttr());
 
   SmallVector<Value> addInputs;
   addInputs.push_back(op.getOperand());
-  addInputs.push_back(zeroOp.getResult());
+  addInputs.push_back(zerosOp.getResult());
 
   // Replace the RepeatOp with an AddOp to perform implicit repeat.
   rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, op.getResult().getType(),
