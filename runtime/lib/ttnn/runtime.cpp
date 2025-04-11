@@ -12,7 +12,9 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
+
 #include "ttmlir/Target/TTNN/Target.h"
+
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
 
@@ -120,44 +122,6 @@ static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
   }
 
   return utils::createRuntimeTensorFromTTNN(hostTensor, shouldRetain);
-}
-
-static std::vector<::tt::runtime::Tensor>
-convertInputLayouts(Device deviceHandle, Binary executableHandle,
-                    std::uint32_t programIndex,
-                    std::vector<::tt::runtime::Tensor> &inputs) {
-  // Convert input tensors to the layout expected by the program
-  std::vector<::tt::runtime::Tensor> inputsWithLayout;
-  inputsWithLayout.reserve(inputs.size());
-  for (size_t i = 0; i < inputs.size(); i++) {
-    ::tt::runtime::Tensor &input = inputs[i];
-    Layout desiredLayout =
-        ::tt::runtime::ttnn::getLayout(executableHandle, programIndex, i);
-
-    const LayoutDesc tensorLayoutDesc = LayoutDesc::fromTensor(input);
-
-    const LayoutDesc &desiredlayoutDesc =
-        desiredLayout.as<LayoutDesc>(DeviceRuntime::TTNN);
-
-    // If the input tensor already has the correct layout
-    // reuse it and continue
-    if (tensorLayoutDesc == desiredlayoutDesc) {
-      inputsWithLayout.push_back(input);
-      continue;
-    }
-
-    // Convert the input tensor to the correct layout
-    // Deallocating the original tensor if it is not retained
-    ::tt::runtime::Tensor inputWithLayout = ::tt::runtime::ttnn::toLayout(
-        input, deviceHandle, desiredLayout, /*retain=*/false);
-    inputsWithLayout.push_back(inputWithLayout);
-
-    if (!::tt::runtime::ttnn::getTensorRetain(input)) {
-      ::tt::runtime::ttnn::deallocateTensor(input);
-    }
-  }
-
-  return inputsWithLayout;
 }
 
 static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
@@ -654,7 +618,15 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
   ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, targetDevice);
 
-  return utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  ::tt::runtime::Tensor result =
+      utils::createRuntimeTensorFromTTNN(out, shouldRetain);
+  static std::atomic<uint64_t> tensorVersion{0};
+  result.version.store(tensorVersion++);
+
+  if (!shouldRetain) {
+    ::tt::runtime::ttnn::deallocateTensor(tensor);
+  }
+  return result;
 }
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
@@ -971,16 +943,13 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
-  // Convert input tensors to the layout expected by the program
-  std::vector<::tt::runtime::Tensor> inputsWithLayout =
-      ::tt::runtime::ttnn::convertInputLayouts(deviceHandle, executableHandle,
-                                               programIndex, inputs);
 
+  std::shared_ptr<TensorCache> cache = deviceHandle.cache;
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
   std::vector<::tt::runtime::Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      meshDevice, executableHandle, programIndex, inputsWithLayout);
+      meshDevice, executableHandle, programIndex, inputs, cache);
 
   return outputs;
 }

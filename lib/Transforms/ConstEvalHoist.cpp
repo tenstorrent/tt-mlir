@@ -337,7 +337,6 @@ private:
 
   // Set of params to original func which can be const-eval'ed.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constParams;
-
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
 };
@@ -370,8 +369,9 @@ private:
     ConstEvalAnalyze analyzer(&funcOp);
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
-        analysisResults.subgraphs;
-    llvm::SmallVector<Operation *, 1> sharedOps = analysisResults.sharedOps;
+        std::move(analysisResults.subgraphs);
+    llvm::SmallVector<Operation *, 1> sharedOps =
+        std::move(analysisResults.sharedOps);
 
     if (subgraphs.empty()) {
       return;

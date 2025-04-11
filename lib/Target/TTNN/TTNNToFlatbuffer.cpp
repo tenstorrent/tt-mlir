@@ -29,6 +29,11 @@
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
 
+#include <array>
+#include <iomanip>
+#include <random>
+#include <sstream>
+
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
@@ -53,6 +58,42 @@ static OpType findOpAtTopLevel(mlir::ModuleOp module) {
 } // namespace mlir::tt
 
 namespace mlir::tt::ttnn {
+
+// Function to generate a random UUID string (RFC 4122 version 4)
+static std::string generateUUID() {
+  // Use a hardware random device if available, otherwise use a PRNG with random
+  // seed
+  std::random_device rd;
+  std::mt19937_64 gen(rd());
+  std::uniform_int_distribution<uint64_t> dis(
+      0, std::numeric_limits<uint64_t>::max());
+
+  // Generate two 64-bit random numbers
+  uint64_t a = dis(gen);
+  uint64_t b = dis(gen);
+
+  // Set the version (4) and variant bits according to RFC 4122
+  a = (a & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL; // Set version to 4
+  b = (b & 0x3FFFFFFFFFFFFFFFULL) |
+      0x8000000000000000ULL; // Set variant to RFC 4122
+
+  // Format the UUID string
+  std::stringstream ss;
+  ss << std::hex << std::setfill('0');
+
+  // Format: 8-4-4-4-12 hex digits
+  ss << std::setw(8) << (a >> 32);
+  ss << "-";
+  ss << std::setw(4) << ((a >> 16) & 0xFFFF);
+  ss << "-";
+  ss << std::setw(4) << (a & 0xFFFF);
+  ss << "-";
+  ss << std::setw(4) << (b >> 48);
+  ss << "-";
+  ss << std::setw(12) << (b & 0xFFFFFFFFFFFFULL);
+
+  return ss.str();
+}
 
 constexpr uint64_t kHostAllocatedSize = 0;
 
@@ -1628,8 +1669,34 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
+createOp(FlatbufferObjectCache &cache, tt::LoadCachedOp op,
+         const llvm::StringMap<uint32_t> &programIndexMap) {
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
+  for (auto input : op.getInputs()) {
+    ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(input)));
+  }
+
+  // Collect output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(
+        cache.getOrCreate(result, tensorValueToFlatbuffer, kHostAllocatedSize));
+  }
+
+  auto it = programIndexMap.find(op.getCallee().str());
+  assert(it != programIndexMap.end() &&
+         "Program name not found in program index map!");
+  const uint32_t programIdx = it->second;
+
+  // Create the LoadCachedOp with indices instead of inputs
+  return ::tt::target::ttnn::CreateLoadCachedOpDirect(
+      *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs);
+}
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
+                  const llvm::StringMap<uint32_t> &programIndexMap,
                   std::string const &debugString, std::string const &locInfo) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
@@ -2056,6 +2123,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
                            locInfo);
   }
+  if (auto loadCachedOp = dyn_cast<tt::LoadCachedOp>(op); loadCachedOp) {
+    return createOperation(cache,
+                           createOp(cache, loadCachedOp, programIndexMap),
+                           debugString, locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -2143,18 +2215,30 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(
       fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
 
+  size_t programIdx = 0;
+  llvm::StringMap<uint32_t> programIdxMap;
+  module->walk([&](func::FuncOp func) {
+    // llvm::outs() << func.getSymName().str() << " : " << programIdx << "\n";
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  });
+
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {
     Program<::tt::target::ttnn::Operation> program =
         funcOpToProgram<::tt::target::ttnn::Operation>(
-            cache, func, emitTTNNOperation, tensorValueToFlatbuffer);
+            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+            programIdxMap);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
         &dylibs, debugInfo));
   });
 
+  // Generate a unique UUID for this binary
+  std::string uuid = generateUUID();
+
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
-      fbb, &binaryVersion, ::ttmlir::getGitHash(), systemDesc, &programs);
+      fbb, &binaryVersion, ::ttmlir::getGitHash(), uuid.c_str(), systemDesc,
+      &programs);
 
   ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

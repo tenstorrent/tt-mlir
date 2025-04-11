@@ -32,6 +32,7 @@ PYBIND11_MODULE(_C, m) {
                              &tt::runtime::Binary::getFileIdentifier)
       .def("as_json", &tt::runtime::Binary::asJson)
       .def("store", &tt::runtime::Binary::store)
+      .def("get_uuid", &tt::runtime::Binary::getUUID)
       .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
            py::return_value_policy::reference);
   py::class_<tt::runtime::SystemDesc>(m, "SystemDesc")

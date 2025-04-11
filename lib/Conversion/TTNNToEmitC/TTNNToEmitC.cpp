@@ -1569,6 +1569,46 @@ public:
 };
 } // namespace
 
+// LoadCached Op conversion pattern
+//
+// This is a stopgap to make const-eval code work by replacing the const-eval
+// subgraph load_cached op with a direct call to the subgraph func.  This will
+// not perform const-eval caching, but at least such programs won't get errors
+// from emitC.
+//
+namespace {
+class LoadCachedOpConversionPattern
+    : public OpConversionPattern<tt::LoadCachedOp> {
+
+public:
+  using OpConversionPattern<tt::LoadCachedOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::LoadCachedOp srcOp, tt::LoadCachedOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the callee function
+    auto callee = srcOp.getCallee();
+
+    // Get the input indices
+    SmallVector<Value> callOperands;
+    for (Value arg : srcOp.getInputs()) {
+      callOperands.push_back(arg);
+    }
+
+    // Convert result types
+    SmallVector<Type> resultTypes;
+    for (auto type : srcOp.getResultTypes()) {
+      resultTypes.push_back(getTypeConverter()->convertType(type));
+    }
+
+    rewriter.replaceOpWithNewOp<func::CallOp>(srcOp, resultTypes, callee,
+                                              callOperands);
+
+    return success();
+  }
+};
+} // namespace
+
 // Module Op conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
@@ -1958,6 +1998,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<GetTupleElementOpConversionPattern>(typeConverter, ctx);
   patterns.add<TupleOpConversionPattern>(typeConverter, ctx);
+
+  // LoadCached op
+  //
+  patterns.add<LoadCachedOpConversionPattern>(typeConverter, ctx);
 
   // Module op
   //

@@ -8,6 +8,8 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
+#include "tt/runtime/tensor_cache.h"
+
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
 #endif
@@ -230,6 +232,10 @@ Tensor createTensor(std::shared_ptr<void> data,
   }
 #endif
   LOG_FATAL("runtime is not enabled");
+}
+
+void initCache(Device &device) {
+  device.cache = std::make_shared<TensorCache>();
 }
 
 Tensor createOwnedMultiDeviceHostTensor(

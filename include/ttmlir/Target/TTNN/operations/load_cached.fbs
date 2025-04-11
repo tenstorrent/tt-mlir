@@ -1,0 +1,11 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table LoadCachedOp {
+  inputs: [tt.target.ttnn.TensorRef];
+  callee_name: string;
+  program_idx: uint32;
+  outputs: [tt.target.ttnn.TensorRef];
+}
