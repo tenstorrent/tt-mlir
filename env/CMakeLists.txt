@@ -60,7 +60,7 @@ ExternalProject_Add(
     LIST_SEPARATOR ","
     GIT_REPOSITORY https://github.com/llvm/llvm-project.git
     GIT_TAG ${LLVM_PROJECT_VERSION}
-    GIT_PROGRESS ON
+    GIT_PROGRESS OFF
     GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
     UPDATE_DISCONNECTED ON
     DEPENDS python-venv
