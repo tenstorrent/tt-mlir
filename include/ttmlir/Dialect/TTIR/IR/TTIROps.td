@@ -2024,6 +2024,8 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

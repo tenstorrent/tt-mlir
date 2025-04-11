@@ -17,7 +17,7 @@ module @jit_module_reshape attributes {mhlo.num_partitions = 1 : i32, mhlo.num_r
     // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty
     // CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0, %[[EMPTY]])
     // CHECK-SAME: shape = [1 : i32]
-    // CHECK-SAME: (tensor<1x1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    // CHECK-SAME: (tensor<1x1xi64>, tensor<1xi64>) -> tensor<1xi64>
     %0 = stablehlo.reshape %arg0 : (tensor<1x1xi64>) -> tensor<1xi64>
     // CHECK: return %[[VAL]]
     return %0 : tensor<1xi64>
@@ -28,7 +28,7 @@ module @jit_module_reshape attributes {mhlo.num_partitions = 1 : i32, mhlo.num_r
     // CHECK: %[[EMPTY:[0-9]+]] = ttir.empty
     // CHECK: %[[VAL:[0-9]+]] = "ttir.reshape"(%arg0, %[[EMPTY]])
     // CHECK-SAME: shape = [7 : i32, 2 : i32]
-    // CHECK-SAME: (tensor<2x7xbf16>, tensor<7x2xbf16>) -> tensor<7x2xbf16>
+    // CHECK-SAME: (tensor<2x7xi1>, tensor<7x2xi1>) -> tensor<7x2xi1>
     %0 = stablehlo.reshape %arg0 : (tensor<2x7xi1>) -> tensor<7x2xi1>
     // CHECK: return %[[VAL]]
     return %0 : tensor<7x2xi1>

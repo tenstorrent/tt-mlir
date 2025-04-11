@@ -47,52 +47,14 @@ public:
       return type;
     });
 
-    // TTNN doesn't support either scalars or boolean data. This transformation
-    // converts boolean to bfloat16 and scalars to 1-D tensors.
-    // This transformation also convert 64 bit float/integer types to 32 bit
-    // types. In the case of a quantized type, the type is returned as is.
+    // Convert scalars to 1D tensors.
     addConversion([&](RankedTensorType type) -> RankedTensorType {
-      bool changed = false;
-      Type elementType = type.getElementType();
-      llvm::ArrayRef<int64_t> shape = type.getShape();
-
-      if (mlir::isa<mlir::quant::QuantizedType>(elementType)) {
+      if (!type.getShape().empty()) {
         return type;
       }
 
-      size_t bitWidth = type.getElementTypeBitWidth();
-      mlir::Attribute encoding = type.getEncoding();
-      MLIRContext *context = elementType.getContext();
-      // Convert the element type to bfloat16 if the input is boolean.
-      if (bitWidth == 1) {
-        elementType = BFloat16Type::get(context);
-        changed = true;
-      } else if (bitWidth == 64) {
-        // Convert 64 bit integer element type to 32 bit integer.
-        // If element is unsigned, we explicitly assign it Unsigned semantics to
-        // it (like `ui32`). Otherwise, we don't explicitly use Signed semantics
-        // (like `si32`), but rather Signless (like `i32`) which is the default.
-        if (isa<IntegerType>(elementType)) {
-          elementType = IntegerType::get(
-              context, 32,
-              elementType.isUnsignedInteger()
-                  ? IntegerType::SignednessSemantics::Unsigned
-                  : IntegerType::SignednessSemantics::Signless);
-          changed = true;
-        }
-        // Convert 64 bit float element type to 32 bit float.
-        else if (isa<FloatType>(elementType)) {
-          elementType = Float32Type::get(context);
-          changed = true;
-        }
-      }
-      // Create shape of 1-D tensor in case of scalar input.
-      if (shape.size() == 0) {
-        shape = RankedTensorType::get({1}, elementType).getShape();
-        changed = true;
-      }
-      return changed ? RankedTensorType::get(shape, elementType, encoding)
-                     : type;
+      return RankedTensorType::get(/*shape=*/{1}, type.getElementType(),
+                                   type.getEncoding());
     });
   }
 };

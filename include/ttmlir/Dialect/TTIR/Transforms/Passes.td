@@ -406,15 +406,6 @@ def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::M
     "This pass walks through the graph and normalizes the element types into a list of supported types. This is useful for lowering
         to a target that only supports a subset of the element types.
   }];
-
-  let options = [
-    Option<"enableFP32", "enable-fp32",
-          "bool",
-          /*default=*/"true",
-          "Enables fp32 type.">
-  ];
-
-  let dependentDialects = ["::mlir::tt::TTDialect",  "::mlir::tt::ttir::TTIRDialect", "::mlir::func::FuncDialect"];
 }
 
 def TTIRFlattenSlidingWindow: Pass<"ttir-flatten-sliding-window", "::mlir::ModuleOp">
