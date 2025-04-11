@@ -5,14 +5,16 @@
 #ifndef TTMLIR_CONVERSION_TTIRTOTTKERNEL_TTIRTOTTKERNEL_H
 #define TTMLIR_CONVERSION_TTIRTOTTKERNEL_TTIRTOTTKERNEL_H
 
+#include "ttmlir/Dialect/TTIR/Analysis/AssociatedDMAWaits.h"
+
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir::tt {
 
-void populateTTIRToTTKernelPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter);
+void populateTTIRToTTKernelPatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
+    ttir::AssociatedDMAWaits const &associatedDMAWaits);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTKernelPass();
 
