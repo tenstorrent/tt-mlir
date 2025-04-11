@@ -62,6 +62,7 @@ def get_supported_nodes():
         ast.GtE,
         # Subscripting
         ast.Subscript,
+        ast.List,
         # Statements
         ast.Pass,
         ast.Assign,
@@ -335,6 +336,10 @@ class TTKernelCompiler(ast.NodeVisitor):
         for_op = scf.ForOp(lower_bound, upper_bound, step)
         with (InsertionPoint(for_op.body)), Location.unknown():
             self.symbol_tables.append({})
+
+            # Add the iterator into the symbol_table
+            self.symbol_tables[-1][node.target.id] = for_op.induction_variable
+
             for stmt in node.body:
                 self.visit(stmt)
             scf.YieldOp([])
@@ -420,6 +425,13 @@ class TTKernelCompiler(ast.NodeVisitor):
         var = self.visit(node.targets[0])
         value = self.visit(node.value)
         sym_table = self.symbol_tables[-1]
+
+        # Handle Subscript Assignment here
+        if isinstance(node.targets[0], ast.Subscript):
+            # Var will contain a memref.LoadOp here, we can access the memref and write to it
+            memref.StoreOp(value, var.memref, var.indices)
+            return
+
         var_name = node.targets[0].id
 
         if hasattr(var, "type") and isinstance(var.type, MemRefType):
@@ -433,6 +445,31 @@ class TTKernelCompiler(ast.NodeVisitor):
         value = self.visit(node.value)
         sym_table = self.symbol_tables[-1]
         var_name = node.target.id
+
+        # Check the annotation for array creation
+        if isinstance(node.annotation, ast.List):
+            # Syntax is [dtype, *shape]
+            if not len(node.annotation.elts) >= 2 or not isinstance(
+                node.annotation.elts[0], ast.Name
+            ):
+                raise ValueError(
+                    "Array Initialization must follow [dtype, *shape] syntax."
+                )
+            dtype = self.visit(node.annotation.elts[0])
+            # We are creating a list with the shape from elts now, use dynamic types to allow for creating variadic index memrefs
+            var_type = IntegerType.get_signless(32, self.ctx)
+
+            if all(isinstance(elt, ast.Constant) for elt in node.annotation.elts[1:]):
+                # Strictly constant, easiest case. Onus is on the user to not create arrays with other weird values.
+                memref_type = MemRefType.get(
+                    [elt.value for elt in node.annotation.elts[1:]], var_type
+                )
+                sym_table[var_name] = memref.alloca(memref_type, [], [])
+                return
+            else:
+                raise NotImplementedError(
+                    "Not possible to use dynamic dimensions in EmitC."
+                )
 
         if hasattr(value, "type") and isinstance(value.type, MemRefType):
             raise ValueError(
@@ -574,6 +611,12 @@ class TTKernelCompiler(ast.NodeVisitor):
             raise ValueError("Binary operands not found")
 
         # load variable if needed
+        if isinstance(lhs, OpView):
+            lhs = lhs.result
+
+        if isinstance(rhs, OpView):
+            rhs = rhs.result
+
         if isinstance(lhs.type, memref.MemRefType):
             lhs = memref.LoadOp(
                 lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
@@ -669,34 +712,164 @@ class TTKernelCompiler(ast.NodeVisitor):
 
     # Subscript Value
     def visit_Subscript(self, node):
-        # This is where we can invoke the rt_args for the kernel to be loaded in
-        if self.rt_args is not None:
-            # rt_args has been defined, we know that the id of the array to reference from is "rt_args"
-            if node.value.id == self.rt_args.arg:
-                # Get index from slice and ensure it's a single integral value
-                if isinstance(node.slice, ast.Constant):
-                    # Now we have a single integral constant here, construct and return the get_arg_val call.
-                    arg_index = self.visit(node.slice)
+        # rt_args has been defined, we know that the id of the array to reference from is "rt_args"
+        if self.rt_args is not None and node.value.id == self.rt_args.arg:
+            # Get index from slice and ensure it's a single integral value
+            if isinstance(node.slice, ast.Constant):
+                # Now we have a single integral constant here, construct and return the get_arg_val call.
+                arg_index = self.visit(node.slice)
+                int_type = IntegerType.get_signless(32, self.ctx)
+                return ttkernel.get_arg_val(int_type, arg_index)
+            else:
+                # Iterate from slice to generate rt_arg calls
+                # Upper and Lower must be defined, step can be inferred as 1
+                _step = 1 if node.slice.step is None else node.slice.step.value
+                _lower = 0 if node.slice.lower is None else node.slice.lower.value
+                if node.slice.upper is None:
+                    raise IndexError("Runtime Arg Slices must have Upper Bound defined")
+                result = []
+                for i in range(_lower, node.slice.upper.value, _step):
+                    arg_index = self.visit(ast.Constant(i))
                     int_type = IntegerType.get_signless(32, self.ctx)
-                    return ttkernel.get_arg_val(int_type, arg_index)
-                else:
-                    # Iterate from slice to generate rt_arg calls
-                    # Upper and Lower must be defined, step can be inferred as 1
-                    _step = 1 if node.slice.step is None else node.slice.step.value
-                    _lower = 0 if node.slice.lower is None else node.slice.lower.value
-                    if node.slice.upper is None:
-                        raise IndexError(
-                            "Runtime Arg Slices must have Upper Bound defined"
+                    result.append(ttkernel.get_arg_val(int_type, arg_index))
+                return result
+
+        # Now process accessing elements from array types
+        # Accesses are done through numpy style tuple indices or constants
+        tbl = self.var_exists(node.value.id)
+
+        if not tbl:
+            raise ValueError("Array doesn't exist.")
+
+        arr = tbl[node.value.id]
+
+        # Make sure this is a memref type
+        if not hasattr(arr, "type") or not isinstance(arr.type, MemRefType):
+            raise ValueError("Can only subscript Arrays")
+
+        # Ensure slice is valid
+        # Visit the slice, if not Tuple or constant
+
+        # Make sure that the Constant checks up against rank type
+        if isinstance(node.slice, ast.Constant):
+            # Make sure Constant checks up against rank
+            if arr.type.rank > 1:
+                raise IndexError("Can only index elements of Array, rank > 1")
+
+            # Check against bounds
+            if arr.type.shape[0] <= node.slice.value:
+                raise IndexError("Index out of bounds.")
+
+            return memref.LoadOp(
+                arr, arith.ConstantOp(IndexType.get(self.ctx), node.slice.value)
+            )
+        elif isinstance(node.slice, ast.Tuple):
+            # Check Rank
+            if arr.type.rank != len(node.slice.elts):
+                raise IndexError("Can only index elements of Array, rank != len(index)")
+
+            # Check against bounds
+            for i in range(len(arr.type.shape)):
+                if arr.type.shape[i] <= node.slice.elts[i].value:
+                    raise IndexError("Index out of bounds.")
+
+            return memref.LoadOp(
+                arr,
+                [
+                    arith.ConstantOp(IndexType.get(self.ctx), elt.value)
+                    for elt in node.slice.elts
+                ],
+            )
+        else:
+            # Forcefully cast to IndexType if we have a BinOp, etc...
+            # Allow MLIR to take care of errors.
+            idx = self.visit(node.slice)
+            idx = arith.IndexCastOp(IndexType.get(self.ctx), idx)
+            return memref.LoadOp(arr, idx)
+
+    def visit_List(self, node):
+        # Snoop List for nested loops and get size
+        def snoop_list(node):
+            result_arr = []
+            result_shape = []
+            sz = 0
+
+            if any(isinstance(elt, ast.List) for elt in node.elts) and not all(
+                isinstance(elt, ast.List) for elt in node.elts
+            ):
+                # The shape is not consistent, we will raise an error here:
+                raise NotImplementedError("All nested arrays must be of same size.")
+
+            for elt in node.elts:
+                if isinstance(elt, ast.Name):
+                    tbl = self.var_exists(elt.id)
+                    elt = tbl[elt.id]
+                    if hasattr(elt, "type") and isinstance(elt.type, MemRefType):
+                        if elt.type.rank > 1 or elt.type.shape[0] != 1:
+                            raise NotImplementedError(
+                                "Creating Arrays with Pre-Defined Nested Arrays Not Supported."
+                            )
+                    sz += 1
+                    result_arr.append(
+                        memref.LoadOp(
+                            elt, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                        ).result
+                    )
+                elif isinstance(elt, ast.List):
+                    size, arr = snoop_list(elt)
+                    if not result_shape:
+                        result_shape = size
+                    elif size != result_shape:
+                        raise NotImplementedError(
+                            "All nested arrays must be of same size."
                         )
-                    result = []
-                    for i in range(_lower, node.slice.upper.value, _step):
-                        arg_index = self.visit(ast.Constant(i))
-                        int_type = IntegerType.get_signless(32, self.ctx)
-                        result.append(ttkernel.get_arg_val(int_type, arg_index))
-                    return result
-        raise NotImplementedError(
-            "Loading from Subscripts except Runtime Args not supported"
-        )
+                    sz += 1
+                    result_arr.append(arr)
+                elif isinstance(elt, ast.Constant):
+                    elt = self.visit(elt)
+                    sz += 1
+                    result_arr.append(elt.result)
+                else:
+                    elt = self.visit(elt)
+                    if (
+                        not hasattr(elt, "type")
+                        or not isinstance(elt.type, IntegerType)
+                        or elt.type.width != 32
+                    ):
+                        raise ValueError("Array element must be an integer type")
+                    result_arr.append(elt)
+                    sz += 1
+            # Collect the size and result_shape
+            return ([sz] + result_shape), result_arr
+
+        # Need to deal with nested loops, determine the shape from filled array
+        shape, array = snoop_list(node)
+
+        # empty sz catch case
+        if shape == [0]:
+            raise NotImplementedError(
+                "Array object must be filled, otherwise use AnnAssign."
+            )
+
+        # Create the memref, must be of integral type.
+        # TODO(vprajapati): Consider implementing arrays of other types
+        var_type = IntegerType.get_signless(32, self.ctx)
+        memref_type = MemRefType.get(shape, var_type)
+        var = memref.alloca(memref_type, [], [])
+
+        # Populate the table
+        def populate_list(arr, _idx=[]):
+            nonlocal var
+            for i, elt in enumerate(arr):
+                idx = _idx + [arith.ConstantOp(IndexType.get(self.ctx), i)]
+                if isinstance(elt, list):
+                    populate_list(elt, idx)
+                else:
+                    memref.StoreOp(elt, var, idx)
+
+        populate_list(array)
+
+        return var
 
     # Literals
     def visit_Constant(self, node):
