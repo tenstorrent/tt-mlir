@@ -1238,8 +1238,14 @@ public:
     RankedTensorType rhsType =
         mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
     Type outputType = this->getTypeConverter()->convertType(srcOp.getType(0));
-
-    if (lhsType.getShape() == rhsType.getShape()) {
+    bool hasBroadcastedOperand = lhsType.getShape() != rhsType.getShape();
+    hasBroadcastedOperand |=
+        adaptor.getInputs().front().getDefiningOp() &&
+        isa<ttir::BroadcastOp>(adaptor.getInputs().front().getDefiningOp());
+    hasBroadcastedOperand |=
+        adaptor.getInputs().back().getDefiningOp() &&
+        isa<ttir::BroadcastOp>(adaptor.getInputs().back().getDefiningOp());
+    if (!hasBroadcastedOperand) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(srcOp, outputType,
                                                     adaptor.getInputs().front(),
                                                     adaptor.getInputs().back());
