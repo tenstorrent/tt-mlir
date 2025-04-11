@@ -343,29 +343,6 @@ public:
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
-      // AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
-      // std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-      //     getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
-
-      // auto srcOffset =
-      //     applyMap(rewriter, op.getLoc(), srcOffsetMap, op.getSrcIndices());
-      // auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
-      //     op.getLoc(), rewriter.getI32Type(), srcOffset);
-      // auto srcAddrInt =
-      //     rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
-      //     srcL1Start);
-
-      // AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
-      // std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-      //     getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
-
-      // auto dstOffset =
-      //     applyMap(rewriter, op.getLoc(), dstOffsetMap, op.getDstIndices());
-      // auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
-      //     op.getLoc(), rewriter.getI32Type(), dstOffset);
-      // auto dstAddrInt = rewriter.create<arith::AddIOp>(op.getLoc(),
-      // dstOffsetInt, dstL1Start);
-
       Value transferSize = i32(getMemrefSizeBytes(srcCb.getMemref()));
       // local movement
       if (op.isMcast()) {
@@ -420,19 +397,6 @@ public:
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
           op.getLoc(), adaptor.getSrc());
 
-      // AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
-      // std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-      //     getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
-
-      // auto srcOffset =
-      //     applyMap(rewriter, op.getLoc(), srcOffsetMap, op.getSrcIndices());
-      // auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
-      //     op.getLoc(), rewriter.getI32Type(), srcOffset);
-
-      // auto srcAddrInt =
-      //     rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
-      //     srcL1Start);
-
       AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
       std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
           getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
@@ -456,18 +420,6 @@ public:
       }
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
-
-      // AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
-      // std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-      //     getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
-
-      // auto dstOffset =
-      //     applyMap(rewriter, op.getLoc(), dstOffsetMap, op.getDstIndices());
-      // auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
-      //     op.getLoc(), rewriter.getI32Type(), dstOffset);
-      // auto dstAddrInt =
-      //     rewriter.create<arith::AddIOp>(op.getLoc(), dstOffsetInt,
-      //     dstL1Start);
 
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
