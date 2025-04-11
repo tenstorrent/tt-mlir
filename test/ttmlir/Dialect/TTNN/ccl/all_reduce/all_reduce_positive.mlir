@@ -118,33 +118,16 @@ module attributes {} {
 
 // Verify breakdown of all_reduce into all_gather and local reduce memory limit
 // Reduce_Scatter + All_Gather breakdown need to be used for this case due to memory limitation
-// 1x50x64x63x == 201600  (limit: 200000)
+// 1x32x256x1229xf32 needs 1288699904 bytes (limit: 1288488960 with default system descriptor)
+
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_over_memory_limit
-  func.func @all_reduce_positive_with_non_divisible_dimensions_over_memory_limit(%arg0: tensor<1x50x64x63xf32>) -> tensor<1x50x64x63xf32> {
-    %0 = ttir.empty() : tensor<1x50x64x63xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x50x64x63xf32>, tensor<1x50x64x63xf32>) -> tensor<1x50x64x63xf32>
+  func.func @all_reduce_positive_with_non_divisible_dimensions_over_memory_limit(%arg0: tensor<1x32x256x1229xf32>) -> tensor<1x32x256x1229xf32> {
+    %0 = ttir.empty() : tensor<1x32x256x1229xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x32x256x1229xf32>, tensor<1x32x256x1229xf32>) -> tensor<1x32x256x1229xf32>
     // CHECK: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.sum"
-    return %1 : tensor<1x50x64x63xf32>
-  }
-}
-
-
-// -----
-
-// Verify breakdown of all_reduce into all_gather and local reduce memory limit
-// All_Gather + Local_Reduce breakdown need to be used for this case
-// 1x48x64x63x == 193536  (limit: 200000)
-module attributes {} {
-  // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_under_memory_limit
-  func.func @all_reduce_positive_with_non_divisible_dimensions_under_memory_limit(%arg0: tensor<1x48x64x63xf32>) -> tensor<1x48x64x63xf32> {
-    %0 = ttir.empty() : tensor<1x48x64x63xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #tt.reduce_type<sum>}> : (tensor<1x48x64x63xf32>, tensor<1x48x64x63xf32>) -> tensor<1x48x64x63xf32>
-    // CHECK-NOT: "ttnn.reduce_scatter"
-    // CHECK: "ttnn.all_gather"
-    // CHECK: "ttnn.sum"
-    return %1 : tensor<1x48x64x63xf32>
+    return %1 : tensor<1x32x256x1229xf32>
   }
 }
