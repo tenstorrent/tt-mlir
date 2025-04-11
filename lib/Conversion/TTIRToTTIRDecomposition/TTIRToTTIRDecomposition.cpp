@@ -471,12 +471,14 @@ struct GatherToEmbeddingConversionPattern
     auto offsetDims = op.getOffsetDims();
     auto collapsedSliceDims = op.getCollapsedSliceDims();
 
-    // Check if the index dim is the last one in start indices tensor.
-    if (startIndexMap.size() > 1 && indexVectorDim == 0) {
+    // Check if start indices tensor isn't 1D when we are indexing multiple
+    // dimensions because of matmul restrictions.
+    if (startIndexMap.size() > 1 && startIndicesShape.size() == 1) {
       return rewriter.notifyMatchFailure(
           op,
           "Did not satisfy indexVectorDim != 0 when startIndexMap.size() > 1");
     }
+    // Check if the index dim is the last one in start indices tensor.
     if (static_cast<int64_t>(startIndicesShape.size()) > indexVectorDim + 1) {
       return rewriter.notifyMatchFailure(
           op, "Did not satisfy indexVectorDim = last startIndices dim");
@@ -625,11 +627,10 @@ private:
                                     TypedValue<RankedTensorType> startIndices,
                                     int numIndexingDims) const {
     // Typecast op because matmul needs float operands.
-    ttir::EmptyOp emptyOpForTypecast =
-        rewriter.create<ttir::EmptyOp>(loc, startIndices.getType().getShape(),
-                                       mlir::Float32Type::get(getContext()));
-    ttir::TypecastOp typecastOp = rewriter.create<ttir::TypecastOp>(
-        loc, startIndices, emptyOpForTypecast);
+    auto typecastResultType =
+        startIndices.getType().clone(mlir::Float32Type::get(getContext()));
+    ttir::TypecastOp typecastOp = ttmlir::utils::createDPSOp<ttir::TypecastOp>(
+        rewriter, loc, typecastResultType, startIndices);
 
     // Const op with correct weights to matmul indices with.
     std::vector<float> indexWeight(numIndexingDims);
@@ -646,15 +647,14 @@ private:
     ttir::ConstantOp constantOp =
         rewriter.create<ttir::ConstantOp>(loc, tensorType, denseAttr);
 
-    // Matmul op to transform indices.
+    // Return matmul op that transforms indices.
     std::vector<int64_t> matmulResultShape = startIndices.getType().getShape();
     matmulResultShape[matmulResultShape.size() - 1] = 1;
-    ttir::EmptyOp emptyOpForMatmul =
-        rewriter.create<ttir::EmptyOp>(loc, llvm::ArrayRef(matmulResultShape),
-                                       mlir::Float32Type::get(getContext()));
-    return rewriter.create<ttir::MatmulOp>(loc, emptyOpForMatmul.getType(),
-                                           typecastOp.getResult(0), constantOp,
-                                           emptyOpForMatmul);
+    auto matmulResultType = mlir::RankedTensorType::get(
+        matmulResultShape, Float32Type::get(getContext()));
+
+    return ttmlir::utils::createDPSOp<ttir::MatmulOp>(
+        rewriter, loc, matmulResultType, typecastOp.getResult(0), constantOp);
   }
 
   ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
