@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -40,7 +40,7 @@ ttir::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
   // We cannot pass the shape directly as the attribute as ttir::ReshapeOp
   // requires that the shape attribute is a 32-bit integer array attribute.
   // Construction the SmallVector allows us to cast it.
-  return ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+  return ttir::utils::createDPSOp<ttir::ReshapeOp>(
       rewriter, input.getLoc(), outputType, input,
       rewriter.getI32ArrayAttr(SmallVector<int32_t>(
           outputType.getShape().begin(), outputType.getShape().end())));
@@ -65,7 +65,7 @@ public:
         getContext(), inputType.getDimSize(0), inputType.getDimSize(1),
         inputType.getDimSize(2));
 
-    auto newConv = ttmlir::utils::createDPSOp<ttir::Conv2dOp>(
+    auto newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
         rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
         adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
         adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
@@ -98,7 +98,7 @@ public:
         getContext(), inputType.getDimSize(0), inputType.getDimSize(1),
         inputType.getDimSize(2));
 
-    auto newPool = ttmlir::utils::createDPSOp<ttir::MaxPool2dOp>(
+    auto newPool = ttir::utils::createDPSOp<ttir::MaxPool2dOp>(
         rewriter, op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
         adaptor.getKernelHeight(), adaptor.getKernelWidth(),
         adaptor.getStrideHeight(), adaptor.getStrideWidth(),

@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -126,8 +127,8 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperands());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperands());
 
     return success();
   }
@@ -237,9 +238,9 @@ private:
     mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
         llvm::SmallVector<int32_t>(srcOp.getDimensions()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getInputs().front(),
-                                                 /*keep_dim=*/false, dimArg);
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getInputs().front(),
+                                               /*keep_dim=*/false, dimArg);
 
     return success();
   }
@@ -540,7 +541,7 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     // The stablehlo.transpose and ttir.permute have the same semantics.
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PermuteOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PermuteOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         adaptor.getPermutation());
 
@@ -565,7 +566,7 @@ public:
     ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(
         llvm::SmallVector<int32_t>(outputType.getShape()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReshapeOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReshapeOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), newShapeAttr);
 
     return success();
@@ -733,8 +734,8 @@ private:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperand());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperand());
 
     return success();
   }
@@ -761,9 +762,8 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::DequantizeOp>(
         rewriter, srcOp, outputType, adaptor.getOperand());
-
     return success();
   }
 
@@ -828,7 +828,7 @@ public:
             : rewriter.getDenseBoolArrayAttr(
                   SmallVector<bool>(numSpatialDims, false));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
         rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
         Value(), windowStridesAttr, paddingAttr, inputDilationAttr,
         kernelDilationAttr, windowReversalAttr,
@@ -1196,7 +1196,7 @@ public:
           ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
-      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BroadcastOp>(
+      ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BroadcastOp>(
           rewriter, srcOp, outputType, adaptor.getOperand(), broadcastShape);
     } else {
       // This stablehlo operation cannot be represented by a single TTIR
@@ -1218,7 +1218,7 @@ public:
                                       unsqueezeShape.end());
       auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
 
-      ttir::ReshapeOp reshapeOp = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+      ttir::ReshapeOp reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
           rewriter, srcOp.getLoc(), unsqueezeShape, outputType.getElementType(),
           outputType.getEncoding(), adaptor.getOperand(), reshapeDimAttr);
 
@@ -1229,7 +1229,7 @@ public:
           ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
-      ttmlir::utils::replaceOpWithNewDPSOp<ttir::BroadcastOp>(
+      ttir::utils::replaceOpWithNewDPSOp<ttir::BroadcastOp>(
           rewriter, srcOp, outputType, reshapeOp, broadcastShape);
     }
 
@@ -1319,8 +1319,8 @@ private:
         mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
             srcOp->getResults()[0].getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperands());
+    ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
+                                               adaptor.getOperands());
 
     return success();
   }
@@ -1350,7 +1350,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ConcatOp>(
         rewriter, srcOp, outputType, adaptor.getInputs(),
         static_cast<int32_t>(adaptor.getDimension()));
 
@@ -1409,10 +1409,10 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     if (getStableHLOOpType(srcOp) == StableHLOOpType::kLogical) {
-      ttmlir::utils::replaceOpWithNewDPSOp<LogicalDestOp>(
+      ttir::utils::replaceOpWithNewDPSOp<LogicalDestOp>(
           rewriter, srcOp, outputType, adaptor.getOperands());
     } else {
-      ttmlir::utils::replaceOpWithNewDPSOp<BitwiseDestOp>(
+      ttir::utils::replaceOpWithNewDPSOp<BitwiseDestOp>(
           rewriter, srcOp, outputType, adaptor.getOperands());
     }
 
@@ -1588,10 +1588,9 @@ public:
       auto outputType = mlir::cast<RankedTensorType>(
           getTypeConverter()->convertType(resultOperand.getType()));
 
-      auto allReduceOp =
-          ttmlir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
-              rewriter, srcOp.getLoc(), outputType, inputOperand, *reduceType,
-              clusterAxis);
+      auto allReduceOp = ttir::utils::createDPSOp<mlir::tt::ttir::AllReduceOp>(
+          rewriter, srcOp.getLoc(), outputType, inputOperand, *reduceType,
+          clusterAxis);
 
       allReduceOpResults.push_back(allReduceOp.getResult());
     }
@@ -1657,7 +1656,7 @@ public:
           srcOp, "ReduceScatterOp cannot specify reduce type.");
     }
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReduceScatterOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ReduceScatterOp>(
         rewriter, srcOp, outputType, adaptor.getOperands()[0], *reduceType,
         adaptor.getScatterDimension(), clusterAxis);
 
@@ -1693,7 +1692,7 @@ public:
           srcOp, "AllGather cannot specify cluster axis.");
     }
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllGatherOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::AllGatherOp>(
         rewriter, srcOp, outputType, adaptor.getOperands()[0],
         adaptor.getAllGatherDim(), clusterAxis);
 
@@ -1743,7 +1742,7 @@ public:
       }
     }
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectivePermuteOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::CollectivePermuteOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         adaptor.getSourceTargetPairs());
 
@@ -1840,7 +1839,7 @@ public:
         auto outputType = mlir::cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp->getResult(0).getType()));
 
-        ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+        ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
             rewriter, srcOp, outputType, inputOperand,
             meshSharding.getShardType(),
             mlir::tt::MeshShardDirection::ShardToFull,
@@ -1879,7 +1878,7 @@ public:
               mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
                   fullToShardCustomCall->getResult(0).getType()));
 
-          ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
+          ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
               rewriter, srcOp, outputType, inputOperand,
               meshSharding.getShardType(),
               mlir::tt::MeshShardDirection::FullToShard,
@@ -1931,7 +1930,7 @@ public:
     llvm::SmallVector<int32_t> endIndices(adaptor.getLimitIndices());
     llvm::SmallVector<int32_t> step(adaptor.getStrides());
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::SliceOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::SliceOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         rewriter.getI32ArrayAttr(startIndices),
         rewriter.getI32ArrayAttr(endIndices), rewriter.getI32ArrayAttr(step));
@@ -1955,7 +1954,7 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getMin(),
         adaptor.getMax());
     return success();
@@ -1979,7 +1978,7 @@ public:
 
     auto dimensionNumbers = srcOp.getDimensionNumbers();
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::GatherOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::GatherOp>(
         rewriter, srcOp, outputType, adaptor.getOperands()[0],
         adaptor.getOperands()[1], dimensionNumbers.getOffsetDims(),
         dimensionNumbers.getCollapsedSliceDims(),
@@ -2058,7 +2057,7 @@ public:
     auto indicesAreSorted = adaptor.getIndicesAreSorted();
     auto uniqueIndices = adaptor.getUniqueIndices();
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ScatterOp>(
         rewriter, srcOp, outputType, operand, scatterIndices, update,
         llvm::SmallVector<int32_t>(updateWindowsDims),
         llvm::SmallVector<int32_t>(insertedWindowDims),
@@ -2086,7 +2085,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ReverseOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReverseOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         adaptor.getDimensions());
 
@@ -2132,7 +2131,7 @@ public:
       value = paddingValueAttr.getSplatValue<APFloat>().convertToDouble();
     }
 
-    ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::PadOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(),
         rewriter.getDenseI32ArrayAttr(padDim), rewriter.getF32FloatAttr(value));
 

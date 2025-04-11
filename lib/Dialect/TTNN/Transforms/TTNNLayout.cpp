@@ -5,9 +5,8 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -215,7 +214,7 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
   // Create the ToLayoutOp which will convert the input tensor to the desired
   // layout.
-  return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
+  return ttir::utils::createDPSOp<ttir::ToLayoutOp>(
              rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout,
              input)
       ->getResult(0);
