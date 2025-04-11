@@ -311,6 +311,19 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
   return getValueAttr();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::ConstantOp::verify() {
+  if (!isa<DenseResourceElementsAttr, DenseElementsAttr>(getValue())) {
+    return emitOpError("value attribute must be one of "
+                       "DenseResourceElementsAttr or DenseElementsAttr.");
+  }
+
+  if (!getValue().getElementType().isIntOrFloat()) {
+    return emitOpError("value attribute must be of int or float type.");
+  }
+
+  return success();
+}
+
 bool mlir::tt::ttir::ConstantOp::bufferizesToMemoryRead(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   return false;

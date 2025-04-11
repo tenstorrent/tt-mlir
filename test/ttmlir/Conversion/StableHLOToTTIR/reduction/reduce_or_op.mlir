@@ -7,8 +7,8 @@ module @jit_reduce_or attributes {} {
     // CHECK: "ttir.reduce_or"
     // CHECK-SAME: dim_arg = [3 : i32]
     // CHECK-SAME: keep_dim = false
-    // CHECK-SAME: tensor<128x10x32x4xbf16>
-    // CHECK-SAME: -> tensor<128x10x32xbf16>
+    // CHECK-SAME: tensor<128x10x32x4xi1>
+    // CHECK-SAME: -> tensor<128x10x32xi1>
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.or across dimensions = [3] : (tensor<128x10x32x4xi1>, tensor<i1>) -> tensor<128x10x32xi1>
     return %0 : tensor<128x10x32xi1>
   }
@@ -19,8 +19,8 @@ module @jit_reduce_or attributes {} {
     // CHECK: "ttir.reduce_or"
     // CHECK-SAME: dim_arg = [1 : i32]
     // CHECK-SAME: keep_dim = false
-    // CHECK-SAME: tensor<128x10x4xbf16>
-    // CHECK-SAME: -> tensor<128x4xbf16>
+    // CHECK-SAME: tensor<128x10x4xi1>
+    // CHECK-SAME: -> tensor<128x4xi1>
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.or across dimensions = [1] : (tensor<128x10x4xi1>, tensor<i1>) -> tensor<128x4xi1>
     return %0 : tensor<128x4xi1>
   }
@@ -31,8 +31,8 @@ module @jit_reduce_or attributes {} {
     // CHECK: "ttir.reduce_or"
     // CHECK-SAME: dim_arg = [0 : i32]
     // CHECK-SAME: keep_dim = false
-    // CHECK-SAME: tensor<128x10xbf16>
-    // CHECK-SAME: -> tensor<10xbf16>
+    // CHECK-SAME: tensor<128x10xi1>
+    // CHECK-SAME: -> tensor<10xi1>
     %0 = stablehlo.reduce(%arg0 init: %cst_0) applies stablehlo.or across dimensions = [0] : (tensor<128x10xi1>, tensor<i1>) -> tensor<10xi1>
     return %0 : tensor<10xi1>
   }
