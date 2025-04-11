@@ -12,7 +12,9 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/embedding.fbs
   operations/kv_cache.fbs
   operations/layout.fbs
+  # ANCHOR: adding_an_op_matmul_fbs_cmake
   operations/matmul.fbs
+  # ANCHOR_END: adding_an_op_matmul_fbs_cmake
   operations/moreh_cumsum.fbs
   operations/softmax.fbs
   operations/pool.fbs

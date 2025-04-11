@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "678a464f7f15d3581fae286df0017100882e7975")
+set(TT_METAL_VERSION "ddba2f06d0a120ce4d65ecfad15befd65400e9c7")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -96,7 +96,7 @@ ExternalProject_Add(
     -DENABLE_LIBCXX=OFF
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
-  GIT_PROGRESS ON
+  GIT_PROGRESS OFF
   BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH}
 )
 

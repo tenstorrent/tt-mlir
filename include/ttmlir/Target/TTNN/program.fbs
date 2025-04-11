@@ -12,7 +12,9 @@ include "ttmlir/Target/TTNN/operations/eltwise.fbs";
 include "ttmlir/Target/TTNN/operations/embedding.fbs";
 include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
 include "ttmlir/Target/TTNN/operations/layout.fbs";
+// ANCHOR: adding_an_op_matmul_fbs_include
 include "ttmlir/Target/TTNN/operations/matmul.fbs";
+// ANCHOR_END: adding_an_op_matmul_fbs_include
 include "ttmlir/Target/TTNN/operations/moreh_cumsum.fbs";
 include "ttmlir/Target/TTNN/operations/softmax.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
@@ -62,7 +64,9 @@ union OpType {
   ToMemoryConfigOp,
   TypecastOp,
   LinearOp,
+  // ANCHOR: adding_an_op_matmul_fbs_op_type
   MatmulOp,
+  // ANCHOR_END: adding_an_op_matmul_fbs_op_type
   MorehCumSumOp,
   SoftmaxOp,
   MaxPool2dOp,

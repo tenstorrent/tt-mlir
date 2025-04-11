@@ -1131,7 +1131,7 @@ class TTIRBuilder:
         return self.op_proxy(
             self.conv2d_golden_function,
             ttir.Conv2dOp,
-            [in0, weight],
+            [in0, weight, bias],
             golden_kwargs={
                 "stride": stride,
                 "padding": padding,
@@ -1143,7 +1143,6 @@ class TTIRBuilder:
                 "padding": padding,
                 "dilation": dilation,
                 "groups": groups,
-                "bias": bias,
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
         )
@@ -1152,6 +1151,7 @@ class TTIRBuilder:
         self,
         input_tensor: Operand,
         weight: Operand,
+        bias: Optional[Operand],
         stride: Union[IntegerAttr, DenseI32ArrayAttr],
         padding: Union[IntegerAttr, DenseI32ArrayAttr],
         dilation: Union[IntegerAttr, DenseI32ArrayAttr],
@@ -1165,19 +1165,23 @@ class TTIRBuilder:
         dilation = (
             tuple(dilation) if not isinstance(dilation, IntegerAttr) else int(dilation)
         )
-        golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
+
+        # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias is rank 1: [C_out]
+        bias = bias.squeeze()  # Removes all dims of size 1
 
         # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
         input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
         result = torch.nn.functional.conv2d(
             input_tensor,
             weight,
-            bias=golden_bias,
+            bias=bias,
             stride=stride,
             padding=padding,
             dilation=dilation,
             groups=groups,
         )
+        result = result.transpose(-3, -2).transpose(-2, -1)
+        return result
         result = result.transpose(-3, -2).transpose(-2, -1)
         return result
 
@@ -1312,6 +1316,9 @@ class TTIRBuilder:
         # TTIR  max_pool2d is channels last. PyTorch max_pool2d is channels first.
         # We need to transpose the input tensor to channels first before applying max_pool2d,
         # and transpose back to channels last afterward to properly calculate the golden tensor.
+        # TTIR  max_pool2d is channels last. PyTorch max_pool2d is channels first.
+        # We need to transpose the input tensor to channels first before applying max_pool2d,
+        # and transpose back to channels last afterward to properly calculate the golden tensor.
         maxpool_object = torch.nn.MaxPool2d(
             kernel_size, stride, padding, dilation, ceil_mode
         )
@@ -1331,7 +1338,7 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
-    def pad(self, in0: Operand, padding: List[int], value: int) -> OpView:
+    def pad(self, in0: Operand, in1: Operand, padding: List[int], value: int) -> OpView:
         # Reformatting padding dimensions for golden tensor:
         golden_padding = []
         for i in range(len(padding) // 2):
@@ -1340,10 +1347,11 @@ class TTIRBuilder:
         return self.op_proxy(
             torch.nn.functional.pad,
             ttir.PadOp,
-            [in0],
+            [in0, in1],
             golden_kwargs={"pad": golden_padding, "mode": "constant", "value": value},
             ttir_kwargs={"padding": padding, "value": value},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
         )
 
     def select(

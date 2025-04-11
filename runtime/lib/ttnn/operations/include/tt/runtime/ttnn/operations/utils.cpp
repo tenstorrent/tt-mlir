@@ -4,6 +4,7 @@
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::operations::utils {
 
@@ -42,6 +43,12 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
     LOG_FATAL("Unsupported distributed tensor config");
   }
   }
+}
+
+bool shouldSwapBinaryOperands(const ::ttnn::Tensor &lhs,
+                              const ::ttnn::Tensor &rhs) {
+  return (workaround::Env::get().swapBinaryOperands) &&
+         (lhs.volume() < rhs.volume());
 }
 
 ::ttnn::operations::unary::UnaryOpType
