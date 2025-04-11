@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -23,8 +23,8 @@ public:
 
   LogicalResult matchAndRewrite(ConstantOp op,
                                 PatternRewriter &rewriter) const final {
-    ttmlir::utils::replaceOpWithNewDPSOp<FillOp>(rewriter, op, op.getType(),
-                                                 op.getValue());
+    ttir::utils::replaceOpWithNewDPSOp<FillOp>(rewriter, op, op.getType(),
+                                               op.getValue());
 
     return success();
   }

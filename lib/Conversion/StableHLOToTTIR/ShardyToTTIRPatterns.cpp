@@ -5,12 +5,10 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardingUtils.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/Mesh.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -31,6 +29,9 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/ErrorHandling.h"
+
+using namespace mlir;
+using namespace mlir::tt;
 
 namespace mlir::tt {
 // Helper functions for propagateTensorMeshSharding.
@@ -259,7 +260,7 @@ public:
             getTypeConverter()->convertType(localArgType));
 
         auto meshShardOp =
-            ttmlir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+            ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
                 rewriter, loc, outputType, globalOperand,
                 meshSharding.getShardType(), meshSharding.getShardDirection(),
                 meshSharding.getShardShape(), meshSharding.getShardDims());
@@ -307,7 +308,7 @@ public:
             getTypeConverter()->convertType(opResult.getType()));
 
         auto meshShardOp =
-            ttmlir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+            mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
                 rewriter, loc, outputType, inputOperand,
                 meshSharding.getShardType(), meshSharding.getShardDirection(),
                 meshSharding.getShardShape(), meshSharding.getShardDims());
@@ -507,15 +508,12 @@ analyzeSingleOpAndFixWrongTensorAnnotation(mlir::tt::MeshesAttr meshes,
 
         builder.setInsertionPoint(srcOp);
 
-        // TODO(wooseoklee): update code to use createDPSOp API with OpBuilder
-        // once it is ready. https://github.com/tenstorrent/tt-mlir/issues/2767
-        auto emptyOp = builder.create<mlir::tt::ttir::EmptyOp>(
-            srcOp->getLoc(), shape, elementType);
-        auto meshShardOp = builder.create<mlir::tt::ttir::MeshShardOp>(
-            srcOp->getLoc(), mlir::RankedTensorType::get(shape, elementType),
-            arg, emptyOp, meshSharding.getShardType(),
-            meshSharding.getShardDirection(), meshSharding.getShardShape(),
-            meshSharding.getShardDims());
+        auto meshShardOp =
+            mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::MeshShardOp>(
+                builder, srcOp->getLoc(),
+                mlir::RankedTensorType::get(shape, elementType), arg,
+                meshSharding.getShardType(), meshSharding.getShardDirection(),
+                meshSharding.getShardShape(), meshSharding.getShardDims());
 
         srcOp->replaceUsesOfWith(arg, meshShardOp.getResult());
       }

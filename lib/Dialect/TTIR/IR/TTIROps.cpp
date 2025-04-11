@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -182,44 +183,44 @@ static std::optional<float> getConstantValue(mlir::Value value) {
 // ClampTensorOp canonicalization
 void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  patterns.add(+[](mlir::tt::ttir::ClampTensorOp op,
-                   mlir::PatternRewriter &rewriter) {
-    RankedTensorType outputType = op.getResult().getType();
+  patterns.add(
+      +[](mlir::tt::ttir::ClampTensorOp op, mlir::PatternRewriter &rewriter) {
+        RankedTensorType outputType = op.getResult().getType();
 
-    std::optional<float> minValue = getConstantValue(op.getMin());
-    std::optional<float> maxValue = getConstantValue(op.getMax());
-    if (minValue && maxValue) {
-      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-          rewriter, op, outputType, op.getInput(), mlir::APFloat(*minValue),
-          mlir::APFloat(*maxValue));
+        std::optional<float> minValue = getConstantValue(op.getMin());
+        std::optional<float> maxValue = getConstantValue(op.getMax());
+        if (minValue && maxValue) {
+          ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
+              rewriter, op, outputType, op.getInput(), mlir::APFloat(*minValue),
+              mlir::APFloat(*maxValue));
 
-      return success();
-    }
+          return success();
+        }
 
-    if (outputType.getShape() == op.getMin().getType().getShape() &&
-        outputType.getShape() == op.getMax().getType().getShape()) {
-      return failure();
-    }
+        if (outputType.getShape() == op.getMin().getType().getShape() &&
+            outputType.getShape() == op.getMax().getType().getShape()) {
+          return failure();
+        }
 
-    Location loc = op->getLoc();
-    mlir::Value minTensor;
-    LogicalResult legalityResult = ttmlir::utils::broadcastValue(
-        rewriter, op.getMin(), outputType, minTensor, loc,
-        /*frontUnsqueeze=*/false);
-    assert(legalityResult.succeeded() &&
-           "Min attribute cannot be broadcasted to provided dimensions.");
+        Location loc = op->getLoc();
+        mlir::Value minTensor;
+        LogicalResult legalityResult = ttir::utils::broadcastValue(
+            rewriter, op.getMin(), outputType, minTensor, loc,
+            /*frontUnsqueeze=*/false);
+        assert(legalityResult.succeeded() &&
+               "Min attribute cannot be broadcasted to provided dimensions.");
 
-    mlir::Value maxTensor;
-    legalityResult = ttmlir::utils::broadcastValue(rewriter, op.getMax(),
-                                                   outputType, maxTensor, loc,
-                                                   /*frontUnsqueeze=*/false);
-    assert(legalityResult.succeeded() &&
-           "Max attribute cannot be broadcasted to provided dimensions.");
+        mlir::Value maxTensor;
+        legalityResult = ttir::utils::broadcastValue(rewriter, op.getMax(),
+                                                     outputType, maxTensor, loc,
+                                                     /*frontUnsqueeze=*/false);
+        assert(legalityResult.succeeded() &&
+               "Max attribute cannot be broadcasted to provided dimensions.");
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
-        rewriter, op, outputType, op.getInput(), minTensor, maxTensor);
-    return success();
-  });
+        ttir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
+            rewriter, op, outputType, op.getInput(), minTensor, maxTensor);
+        return success();
+      });
 }
 
 //===----------------------------------------------------------------------===//
@@ -3529,13 +3530,8 @@ mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getLoopBounds() {
 
   // Eval the affine map to get the loop bounds.
   SmallVector<SmallVector<int64_t>> operandGridShapes = getOperandGridShapes();
-  SmallVector<SmallVector<int64_t>> operandGridShapesReversed =
-      llvm::to_vector(llvm::reverse(operandGridShapes));
-
-  SmallVector<int64_t> flattenedGridShapes;
-  for (auto &shape : operandGridShapesReversed) {
-    flattenedGridShapes.append(shape);
-  }
+  SmallVector<int64_t> flattenedGridShapes(
+      ttmlir::utils::flatten(llvm::reverse(operandGridShapes)));
 
   // Divide out the compute grid dims and re-eval
   ArrayRef<int64_t> computeGrid = getGrid().getShape();
