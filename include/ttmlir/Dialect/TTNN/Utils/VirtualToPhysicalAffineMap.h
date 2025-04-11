@@ -28,7 +28,7 @@ namespace mlir::tt::ttnn::utils {
 ///
 /// \return An affine map that translates the virtual grid layout to the
 /// physical grid layout based on the specified tensor memory layout.
-AffineMap CreateSingleDeviceVirtualToPhysicalAffineMap(
+inline AffineMap CreateSingleDeviceVirtualToPhysicalAffineMap(
     MLIRContext *context,
     const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
     const llvm::ArrayRef<int64_t> physicalGridShape = {8, 8}) {
