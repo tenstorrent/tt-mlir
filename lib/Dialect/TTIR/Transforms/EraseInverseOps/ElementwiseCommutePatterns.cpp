@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
 
@@ -28,7 +29,6 @@ public:
                                                 oldEltwiseType.getElementType(),
                                                 oldTMResultType.getEncoding());
 
-    SmallVector<ttir::EmptyOp> newTMDPSOperands;
     SmallVector<Value> newEltwiseOperands;
     SmallVector<RankedTensorType> newTMResultTypes;
     for (uint32_t operandIdx = 0; operandIdx < op->getNumOperands() - 1;
@@ -44,15 +44,9 @@ public:
       newTMResultTypes.push_back(
           oldTMResultType.clone(operandType.getElementType()));
 
-      auto dpsOperand = rewriter.create<ttir::EmptyOp>(
-          op->getLoc(), newEltwiseType.getShape(),
-          operandType.getElementType());
-      newTMDPSOperands.push_back(dpsOperand);
-
-      auto newTM = rewriter.create<TMOpType>(
-          op->getLoc(), newTMResultTypes[operandIdx],
-          ValueRange({op->getOperand(operandIdx), dpsOperand}),
-          tmUser->getAttrs());
+      auto newTM = ttir::utils::createDPSOp<TMOpType>(
+          rewriter, op->getLoc(), newTMResultTypes[operandIdx],
+          op->getOperand(operandIdx), tmUser->getAttrs());
 
       newEltwiseOperands.push_back(newTM);
     }

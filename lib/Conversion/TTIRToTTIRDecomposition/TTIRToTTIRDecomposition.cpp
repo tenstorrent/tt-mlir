@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Utils.h"
 
@@ -271,7 +272,7 @@ public:
         convolutionLayout.getOutputSpatialDimensions());
     conv2dOutputSpatialDimensions.push_back(3);
 
-    auto new2dConvolutionOp = ttmlir::utils::createDPSOp<ttir::ConvolutionOp>(
+    auto new2dConvolutionOp = ttir::utils::createDPSOp<ttir::ConvolutionOp>(
         rewriter, op.getLoc(), conv2dOutputShape, outputType.getElementType(),
         outputType.getEncoding(), reshapeInput, reshapeWeight, Value(),
         conv2dOpWindowsStridesAttr, conv2dOpPaddingAttr,
@@ -305,7 +306,7 @@ private:
     auto shapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
 
-    return ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, loc, targetShape, inputType.getElementType(),
         inputType.getEncoding(), input, shapeAttr);
   }
@@ -402,7 +403,7 @@ public:
     auto permutation = generateConvPermutation(op, conv2dLayout);
     auto permuteOutputShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
-    auto input = ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+    auto input = ttir::utils::createDPSOp<ttir::PermuteOp>(
         rewriter, op.getLoc(), permuteOutputShape, inputType.getElementType(),
         inputType.getEncoding(), adaptor.getInput(), permutation);
 
@@ -413,11 +414,11 @@ public:
     auto weightOutputShape = ::ttmlir::utils::applyPermutation(
         mlir::cast<RankedTensorType>(adaptor.getWeight().getType()).getShape(),
         kernelPermutation);
-    auto weight = ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+    auto weight = ttir::utils::createDPSOp<ttir::PermuteOp>(
         rewriter, op.getLoc(), weightOutputShape, weightType.getElementType(),
         weightType.getEncoding(), adaptor.getWeight(), kernelPermutation);
 
-    ttir::Conv2dOp newConv = ttmlir::utils::createDPSOp<ttir::Conv2dOp>(
+    ttir::Conv2dOp newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
         rewriter, op.getLoc(), outputType, Value(input), Value(weight),
         adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr,
         /*flattenedCompatInfo=*/nullptr);
@@ -588,7 +589,7 @@ private:
     auto shapeAttr =
         rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
 
-    return ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, loc, targetShape, inputType.getElementType(),
         inputType.getEncoding(), input, shapeAttr);
   }
@@ -685,7 +686,7 @@ struct DotGeneralToMatmulConversionPattern
         computeProductOfDims(rhsType.getShape(), rhsResultDims));
 
     // Perform matmul operation.
-    auto matmulOp = ttmlir::utils::createDPSOp<ttir::MatmulOp>(
+    auto matmulOp = ttir::utils::createDPSOp<ttir::MatmulOp>(
         rewriter, op.getLoc(), matmulDestinationShape, elementType, encoding,
         lhsMatmulInput, rhsMatmulInput);
 
@@ -706,7 +707,7 @@ struct DotGeneralToMatmulConversionPattern
     llvm::SmallVector<int32_t> finalShapeI32(resultShape.begin(),
                                              resultShape.end());
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
         rewriter, op, resultShape, elementType, encoding, matmulOp,
         rewriter.getI32ArrayAttr(finalShapeI32));
 
@@ -765,7 +766,7 @@ private:
     SmallVector<int64_t> destinationShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
 
-    return ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+    return ttir::utils::createDPSOp<ttir::PermuteOp>(
         rewriter, loc, destinationShape, inputType.getElementType(),
         inputType.getEncoding(), input, permutation);
   }
@@ -801,7 +802,7 @@ private:
     llvm::SmallVector<int32_t> finalShapeI32(finalShape.begin(),
                                              finalShape.end());
 
-    return ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, loc, finalShape, type.getElementType(), type.getEncoding(),
         input, rewriter.getI32ArrayAttr(finalShapeI32));
   }
@@ -1003,7 +1004,7 @@ private:
 
       auto inputPermuteShape =
           ::ttmlir::utils::applyPermutation(inputTy.getShape(), permutation);
-      input = ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+      input = ttir::utils::createDPSOp<ttir::PermuteOp>(
           rewriter, op.getLoc(), inputPermuteShape, inputTy.getElementType(),
           inputTy.getEncoding(), input, permutation);
 
@@ -1011,7 +1012,7 @@ private:
       auto newOutputShape =
           ::ttmlir::utils::applyPermutation(outputType.getShape(), permutation);
 
-      auto newPool = ttmlir::utils::createDPSOp<PoolOpType>(
+      auto newPool = ttir::utils::createDPSOp<PoolOpType>(
           rewriter, op.getLoc(), newOutputShape, outputType.getElementType(),
           outputType.getEncoding(), input, kernelHeightAttr, kernelWidthAttr,
           strideHeightAttr, strideWidthAttr, dilationHeightAttr,
@@ -1020,7 +1021,7 @@ private:
 
       // Applying the inverse of permutation to the output will restore the
       // tensor to the original layout.
-      auto output = ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+      auto output = ttir::utils::createDPSOp<ttir::PermuteOp>(
           rewriter, op.getLoc(), outputType.getShape(),
           outputType.getElementType(), outputType.getEncoding(), newPool,
           inverseOfPermutation);
@@ -1119,7 +1120,7 @@ public:
       begins[dim] = newBegin;
       ends[dim] = newEnd;
 
-      auto newOp = ttmlir::utils::createDPSOp<ttir::SliceOp>(
+      auto newOp = ttir::utils::createDPSOp<ttir::SliceOp>(
           rewriter, op.getLoc(), resultShape, inputType.getElementType(),
           inputType.getEncoding(), adaptor.getInput(),
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
@@ -1129,7 +1130,7 @@ public:
 
     assert(!slices.empty());
     if (slices.size() > 1) {
-      auto concatOp = ttmlir::utils::createDPSOp<ttir::ConcatOp>(
+      auto concatOp = ttir::utils::createDPSOp<ttir::ConcatOp>(
           rewriter, op.getLoc(), outputType, slices, dim);
       rewriter.replaceOp(op, concatOp);
     } else {
@@ -1200,7 +1201,7 @@ public:
                              : reshapeShape.push_back(1);
       }
 
-      output = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+      output = ttir::utils::createDPSOp<ttir::ReshapeOp>(
           rewriter, op.getLoc(), reshapeShape, outputType.getElementType(),
           outputType.getEncoding(), output,
           rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
@@ -1228,7 +1229,7 @@ public:
           ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                          outputShape);
 
-      output = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+      output = ttir::utils::createDPSOp<ttir::BroadcastOp>(
           rewriter, op.getLoc(), broadcastType, output, broadcastShape);
 
       assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
@@ -1256,7 +1257,7 @@ public:
     RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ProdOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ProdOp>(
         rewriter, op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
         op.getDimArgAttr());
 
@@ -1326,7 +1327,7 @@ public:
     RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
-    ttmlir::utils::replaceOpWithNewDPSOp<ttir::SumOp>(
+    ttir::utils::replaceOpWithNewDPSOp<ttir::SumOp>(
         rewriter, op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
         op.getDimArgAttr());
 

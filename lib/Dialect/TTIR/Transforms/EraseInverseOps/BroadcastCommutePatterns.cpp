@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
 
@@ -33,7 +33,7 @@ public:
     std::swap(newBroadcastDimensions[transposeUser.getDim0()],
               newBroadcastDimensions[transposeUser.getDim1()]);
 
-    auto newTranspose = ttmlir::utils::createDPSOp<ttir::TransposeOp>(
+    auto newTranspose = ttir::utils::createDPSOp<ttir::TransposeOp>(
         rewriter, op->getLoc(), newShape, tmResultType.getElementType(),
         tmResultType.getEncoding(), operand, transposeUser.getDim0(),
         transposeUser.getDim1());
@@ -41,7 +41,7 @@ public:
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
 
-    auto newBroadcast = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+    auto newBroadcast = ttir::utils::createDPSOp<ttir::BroadcastOp>(
         rewriter, op->getLoc(), tmResultType, newTranspose,
         newBroadcastDimensions);
 
@@ -277,14 +277,14 @@ public:
         RankedTensorType::get(newReshapeShape, tmResultType.getElementType(),
                               tmResultType.getEncoding());
 
-    auto newReshape = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+    auto newReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, op->getLoc(), newTMResultType, op.getInput(),
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(newReshapeShape.begin(),
                                                       newReshapeShape.end())));
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
-    auto newBroadcast = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+    auto newBroadcast = ttir::utils::createDPSOp<ttir::BroadcastOp>(
         rewriter, op->getLoc(), tmResultType, newReshape,
         newBroadcastDimensions);
 
@@ -348,13 +348,13 @@ public:
         ttmlir::utils::applyPermutation(op.getBroadcastDimensions(),
                                         permutation);
 
-    auto newPermute = ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+    auto newPermute = ttir::utils::createDPSOp<ttir::PermuteOp>(
         rewriter, op->getLoc(), newShape, tmResultType.getElementType(),
         tmResultType.getEncoding(), operand, permutation);
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
-    auto newBroadcast = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+    auto newBroadcast = ttir::utils::createDPSOp<ttir::BroadcastOp>(
         rewriter, op->getLoc(), tmResultType, newPermute,
         newBroadcastDimensions);
 
