@@ -127,9 +127,10 @@ void setCompatibleRuntime(const Binary &binary) {
 }
 
 std::pair<SystemDesc, DeviceIds>
-getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType) {
+getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
+                     std::optional<Device> meshDevice) {
 #if defined(TT_RUNTIME_ENABLE_TTNN) || defined(TT_RUNTIME_ENABLE_TTMETAL)
-  return system_desc::getCurrentSystemDesc(dispatchCoreType);
+  return system_desc::getCurrentSystemDesc(dispatchCoreType, meshDevice);
 #endif
   LOG_FATAL("runtime is not enabled");
 }
