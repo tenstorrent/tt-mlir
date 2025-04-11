@@ -59,12 +59,9 @@ struct ConvertTTIRToTTKernel
       if (!op->hasAttr("ttir.thread_type")) {
         return true;
       }
-      if (std::all_of(
-              op.getArgumentTypes().begin(), op.getArgumentTypes().end(),
-              [&](Type type) { return !mlir::isa<MemRefType>(type); })) {
-        return true;
-      }
-      return false;
+      return std::all_of(
+          op.getArgumentTypes().begin(), op.getArgumentTypes().end(),
+          [&](Type type) { return !mlir::isa<MemRefType>(type); });
     });
 
     TypeConverter typeConverter;
