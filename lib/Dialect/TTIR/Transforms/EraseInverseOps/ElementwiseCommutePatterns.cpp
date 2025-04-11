@@ -72,6 +72,9 @@ public:
     for (auto *user : users) {
       assert(checkIdenticalTms(tmUser, user) &&
              "shouldCommute should have ensured this is true");
+    }
+
+    for (auto *user : users) {
       rewriter.replaceOp(user, newEltwise);
     }
   }
