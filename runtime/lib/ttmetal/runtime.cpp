@@ -410,6 +410,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
+std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
+                                         std::uint32_t programIndex) {
+  // Not implemented
+  LOG_WARNING(
+      "obtaining all op location info for metal runtime not implemented");
+  return {};
+}
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
   // Not implemented

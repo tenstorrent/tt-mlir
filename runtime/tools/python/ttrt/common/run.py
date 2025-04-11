@@ -503,7 +503,9 @@ class Run:
                             program_indices.append(int(self["--program-index"]))
 
                         for program_index in program_indices:
-                            # self.logging.info(ttrt.runtime.get_all_op_loc_info(bin, program_index))
+                            # self.logging.info(f"Types: {type(bin)} {type(program_index)} {type(bin.fbb)}")
+                            # self.logging.info(ttrt.runtime.get_all_op_loc_info(bin.fbb, program_index))
+
                             ttrt.runtime.set_dump_device_rate(1)
                             self.logging.debug(
                                 f"evaluating program={program_index} for binary={bin.file_path}"

@@ -215,6 +215,8 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     import ttrt.runtime
     import ttrt.binary
 
+    tensorList = get_input_tensors(program_context)
+    self.logging.debug(f"getting input tensors: {tensorList}")
     device = callback_runtime_config.device
     logging = callback_runtime_config.logging
     logging.debug("executing memory dump")

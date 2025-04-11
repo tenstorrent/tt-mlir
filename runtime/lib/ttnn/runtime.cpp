@@ -713,6 +713,43 @@ std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
   return locInfo;
 }
 
+::tt::runtime::Tensor
+getTensorFromTensorRef(::tt::target::ttnn::TensorRef tensorRef,
+                       const ttnn::ProgramTensorPool &tensorPool) {
+  if (tensorRef.has_value() && tensorPool.contains(tensorRef.value())) {
+    outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef.value());
+  } else {
+    LOG_WARNING("Output tensor not found in tensor pool");
+    return createNullTensor();
+  }
+
+  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
+      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+      std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+
+  return utils::createRuntimeTensorFromTTNN(hostTensor);
+}
+
+// copy getAllOPLocinfo to get *program, use program-> operations to get
+// [tensorref] write function for tensorref -> tensor using get op output tensor
+std::vector<::tt::runtime::Tensor>
+getInputTensors(CallbackContext programContextHandle, Binary executableHandle,
+                std::uint32_t programIndex) {
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
+  std::vector<::tt::runtime::Tensor> inputTensors;
+  auto const &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  for (const ::tt::target::ttnn::TensorRef tensorRef : *program->outputs()) {
+    inputTensors.push_back(getTensorFromTensorRef(tensorRef, tensorPool));
+  }
+  // return &tensorPool.gatherInputTensors();
+  return inputTensors;
+}
+
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle) {
   auto const &programContext =
@@ -901,18 +938,7 @@ std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
   }
   }
 
-  if (tensorRef.has_value() && tensorPool.contains(tensorRef.value())) {
-    outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef.value());
-  } else {
-    LOG_WARNING("Output tensor not found in tensor pool");
-    return createNullTensor();
-  }
-
-  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
-      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-      std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
-
-  return utils::createRuntimeTensorFromTTNN(hostTensor);
+  return getTensorFromTensorRef(tensorRef, tensorPool);
 }
 
 std::vector<::tt::runtime::Tensor>

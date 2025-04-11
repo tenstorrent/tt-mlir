@@ -480,9 +480,21 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
                  });
   return outputs;
 }
-
-// std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherInputTensors() {
-// }
+/*
+std::vector<::tt::runtime::Tensor> &ProgramTensorPool::gatherInputTensors() {
+  std::vector<::tt::runtime::Tensor> inputs;
+  inputs.reserve(programInputIds.size());
+  std::transform(programInputIds.begin(), programInputIds.end(),
+                 std::back_inserter(inputs), [this](std::uint32_t globalId) {
+                   ::tt::runtime::Tensor &in = getRuntimeTensor(globalId);
+                   ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
+                       in.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+                           DeviceRuntime::TTNN);
+                   ttnnTensor.setRetain(false);
+                   return in;
+                 });
+  return inputs;
+} */
 
 TensorPtrMapIterator
 ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
