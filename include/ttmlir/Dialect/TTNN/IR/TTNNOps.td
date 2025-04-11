@@ -1572,6 +1572,14 @@ def TTNN_ZerosOp : TTNN_NamedFullOp<"zeros"> {
       %0 = "ttnn.zeros"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[0, 0, 0, ..., 0], [0, 0, 0, ..., 0], ..., [0, 0, 0, ..., 0]]]
   }];
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      mlir::tt::ttnn::ZerosOp op = mlir::cast<mlir::tt::ttnn::ZerosOp>(this->getOperation());
+      auto outputType = mlir::cast<RankedTensorType>(op.getType());
+      return wa::TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(outputType);
+    }
+  }];
 }
 
 def TTNN_OnesOp : TTNN_NamedFullOp<"ones"> {

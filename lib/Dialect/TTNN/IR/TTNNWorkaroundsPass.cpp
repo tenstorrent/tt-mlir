@@ -173,6 +173,23 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
+// Factory method to create a set of workarounds for zeros op output operand.
+// ttnn::zeros does not support output dtype int32. If the output data type of
+// ttnn::zeros is int32, we override to uint32 and typecast separately.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createZerosOpOperandsWorkarounds(
+    RankedTensorType outputType) {
+  wa::TTNNOperandWorkarounds fullOpOutputWorkarounds;
+  mlir::tt::DataType dataType =
+      elementTypeToDataType(outputType.getElementType());
+  if (dataType == mlir::tt::DataType::Int32) {
+    fullOpOutputWorkarounds.tensorDataTypeWorkaround =
+        mlir::tt::DataType::UInt32;
+  }
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addOutputOperandWorkaround(fullOpOutputWorkarounds);
+}
+
 // Factory method to create a set of workarounds for full op output operand.
 // ttnn::FullOp does not support 1D tilized tensors
 // If the output of full is a 1D tensor and is tiled

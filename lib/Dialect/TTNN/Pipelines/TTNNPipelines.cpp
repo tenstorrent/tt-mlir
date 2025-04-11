@@ -52,6 +52,7 @@ void createTTNNPipelineTTIRPasses(
   // Add pass to erase inverse ops. This is enabled by default
   // while the pass is experimental.
   if (options.eraseInverseOpsEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
     pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
   }
 }
