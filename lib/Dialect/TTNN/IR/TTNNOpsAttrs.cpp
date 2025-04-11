@@ -607,3 +607,131 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
 
   return ::llvm::success();
 }
+
+Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
+  return Conv2dConfigAttr::get(
+      context, std::nullopt, std::nullopt, nullptr, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt, nullptr, std::nullopt, std::nullopt, std::nullopt,
+      std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt);
+}
+
+template <size_t ParamIndex, typename T>
+Conv2dConfigAttr Conv2dConfigAttr::withParam(T value) {
+  std::tuple<std::optional<DataType>, std::optional<DataType>, StringAttr,
+             std::optional<uint32_t>, std::optional<bool>, std::optional<bool>,
+             std::optional<uint32_t>, std::optional<uint32_t>,
+             std::optional<bool>, std::optional<bool>,
+             std::optional<TensorMemoryLayout>, CoreRangeSetAttr,
+             std::optional<bool>, std::optional<Layout>, std::optional<bool>,
+             std::optional<bool>, std::optional<bool>, std::optional<bool>,
+             std::optional<bool>, std::optional<bool>>
+      params = {getDtype(),
+                getWeightsDtype(),
+                getActivation(),
+                getInputChannelsAlignment(),
+                getDeallocateActivation(),
+                getReallocateHaloOutput(),
+                getActBlockHOverride(),
+                getActBlockWDiv(),
+                getReshardIfNotOptimal(),
+                getOverrideShardingConfig(),
+                getShardLayout(),
+                getCoreGrid(),
+                getTransposeShards(),
+                getOutputLayout(),
+                getPreprocessWeightsOnDevice(),
+                getAlwaysPreprocessWeights(),
+                getEnableActDoubleBuffer(),
+                getEnableWeightsDoubleBuffer(),
+                getEnableSplitReader(),
+                getEnableSubblockPadding()};
+
+  std::get<ParamIndex>(params) = value;
+
+  return std::apply(
+      [this](auto &&...args) {
+        return Conv2dConfigAttr::get(getContext(),
+                                     std::forward<decltype(args)>(args)...);
+      },
+      params);
+}
+
+Conv2dConfigAttr
+Conv2dConfigAttr::withDtype(std::optional<mlir::tt::DataType> value) {
+  return withParam<0>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withWeightsDtype(std::optional<mlir::tt::DataType> value) {
+  return withParam<1>(value);
+}
+Conv2dConfigAttr Conv2dConfigAttr::withActivation(mlir::StringAttr value) {
+  return withParam<2>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withInputChannelsAlingment(std::optional<uint32_t> value) {
+  return withParam<3>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withDeallocateActivation(std::optional<bool> value) {
+  return withParam<4>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withReallocateHaloInput(std::optional<bool> value) {
+  return withParam<5>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withActBlockHOverride(std::optional<uint32_t> value) {
+  return withParam<6>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withActBlockWDiv(std::optional<uint32_t> value) {
+  return withParam<7>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withReshardIfNotOptimal(std::optional<bool> value) {
+  return withParam<8>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withOverrideShardingConfig(std::optional<bool> value) {
+  return withParam<9>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withShardLayout(std::optional<TensorMemoryLayout> value) {
+  return withParam<10>(value);
+}
+Conv2dConfigAttr Conv2dConfigAttr::withCoreGrid(CoreRangeSetAttr value) {
+  return withParam<11>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withTransposeShards(std::optional<bool> value) {
+  return withParam<12>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withOutputLayout(std::optional<Layout> value) {
+  return withParam<13>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withPreprocessWeightsOnDevice(std::optional<bool> value) {
+  return withParam<14>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withAlwaysPreprocessWeights(std::optional<bool> value) {
+  return withParam<15>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withEnableActDoubleBuffer(std::optional<bool> value) {
+  return withParam<16>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withEnableWeightsDoubleBuffer(std::optional<bool> value) {
+  return withParam<17>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withEnableSplitReader(std::optional<bool> value) {
+  return withParam<18>(value);
+}
+Conv2dConfigAttr
+Conv2dConfigAttr::withEnableSubblockPadding(std::optional<bool> value) {
+  return withParam<19>(value);
+}

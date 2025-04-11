@@ -374,8 +374,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     TTNN conv2d config attribute
   }];
 
-  let parameters = (ins
-                        OptionalParameter<"std::optional<DataType>">:$dtype,
+  let parameters = (ins OptionalParameter<"std::optional<DataType>">:$dtype,
                         OptionalParameter<"std::optional<DataType>">:$weights_dtype,
                         OptionalParameter<"StringAttr">:$activation,
                         OptionalParameter<"std::optional<uint32_t>">:$input_channels_alignment,
@@ -395,6 +394,10 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<bool>">:$enable_weights_double_buffer,
                         OptionalParameter<"std::optional<bool>">:$enable_split_reader,
                         OptionalParameter<"std::optional<bool>">:$enable_subblock_padding);
+
+  let builders = [
+    AttrBuilder<(ins )>
+  ];
 
   let assemblyFormat = [{
     `<` struct(
@@ -419,6 +422,32 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
       $enable_split_reader,
       $enable_subblock_padding
     ) `>`
+  }];
+
+  let extraClassDeclaration = [{
+    template <size_t ParamIndex, typename T>
+    Conv2dConfigAttr withParam(T value);
+
+    Conv2dConfigAttr withDtype(std::optional<DataType> value);
+    Conv2dConfigAttr withWeightsDtype(std::optional<DataType> value);
+    Conv2dConfigAttr withActivation(StringAttr value);
+    Conv2dConfigAttr withInputChannelsAlingment(std::optional<uint32_t> value);
+    Conv2dConfigAttr withDeallocateActivation(std::optional<bool> value);
+    Conv2dConfigAttr withReallocateHaloInput(std::optional<bool> value);
+    Conv2dConfigAttr withActBlockHOverride(std::optional<uint32_t> value);
+    Conv2dConfigAttr withActBlockWDiv(std::optional<uint32_t> value);
+    Conv2dConfigAttr withReshardIfNotOptimal(std::optional<bool> value);
+    Conv2dConfigAttr withOverrideShardingConfig(std::optional<bool> value);
+    Conv2dConfigAttr withShardLayout(std::optional<TensorMemoryLayout> value);
+    Conv2dConfigAttr withCoreGrid(CoreRangeSetAttr value);
+    Conv2dConfigAttr withTransposeShards(std::optional<bool> value);
+    Conv2dConfigAttr withOutputLayout(std::optional<Layout> value);
+    Conv2dConfigAttr withPreprocessWeightsOnDevice(std::optional<bool> value);
+    Conv2dConfigAttr withAlwaysPreprocessWeights(std::optional<bool> value);
+    Conv2dConfigAttr withEnableActDoubleBuffer(std::optional<bool> value);
+    Conv2dConfigAttr withEnableWeightsDoubleBuffer(std::optional<bool> value);
+    Conv2dConfigAttr withEnableSplitReader(std::optional<bool> value);
+    Conv2dConfigAttr withEnableSubblockPadding(std::optional<bool> value);
   }];
 }
 
