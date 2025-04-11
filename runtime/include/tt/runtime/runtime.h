@@ -15,7 +15,8 @@ namespace tt::runtime {
 
 namespace system_desc {
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
-    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
+    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
+    std::optional<Device> meshDevice = std::nullopt);
 } // namespace system_desc
 
 namespace detail {
@@ -45,7 +46,8 @@ void setCurrentRuntime(const DeviceRuntime &runtime);
 void setCompatibleRuntime(const Binary &binary);
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc(
-    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt);
+    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
+    std::optional<Device> meshDevice = std::nullopt);
 
 // Creates host tensor with owned storage (the buffer of the tensor is on the
 // host and its allocation/deallocation is owned by this tensor instance).
