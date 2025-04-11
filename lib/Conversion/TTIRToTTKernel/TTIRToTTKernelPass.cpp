@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -50,28 +51,40 @@ struct ConvertTTIRToTTKernel
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     target.addLegalOp<tt::DeviceOp>();
+    target.addLegalOp<ttir::ToLayoutOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
+    target.addLegalOp<ttir::NullTxOp>();
+    // target.addIllegalOp<memref::LoadOp>();
     target.addIllegalOp<memref::StoreOp>();
-
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      if (!op->hasAttr("ttir.thread_type")) {
-        return true;
-      }
-      if (std::all_of(
-              op.getArgumentTypes().begin(), op.getArgumentTypes().end(),
-              [&](Type type) { return !mlir::isa<MemRefType>(type); })) {
-        return true;
-      }
-      return false;
-    });
+    target.addIllegalOp<memref::CollapseShapeOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
+    typeConverter.addConversion([](MemRefType memref) {
+      return ttkernel::CBType::get(
+          memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0,
+          memref);
+    });
+    typeConverter.addConversion([](MemRefType memref) {
+      return ttkernel::CBType::get(
+          memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0,
+          memref);
+    });
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      if (!op->hasAttr(ttir::ThreadAttr::name)) {
+        return true;
+      }
+      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+             typeConverter.isLegal(&op.getBody());
+    });
 
     RewritePatternSet patterns(&getContext());
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
     populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter);
+    populateAffineToStdConversionPatterns(patterns);
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {

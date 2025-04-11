@@ -102,6 +102,16 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
         ::llvm::ArrayRef<int64_t> getShape() const {
           return getMemref().getShape();
         }
+
+        int64_t getNumElements() const {
+          return getMemref().getNumElements();
+        }
+
+        int64_t getNumTiles() const {
+          assert(mlir::isa<mlir::tt::TileType>(getMemref().getElementType()) &&
+                 "getNumTiles only supports tile element type");
+          return getNumElements();
+        }
     }];
 }
 

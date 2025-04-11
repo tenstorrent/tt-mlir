@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
@@ -18,17 +19,6 @@
 #include <numeric>
 
 namespace mlir::tt::ttkernel {
-
-static Value getCb(Value memref) {
-  auto collapseOp =
-      mlir::dyn_cast<memref::CollapseShapeOp>(memref.getDefiningOp());
-  if (auto cb = mlir::dyn_cast<ttkernel::CBType>(
-          collapseOp.getSrcMutable().get().getType())) {
-    return collapseOp.getSrcMutable().get();
-  }
-  assert(false && "Could not match collapse op src to block argument, cannot "
-                  "determine CB id. Failing.");
-}
 
 namespace {
 
@@ -46,7 +36,7 @@ public:
           .getResult();
     };
 
-    auto cb = getCb(op.getMemref());
+    auto cb = adaptor.getMemref();
     auto storeIdx = op.getIndices().front();
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
         op, index(0), cb, storeIdx, rewriter.getBoolAttr(true));
@@ -66,6 +56,14 @@ public:
       mlir::tt::ttir::TTIRGenericRegionComputeOpTrait>::
       OpTraitConversionPattern;
 
+  static Value getCB(Value cb) {
+    memref::LoadOp loadOp = mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
+    assert(loadOp && "Expected load op, failing.");
+    assert(loadOp.getIndices().size() == 1 &&
+           "Expected single index in load op, failing.");
+    return loadOp.getMemref();
+  }
+
   static Value getLoadIndex(Value tile) {
     memref::LoadOp loadOp =
         mlir::dyn_cast<memref::LoadOp>(tile.getDefiningOp());
@@ -84,7 +82,7 @@ public:
           .getResult();
     };
 
-    auto cb = getCb(op.getMemref());
+    auto cb = op.getMemref();
     auto cbType = mlir::dyn_cast<ttkernel::CBType>(cb.getType());
     rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
     rewriter.create<ttkernel::CopyTileOp>(
@@ -116,37 +114,54 @@ public:
       rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
       newOp =
           rewriter.create<ttkernel::MaxTilesOp>(op->getLoc(), i32(0), i32(1));
+    } else if (mlir::isa<ttir::TileAddOp>(op)) {
+      auto dstIdx = index(0);
+      newOp = rewriter.create<ttkernel::AddTilesOp>(
+          op->getLoc(), getCB(operands[0]), getCB(operands[1]),
+          getLoadIndex(operands[0]), getLoadIndex(operands[1]), dstIdx);
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
       auto dstIdx = index(0);
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
-          op->getLoc(),
-          getCb(op->getOperand(0).getDefiningOp<memref::LoadOp>().getMemref()),
-          getCb(op->getOperand(1).getDefiningOp<memref::LoadOp>().getMemref()),
-          getLoadIndex(op->getOperand(0)), getLoadIndex(op->getOperand(1)),
-          dstIdx);
+          op->getLoc(), operands[0], operands[1], getLoadIndex(operands[0]),
+          getLoadIndex(operands[1]), dstIdx);
+    } else if (mlir::isa<ttir::TileTilizeBlockOp>(op)) {
+      assert(operands.size() == 2);
+      Value src = operands[0];
+      Value dst = operands[1];
+      auto numTiles =
+          i32(mlir::cast<ttkernel::CBType>(dst.getType()).getNumTiles());
+      newOp = rewriter.create<ttkernel::TilizeBlockOp>(op->getLoc(), src,
+                                                       numTiles, dst);
+    } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
+      assert(operands.size() == 2);
+      Value src = operands[0];
+      Value dst = operands[1];
+      auto numTiles =
+          i32(mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
+      newOp = rewriter.create<ttkernel::UntilizeBlockOp>(op->getLoc(), src,
+                                                         numTiles, dst);
     } else {
       return failure();
     }
 
     rewriter.setInsertionPoint(newOp);
     if (mlir::isa<ttkernel::MatmulTilesOp>(newOp)) {
-      lowerLoadToCopyTile(op->getOperand(2).getDefiningOp<memref::LoadOp>(),
-                          false, rewriter);
+      lowerLoadToCopyTile(operands[2].getDefiningOp<memref::LoadOp>(), false,
+                          rewriter);
     } else if (newOp->hasTrait<TTKernelSFPUOpTrait>()) {
       for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-        lowerLoadToCopyTile(op->getOperand(i).getDefiningOp<memref::LoadOp>(),
-                            true, rewriter);
+        lowerLoadToCopyTile(operands[i].getDefiningOp<memref::LoadOp>(), true,
+                            rewriter);
       }
     }
 
     // This is necessary to remove the invalid CollapseShapeOp that references a
     // CB once it has no more uses.
     for (uint32_t i = 0; i < op->getNumOperands(); i++) {
-      rewriter.eraseOp(op->getOperand(i)
-                           .getDefiningOp<memref::LoadOp>()
-                           .getMemref()
-                           .getDefiningOp<memref::CollapseShapeOp>());
-      rewriter.eraseOp(op->getOperand(i).getDefiningOp<memref::LoadOp>());
+      auto load = operands[i].getDefiningOp<memref::LoadOp>();
+      if (load) {
+        rewriter.eraseOp(load);
+      }
     }
 
     rewriter.eraseOp(op);
@@ -284,10 +299,11 @@ public:
   }
 
   static std::tuple<AffineMap, AffineMap, AffineMap>
-  getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
+  getIndividualResultMaps(Operation *op, tt::DeviceAttr device,
                           OpBuilder &builder) {
-    size_t pageSize = getMemrefShardSizeBytes(memref);
-    AffineMap memoryMap = device.getMemoryMap(memref, pageSize, 0)
+    std::pair<MemRefType, AffineMap> memrefAndView = ttir::applyViews(op);
+    size_t pageSize = getMemrefShardSizeBytes(memrefAndView.first);
+    AffineMap memoryMap = device.getMemoryMap(memrefAndView, pageSize, 0)
                               .dropResult(0); // drop the device index
     assert(memoryMap.getNumResults() == 3);
     auto gridY = memoryMap.dropResults({1, 2});
@@ -307,10 +323,6 @@ public:
           .getResult();
     };
 
-    auto isCb = [&](Value value) {
-      return mlir::isa<ttkernel::CBType>(value.getType());
-    };
-
     auto device = lookupDevice(op);
     auto chipIds = device.getChipIds();
     auto chipDescs =
@@ -319,13 +331,6 @@ public:
             .getChipDescs();
     assert((chipIds.size() == 1) && (chipDescs.size() == 1) &&
            "Chip ids and chip descs size must equal 1, failing.");
-    // assert(isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
-    //                            op.getSrc().getType().getMemorySpace())
-    //                            .getValue()) &&
-    //        isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
-    //                            op.getDst().getType().getMemorySpace())
-    //                            .getValue()) &&
-    //        "Expected src and dst memory spaces to be L1, failing.");
 
     auto applyMap = [&](AffineMap map, ValueRange index) {
       auto apply =
@@ -333,7 +338,7 @@ public:
       return apply;
     };
 
-    if (isCb(adaptor.getSrc()) && isCb(adaptor.getDst())) {
+    if (op.isSrcLocal() && op.isDstLocal()) {
       // local movmement, mcast
 
       auto srcCb = mlir::dyn_cast<ttkernel::CBType>(adaptor.getSrc().getType());
@@ -342,29 +347,6 @@ public:
           op.getLoc(), adaptor.getSrc());
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
-
-      // AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
-      // std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-      //     getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
-
-      // auto srcOffset =
-      //     applyMap(rewriter, op.getLoc(), srcOffsetMap, op.getSrcIndices());
-      // auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
-      //     op.getLoc(), rewriter.getI32Type(), srcOffset);
-      // auto srcAddrInt =
-      //     rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
-      //     srcL1Start);
-
-      // AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
-      // std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-      //     getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
-
-      // auto dstOffset =
-      //     applyMap(rewriter, op.getLoc(), dstOffsetMap, op.getDstIndices());
-      // auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
-      //     op.getLoc(), rewriter.getI32Type(), dstOffset);
-      // auto dstAddrInt = rewriter.create<arith::AddIOp>(op.getLoc(),
-      // dstOffsetInt, dstL1Start);
 
       Value transferSize = i32(getMemrefSizeBytes(srcCb.getMemref()));
       // local movement
@@ -409,7 +391,7 @@ public:
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                    nocAddr, transferSize);
       }
-    } else if (isCb(adaptor.getSrc()) && op.isDstRemote()) {
+    } else if (op.isSrcLocal() && op.isDstRemote()) {
       // local to remote dram/l1
       if (!op.getOptNumElems()) {
         op.setOptNumElems(getMemrefShardNumElems(op.getDst().getType()));
@@ -420,22 +402,10 @@ public:
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
           op.getLoc(), adaptor.getSrc());
 
-      // AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
-      // std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-      //     getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
-
-      // auto srcOffset =
-      //     applyMap(rewriter, op.getLoc(), srcOffsetMap, op.getSrcIndices());
-      // auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
-      //     op.getLoc(), rewriter.getI32Type(), srcOffset);
-
-      // auto srcAddrInt =
-      //     rewriter.create<arith::AddIOp>(op.getLoc(), srcOffsetInt,
-      //     srcL1Start);
-
       AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
       std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-          getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
+          getIndividualResultMaps(op.getDst().getDefiningOp(), device,
+                                  rewriter);
 
       auto dstGridY = applyMap(dstGridYMap, op.getDstIndices());
       auto dstGridX = applyMap(dstGridXMap, op.getDstIndices());
@@ -450,28 +420,17 @@ public:
           op.getLoc(), virtX, virtY, dstOffsetInt);
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                  nocAddr, transferSize);
-    } else if (op.isSrcRemote() && isCb(adaptor.getDst())) {
+    } else if (op.isSrcRemote() && op.isDstLocal()) {
       if (!op.getOptNumElems()) {
         op.setOptNumElems(getMemrefShardNumElems(op.getSrc().getType()));
       }
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
-      // AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
-      // std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-      //     getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
-
-      // auto dstOffset =
-      //     applyMap(rewriter, op.getLoc(), dstOffsetMap, op.getDstIndices());
-      // auto dstOffsetInt = rewriter.create<arith::IndexCastOp>(
-      //     op.getLoc(), rewriter.getI32Type(), dstOffset);
-      // auto dstAddrInt =
-      //     rewriter.create<arith::AddIOp>(op.getLoc(), dstOffsetInt,
-      //     dstL1Start);
-
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-          getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
+          getIndividualResultMaps(op.getSrc().getDefiningOp(), device,
+                                  rewriter);
 
       auto srcGridY = applyMap(srcGridYMap, op.getSrcIndices());
       auto srcGridX = applyMap(srcGridXMap, op.getSrcIndices());
@@ -491,7 +450,7 @@ public:
       assert(false && "Illegal DMA configuration");
     }
 
-    rewriter.eraseOp(op);
+    rewriter.replaceOpWithNewOp<ttir::NullTxOp>(op);
     return success();
   }
 };
@@ -560,22 +519,22 @@ public:
   LogicalResult
   matchAndRewrite(ttir::DMAWaitOp op, ttir::DMAWaitOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto isCb = [&](OpOperand &value) {
-      return mlir::isa<ttkernel::CBType>(value.get().getType());
-    };
+    // auto isCb = [&](OpOperand &value) {
+    //   return mlir::isa<ttkernel::CBType>(value.get().getType());
+    // };
 
-    if (!isCb(op.getMemTx().getDefiningOp<ttir::DMAOp>().getSrcMutable())) {
+    //if (!isCb(
+            //adaptor.getMemTx().getDefiningOp<ttir::DMAOp>().getSrcMutable())) {
       rewriter.replaceOpWithNewOp<ttkernel::NocAsyncReadBarrierOp>(op);
-    } else {
-      rewriter.replaceOpWithNewOp<ttkernel::NocAsyncWriteBarrierOp>(op);
-    }
-    return success();
+      //} else {
+      //  rewriter.replaceOpWithNewOp<ttkernel::NocAsyncWriteBarrierOp>(op);
+      //}
+      return success();
   }
 };
 } // namespace
 
 namespace {
-
 class TTIRGetGlobalOperandRewriter
     : public OpConversionPattern<ttir::GetGlobalOperandOp> {
 public:
@@ -590,64 +549,20 @@ public:
     return success();
   }
 };
-
 } // namespace
 
 namespace {
-class TTIRKernelFunctionArgsRewriter
-    : public OpConversionPattern<func::FuncOp> {
+class MemRefCollapseRewriter : public OpConversionPattern<memref::CollapseShapeOp> {
 public:
-  using OpConversionPattern<func::FuncOp>::OpConversionPattern;
-
-  static int64_t getSemId(func::FuncOp op, BlockArgument ttirSem,
-                          PatternRewriter &rewriter) {
-    auto numMemrefArgs = std::count_if(
-        op.getArguments().begin(), op.getArguments().end(),
-        [&](Value arg) { return mlir::isa<MemRefType>(arg.getType()); });
-
-    return std::find(op.getArguments().begin(), op.getArguments().end(),
-                     ttirSem) -
-           op.getArguments().begin() - numMemrefArgs;
-  }
+  using OpConversionPattern<memref::CollapseShapeOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(func::FuncOp op, func::FuncOpAdaptor adaptor,
+  matchAndRewrite(memref::CollapseShapeOp op,
+                  memref::CollapseShapeOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
-    if (!op->hasAttr("ttir.thread_type")) { // TODO(nsmith/jdesousa): String
-                                            // constant somewhere for this?
-      return failure();
-    }
-
-    // Collect the new argument types
-    SmallVector<Type> newArgTypes;
-
-    for (auto funcArg : op.getArguments()) {
-      if (auto memrefType = mlir::dyn_cast<MemRefType>(funcArg.getType())) {
-        auto cbType = ttkernel::CBType::get(
-            rewriter.getContext(),
-            ttkernel::symbolizeCBPort(funcArg.getArgNumber()).value(), 0,
-            memrefType);
-        newArgTypes.push_back(cbType);
-      } else {
-        // Keep the original type for non-memref arguments (like semaphores)
-        newArgTypes.push_back(funcArg.getType());
-      }
-    }
-
-    // Update the function type
-    auto newFuncType =
-        op.getFunctionType().clone(newArgTypes, op->getResultTypes());
-    rewriter.modifyOpInPlace(op, [&]() { op.setType(newFuncType); });
-
-    // Update the block argument types
-    for (uint32_t i = 0; i < op.getNumArguments(); i++) {
-      if (op.getArgument(i).getType() != newArgTypes[i]) {
-        rewriter.modifyOpInPlace(
-            op, [&]() { op.getArgument(i).setType(newArgTypes[i]); });
-      }
-    }
-
+    rewriter.replaceOpWithNewOp<CBReinterpretShapeOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getSrc());
     return success();
   }
 };
@@ -659,15 +574,14 @@ namespace mlir::tt {
 
 void populateTTIRToTTKernelPatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns,
-                                    TypeConverter & /*typeConverter*/) {
-
+                                    TypeConverter &typeConverter) {
   patterns.add<ttkernel::TTIRComputeOpsRewriter, ttkernel::MemrefStoreRewriter,
                ttkernel::TTIRAwaitYieldRewriter<ttir::AwaitOp>,
                ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
                ttkernel::TTIRDMARewriter, ttkernel::TTIRDMAWaitRewriter,
                ttkernel::TTIRCoreIndexRewriter,
                ttkernel::TTIRGetGlobalOperandRewriter,
-               ttkernel::TTIRKernelFunctionArgsRewriter>(ctx);
+               ttkernel::MemRefCollapseRewriter>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

@@ -842,4 +842,15 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
     let results = (outs TTKernel_DataFormat:$dataFormat);
 }
 
+def TTKernel_CBReinterpretShapeOp : TTKernel_Op<"cb_reinterpret_shape"> {
+    let summary = "Get the data format of a given CB";
+    let description = [{
+      get_dataformat operation
+    }];
+    let arguments = (ins TTKernel_CB:$input);
+    let results = (outs TTKernel_CB:$output);
+
+    let hasVerifier = 1;
+}
+
 #endif

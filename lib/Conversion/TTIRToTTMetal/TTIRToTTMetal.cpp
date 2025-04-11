@@ -67,6 +67,21 @@ public:
 };
 } // namespace
 
+namespace {
+class TTIRToLayoutRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
+public:
+  using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ToLayoutOp op, ttir::ToLayoutOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    op.dump();
+    assert(false);
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -74,7 +89,8 @@ namespace mlir::tt {
 void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter & /*typeConverter*/) {
-  patterns.add<ttmetal::TTIRGenericRewriter, ttmetal::MemrefAllocRewriter>(ctx);
+  patterns.add<ttmetal::TTIRGenericRewriter, ttmetal::MemrefAllocRewriter,
+               ttmetal::TTIRToLayoutRewriter>(ctx);
 }
 
 } // namespace mlir::tt
