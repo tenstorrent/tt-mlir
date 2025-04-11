@@ -5,6 +5,7 @@ function(add_mlir_unittest test_dirname)
   add_unittest(MLIRUnitTests ${test_dirname} ${ARGN})
 endfunction()
 
+add_subdirectory(Support)
 add_subdirectory(TestScheduler)
 add_subdirectory(Optimizer)
 add_subdirectory(OpModel)
