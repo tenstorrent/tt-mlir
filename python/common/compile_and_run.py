@@ -4,123 +4,158 @@
 
 """
 Convenience python wrappers around some commonly used compiler and runtime calls.
+
+All functions exposed in this file are segfault-safe, i.e. they are resistant to any
+unpredictable errors that might happen inside pybound compiler calls, like segfaults,
+which would crash the main python process otherwise. They handle them gracefully by
+raising RuntimeError that can be handled with a try-except block in caller.
 """
 
 import os
-import subprocess
 
+from ttmlir.compile_and_run_utils import *
 from ttmlir.ir import Module
-from ttmlir.passes import (
-    stablehlo_to_ttir_pipeline,
-    ttir_to_ttmetal_backend_pipeline,
-    ttir_to_ttnn_backend_pipeline,
-    ttmetal_to_flatbuffer_file,
-    ttnn_to_flatbuffer_file,
-)
-from ttrt.common.util import Binary, FileManager, Logger
+from ttrt.common.util import Binary
 
 
-def stablehlo_to_ttir(module: Module) -> Module:
+def stablehlo_to_ttir(module: Module | str) -> Module:
     """
-    Runs `stablehlo-to-ttir-pipeline` compiler pass on `module` in-place.
+    Runs `stablehlo-to-ttir-pipeline` compiler pass on `module` in a safe way.
 
-    Wrapper around `stablehlo_to_ttir_pipeline` pybound pass.
+    This is a segfault resistant function. It runs the pybound compiler pass in a
+    separate process, thus protecting the caller of this function from any unpredictable
+    (those that cannot be caught with a try-except) errors.
 
-    Returns `module` for convenince.
+    Returns
+    -------
+    Module produced by the pass.
+
+    Raises
+    ------
+    RuntimeError if any errors happen.
     """
-    stablehlo_to_ttir_pipeline(module)
-    return module
+    m = module if isinstance(module, str) else str(module)
+    return run_compilation_process(stablehlo_to_ttir_pipeline_worker, (m,))
 
 
 def ttir_to_ttnn(
-    module: Module,
+    module: Module | str,
     system_desc: str = os.getenv(
         "SYSTEM_DESC_PATH",
         "ttrt-artifacts/system_desc.ttsys",
     ),
 ) -> Module:
     """
-    Runs `ttir-to-ttnn-backend-pipeline` compiler pass on `module` in-place.
+    Runs `ttir-to-ttnn-backend-pipeline` compiler pass on `module` in a safe way.
 
-    Wrapper around `ttir_to_ttnn_backend_pipeline` pybound pass.
+    This is a segfault resistant function. It runs the pybound compiler pass in a
+    separate process, thus protecting the caller of this function from any unpredictable
+    (those that cannot be caught with a try-except) errors.
 
-    Returns `module` for convenince.
+    Returns
+    -------
+    Module produced by the pass.
+
+    Raises
+    ------
+    RuntimeError if any errors happen.
     """
-    assert os.path.exists(system_desc), f"System desc file {system_desc} not found."
-
-    ttir_to_ttnn_backend_pipeline(module, f"system-desc-path={system_desc}")
-    return module
+    m = module if isinstance(module, str) else str(module)
+    return run_compilation_process(
+        ttir_to_ttnn_backend_pipeline_worker, (m, system_desc)
+    )
 
 
 def ttir_to_ttmetal(
-    module: Module,
+    module: Module | str,
     system_desc: str = os.getenv(
         "SYSTEM_DESC_PATH",
         "ttrt-artifacts/system_desc.ttsys",
     ),
 ) -> Module:
     """
-    Runs `ttir-to-ttmetal-backend-pipeline` compiler pass on `module` in-place.
+    Runs `ttir-to-ttmetal-backend-pipeline` compiler pass on `module` in a safe way.
 
-    Wrapper around `ttir_to_ttmetal_backend_pipeline` pybound pass.
+    This is a segfault resistant function. It runs the pybound compiler pass in a
+    separate process, thus protecting the caller of this function from any unpredictable
+    (those that cannot be caught with a try-except) errors.
 
-    Returns `module` for convenince.
+    Returns
+    -------
+    Module produced by the pass.
+
+    Raises
+    ------
+    RuntimeError if any errors happen.
     """
-    assert os.path.exists(system_desc), f"System desc file {system_desc} not found."
-
-    ttir_to_ttmetal_backend_pipeline(module, f"system-desc-path={system_desc}")
-    return module
+    m = module if isinstance(module, str) else str(module)
+    return run_compilation_process(
+        ttir_to_ttmetal_backend_pipeline_worker, (m, system_desc)
+    )
 
 
 def ttnn_to_flatbuffer(
     module: Module, output_file_name: str = "ttnn_fb.ttnn"
 ) -> Binary:
     """
-    Converts TTNN module to flatbuffer and saves to file.
+    Converts TTNN module to flatbuffer in a safe way and saves to file.
 
-    Wrapper around `ttnn_to_flatbuffer_file` pybound pass.
+    This is a segfault resistant function. It runs the pybound translation pass in a
+    separate process, thus protecting the caller of this function from any unpredictable
+    (those that cannot be caught with a try-except) errors.
 
-    Returns flatbuffer `Binary` instance for convenience.
+    Returns
+    -------
+    Flatbuffer `Binary` instance for convenience.
+
+    Raises
+    ------
+    RuntimeError if any errors happen.
     """
-    ttnn_to_flatbuffer_file(module, output_file_name)
-
-    logger = Logger()
-    file_manager = FileManager(logger)
-    return Binary(logger, file_manager, output_file_name)
+    m = module if isinstance(module, str) else str(module)
+    return run_translation_process(
+        ttnn_to_flatbuffer_file_worker, (m, output_file_name)
+    )
 
 
 def ttmetal_to_flatbuffer(
     module: Module, output_file_name: str = "ttmetal_fb.ttm"
 ) -> Binary:
     """
-    Converts TTMetal module to flatbuffer and saves to file.
+    Converts ttmetal module to flatbuffer in a safe way and saves to file.
 
-    Wrapper around `ttmetal_to_flatbuffer_file` pybound pass.
+    This is a segfault resistant function. It runs the pybound translation pass in a
+    separate process, thus protecting the caller of this function from any unpredictable
+    (those that cannot be caught with a try-except) errors.
 
-    Returns flatbuffer `Binary` instance for convenience.
+    Returns
+    -------
+    Flatbuffer `Binary` instance for convenience.
+
+    Raises
+    ------
+    RuntimeError if any errors happen.
     """
-    ttmetal_to_flatbuffer_file(module, output_file_name)
-
-    logger = Logger()
-    file_manager = FileManager(logger)
-    return Binary(logger, file_manager, output_file_name)
+    m = module if isinstance(module, str) else str(module)
+    return run_translation_process(
+        ttmetal_to_flatbuffer_file_worker, (m, output_file_name)
+    )
 
 
 def run_flatbuffer(flatbuffer: Binary) -> int:
     """
     Runs `flatbuffer` on device.
 
-    Returns return code of `ttrt run flatbuffer.file_path` bash process.
+    This is a segfault resistant function. It runs the pybound translation pass in a
+    separate process, thus protecting the caller of this function from any unpredictable
+    (those that cannot be caught with a try-except) errors.
 
-    NOTE This could be written using runtime's python API like
-    ```
-    API.initialize_apis()
-    run_instance = API.Run(args={"binary": flatbuffer.file_path})
-    return_code, _ = run_instance()
-    return return_code
-    ```
-    Done this way since the only thing we need is the return code and it protects us
-    from segfaults and such impossible-to-catch errors.
+    Returns
+    -------
+    Return code of `ttrt run flatbuffer.file_path` process.
+
+    Raises
+    ------
+    RuntimeError if any errors happen.
     """
-    result = subprocess.run(["ttrt", "run", flatbuffer.file_path])
-    return result.returncode
+    return run_flatbuffer_execution_process(flatbuffer)
