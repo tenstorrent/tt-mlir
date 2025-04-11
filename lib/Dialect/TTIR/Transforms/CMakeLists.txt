@@ -2,6 +2,7 @@ add_subdirectory(EraseInverseOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
+        ExplicateBroadcasts.cpp
         FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp

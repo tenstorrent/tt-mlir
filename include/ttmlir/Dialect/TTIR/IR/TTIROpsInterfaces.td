@@ -88,6 +88,10 @@ def TTIR_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_ElementwiseTernary : OpInterface<"ElementwiseTernary"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 def TTIR_TensorManipulation : OpInterface<"TensorManipulation"> {
   let cppNamespace = "::mlir::tt::ttir";
 }

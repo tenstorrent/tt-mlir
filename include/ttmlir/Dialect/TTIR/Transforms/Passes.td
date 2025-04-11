@@ -482,6 +482,16 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRExplicateBroadcasts: Pass<"ttir-explicate-broadcasts", "::mlir::ModuleOp">
+{
+  let summary = "Insterts ttir.broadcast on graph edges where there is an implicit broadcast.";
+  let description = [{
+    This pass walks through the graph and explicates implicit broadcasts on the graph edges.
+  }];
+
+  let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert integer data types in quantized types to a specified bit width";
   let description = [{
