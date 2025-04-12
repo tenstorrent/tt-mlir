@@ -77,11 +77,6 @@ LICENSE @nsmithtt
 /lib/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
 /test/ttmlir/Dialect/TTIR/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @mrakitaTT @jserbedzijaTT @azecevicTT
 
-# TTIR Erase Inverse Ops Optimization Pass
-/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps @LPanosTT @azecevicTT
-/lib/Dialect/TTIR/Transforms/EraseInverseOps @LPanosTT @azecevicTT
-/test/ttmlir/Dialect/TTIR/erase_inverse_ops @LPanosTT @azecevicTT
-
 # Metal Dialects
 /include/ttmlir/Dialect/TTIR/IR/TTIRGeneric* @nsmithtt @vroubtsovTT
 /include/ttmlir/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
@@ -91,6 +86,11 @@ LICENSE @nsmithtt
 /lib/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
 /test/ttmlir/Dialect/TTKernel/ @nsmithtt @vroubtsovTT
 /test/ttmlir/Dialect/TTMetal/ @nsmithtt @vroubtsovTT
+
+# TTIR Erase Inverse Ops Optimization Pass
+/include/ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
+/lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT
+/test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT
 
 # TTNN Dialects
 /include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @jserbedzijaTT @azecevicTT
