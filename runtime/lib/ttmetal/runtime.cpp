@@ -410,6 +410,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
+std::vector<::tt::runtime::Tensor>
+getOutputTensors(CallbackContext programContextHandle, Binary executableHandle,
+                 std::uint32_t programIndex) {
+  // Not implemented
+  LOG_WARNING("obtaining all output tensors for metal runtime not implemented");
+  return {};
+}
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
   // Not implemented

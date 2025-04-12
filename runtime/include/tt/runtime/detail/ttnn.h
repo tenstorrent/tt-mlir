@@ -168,6 +168,10 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
+std::vector<::tt::runtime::Tensor>
+getOutputTensors(CallbackContext programContextHandle, Binary executableHandle,
+                 std::uint32_t programIndex);
+
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle);
 

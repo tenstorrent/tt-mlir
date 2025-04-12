@@ -266,6 +266,8 @@ PYBIND11_MODULE(_C, m) {
         ::tt::runtime::wait(tensors);
       },
       py::arg("tensors"));
+  m.def("get_output_tensors", &tt::runtime::getOutputTensors,
+        "Get output tensors off device");
   m.def(
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
