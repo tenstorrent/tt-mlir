@@ -1101,9 +1101,19 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
 
 size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
                                       size_t pageSize) const {
-  // TODO(nsmith): We need to implement this somehow
-  assert(false);
-  return 0;
+  assert(memrefType.getRank() % 2 == 0);
+  mlir::Type elementType = memrefType.getElementType();
+  uint64_t size = 0;
+  if (mlir::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    size = tileType.getSizeBytes();
+  } else {
+    size = elementType.getIntOrFloatBitWidth() / 8;
+  }
+
+  auto shardShape = memrefType.getShape().drop_front(memrefType.getRank() / 2);
+  return std::accumulate(shardShape.begin(), shardShape.end(), size,
+                         std::multiplies<uint64_t>());
 }
 
 // Sample the last index in the tensor to get the last addressable element of

@@ -53,7 +53,11 @@ struct ConvertTTIRToTTMetal
     target.addLegalOp<tt::DeviceOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
-    target.addIllegalOp<memref::AllocOp>();
+
+    target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
+      return !mlir::dyn_cast_if_present<tt::MemorySpaceAttr>(
+          op.getMemref().getType().getMemorySpace());
+    });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });

@@ -27,8 +27,8 @@ namespace mlir::tt::ttmetal {
 ::mlir::LogicalResult EnqueueReadBufferOp::verify() {
   ::mlir::MemRefType outputTy = getOutput().getType();
   MemorySpaceAttr memSpaceAttr =
-      mlir::cast<MemorySpaceAttr>(outputTy.getMemorySpace());
-  if (not isSystemMemorySpace(memSpaceAttr.getValue())) {
+      mlir::dyn_cast_if_present<MemorySpaceAttr>(outputTy.getMemorySpace());
+  if (memSpaceAttr && not isSystemMemorySpace(memSpaceAttr.getValue())) {
     return emitOpError("Output tensor must be in system memory space");
   }
   return success();

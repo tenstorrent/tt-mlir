@@ -430,11 +430,11 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
       } else if (auto enqueueWriteBufferOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueWriteBufferOp>(op);
                  enqueueWriteBufferOp) {
-        auto [hostBufferType, hostBuffer] =
-            hostBufferToFlatbuffer(cache, enqueueWriteBufferOp.getValue());
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueWriteBufferCommand(
-                fbb, hostBufferType, hostBuffer,
+                fbb,
+                cache.at<::tt::target::metal::TensorRef>(
+                    getOperandThroughDPSOps(enqueueWriteBufferOp.getInput())),
                 cache.at<::tt::target::metal::TensorRef>(
                     getOperandThroughDPSOps(enqueueWriteBufferOp.getOutput()))),
             op);
