@@ -22,8 +22,7 @@ void registerLLVMToDynamicLibrary();
 } // namespace mlir::tt::llvm_to_cpu
 
 namespace mlir::tt::ttkernel {
-void registerTensixKernelToCpp();
-void registerNocKernelToCpp();
+void registerTTKernelToCpp();
 } // namespace mlir::tt::ttkernel
 
 // Place to register all the custom translations
@@ -32,9 +31,7 @@ static void registerCustomTranslations() {
     mlir::tt::ttnn::registerTTNNToFlatbuffer();
     mlir::tt::ttmetal::registerTTMetalToFlatbuffer();
     mlir::tt::llvm_to_cpu::registerLLVMToDynamicLibrary();
-    mlir::tt::ttkernel::registerNocKernelToCpp();
-    mlir::tt::ttkernel::registerTensixKernelToCpp();
-
+    mlir::tt::ttkernel::registerTTKernelToCpp();
     return true;
   }();
   (void)initOnce;
