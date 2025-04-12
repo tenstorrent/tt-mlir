@@ -598,23 +598,6 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
                          BoolAttr:$multicast_path_reserve);
 }
 
-def TTKernel_NocTransactionsTableOp : TTKernel_Op<"noc_transactions_table"> {
-    let summary = [{define an array of parameter entries for a sequence of NOC
-     read/write operations
-    }];
-    let description = [{
-      Encapsulates parameters for a group of NOC read/write operations as
-      an array of (dst, src, size, dst_x, dst_y, numElements) entries, with
-      each entry slot of type int32_t.
-      An entry defines an src->dst data movement operation and as either
-      a read (remote src, local dst) or a write (local src, remote dst) by
-      the calling core.
-    }];
-
-    let arguments = (ins DenseI32ArrayAttr:$entries);
-    let results = (outs AnyStaticShapeMemRef:$table);
-}
-
 //===----------------------------------------------------------------------===//
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
@@ -772,15 +755,6 @@ def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_
 //===----------------------------------------------------------------------===//
 // TTKernel Misc operations
 //===----------------------------------------------------------------------===//
-
-def TTKernel_ReturnOp : TTKernel_Op<"return", [Pure, ReturnLike, Terminator]> {
-    let summary = "Return op.";
-    let description = [{
-      Return operation
-    }];
-
-    let hasVerifier = 1;
-}
 
 def TTKernel_UnreachableOp : TTKernel_Op<"unreachable", [Pure, ReturnLike, Terminator]> {
     let summary = "Unreachable op.";

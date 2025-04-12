@@ -134,13 +134,6 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   return success();
 }
 
-::mlir::LogicalResult ReturnOp::verify() {
-  if (!insideEnqueueProgramOpRegion(getOperation())) {
-    return emitOpError("ReturnOp must be inside of a EnqueueProgramOp region");
-  }
-  return success();
-}
-
 ::mlir::LogicalResult CBReinterpretShapeOp::verify() {
   auto inCBType = getInput().getType();
   auto outCBType = getOutput().getType();
