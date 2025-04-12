@@ -10,28 +10,28 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
-#include <llvm/ADT/DenseMap.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/LogicalResult.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/Conversion/ArithToEmitC/ArithToEmitC.h>
-#include <mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h>
-#include <mlir/Conversion/SCFToEmitC/SCFToEmitC.h>
-#include <mlir/Dialect/EmitC/IR/EmitC.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/Dialect/MemRef/IR/MemRef.h>
-#include <mlir/Dialect/SCF/IR/SCF.h>
-#include <mlir/IR/Builders.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/IRMapping.h>
-#include <mlir/IR/Location.h>
-#include <mlir/IR/Operation.h>
-#include <mlir/IR/Value.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Support/LLVM.h>
-#include <mlir/Target/Cpp/CppEmitter.h>
-#include <mlir/Transforms/DialectConversion.h>
+#include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
+#include "mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h"
+#include "mlir/Conversion/SCFToEmitC/SCFToEmitC.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cctype>
 #include <string>
@@ -608,186 +608,10 @@ public:
 };
 } // namespace
 
-// ............................................................................
-
 namespace mlir::tt {
 
 std::unique_ptr<::mlir::Pass> createConvertTTKernelToEmitC() {
   return std::make_unique<ConvertTTKernelToEmitCPass>();
-}
-
-// ............................................................................
-
-// Class used to add includes and other boilerplate code to the generated
-// kernel.
-namespace {
-class ThreadConfigHelper {
-public:
-  ThreadConfigHelper(OpBuilder *builder, Location loc,
-                     ttkernel::ThreadType threadType)
-      : builder(builder), loc(loc), threadType(threadType) {
-    builder->create<emitc::IncludeOp>(loc, "cstdint",
-                                      /*isStandard=*/true);
-    if (threadType == ttkernel::ThreadType::Noc) {
-
-      builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
-                                        /*isStandard=*/false);
-    }
-    if (threadType == ttkernel::ThreadType::Tensix) {
-      builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/untilize.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "compute_kernel_api/eltwise_binary.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api.h", // max ops
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(loc,
-                                        "compute_kernel_api/tile_move_copy.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/eltwise_unary.h",
-          /*isStandard=*/false);
-      // TODO (kmitrovic) exp.h is an ExpOp-specific include. Every op has one,
-      // should be handled in general, not like this.
-      // Issue: https://github.com/tenstorrent/tt-mlir/issues/772
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/exp.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/sfpu_split_includes.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/recip.h",
-          /*isStandard=*/false);
-      // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
-      // because they are default template parameters values in reduce api.
-      builder->create<emitc::VerbatimOp>(loc,
-                                         "#define REDUCE_OP PoolType::SUM");
-      builder->create<emitc::VerbatimOp>(
-          loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
-      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
-                                        /*isStandard=*/false);
-      builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
-    }
-  }
-
-  ~ThreadConfigHelper() {
-    if (threadType == ttkernel::ThreadType::Tensix) {
-      builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
-      builder->create<emitc::VerbatimOp>(loc,
-                                         "}"); // close namespace NAMESPACE
-    }
-  }
-
-private:
-  OpBuilder *builder;
-  Location loc;
-  ttkernel::ThreadType threadType;
-};
-} // namespace
-
-// ............................................................................
-
-inline FailureOr<mlir::ModuleOp>
-convertTTKernelRegionToEmitC(Region *region,
-                             const ttkernel::ThreadType &threadType) {
-  auto loc = region->getLoc();
-  auto *ctx = region->getContext();
-
-  OpBuilder builder(ctx);
-
-  // We will wrap everything in a module op so that we can run the
-  // translation.
-  auto moduleWrapper = builder.create<mlir::ModuleOp>(loc, "module_wrapper");
-  builder.setInsertionPointToStart(moduleWrapper.getBody());
-  {
-    ThreadConfigHelper threadConfigHelper(&builder, loc, threadType);
-
-    // Clone 'region' into a new func op nested inside 'moduleWrapper':
-    auto funcOp = builder.create<func::FuncOp>(
-        loc, "kernel_main",
-        builder.getType<FunctionType>(region->getArgumentTypes(), TypeRange()));
-
-    IRMapping irMapper;
-    region->cloneInto(&funcOp.getBody(), irMapper);
-
-    auto pm = PassManager::on<mlir::ModuleOp>(ctx);
-    pm.addPass(createConvertTTKernelToEmitC());
-
-    if (pm.run(moduleWrapper).failed()) {
-      return failure();
-    }
-  }
-  return moduleWrapper;
-}
-
-LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
-                                const ttkernel::ThreadType &threadType) {
-
-  llvm::raw_string_ostream os(regionCpp);
-  return emitOpRegionAsCpp(region, os, threadType);
-}
-
-LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
-                                const ttkernel::ThreadType &threadType) {
-
-  // We must load the EmitC dialect before we can emit any EmitC code. This
-  // dialect won't be loaded by MLIR until pass manager starts a pass that
-  // depends on it. Because we want to emit EmitC code before that, we need to
-  // load it here.
-  region->getContext()->getOrLoadDialect<emitc::EmitCDialect>();
-
-  FailureOr<mlir::ModuleOp> moduleOp =
-      convertTTKernelRegionToEmitC(region, threadType);
-  if (failed(moduleOp)) {
-    return failure();
-  }
-
-  if (failed(emitc::translateToCpp(*moduleOp, os))) {
-    return failure();
-  }
-
-  return success();
-}
-
-LogicalResult
-emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
-                                 llvm::SmallVector<std::string> &cppStrings) {
-  // assert(cppStrings.size() == enqueueProgramOp.getNumRegions() &&
-  //        "cppStrings size must match number of regions");
-
-  // for (auto &reg : enqueueProgramOp->getRegions()) {
-  //   auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
-  //       enqueueProgramOp.getKernelConfigs()[reg.getRegionNumber()]);
-  //   if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-  //                         kernelConfig.getThreadType())
-  //           .failed()) {
-  //     return llvm::failure();
-  //   }
-  // }
-
-  return success();
-}
-
-LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,
-                              const ttkernel::ThreadType &threadType) {
-  llvm::SmallVector<func::FuncOp, 1> ops;
-  op->walk([&](func::FuncOp entry) { ops.push_back(entry); });
-
-  for (const auto &op : ops) {
-    for (auto &reg : op->getRegions()) {
-      if (emitOpRegionAsCpp(&reg, os, threadType).failed()) {
-        return llvm::failure();
-      }
-    }
-  }
-  return llvm::success();
 }
 
 } // namespace mlir::tt

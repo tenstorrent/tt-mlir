@@ -31,13 +31,11 @@ LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
 // Converts enqueue program op's regions to EmitC dialect and writes
 // them as C++ code to 'cppStrings' (in the same order as
 // 'enqueueProgramOp' regions).
-LogicalResult
+inline LogicalResult
 emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
-                                 llvm::SmallVector<std::string> &cppStrings);
-
-// Converts all FuncOps in 'op' as if by emitOpRegionAsCpp().
-LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,
-                              const ttkernel::ThreadType &threadType);
+                                 llvm::SmallVector<std::string> &cppStrings) {
+  return success();
+}
 
 } // namespace mlir::tt
 

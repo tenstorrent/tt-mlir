@@ -221,15 +221,12 @@ void populatePassesModule(nb::module_ &m) {
 
   m.def(
       "ttkernel_to_cpp",
-      [](MlirModule module, bool isTensixKernel) {
+      [](MlirModule module, bool) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        tt::ttkernel::ThreadType threadType =
-            isTensixKernel ? tt::ttkernel::ThreadType::Tensix
-                           : tt::ttkernel::ThreadType::Noc;
         std::string output;
         llvm::raw_string_ostream output_stream(output);
-        if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
-                moduleOp, output_stream, threadType))) {
+        if (mlir::failed(mlir::tt::ttkernel::translateTopLevelKernelsToCpp(
+                mlir::cast<ModuleOp>(moduleOp), output_stream))) {
           throw std::runtime_error("Failed to generate cpp");
         }
         output_stream.flush();
