@@ -713,24 +713,6 @@ std::vector<std::string> getAllOpLocInfo(Binary executableHandle,
   return locInfo;
 }
 
-::tt::runtime::Tensor
-getTensorFromTensorRef(const ::tt::target::ttnn::TensorRef *tensorRef,
-                       const ttnn::ProgramTensorPool &tensorPool) {
-  const ::ttnn::Tensor *outPtr = nullptr;
-  if (tensorRef && tensorPool.contains(tensorRef)) {
-    outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef);
-  } else {
-    LOG_WARNING("Output tensor not found in tensor pool");
-    return createNullTensor();
-  }
-
-  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
-      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-      std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
-
-  return utils::createRuntimeTensorFromTTNN(hostTensor);
-}
-
 // copy getAllOPLocinfo to get *program, use program-> operations to get
 // [tensorref] write function for tensorref -> tensor using get op output tensor
 std::vector<::tt::runtime::Tensor>
@@ -744,8 +726,20 @@ getInputTensors(CallbackContext programContextHandle, Binary executableHandle,
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  const ::ttnn::Tensor *outPtr = nullptr;
   for (const ::tt::target::ttnn::TensorRef *tensorRef : *program->outputs()) {
-    inputTensors.push_back(getTensorFromTensorRef(tensorRef, tensorPool));
+    if (tensorRef && tensorPool.contains(tensorRef)) {
+      outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef);
+    } else {
+      LOG_WARNING("Output tensor not found in tensor pool");
+      inputTensors.push_back(createNullTensor());
+    }
+
+    ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
+        ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+        std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+
+    inputTensors.push_back(utils::createRuntimeTensorFromTTNN(hostTensor));
   }
   // return &tensorPool.gatherInputTensors();
   return inputTensors;
@@ -759,8 +753,8 @@ getInputTensors(CallbackContext programContextHandle, Binary executableHandle,
   auto const &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
-  const ::tt::target::ttnn::TensorRef *tensorRef = nullptr;
-  // const ::ttnn::Tensor *outPtr = nullptr;
+  std::optional<const ::tt::target::ttnn::TensorRef *> tensorRef = std::nullopt;
+  const ::ttnn::Tensor *outPtr = nullptr;
 
   switch (opContext.type_type()) {
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
@@ -939,7 +933,18 @@ getInputTensors(CallbackContext programContextHandle, Binary executableHandle,
   }
   }
 
-  return getTensorFromTensorRef(tensorRef, tensorPool);
+  if (tensorRef.has_value() && tensorPool.contains(tensorRef.value())) {
+    outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRef.value());
+  } else {
+    LOG_WARNING("Output tensor not found in tensor pool");
+    return createNullTensor();
+  }
+
+  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
+      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+      std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+
+  return utils::createRuntimeTensorFromTTNN(hostTensor);
 }
 
 std::vector<::tt::runtime::Tensor>

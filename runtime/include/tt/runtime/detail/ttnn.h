@@ -162,9 +162,6 @@ getInputTensors(CallbackContext programContextHandle, Binary executableHandle,
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle);
 
-// ::tt::runtime::Tensor getTensorFromTensorRef(::tt::target::ttnn::TensorRef
-// tensorRef, const ::tt::runtime::ttnn::ProgramTensorPool &tensorPool);
-
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);

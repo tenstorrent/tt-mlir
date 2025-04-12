@@ -293,20 +293,20 @@ PYBIND11_MODULE(_C, m) {
   // m.def("get_output_tensors",
   // tt::runtime::ttnn::ProgramTensorPool::gatherOutputTensors,
   //       "Get output tensors off device");
-  m.def("get_input_tensors", &tt::runtime::getInputTensors, "Get
-    input tensors off device");
+  m.def("get_input_tensors", &tt::runtime::getInputTensors,
+        "Get input tensors off device");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
-    void *dstPtr = reinterpret_cast<void *>(dst);
-    ::tt::runtime::memcpy(dstPtr, src);
+        void *dstPtr = reinterpret_cast<void *>(dst);
+        ::tt::runtime::memcpy(dstPtr, src);
       },
       py::arg("dst"), py::arg("src"),
       "Copy the data from src tensor to dst pointer");
   m.def(
       "memcpy",
       [](::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
-    ::tt::runtime::memcpy(dst, src);
+        ::tt::runtime::memcpy(dst, src);
       },
       py::arg("dst"), py::arg("src"),
       "Copy the data from src tensor to dst tensor");
@@ -315,9 +315,9 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)
       .def("__str__", [](const tt::runtime::debug::Env &env) {
-    std::stringstream os;
-    os << env;
-    return os.str();
+        std::stringstream os;
+        os << env;
+        return os.str();
       });
 
   py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
@@ -325,33 +325,33 @@ PYBIND11_MODULE(_C, m) {
           "get",
           [](py::function pre_op_func, py::function post_op_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-    tt::runtime::debug::Hooks::get(
-        [pre_op_func](tt::runtime::Binary Binary,
-                      tt::runtime::CallbackContext programContext,
-                      tt::runtime::OpContext opContext) {
-          pre_op_func(Binary, programContext, opContext);
-        },
-        [post_op_func](tt::runtime::Binary Binary,
-                       tt::runtime::CallbackContext programContext,
-                       tt::runtime::OpContext opContext) {
-          post_op_func(Binary, programContext, opContext);
-        });
+            tt::runtime::debug::Hooks::get(
+                [pre_op_func](tt::runtime::Binary Binary,
+                              tt::runtime::CallbackContext programContext,
+                              tt::runtime::OpContext opContext) {
+                  pre_op_func(Binary, programContext, opContext);
+                },
+                [post_op_func](tt::runtime::Binary Binary,
+                               tt::runtime::CallbackContext programContext,
+                               tt::runtime::OpContext opContext) {
+                  post_op_func(Binary, programContext, opContext);
+                });
 #else
     tt::runtime::debug::Hooks::get();
 #endif
           })
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
-    std::stringstream os;
-    os << hooks;
-    return os.str();
+        std::stringstream os;
+        os << hooks;
+        return os.str();
       });
 
   py::class_<tt::runtime::workaround::Env>(m, "WorkaroundEnv")
       .def_static("get", &tt::runtime::workaround::Env::get)
       .def("__str__", [](const tt::runtime::workaround::Env &env) {
-    std::stringstream os;
-    os << env;
-    return os.str();
+        std::stringstream os;
+        os << env;
+        return os.str();
       });
 
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
@@ -387,8 +387,7 @@ PYBIND11_MODULE(_C, m) {
   };
   m.add_object("_cleanup", py::capsule(cleanup_callback));
   m.def("unregister_hooks",
-        []() {
-    ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
   m.def("unregister_runtime_modifications", []() {
     ::tt::runtime::debug::RuntimeModifications::get()
         .unregisterRuntimeModifications();
