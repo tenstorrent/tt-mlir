@@ -185,12 +185,10 @@ public:
 
     AffineMap dmaIndexingMap = *dma.getSrcAffineMap();
     MemRefType memref = dma.getSrcMemRefType();
-    assert(memref.getRank() % 2 == 0 && "Only even rank memrefs are supported");
-    ArrayRef<int64_t> memrefShape = memref.getShape();
-    ArrayRef<int64_t> memrefGridShape =
-        memrefShape.take_front(memrefShape.size() / 2);
-    ArrayRef<int64_t> memrefShardShape =
-        memrefShape.drop_front(memrefShape.size() / 2);
+    DeviceLayoutInterface layout =
+        mlir::cast<DeviceLayoutInterface>(memref.getLayout());
+    ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
+    ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
 
     GenericOp genericParent = dma->getParentOfType<ttir::GenericOp>();
     unsigned outputOperandsIndex =

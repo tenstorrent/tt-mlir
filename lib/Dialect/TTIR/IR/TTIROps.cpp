@@ -1965,17 +1965,19 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
       return op->emitOpError("Input and output memref ranks must be the same");
     }
 
-    bool inputGridShardForm = inputTy.getShape().size() % 2 == 0;
-    if (checkMemrefGridShardForm && !inputGridShardForm) {
+    bool isInputDeviceLayout =
+        mlir::isa<mlir::tt::DeviceLayoutInterface>(inputTy.getLayout());
+    if (checkMemrefGridShardForm && !isInputDeviceLayout) {
       return op->emitOpError(
-          "Input memref must be in grid-shard form, i.e. have even rank, grid "
+          "input memref must have device layout, i.e. have even rank, grid "
           "shape followed by shard shape of equal rank, e.g. GxGxSxS");
     }
 
-    bool outputGridShardForm = outputTy.getShape().size() % 2 == 0;
-    if (checkMemrefGridShardForm && !outputGridShardForm) {
+    bool isOutputDeviceLayout =
+        mlir::isa<mlir::tt::DeviceLayoutInterface>(outputTy.getLayout());
+    if (checkMemrefGridShardForm && !isOutputDeviceLayout) {
       return op->emitOpError(
-          "Output memref must be in grid-shard form, i.e. have even rank, grid "
+          "output memref must have device layout, i.e. have even rank, grid "
           "shape followed by shard shape of equal rank, e.g. GxGxSxS");
     }
 
@@ -3427,8 +3429,9 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
       // If the top level operand is a memref, the front half of its shape
       // is the grid shape, so we cut it off the back to get just the grid
       // shape.
-      assert(memref.getRank() % 2 == 0);
-      outputGridShape = memref.getShape().take_front(memref.getRank() / 2);
+      mlir::tt::DeviceLayoutInterface layout =
+          mlir::cast<mlir::tt::DeviceLayoutInterface>(memref.getLayout());
+      outputGridShape = layout.getGridShape(memref);
     }
     if (opGridShape != outputGridShape) {
       return emitOpError(
@@ -3510,8 +3513,9 @@ verifyAffineShapes(llvm::function_ref<mlir::InFlightDiagnostic()> diagFn,
         // If the top level operand is a memref, the front half of its shape
         // will include the grid shape, so we cut it off to get just the shard
         // shape.
-        assert(memref.getRank() % 2 == 0);
-        expectedShardShape = memref.getShape().take_back(memref.getRank() / 2);
+        mlir::tt::DeviceLayoutInterface layout =
+            mlir::cast<mlir::tt::DeviceLayoutInterface>(memref.getLayout());
+        expectedShardShape = layout.getShardShape(memref);
         isStream = mlir::isa<tt::ViewLayoutAttr>(memref.getLayout());
       }
 
@@ -3581,9 +3585,9 @@ mlir::tt::ttir::GenericOp::getOperandGridShapes() {
   for (auto operand : this->getOperands()) {
     auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
     if (memrefType) {
-      assert(memrefType.getRank() % 2 == 0);
-      gridShapes.emplace_back(
-          memrefType.getShape().take_front(memrefType.getRank() / 2));
+      mlir::tt::DeviceLayoutInterface layout =
+          mlir::cast<mlir::tt::DeviceLayoutInterface>(memrefType.getLayout());
+      gridShapes.emplace_back(layout.getGridShape(memrefType));
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       MetalLayoutAttr layout =
