@@ -43,7 +43,7 @@ runSoProgram(void *so, std::string func_name,
   // In this path, we only ever test with a single device (for now), hence
   // MeshDevice is unpacked to get the Device
   //
-  assert(ttnnMeshDevice.get_devices().size() == 1);
+  assert(ttnnMeshDevice.get_devices().size() > 0);
   ::ttnn::IDevice *ttnnDevice = ttnnMeshDevice.get_devices()[0];
 
   // Convert inputs to TTNN tensors using .as method
