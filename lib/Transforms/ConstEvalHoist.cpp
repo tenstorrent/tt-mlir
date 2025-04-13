@@ -426,7 +426,9 @@ private:
     mlir::ModuleOp moduleOp =
         dyn_cast<mlir::ModuleOp>(originalFunc->getParentOp());
     assert(moduleOp);
-    builder.setInsertionPointToEnd(moduleOp.getBody());
+    // Create the const-eval function before the parent function
+    // This ensures proper ordering in the generated EmitC code.
+    builder.setInsertionPoint(originalFunc);
     auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
                                                   newFuncName, funcType);
     // Mark the new function as const-eval.

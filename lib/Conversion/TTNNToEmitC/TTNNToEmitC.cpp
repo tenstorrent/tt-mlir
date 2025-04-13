@@ -1607,10 +1607,8 @@ public:
 
 // LoadCached Op conversion pattern
 //
-// This is a stopgap to make const-eval code work by replacing the const-eval
-// subgraph load_cached op with a direct call to the subgraph func.  This will
-// not perform const-eval caching, but at least such programs won't get errors
-// from emitC.
+// This is crude solution to use a static vector of results s.t. we only execute
+// the subgraphs once.  No support for tensor dirtying atm.
 //
 namespace {
 class LoadCachedOpConversionPattern
@@ -1623,13 +1621,15 @@ public:
   matchAndRewrite(tt::LoadCachedOp srcOp, tt::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the callee function
-    auto callee = srcOp.getCallee();
+    llvm::StringRef callee = srcOp.getCallee();
 
-    // Get the input indices
-    SmallVector<Value> callOperands;
-    for (Value arg : srcOp.getInputs()) {
-      callOperands.push_back(arg);
-    }
+    // Try to find if utility vec creation function is already defined in the
+    // module. If not, insert it.
+    tt::ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, srcOp);
+
+    // Create a tuple of all input tensors
+    auto tupleType = emitc::OpaqueType::get(rewriter.getContext(),
+                                            "::std::vector<::ttnn::Tensor>");
 
     // Convert result types
     SmallVector<Type> resultTypes;
@@ -1637,8 +1637,112 @@ public:
       resultTypes.push_back(getTypeConverter()->convertType(type));
     }
 
-    rewriter.replaceOpWithNewOp<func::CallOp>(srcOp, resultTypes, callee,
-                                              callOperands);
+    // Generate a unique name for our global variable
+    std::string globalVarName = "g_cached_result_" + callee.str();
+    FlatSymbolRefAttr globalSym =
+        SymbolRefAttr::get(rewriter.getContext(), globalVarName);
+
+    // Insert a global variable declaration before the current function
+    // This ensures it comes after the header include in the generated C++ code
+    auto funcOp = srcOp->getParentOfType<func::FuncOp>();
+    auto currentInsertionPoint = rewriter.saveInsertionPoint();
+    rewriter.setInsertionPoint(funcOp);
+
+    // Create the global variable using EmitC's GlobalOp
+    rewriter.create<emitc::GlobalOp>(
+        srcOp.getLoc(), StringAttr::get(rewriter.getContext(), globalVarName),
+        TypeAttr::get(tupleType),
+        /*initialValue=*/nullptr,
+        /*extern_specifier=*/UnitAttr(),
+        /*static_specifier=*/UnitAttr::get(rewriter.getContext()),
+        /*const_specifier=*/UnitAttr());
+
+    // Restore the insertion point to continue with the function
+    rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+    // Get a reference to the global variable using GetGlobalOp
+    auto globalVar = rewriter.create<emitc::GetGlobalOp>(
+        srcOp.getLoc(), emitc::LValueType::get(tupleType), globalSym);
+
+    // Create a variable to hold the member function pointer for empty()
+    auto memberFuncPtrTy = emitc::OpaqueType::get(
+        rewriter.getContext(), "decltype(&std::vector<::ttnn::Tensor>::empty)");
+    auto memberFuncPtrAttr = emitc::OpaqueAttr::get(
+        rewriter.getContext(), "&std::vector<::ttnn::Tensor>::empty");
+    auto memberFuncPtrOp = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(), memberFuncPtrTy, memberFuncPtrAttr);
+
+    // Get the address of the global variable to pass to std::invoke
+    auto globalVarAddrOp = rewriter.create<emitc::ApplyOp>(
+        srcOp.getLoc(),
+        emitc::PointerType::get(emitc::OpaqueType::get(
+            rewriter.getContext(), "std::vector<::ttnn::Tensor>")),
+        rewriter.getStringAttr("&"), globalVar);
+
+    // Call std::invoke with the member function pointer and global variable
+    // pointer
+    auto emptyCheckOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), rewriter.getI1Type(), "std::invoke", nullptr, nullptr,
+        ValueRange{memberFuncPtrOp.getResult(), globalVarAddrOp.getResult()});
+
+    // Conditional logic based on the empty check
+    rewriter.create<emitc::IfOp>(
+        srcOp.getLoc(), emptyCheckOp.getResult(0),
+        [&](OpBuilder &b, Location loc) {
+          auto tupleOp = b.create<emitc::CallOpaqueOp>(
+              loc, tupleType,
+              tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
+              nullptr, adaptor.getInputs());
+          Value tupleValue = tupleOp.getResult(0);
+
+          // Call the function and store the result in the global variable
+          auto callOp = b.create<emitc::CallOpaqueOp>(
+              loc, tupleType,
+              callee.str(), // Use the function name directly
+              nullptr,      // No template arguments
+              nullptr,      // No array attributes
+              ValueRange{tupleValue});
+
+          // Assign the result to the global variable
+          b.create<emitc::AssignOp>(loc, globalVar, callOp.getResult(0));
+
+          // Add a yield operation to terminate the block
+          b.create<emitc::YieldOp>(loc);
+        });
+
+    // Load the value from the global variable
+    auto resultVar =
+        rewriter.create<emitc::LoadOp>(srcOp.getLoc(), tupleType, globalVar);
+
+    // Unpack the tuple result - extract each element from the tuple
+    SmallVector<Value> results;
+
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      // Create index value
+      auto indexType = rewriter.getIndexType();
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), indexType, std::to_string(i));
+      Value indexVal = indexOp.getResult();
+
+      // Create LValue type for the tensor reference
+      auto lvalueType = emitc::LValueType::get(
+          emitc::OpaqueType::get(rewriter.getContext(), "::ttnn::Tensor"));
+
+      // Get reference to the i-th element in the static cache result
+      // Use the variable that references our global result
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, resultVar.getResult(), indexVal);
+
+      // Load the actual tensor value from the reference
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), "::ttnn::Tensor"),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+
+    // Replace the original op with the extracted results
+    rewriter.replaceOp(srcOp, results);
 
     return success();
   }
