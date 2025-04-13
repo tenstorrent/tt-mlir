@@ -261,8 +261,15 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_StreamLayoutOp : TTIR_BufferizableOp<"stream_layout",
-  [ DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
+def TTIR_StreamLayoutOp : TTIR_Op<"stream_layout",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
   , TTIR_ViewOpInterface
   ]> {
     let summary = "Stream Layout op.";
