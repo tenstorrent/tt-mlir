@@ -166,6 +166,4 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   return success();
 }
 
-OpFoldResult GetCBOp::fold(FoldAdaptor) { return getCbIndexAttr(); }
-
 } // namespace mlir::tt::ttkernel

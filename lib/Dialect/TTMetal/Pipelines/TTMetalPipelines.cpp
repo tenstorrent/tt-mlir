@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/EmitC/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -80,6 +81,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(createConvertTTIRToTTMetalPass());
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
 //===----------------------------------------------------------------------===//

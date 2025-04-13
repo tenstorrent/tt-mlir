@@ -602,6 +602,8 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
 
+def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_Semaphore, TTKernel_L1Addr]>;
+
 def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     let summary = "Get runtime arg value.";
     let description = [{
@@ -609,8 +611,7 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     }];
 
     let arguments = (ins I32:$arg_index);
-
-    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+    let results = (outs TTKernel_ArgResultType:$result);
 }
 
 def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
@@ -620,8 +621,7 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
     }];
 
     let arguments = (ins I32Attr:$arg_index);
-
-    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
+    let results = (outs TTKernel_ArgResultType:$result);
 }
 
 //===----------------------------------------------------------------------===//
@@ -676,18 +676,6 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y"> {
 
     let arguments = (ins Optional<I8>:$noc);
     let results = (outs Index:$y);
-}
-
-def TTKernel_GetCBOp : TTKernel_Op<"get_cb", [Pure, ConstantLike]> {
-  let summary = "Get CB";
-  let description = [{
-     Returns a CB type.
-    }];
-
-  let arguments = (ins I32Attr:$cb_index);
-  let results = (outs TTKernel_CB:$cb);
-
-  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//

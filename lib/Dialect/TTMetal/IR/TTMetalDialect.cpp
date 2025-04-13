@@ -4,12 +4,13 @@
 
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
-#include "mlir/IR/DialectImplementation.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/Interfaces/FoldInterfaces.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+
+#include "mlir/IR/DialectImplementation.h"
+#include "mlir/InitAllDialects.h"
+#include "mlir/Interfaces/FoldInterfaces.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;

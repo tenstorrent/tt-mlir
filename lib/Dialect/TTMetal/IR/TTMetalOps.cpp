@@ -63,13 +63,16 @@ namespace mlir::tt::ttmetal {
 
 ::mlir::LogicalResult EnqueueProgramOp::verify() {
   // Assert inputs/outputs device memspace
+  if (getBuffers().size() != getCbs().size()) {
+    return emitOpError("number of buffers and cbs must be the same");
+  }
 
   for (auto operand : getOperands()) {
     ::mlir::MemRefType outputTy = mlir::cast<MemRefType>(operand.getType());
     MemorySpaceAttr memSpaceAttr =
         mlir::cast<MemorySpaceAttr>(outputTy.getMemorySpace());
     if (not isDeviceMemorySpace(memSpaceAttr.getValue())) {
-      return emitOpError("Input tensor must be in device memory space");
+      return emitOpError("input tensor must be in device memory space");
     }
   }
   return success();
