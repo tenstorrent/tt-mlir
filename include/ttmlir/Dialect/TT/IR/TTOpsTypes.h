@@ -180,6 +180,8 @@ inline Type dataTypeToElementType(::mlir::MLIRContext *context,
 }
 } // namespace mlir::tt
 
+#include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.h.inc"
+
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsAttrDefs.h.inc"
 

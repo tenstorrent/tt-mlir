@@ -25,6 +25,8 @@ using namespace mlir::tt;
 
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.cpp.inc"
 
+#include "ttmlir/Dialect/TT/IR/TTAttrInterfaces.cpp.inc"
+
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
 
@@ -1101,7 +1103,8 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
 
 size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
                                       size_t pageSize) const {
-  assert(memrefType.getRank() % 2 == 0);
+  DeviceLayoutInterface layout =
+      mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
   mlir::Type elementType = memrefType.getElementType();
   uint64_t size = 0;
   if (mlir::isa<TileType>(elementType)) {
@@ -1111,7 +1114,7 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
     size = elementType.getIntOrFloatBitWidth() / 8;
   }
 
-  auto shardShape = memrefType.getShape().drop_front(memrefType.getRank() / 2);
+  auto shardShape = layout.getShardShape(memrefType);
   return std::accumulate(shardShape.begin(), shardShape.end(), size,
                          std::multiplies<uint64_t>());
 }
