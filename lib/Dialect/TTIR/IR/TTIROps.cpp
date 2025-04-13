@@ -2194,6 +2194,16 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::verify() {
   return success();
 }
 
+bool mlir::tt::ttir::StreamLayoutOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool mlir::tt::ttir::StreamLayoutOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
 mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options) {
@@ -2219,6 +2229,13 @@ mlir::LogicalResult mlir::tt::ttir::StreamLayoutOp::bufferize(
       *maybeInput, *maybeStorage);
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, result);
   return success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::StreamLayoutOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
 }
 
 mlir::FailureOr<mlir::BaseMemRefType>
