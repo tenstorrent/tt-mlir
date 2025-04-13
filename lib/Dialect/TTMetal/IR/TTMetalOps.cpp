@@ -63,6 +63,9 @@ namespace mlir::tt::ttmetal {
 
 ::mlir::LogicalResult EnqueueProgramOp::verify() {
   // Assert inputs/outputs device memspace
+  if (getBuffers().size() != getCbs().size()) {
+    return emitOpError("number of buffers and cbs must be the same");
+  }
 
   for (auto operand : getOperands()) {
     ::mlir::MemRefType operandType = mlir::cast<MemRefType>(operand.getType());

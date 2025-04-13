@@ -7,7 +7,7 @@
 
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalBase.td"
-include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.td"
+include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsAttrs.td"
 include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -26,11 +26,10 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[Mem
       Enqueue program operation
     }];
 
-    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$inputs,
-                         Variadic<AnyNon0RankedMemRef>:$outputs,
-                         ArrayAttr:$threads,
-                         TTMetal_CoreRangeArrayAttr:$core_ranges,
-                         TTKernel_KernelConfigArrayAttr:$kernelConfigs);
+    let arguments = (ins Variadic<AnyNon0RankedMemRef>:$buffers,
+                         Variadic<AnyNon0RankedMemRef>:$cbs,
+                         DenseI64ArrayAttr:$cb_ports,
+                         TTMetal_KernelConfigArrayAttr:$kernelConfigs);
     let hasVerifier = 1;
 }
 

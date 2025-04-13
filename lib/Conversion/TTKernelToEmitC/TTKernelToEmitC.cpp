@@ -190,62 +190,6 @@ public:
 } // namespace
 
 namespace {
-class TTMetalToEmitCFuncArgsRewriter
-    : public OpConversionPattern<func::FuncOp> {
-public:
-  TTMetalToEmitCFuncArgsRewriter(TTKernelToEmitCTypeConverter &typeConverter,
-                                 MLIRContext *ctx)
-      : OpConversionPattern<func::FuncOp>(typeConverter, ctx) {}
-
-  LogicalResult
-  matchAndRewrite(func::FuncOp op, func::FuncOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    Block *block = &op.getCallableRegion()->front();
-    auto blockArgs = block->getArguments();
-    if (blockArgs.empty()) {
-      return rewriter.notifyMatchFailure(op, "No block arguments");
-    }
-
-    TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
-    OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
-    rewriter.setInsertionPointToStart(block);
-    for (auto arg : blockArgs) {
-      auto cb = cast<ttkernel::CBType>(arg.getType());
-      auto cbType = getTypeConverter()->convertType(cb);
-      auto cbPort = rewriter.create<emitc::ConstantOp>(
-          op.getLoc(), cbType, convertCBPort(rewriter, cb.getPort()));
-      signatureConverter.remapInput(arg.getArgNumber(), cbPort.getResult());
-    }
-
-    rewriter.applySignatureConversion(block, signatureConverter,
-                                      getTypeConverter());
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
-    });
-
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class TTKernelToEmitCGetCBOpRewriter
-    : public OpConversionPattern<ttkernel::GetCBOp> {
-public:
-  using OpConversionPattern<ttkernel::GetCBOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttkernel::GetCBOp op, ttkernel::GetCBOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
-        op, this->getTypeConverter()->convertType(op.getCb().getType()),
-        convertCBPort(rewriter, *ttkernel::symbolizeCBPort(op.getCbIndex())));
-    return success();
-  }
-};
-} // namespace
-
-namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -336,6 +280,24 @@ public:
 
 private:
   std::string opName;
+};
+} // namespace
+
+namespace {
+class TTKernelToEmitCGetCompileArgValRewriter
+    : public OpConversionPattern<ttkernel::GetCompileArgValOp> {
+public:
+  using OpConversionPattern<ttkernel::GetCompileArgValOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::GetCompileArgValOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
+            .str());
+    return success();
+  }
 };
 } // namespace
 
@@ -497,7 +459,7 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCGetCBOpRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter,
         TTKernelToEmitCPassthroughRewriter<ttkernel::CBReinterpretShapeOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
@@ -561,7 +523,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetCompileArgValOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
         typeConverter, funcOp.getContext());

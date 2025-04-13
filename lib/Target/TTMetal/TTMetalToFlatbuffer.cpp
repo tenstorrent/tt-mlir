@@ -108,31 +108,31 @@ struct CQBuilder {
   }
 };
 
-::tt::target::MathFidelity toFlatbuffer(ttkernel::MathFidelity mathFidelity) {
+::tt::target::MathFidelity toFlatbuffer(ttmetal::MathFidelity mathFidelity) {
   switch (mathFidelity) {
-  case ttkernel::MathFidelity::HiFi4:
+  case ttmetal::MathFidelity::HiFi4:
     return ::tt::target::MathFidelity::HiFi4;
-  case ttkernel::MathFidelity::HiFi3:
+  case ttmetal::MathFidelity::HiFi3:
     return ::tt::target::MathFidelity::HiFi3;
-  case ttkernel::MathFidelity::HiFi2:
+  case ttmetal::MathFidelity::HiFi2:
     return ::tt::target::MathFidelity::HiFi2;
-  case ttkernel::MathFidelity::LoFi:
+  case ttmetal::MathFidelity::LoFi:
     return ::tt::target::MathFidelity::LoFi;
   }
   assert(false && "Unsupported MathFidelity");
 }
 
 std::vector<::tt::target::metal::UnpackToDestMode>
-toFlatbuffer(llvm::ArrayRef<ttkernel::UnpackToDestMode> unpackToDestModes) {
+toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
   std::vector<::tt::target::metal::UnpackToDestMode> result;
   result.reserve(unpackToDestModes.size());
 
   for (auto mode : unpackToDestModes) {
     switch (mode) {
-    case ttkernel::UnpackToDestMode::UnpackToDestFp32:
+    case ttmetal::UnpackToDestMode::UnpackToDestFp32:
       result.push_back(::tt::target::metal::UnpackToDestMode::UnpackToDestFp32);
       break;
-    case ttkernel::UnpackToDestMode::Default:
+    case ttmetal::UnpackToDestMode::Default:
       result.push_back(::tt::target::metal::UnpackToDestMode::Default);
       break;
     }
@@ -140,21 +140,21 @@ toFlatbuffer(llvm::ArrayRef<ttkernel::UnpackToDestMode> unpackToDestModes) {
   return result;
 }
 
-::tt::target::metal::EthType toFlatbuffer(ttkernel::EthType ethType) {
+::tt::target::metal::EthType toFlatbuffer(ttmetal::EthType ethType) {
   switch (ethType) {
-  case ttkernel::EthType::Sender:
+  case ttmetal::EthType::Sender:
     return ::tt::target::metal::EthType::Sender;
-  case ttkernel::EthType::Receiver:
+  case ttmetal::EthType::Receiver:
     return ::tt::target::metal::EthType::Receiver;
   }
   assert(false && "Unsupported EthType");
 }
 
-::tt::target::metal::NocIndex toFlatbuffer(ttkernel::NocIndex nocIndex) {
+::tt::target::metal::NocIndex toFlatbuffer(ttmetal::NocIndex nocIndex) {
   switch (nocIndex) {
-  case ttkernel::NocIndex::Noc0:
+  case ttmetal::NocIndex::Noc0:
     return ::tt::target::metal::NocIndex::Noc0;
-  case ttkernel::NocIndex::Noc1:
+  case ttmetal::NocIndex::Noc1:
     return ::tt::target::metal::NocIndex::Noc1;
   }
   assert(false && "Unsupported NocIndex");
@@ -163,12 +163,12 @@ toFlatbuffer(llvm::ArrayRef<ttkernel::UnpackToDestMode> unpackToDestModes) {
 // Take KernelConfig and return pair of its type and variantized config itself
 std::pair<::tt::target::metal::KernelConfig, ::flatbuffers::Offset<void>>
 toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
-             ttkernel::KernelConfigInterface kernelConfig) {
+             ttmetal::KernelConfigInterface kernelConfig) {
   ttkernel::ThreadType threadType = kernelConfig.getThreadType();
 
   switch (threadType) {
   case ttkernel::ThreadType::Noc: {
-    auto nocConfigAttr = mlir::dyn_cast<ttkernel::NocConfigAttr>(kernelConfig);
+    auto nocConfigAttr = mlir::dyn_cast<ttmetal::NocConfigAttr>(kernelConfig);
     auto configType = ::tt::target::metal::KernelConfig::NocConfig;
     auto config = ::tt::target::metal::CreateNocConfig(
         fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
@@ -176,7 +176,7 @@ toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
   }
   case ttkernel::ThreadType::Tensix: {
     auto tensixConfigAttr =
-        mlir::dyn_cast<ttkernel::TensixConfigAttr>(kernelConfig);
+        mlir::dyn_cast<ttmetal::TensixConfigAttr>(kernelConfig);
     auto configType = ::tt::target::metal::KernelConfig::TensixConfig;
     auto unpackToDestModeVec =
         toFlatbuffer(tensixConfigAttr.getUnpackToDestMode());
@@ -188,7 +188,7 @@ toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
   }
   case ttkernel::ThreadType::Ethernet: {
     auto ethernetConfigAttr =
-        mlir::dyn_cast<ttkernel::EthernetConfigAttr>(kernelConfig);
+        mlir::dyn_cast<ttmetal::EthernetConfigAttr>(kernelConfig);
     auto configType = ::tt::target::metal::KernelConfig::EthernetConfig;
     auto config = ::tt::target::metal::CreateEthernetConfig(
         fbb, toFlatbuffer(ethernetConfigAttr.getEthType()),
@@ -387,7 +387,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         //       enqueueProgramOp.getKernelConfigs()[region.getRegionNumber()];
         //   auto [kernelConfigType, kernelConfigUnion] = toFlatbuffer(
         //       fbb,
-        //       mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig));
+        //       mlir::cast<ttmetal::KernelConfigInterface>(kernelConfig));
 
         //   kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
         //       fbb, ::tt::target::metal::Kernel::KernelSource,
