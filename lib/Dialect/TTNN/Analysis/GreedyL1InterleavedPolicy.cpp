@@ -9,6 +9,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 
+#include "llvm/ADT/DenseMap.h"
+
 namespace mlir::tt::ttnn {
 
 GreedyL1InterleavedPolicy::GreedyPolicyChoice
@@ -291,8 +293,8 @@ void GreedyL1InterleavedPolicy::run() {
     }
     l1ChainConfigs->back().build();
     l1ChainConfigs->back().resolve();
-    std::unordered_set<Edge> memReconfigEdges;
-    l1ChainConfigs->back().complete(selectedOpConfig, memReconfigEdges);
+    llvm::DenseMap<Edge, MemReconfigEntry> memReconfigMap;
+    l1ChainConfigs->back().complete(selectedOpConfig, memReconfigMap);
   }
 }
 

@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttnn {
 
@@ -19,7 +20,7 @@ namespace mlir::tt::ttnn {
 //
 class DFShardingPolicy : public MemoryLayoutAnalysisPolicy {
 private:
-  std::unordered_set<Edge> overrideReshardEdges;
+  llvm::DenseSet<Edge> overrideReshardEdges;
   void pickOpShardConfigs(ShardSolver &shardSolver,
                           const L1ChainConfig &l1ChainConfig);
 
@@ -35,7 +36,7 @@ public:
 
   void run() final;
 
-  void setOverrideReshardEdges(const std::unordered_set<Edge> &reshardEdges) {
+  void setOverrideReshardEdges(const llvm::DenseSet<Edge> &reshardEdges) {
     overrideReshardEdges = reshardEdges;
   }
 };

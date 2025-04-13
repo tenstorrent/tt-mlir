@@ -11,7 +11,7 @@
 #include "ttmlir/Dialect/TT/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Builders.h"
@@ -141,8 +141,8 @@ public:
              const llvm::ArrayRef<int64_t> virtualGridSize,
              const llvm::ArrayRef<int64_t> physicalGridSize) {
 
-    auto affineMap =
-        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
+    auto affineMap = mlir::tt::ttnn::optimizer_utils::
+        createSingleDeviceVirtualToPhysicalAffineMap(
             context, tensorMemoryLayout, physicalGridSize);
 
     return mlir::tt::GridAttr::get(context, virtualGridSize, affineMap);

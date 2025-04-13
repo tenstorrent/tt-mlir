@@ -9,7 +9,10 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <string>
 
 namespace mlir::tt::ttnn {
 
@@ -42,7 +45,7 @@ class L1ChainConfig {
 private:
   std::vector<OpL1MemSpec> opL1MemSpecs;
   llvm::DenseSet<Operation *> l1ChainedOps;
-  std::unordered_set<Edge> memReconfigEdges;
+  llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
   L1ChainState state = L1ChainState::InBuild;
 
 public:
@@ -51,11 +54,11 @@ public:
   ShardSolver resolveWithSolver(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges);
+      const llvm::DenseSet<Edge> &overrideReshardEdges);
   void resolve();
   void build();
   void complete(const llvm::DenseMap<Operation *, OpConfig> &selectedOpConfig,
-                std::unordered_set<Edge> &memReconfigEdges);
+                llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap);
   void complete();
 
   bool isEmpty() { return opL1MemSpecs.empty(); }
@@ -68,8 +71,22 @@ public:
     return opL1MemSpecs;
   }
   L1ChainState getState() const { return state; }
-  const std::unordered_set<Edge> &getMemReconfigEdges() const {
-    return memReconfigEdges;
+  std::string getStateString() const {
+    switch (state) {
+    case L1ChainState::InBuild:
+      return "InBuild";
+    case L1ChainState::Built:
+      return "Built";
+    case L1ChainState::Resolved:
+      return "Resolved";
+    case L1ChainState::Completed:
+      return "Completed";
+    case L1ChainState::Failed:
+      return "Failed";
+    }
+  }
+  const llvm::DenseMap<Edge, MemReconfigEntry> &getMemReconfigEntryMap() const {
+    return memReconfigEntryMap;
   }
 
   uint64_t size() const { return opL1MemSpecs.size(); }
@@ -86,6 +103,7 @@ public:
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                      const L1ChainConfig &config) {
   os << "L1ChainConfig(size=" << config.size() << ")";
+  os << "\n\tState: " << config.getStateString();
   for (const auto &opL1MemSpec : config.getOpL1MemSpecs()) {
 
     os << "\n\t" << opL1MemSpec.op->getName().getStringRef() << "\t"
