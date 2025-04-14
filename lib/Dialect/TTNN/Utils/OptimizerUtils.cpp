@@ -108,6 +108,8 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
   return true;
 }
 
+
+// TODO(odjuricic): This hsould be in optimizer analysis directory
 std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
     mlir::MLIRContext *ctx, RankedTensorType tensorType, GridAttr maxGrid,
     Type scalarElementType, bool onlyShardedLayouts,

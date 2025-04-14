@@ -50,7 +50,14 @@ llvm::Expected<std::tuple<size_t, size_t, size_t>>
 getOpConstraints(std::string_view name, Callable &callable) {
   ::ttnn::graph::ConstraintQueryResponse query;
   try {
+    // Measure execution time
+    auto start = std::chrono::high_resolution_clock::now();
     query = callable();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    std::cout << "[TIMING] Callable execution took " << duration.count()
+              << " microseconds" << std::endl;
   } catch (const std::exception &e) {
     // We expect that query will handle exceptions and set error message. If
     // not, we should not continue.
@@ -65,6 +72,11 @@ getOpConstraints(std::string_view name, Callable &callable) {
     return llvm::createStringError(
         query.error_message.value_or("<error message not set>"));
   }
+
+  std::cout << std::endl
+            << std::endl
+            << query.output_tensor_spec->logical_shape() << std::endl
+            << std::endl;
 
   return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
                          query.resource_usage.l1_buffers_peak_per_core,
@@ -194,6 +206,49 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
   return true;
 #else
   return true;
+#endif
+}
+
+llvm::ArrayRef<int64_t> getPreparedWeightsShape(mlir::tt::ttnn::Conv2dOp *op) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+
+  const auto inputShape = op->getInput().getType().getShape();
+  const auto weightShape = op->getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout;
+
+  if (op->getBias()) {
+    biasShape = op->getBias().getType().getShape();
+    biasLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+        op->getBias().getType().getEncoding());
+  }
+
+  const auto outputShape = op->getResult().getType().getShape();
+
+  mlir::tt::ttnn::TTNNLayoutAttr inputLayout =
+      mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+          op->getInput().getType().getEncoding());
+  mlir::tt::ttnn::TTNNLayoutAttr weightLayout =
+      mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+          op->getWeight().getType().getEncoding());
+  mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
+      mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+          op->getResult().getType().getEncoding());
+  
+  // TODO, this will return tensor spec and we will need to extract shape from it
+  auto outputTensorSpec =
+      op_model::ttnn::PrepareConv2dWeightsOpInterface::getOpConstraints(
+          inputShape, inputLayout, weightShape, weightLayout, biasShape,
+          biasLayout, op->getInChannels(), op->getOutChannels(),
+          op->getBatchSize(), op->getInputHeight(), op->getInputWidth(),
+          op->getKernelSize(), op->getStride(), op->getPadding(),
+          op->getDilation(), op->getGroups(), op->getConv2dConfig(),
+          outputShape, outputLayout);
+  
+  return biasShape.value();
+#else
+  assert(false &&
+        "Cannot calculate conv2d prepared weights shape without op model");
 #endif
 }
 
@@ -1012,6 +1067,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
   if (biasShape && biasLayout) {
     ::ttnn::TensorSpec biasSpec =
         conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    // WOW this is not good, and could be slow, please fix
     biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
   }
 
@@ -1034,6 +1090,77 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
   return operation::getOpRuntime("Conv2dOpInterface", conv2dOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareConv2dWeightsOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<std::tuple<size_t, size_t, size_t>>
+PrepareConv2dWeightsOpInterface::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape,
+    mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<mlir::tt::ttnn::TTNNLayoutAttr> biasLayout,
+    int32_t in_channels, int32_t out_channels, int32_t batch_size,
+    int32_t input_height, int32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    int32_t groups,
+    std::optional<mlir::tt::ttnn::Conv2dConfigAttr> conv2dConfig,
+    llvm::ArrayRef<int64_t> outputShape,
+    mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::IDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // Prepare io specs
+  const auto specs = detail::convertToTensorSpec(
+      device, std::make_tuple(inputShape, inputLayout),
+      std::make_tuple(weightShape, weightLayout),
+      std::make_tuple(outputShape, outputLayout));
+
+  auto weightSpec = conversion::getTensorSpec(weightShape, weightLayout);
+
+  // TODO(odjuricic): Not the best way to do this. Should be inside graph
+  // capture.
+  auto weightDeviceTensor =
+      ::tt::tt_metal::create_device_tensor(weightSpec, device);
+  auto weightHostTensor = ::ttnn::from_device(weightDeviceTensor);
+
+  std::optional<::tt::tt_metal::Tensor> biasTensor;
+  if (biasShape && biasLayout) {
+    ::ttnn::TensorSpec biasSpec =
+        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    // NOT GOOD.
+    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
+  }
+
+  auto conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
+
+  auto prepare_fn = &::ttnn::operations::conv::conv2d::prepare_conv_weights<
+      ::tt::tt_metal::IDevice>;
+  // Create query closure
+  auto prepareConv2dWeightsOpQuery = [=]() {
+    const auto [inputSpec, weightSpec, outputSpec] = specs;
+    return ::ttnn::graph::query_op_constraints(
+        prepare_fn, device, weightHostTensor, inputSpec.memory_config(),
+        inputSpec.layout(), "OIHW", in_channels, out_channels, batch_size,
+        input_height, input_width,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+        /*has_bias*/ false, groups, device, conv2dConfigConverted,
+        std::nullopt);
+  };
+
+  return operation::getOpConstraints("PrepareConv2dWeightsOpInterface",
+                                     prepareConv2dWeightsOpQuery);
+#else
+  return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
