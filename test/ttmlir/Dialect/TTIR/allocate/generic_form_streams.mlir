@@ -49,7 +49,7 @@ func.func @matmul_multi_core_transpose(%arg0: memref<2x4x4x6x!tt.tile<32x32, f32
   // CHECK: [[lhs:%[a-z0-9_]+]] = "ttir.stream_layout"(%arg0,
   %0 = "ttir.view_layout"(%arg0) : (memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!tt.tile<32x32, f32>, #l1_>
   // CHECK-NOT: "ttir.view_layout"
-  // CHECK: [[rhs:%[a-z0-9_]+]] = "ttir.stream_layout"(%arg1, {{.*}}, #tt.stream<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>,
+  // CHECK: [[rhs:%[a-z0-9_]+]] = "ttir.stream_layout"(%arg1, {{.*}}, #tt.view<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>,
   %1 = "ttir.view_layout"(%arg1) : (memref<4x4x8x6x!tt.tile<32x32, f32>, #l1_>) -> memref<4x4x6x8x!tt.tile<32x32, f32>, affine_map<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>, #l1_>
   // CHECK: ttir.generic{{.*}}
   // CHECK-NEXT: ins([[lhs]], [[rhs]] : {{.*}})

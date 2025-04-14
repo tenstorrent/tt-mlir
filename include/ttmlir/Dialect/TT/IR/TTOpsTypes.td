@@ -222,24 +222,30 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   }];
 }
 
-def TT_StreamLayoutAttr : TT_Attr<"StreamLayout", "stream", [MemRefLayoutAttrInterface]> {
-  let summary = "Stream layout attribute in TT dialect";
+def TT_ViewLayoutAttr : TT_Attr<"ViewLayout", "view", [MemRefLayoutAttrInterface]> {
+  let summary = "View layout attribute in TT dialect";
   let description = [{
-    Describes a stream layout of a memref buffer.
-    - AffineMap: Provides affine map indexing into the associated data stream.
+    Describes a view layout of a memref buffer.
+    - AffineMap: Provides affine map indexing into the associated data view.
 
-    Only the stream_layout op should return memref's with this attribute.  The stream layout
-    attribute is necessary for two reasons:
-      - It provides a way to reblock the data stream into a different shape (via affine map).
+    Only the view_layout or stream_layout ops should return memref's with this attribute.
+    The view layout attribute is necessary for two reasons:
+      - It provides a way to reblock the data view into a different shape (via affine map).
         Usually this would be some subblock of the original backing memory to chunk the data
         into smaller pieces.
-      - The type itself is a signal to datamovement passes that the memref is a stream and
+      - The type itself is a signal to datamovement passes that the memref is a view and
         should be treated as such.
   }];
 
   let parameters = (ins "AffineMap":$affineMap);
 
-  let assemblyFormat = "`<` $affineMap `>`";
+  let assemblyFormat = "`<` custom<IdentityAffineMap>($affineMap) `>`";
+
+  let extraClassDeclaration = [{
+      static ViewLayoutAttr get(::mlir::MLIRContext *context, unsigned rank) {
+        return get(context, mlir::AffineMap::getMultiDimIdentityMap(rank, context));
+      }
+  }];
 }
 
 def TT_ShardLayoutAttr : TT_Attr<"ShardLayout", "shard", [MemRefLayoutAttrInterface]> {
@@ -365,7 +371,6 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       MetalLayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
       MetalLayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
       MetalLayoutAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
-      MetalLayoutAttr withStreamLayout(::mlir::MLIRContext *context, StreamLayoutAttr stream);
 
       uint64_t getMemrefSizeBytes() const;
       MemorySpace getMemorySpace() const;
@@ -387,7 +392,7 @@ def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
       // used as the buffer type for bufferization, e.g.:
       //   metal_layout<..., <2x3>, memref<4x5xtt.tile<32x32, f32>>>
       //     -> memref<2x3x4x5xtt.tile<32x32, f32>>
-      MemRefType getBufferType() const;
+      MemRefType getBufferType(bool isView = false) const;
   }];
 }
 
@@ -414,7 +419,13 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
   let extraClassDeclaration = [{
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds);
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {});
-      AffineMap getMemoryMap(MemRefType memrefType, size_t pageSize, size_t baseOffset = 0) const;
+      AffineMap getMemoryMap(MemRefType memrefType,
+                             size_t pageSize,
+                             std::optional<AffineMap> view = std::nullopt,
+                             size_t baseOffset = 0) const;
+      AffineMap getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
+                             size_t pageSize,
+                             size_t baseOffset = 0) const;
       size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize) const;
 
       // Returns the footprint size in bytes of the tensor layout distributed across the given memory space.
