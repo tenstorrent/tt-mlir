@@ -492,7 +492,8 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   // Calculate shard shape
   mlir::SmallVector<int64_t> shardShape;
   if (bufferType == BufferType::L1 &&
-      memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
+      memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved &&
+      mlir::isa<mlir::tt::TileType>(elementType)) {
     shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
         physicalShape, elementType, linear, grid);
   } else {

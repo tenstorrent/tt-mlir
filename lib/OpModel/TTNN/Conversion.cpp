@@ -301,7 +301,14 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
                             const ::ttnn::TensorSpec &tensorSpec) {
   // TODO(@arminaleTT) pass in the device grid size
   llvm::SmallVector<int64_t> deviceMaxGrid{8, 8};
-  llvm::SmallVector<int64_t> shape = getShape(tensorSpec.logical_shape());
+  llvm::SmallVector<int64_t> shape;
+  if (tensorSpec.logical_shape().size() > 0) {
+    shape = getShape(tensorSpec.logical_shape());
+  } else {
+    // scalar. can result from reduction operations. convert to (1,1) for
+    // compatibility
+    shape = {1, 1};
+  }
 
   Type elementType;
   if (tensorSpec.layout() == ::tt::tt_metal::Layout::TILE) {
