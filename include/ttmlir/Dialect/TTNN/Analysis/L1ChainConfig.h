@@ -52,6 +52,7 @@ public:
   L1ChainConfig() : opL1MemSpecs(), state() {}
 
   ShardSolver resolveWithSolver(
+      const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges);

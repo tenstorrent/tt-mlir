@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Location.h"
@@ -87,6 +88,15 @@ createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
       oldEncoding.withMemoryLayout(tensorType.getContext(), memoryLayout);
+  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+}
+
+// Helper method to create a RankedTensorType with the given grid.
+RankedTensorType createRankedTensorTypeWithGrid(RankedTensorType tensorType,
+                                                GridAttr grid) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding = oldEncoding.withGrid(
+      tensorType.getContext(), tensorType.getShape(), grid);
   return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
 }
 

@@ -7,17 +7,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-#include <vector>
-
 namespace mlir::tt::ttnn::optimizer_utils {
-
-// Function generates all possible TTNNLayout attributes for the given tensor
-// type. maxNumGeneratedLayouts limits the number of generated layouts. If
-// maxNumGeneratedLayouts is -1, all possible layouts are returned.
-std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
-    mlir::MLIRContext *ctx, RankedTensorType tensorType, GridAttr maxGrid,
-    Type scalarElementType, bool onlyShardedLayouts = false,
-    int64_t maxNumGeneratedLayouts = -1, bool rowMajorAllowed = false);
 
 // Creates an affine map that translates a virtual grid layout to a physical
 // grid layout for a single device based on the specified tensor memory layout.
