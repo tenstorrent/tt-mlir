@@ -20,7 +20,10 @@ enum EltwiseBinaryOpType: uint32 {
   Divide,
   LogicalAnd,
   LogicalOr,
-  LogicalXor
+  LogicalXor,
+  Maximum,
+  Minimum,
+  Pow
 }
 
 table EltwiseBinaryOp {
@@ -30,14 +33,12 @@ table EltwiseBinaryOp {
   output_dtype: tt.target.DataType = null;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
+  use_legacy: bool;
 }
 
 enum EltwiseBinaryCompositeOpType: uint32 {
-  Maximum,
-  Minimum,
   Remainder,
   Scatter,
-  Pow,
   Atan2,
   BitwiseAnd,
   BitwiseOr,
