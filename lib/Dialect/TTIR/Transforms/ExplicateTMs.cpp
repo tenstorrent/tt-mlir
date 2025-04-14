@@ -7,7 +7,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -15,11 +15,13 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
+#include <mlir/IR/PatternMatch.h>
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIREXPLICATEBROADCASTS
+#define GEN_PASS_DEF_TTIREXPLICATETMS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
+namespace {
 template <typename ElementwiseInterfaceType>
 class ExplicateBroadcastsRewriter
     : public OpInterfaceRewritePattern<ElementwiseInterfaceType> {
@@ -36,6 +38,9 @@ public:
     for (int64_t i = 0; i < op->getNumOperands() - 1; i++) {
       auto inputShape =
           cast<RankedTensorType>(op->getOperand(i).getType()).getShape();
+      if (inputShape.size() != shapeToBroadcastTo.size()) {
+        return rewriter.notifyMatchFailure(op, "Elementwise operands have different rank.");
+      }
       for (uint64_t i = 0; i < inputShape.size(); i++) {
         if (inputShape[i] > shapeToBroadcastTo[i]) {
           shapeToBroadcastTo[i] = inputShape[i];
@@ -67,7 +72,7 @@ public:
         RankedTensorType broadcastResultType = RankedTensorType::get(
             shapeToBroadcastTo, inputType.getElementType(),
             inputType.getEncoding());
-        newOperands.push_back(ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+        newOperands.push_back(ttir::utils::createDPSOp<ttir::BroadcastOp>(
                                   rewriter, op.getLoc(), broadcastResultType,
                                   op->getOperand(i), broadcastDimensions)
                                   .getResult());
@@ -86,17 +91,78 @@ public:
     return success();
   }
 };
+} // namespace
 
-class TTIRExplicateBroadcasts
-    : public impl::TTIRExplicateBroadcastsBase<TTIRExplicateBroadcasts> {
+
+namespace {
+template <typename ElementwiseInterfaceType>
+class ExplicateRankChangeRewriter
+    : public OpInterfaceRewritePattern<ElementwiseInterfaceType> {
 public:
-  using impl::TTIRExplicateBroadcastsBase<
-      TTIRExplicateBroadcasts>::TTIRExplicateBroadcastsBase;
+  using OpInterfaceRewritePattern<ElementwiseInterfaceType>::OpInterfaceRewritePattern;
+    
+  LogicalResult matchAndRewrite(ElementwiseInterfaceType op,
+                                PatternRewriter &rewriter) const override {
+    int64_t maxRank = cast<RankedTensorType>(op->getOperand(0).getType()).getRank();
+    bool needsReshape = false;
+    for (int64_t i = 0; i < op->getNumOperands() - 1; i++) {
+      auto inputType = cast<RankedTensorType>(op->getOperand(i).getType());
+      auto inputRank = inputType.getRank();
+      if (inputRank != maxRank) {
+        needsReshape = true;
+      }
+      if (inputRank > maxRank) {
+        maxRank = inputRank;
+      }
+    }
+    if (!needsReshape) {
+      return failure();
+    }
+
+    SmallVector<Value> newOperands;
+    for (int64_t i = 0; i < op->getNumOperands() - 1; i++) {
+      auto inputType = cast<RankedTensorType>(op->getOperand(i).getType());
+      auto inputRank = inputType.getRank();
+      if (inputRank != maxRank) {
+        SmallVector<int32_t> newShape(maxRank, 1);
+        for (int64_t j = -1; j >= -inputRank; j--) {
+          newShape[newShape.size() + j] = inputType.getDimSize(inputRank + j);
+        }
+        RankedTensorType reshapedResultType = RankedTensorType::get(
+            SmallVector<int64_t>(newShape.begin(), newShape.end()), inputType.getElementType(), inputType.getEncoding());
+        newOperands.push_back(ttir::utils::createDPSOp<ttir::ReshapeOp>(
+                                  rewriter, op.getLoc(), reshapedResultType,
+                                  op->getOperand(i), rewriter.getI32ArrayAttr(newShape))
+                                  .getResult());
+      } else {
+        newOperands.push_back(op->getOperand(i));
+      }
+    }
+
+    // Push DPS operand
+    newOperands.push_back(op->getOperand(op->getNumOperands() - 1));
+    Operation *newEltwise = rewriter.create(
+        op->getLoc(), rewriter.getStringAttr(op->getName().getStringRef()),
+        newOperands, op->getResultTypes(), op->getAttrs());
+    rewriter.replaceOp(op, newEltwise->getResults());
+
+    return success();
+  }
+};
+} // namespace
+
+class TTIRExplicateTMs
+    : public impl::TTIRExplicateTMsBase<TTIRExplicateTMs> {
+public:
+  using impl::TTIRExplicateTMsBase<
+      TTIRExplicateTMs>::TTIRExplicateTMsBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<ExplicateBroadcastsRewriter<ElementwiseBinary>,
-                 ExplicateBroadcastsRewriter<ElementwiseTernary>>(
+                 ExplicateBroadcastsRewriter<ElementwiseTernary>,
+                 ExplicateRankChangeRewriter<ElementwiseBinary>,
+                 ExplicateRankChangeRewriter<ElementwiseTernary>>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
