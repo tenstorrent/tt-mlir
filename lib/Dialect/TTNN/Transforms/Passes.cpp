@@ -361,6 +361,10 @@ public:
     assert(module->getRegions().size() == 1);
     assert(module->getRegion(0).getBlocks().size() == 1);
 
+    // Get the first block of the region at index 0
+    //
+    Block *firstBlock = module.getBody(0);
+
     // Find all the func.func ops in the module that are "forward" functions
     //
     SmallVector<func::FuncOp, 1> forwardFuncOps;
