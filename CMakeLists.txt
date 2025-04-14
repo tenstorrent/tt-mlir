@@ -117,6 +117,12 @@ if (TTMLIR_ENABLE_STABLEHLO)
     PATTERN "*.td"
   )
 endif()
+
+# Install path for ttnn-standalone
+install(DIRECTORY tools/ttnn-standalone
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/tools"
+)
+
 add_subdirectory(include)
 add_subdirectory(lib)
 if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
