@@ -435,6 +435,11 @@ class Run:
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_runtime()
+
+            # If the system is galaxy, we need to add a workaround since the 4 n150s are not visible to software but are visible to system
+            if len(self.query.device_ids) == 36:
+                self.query.device_ids = list(range(32))
+
             self.logging.debug(f"opening devices={self.query.device_ids}")
             dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
 
