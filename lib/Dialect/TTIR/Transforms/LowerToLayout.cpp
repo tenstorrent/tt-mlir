@@ -97,9 +97,13 @@ public:
 
     if (components.isLayoutChange) {
       return lowerLayoutChange(rewriter, op);
-    } else if (components.isGridChange || components.isMemorySpaceChange) {
+    }
+
+    if (components.isGridChange || components.isMemorySpaceChange) {
       return lowerDatamovementGeneric(rewriter, op);
-    } else if (components.isFormatChange) {
+    }
+
+    if (components.isFormatChange) {
       return lowerFormatConversionGeneric(rewriter, op);
     }
 
