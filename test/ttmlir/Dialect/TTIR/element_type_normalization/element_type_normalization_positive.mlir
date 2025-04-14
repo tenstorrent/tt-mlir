@@ -189,3 +189,13 @@ func.func @constant_bf16() -> tensor<32x32xbf16> {
   %0 = "ttir.constant"() <{value = dense<1.0> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
   return %0 : tensor<32x32xbf16>
 }
+
+func.func @main(%arg0 : tensor<1x256x1xf64>) -> tensor<1x256x1xf64> {
+  // CHECK: "ttir.broadcast"
+  // CHECK-SAME: tensor<1x256x1xf32>
+  // CHECK-SAME: tensor<1x256x1xf32>
+  // CHECK-SAME: -> tensor<1x256x1xf32>
+  %0 = ttir.empty() : tensor<1x256x1xf64>
+  %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i64: 1, 1, 1>}> : (tensor<1x256x1xf64>, tensor<1x256x1xf64>) -> tensor<1x256x1xf64>
+  return %1 : tensor<1x256x1xf64>
+}
