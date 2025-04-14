@@ -144,10 +144,7 @@ struct ElementTypeNormalization
     RewritePatternSet patterns(&getContext());
     patterns.add<UniformTypeRewriter>(converter, &getContext());
     patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-    GreedyRewriteConfig config;
-    config.fold = false;
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
-                                     config))) {
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
       return;
     }

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-element-type-normalization %s | FileCheck %s
+// RUN: ttmlir-opt --canonicalize --ttir-element-type-normalization %s | FileCheck %s
 
 func.func public @constant_i1() -> tensor<32x32xi1> {
   // CHECK: "ttir.constant"
@@ -191,10 +191,8 @@ func.func @constant_bf16() -> tensor<32x32xbf16> {
 }
 
 func.func @main(%arg0 : tensor<1x256x1xf64>) -> tensor<1x256x1xf64> {
-  // CHECK: "ttir.broadcast"
-  // CHECK-SAME: tensor<1x256x1xf32>
-  // CHECK-SAME: tensor<1x256x1xf32>
-  // CHECK-SAME: -> tensor<1x256x1xf32>
+  // CHECK-NOT: "ttir.broadcast"
+  // CHECK: -> tensor<1x256x1xf32>
   %0 = ttir.empty() : tensor<1x256x1xf64>
   %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i64: 1, 1, 1>}> : (tensor<1x256x1xf64>, tensor<1x256x1xf64>) -> tensor<1x256x1xf64>
   return %1 : tensor<1x256x1xf64>
