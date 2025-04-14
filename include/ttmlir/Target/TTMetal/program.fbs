@@ -34,7 +34,7 @@ table EthernetConfig {
   noc_index: NocIndex;
 }
 
-union KernelConfig {
+union KernelConfigType {
   NocConfig,
   TensixConfig,
   EthernetConfig,
@@ -42,7 +42,6 @@ union KernelConfig {
 
 table KernelSource {
   source: string;
-  config: KernelConfig;
 }
 
 enum BinaryType : ushort {
@@ -70,28 +69,43 @@ union Kernel {
   KernelBinary,
 }
 
-table RuntimeArgTensorAddress {
+table KernelArgCBPort {
+  port: uint32;
+}
+
+table KernelArgBufferAddress {
   operand_idx: uint32;
 }
 
-table RuntimeArgSemaphoreAddress {
+table KernelArgSemaphore {
   initial_value: uint32;
   core_type: CoreType;
 }
 
-union RuntimeArg {
-  RuntimeArgTensorAddress,
-  RuntimeArgSemaphoreAddress,
+union KernelArgType {
+  KernelArgCBPort,
+  KernelArgBufferAddress,
+  KernelArgSemaphore,
 }
 
-table KernelDesc {
+table KernelArg {
+  arg: KernelArgType;
+  ct_value: uint32 = 0xFFFFFFFF;
+}
+
+table KernelArgs {
+  rt_args: [KernelArg];
+  ct_args: [KernelArg];
+}
+
+table KernelConfig {
   kernel: Kernel;
   core_range_set: [Dim2dRange];
-  cbs: [CBRef];
-  runtime_args: [RuntimeArg];
+  args: KernelArgs;
+  type: KernelConfigType;
   debug_info: string;
 }
 
 table ProgramDesc {
-  kernels: [KernelDesc];
+  kernels: [KernelConfig];
 }

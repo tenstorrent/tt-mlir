@@ -152,12 +152,12 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
              program->device_programs()->size());
   for (auto const *input : *program->device_programs()->Get(0)->inputs()) {
     TensorDesc desc;
-    desc.shape = {input->desc()->shape()->begin(),
-                  input->desc()->shape()->end()};
+    desc.shape = {input->desc()->shard_shape()->begin(),
+                  input->desc()->shard_shape()->end()};
     desc.stride = utils::calculateStride(desc.shape);
     desc.itemsize = utils::dataTypeElementSize(
-        input->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = input->desc()->layout()->memory_desc()->data_type();
+        input->desc()->data_type());
+    desc.dataType = input->desc()->data_type();
     inputs.push_back(desc);
   }
   return inputs;
@@ -172,12 +172,12 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
              program->device_programs()->size());
   for (auto const *output : *program->device_programs()->Get(0)->outputs()) {
     TensorDesc desc;
-    desc.shape = {output->desc()->shape()->begin(),
-                  output->desc()->shape()->end()};
+    desc.shape = {output->desc()->shard_shape()->begin(),
+                  output->desc()->shard_shape()->end()};
     desc.stride = utils::calculateStride(desc.shape);
     desc.itemsize = utils::dataTypeElementSize(
-        output->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = output->desc()->layout()->memory_desc()->data_type();
+        output->desc()->data_type());
+    desc.dataType = output->desc()->data_type();
     outputs.push_back(desc);
   }
   return outputs;

@@ -360,15 +360,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
 }
 
 inline std::vector<::tt::target::Dim2dRange>
-toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
-             GridAttr deviceGrid) {
+toFlatbuffer(FlatbufferObjectCache &cache, llvm::ArrayRef<int64_t> tensorGrid,
+             mlir::AffineMap mapping) {
   std::vector<::tt::target::Dim2dRange> coreRangeSet;
 
-  auto mapping = (tensorGrid.getMapping().isEmpty() == true)
-                     ? deviceGrid.getMapping()
-                     : tensorGrid.getMapping();
-  for (const auto &locsize2d :
-       utils::toCoreRangeSet(tensorGrid.getShape(), mapping)) {
+  for (const auto &locsize2d : utils::toCoreRangeSet(tensorGrid, mapping)) {
     const auto &[loc, size] = locsize2d;
     coreRangeSet.push_back(
         ::tt::target::Dim2dRange(::tt::target::Dim2d(loc[1], loc[0]),

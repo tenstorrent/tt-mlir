@@ -2,42 +2,26 @@ include "ttmlir/Target/Common/types.fbs";
 
 namespace tt.target.metal;
 
-table MemoryDesc {
-  shape: [int];
+table BufferDesc {
+  grid_shape: [int];
+  shard_shape: [int];
+  core_range_set: [Dim2dRange];
   tile_shape: Dim2d;
   data_type: DataType;
   memory_space: MemorySpace;
   size: uint64;
-}
-
-table LayoutDesc {
-  oob_val: OOBVal;
-  core_range_set: [Dim2dRange];
-  memory_desc: MemoryDesc;
-}
-
-table TensorDesc {
-  shape: [int];
-  layout: LayoutDesc;
-}
-
-table CBDesc {
-  port: uint32;
-  memory_desc: MemoryDesc;
-  page_size: uint64;
   num_buffers: uint64;
+  page_size: uint64;
 }
 
-table TensorRef {
+table BufferRef {
   global_id: uint32;
   address: uint64;
   size: uint64;
-  desc: TensorDesc;
+  desc: BufferDesc;
 }
 
 table CBRef {
-  global_id: uint32;
-  tensor_ref: TensorRef;
-  address: uint64;
-  desc: CBDesc;
+  port: uint32;
+  buffer_ref: BufferRef;
 }

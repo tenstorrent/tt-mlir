@@ -86,7 +86,8 @@ getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
   ttnn::TTNNLayoutAttr layoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
   std::vector<::tt::target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
+      toFlatbuffer(cache, layoutAttr.getGrid().getShape(),
+                   deviceAttr.getWorkerGrid().getMapping());
   return coreRangeSet;
 }
 
@@ -252,7 +253,8 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
                            ttnn::TTNNLayoutAttr layoutAttr,
                            DeviceAttr deviceAttr) {
   std::vector<::tt::target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
+      toFlatbuffer(cache, layoutAttr.getGrid().getShape(),
+                   deviceAttr.getWorkerGrid().getMapping());
 
   // TODO (jnie): Memory reference alone is insufficient to determine LayoutDesc
   // uniquely. Using `cache.getOrCreate()` is unsafe because identical memory

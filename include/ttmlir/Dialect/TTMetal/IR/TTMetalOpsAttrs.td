@@ -62,6 +62,8 @@ def TTMetal_KernelArgAttr : TTMetal_Attr<"KernelArg", "kernel_arg"> {
                              ttkernel::ArgType type) {
       return KernelArgAttr::get(context, operandIndex, type, std::numeric_limits<size_t>::max());
     }
+
+    bool isCompileTime() const { return getCtValue() != std::numeric_limits<size_t>::max(); }
   }];
 }
 

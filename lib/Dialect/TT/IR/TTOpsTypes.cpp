@@ -1103,6 +1103,7 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
 
 size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
                                       size_t pageSize) const {
+  assert(pageSize == 0 && "Page size not supported yet");
   DeviceLayoutInterface layout =
       mlir::cast<DeviceLayoutInterface>(memrefType.getLayout());
   mlir::Type elementType = memrefType.getElementType();

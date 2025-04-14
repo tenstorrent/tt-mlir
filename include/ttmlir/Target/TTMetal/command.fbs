@@ -4,8 +4,13 @@ include "ttmlir/Target/TTMetal/types.fbs";
 namespace tt.target.metal;
 
 
+table HostAllocCommand {
+  dst: BufferRef;
+}
+
 table EnqueueProgramCommand {
-  operands: [TensorRef];
+  buffers: [BufferRef];
+  cbs: [CBRef];
   program: ProgramDesc;
 }
 
@@ -22,28 +27,28 @@ table ConstantBuffer32 {
 }
 
 union HostBuffer {
-  TensorRef,
+  BufferRef,
   ConstantBuffer8,
   ConstantBuffer16,
   ConstantBuffer32,
 }
 
 table EnqueueWriteBufferCommand {
-  src: TensorRef;
-  dst: TensorRef;
+  src: BufferRef;
+  dst: BufferRef;
 }
 
 table EnqueueReadBufferCommand {
-  src: TensorRef;
-  dst: TensorRef;
+  src: BufferRef;
+  dst: BufferRef;
 }
 
 table CreateBufferCommand {
-  ref: TensorRef;
+  ref: BufferRef;
 }
 
 table DeallocateBufferCommand {
-  ref: TensorRef;
+  ref: BufferRef;
 }
 
 table CreateEventCommand {
@@ -70,6 +75,7 @@ table FinishCommand {
 }
 
 union CommandType {
+  HostAllocCommand,
   EnqueueProgramCommand,
   EnqueueWriteBufferCommand,
   EnqueueReadBufferCommand,

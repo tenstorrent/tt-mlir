@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+#include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -14,6 +15,7 @@
 
 #include "flatbuffers/buffer.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -26,60 +28,15 @@
 #include <cstddef>
 #include <memory>
 
-namespace mlir::tt {
-flatbuffers::Offset<::tt::target::metal::MemoryDesc>
-memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
-  auto shapeInt64 = memref.getShape();
-  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
-  DataType dtype = DataType::Float32;
-  ::tt::target::Dim2d tileShape(1, 1);
-  Type elementType = memref.getElementType();
-  std::uint64_t elementSize = 0;
-  if (isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    dtype = tileType.getDataType();
-    tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
-    elementSize = tileType.getSizeBytes();
-  } else {
-    dtype = elementTypeToDataType(elementType);
-    elementSize = getElementSizeBytes(dtype);
-  }
-
-  std::uint64_t size = elementSize;
-  for (auto dim : shapeInt64) {
-    size *= dim;
-  }
-
-  return ::tt::target::metal::CreateMemoryDescDirect(
-      *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype),
-      toFlatbuffer(
-          cache,
-          mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
-      size);
-}
-
-flatbuffers::Offset<::tt::target::metal::LayoutDesc>
-metalLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
-                            MetalLayoutAttr metalLayoutAttr,
-                            ArrayRef<int64_t> logicalShape,
-                            DeviceAttr deviceAttr) {
-  auto coreRangeSet = toFlatbuffer(cache, metalLayoutAttr.getGrid(),
-                                   deviceAttr.getWorkerGrid());
-  return ::tt::target::metal::CreateLayoutDescDirect(
-      *cache.fbb, toFlatbuffer(cache, metalLayoutAttr.getOobVal()),
-      &coreRangeSet,
-      cache.getOrCreate(metalLayoutAttr.getMemref(), memrefAttrToFlatbuffer));
-}
-
-} // namespace mlir::tt
+using namespace ttmlir::utils;
 
 namespace mlir::tt::ttmetal {
 
 struct CQBuilder {
   ::flatbuffers::FlatBufferBuilder *fbb;
   const char *name;
-  std::vector<::flatbuffers::Offset<::tt::target::metal::TensorRef>> inputs;
-  std::vector<::flatbuffers::Offset<::tt::target::metal::TensorRef>> outputs;
+  std::vector<::flatbuffers::Offset<::tt::target::metal::BufferRef>> inputs;
+  std::vector<::flatbuffers::Offset<::tt::target::metal::BufferRef>> outputs;
   std::vector<::flatbuffers::Offset<::tt::target::metal::Command>> commands;
   OpPrintingFlags printFlags;
 
@@ -108,7 +65,7 @@ struct CQBuilder {
   }
 };
 
-::tt::target::MathFidelity toFlatbuffer(ttmetal::MathFidelity mathFidelity) {
+static ::tt::target::MathFidelity toFlatbuffer(ttmetal::MathFidelity mathFidelity) {
   switch (mathFidelity) {
   case ttmetal::MathFidelity::HiFi4:
     return ::tt::target::MathFidelity::HiFi4;
@@ -122,7 +79,7 @@ struct CQBuilder {
   assert(false && "Unsupported MathFidelity");
 }
 
-std::vector<::tt::target::metal::UnpackToDestMode>
+static std::vector<::tt::target::metal::UnpackToDestMode>
 toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
   std::vector<::tt::target::metal::UnpackToDestMode> result;
   result.reserve(unpackToDestModes.size());
@@ -140,7 +97,7 @@ toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
   return result;
 }
 
-::tt::target::metal::EthType toFlatbuffer(ttmetal::EthType ethType) {
+static ::tt::target::metal::EthType toFlatbuffer(ttmetal::EthType ethType) {
   switch (ethType) {
   case ttmetal::EthType::Sender:
     return ::tt::target::metal::EthType::Sender;
@@ -150,7 +107,7 @@ toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
   assert(false && "Unsupported EthType");
 }
 
-::tt::target::metal::NocIndex toFlatbuffer(ttmetal::NocIndex nocIndex) {
+static ::tt::target::metal::NocIndex toFlatbuffer(ttmetal::NocIndex nocIndex) {
   switch (nocIndex) {
   case ttmetal::NocIndex::Noc0:
     return ::tt::target::metal::NocIndex::Noc0;
@@ -160,128 +117,196 @@ toFlatbuffer(llvm::ArrayRef<ttmetal::UnpackToDestMode> unpackToDestModes) {
   assert(false && "Unsupported NocIndex");
 }
 
-// Take KernelConfig and return pair of its type and variantized config itself
-std::pair<::tt::target::metal::KernelConfig, ::flatbuffers::Offset<void>>
-toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
-             ttmetal::KernelConfigInterface kernelConfig) {
-  ttkernel::ThreadType threadType = kernelConfig.getThreadType();
-
-  switch (threadType) {
-  case ttkernel::ThreadType::Noc: {
-    auto nocConfigAttr = mlir::dyn_cast<ttmetal::NocConfigAttr>(kernelConfig);
-    auto configType = ::tt::target::metal::KernelConfig::NocConfig;
-    auto config = ::tt::target::metal::CreateNocConfig(
-        fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
-    return std::make_pair(configType, config.Union());
-  }
-  case ttkernel::ThreadType::Tensix: {
-    auto tensixConfigAttr =
-        mlir::dyn_cast<ttmetal::TensixConfigAttr>(kernelConfig);
-    auto configType = ::tt::target::metal::KernelConfig::TensixConfig;
-    auto unpackToDestModeVec =
-        toFlatbuffer(tensixConfigAttr.getUnpackToDestMode());
-    auto config = ::tt::target::metal::CreateTensixConfigDirect(
-        fbb, toFlatbuffer(tensixConfigAttr.getMathFidelity()),
-        tensixConfigAttr.getFp32DestAccEn(),
-        tensixConfigAttr.getMathApproxMode(), &unpackToDestModeVec);
-    return std::make_pair(configType, config.Union());
-  }
-  case ttkernel::ThreadType::Ethernet: {
-    auto ethernetConfigAttr =
-        mlir::dyn_cast<ttmetal::EthernetConfigAttr>(kernelConfig);
-    auto configType = ::tt::target::metal::KernelConfig::EthernetConfig;
-    auto config = ::tt::target::metal::CreateEthernetConfig(
-        fbb, toFlatbuffer(ethernetConfigAttr.getEthType()),
-        toFlatbuffer(ethernetConfigAttr.getNocIndex()));
-    return std::make_pair(configType, config.Union());
-  }
-  }
-}
-
-::tt::target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
+static ::tt::target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   auto offset = coreRange.getOffset();
   auto size = coreRange.getSize();
   return ::tt::target::Dim2dRange(::tt::target::Dim2d(offset[0], offset[1]),
                                   ::tt::target::Dim2d(size[0], size[1]));
 }
 
-::flatbuffers::Offset<::tt::target::metal::CBDesc>
-cbTypeToFlatbuffer(FlatbufferObjectCache &cache, ttkernel::CBType cbType) {
-  auto memref = cache.getOrCreate(cbType.getMemref(), memrefAttrToFlatbuffer);
-  return ::tt::target::metal::CreateCBDesc(
-      *cache.fbb, llvm::to_underlying(cbType.getPort()), memref,
-      cbType.getPageSize(), cbType.getNumBuffers());
-}
+static flatbuffers::Offset<::tt::target::metal::BufferDesc>
+memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
+                       DeviceAttr device) {
+  std::vector<int32_t> gridShape;
+  std::vector<int32_t> shardShape;
+  std::vector<::tt::target::Dim2dRange> coreRangeSet;
+  std::uint64_t size = 0;
 
-std::pair<::tt::target::metal::RuntimeArg, ::flatbuffers::Offset<void>>
-toFlatbuffer(FlatbufferObjectCache &cache, ttkernel::SemaphoreType sem) {
-  auto runtimeArgType =
-      ::tt::target::metal::RuntimeArg::RuntimeArgSemaphoreAddress;
-  auto semAddr = ::tt::target::metal::CreateRuntimeArgSemaphoreAddress(
-      *cache.fbb, sem.getInitialValue());
-  return std::make_pair(runtimeArgType, semAddr.Union());
-}
-
-std::pair<::tt::target::metal::HostBuffer, ::flatbuffers::Offset<void>>
-hostBufferToFlatbuffer(FlatbufferObjectCache &cache,
-                       ElementsAttr elementsAttr) {
-  assert(elementsAttr.getElementType().isIntOrIndexOrFloat() &&
-         "unsupported elements attr type");
-  assert(elementsAttr.isSplat() && "expected a splat elements attr");
-  assert(elementsAttr.getElementType().getIntOrFloatBitWidth() == 32 &&
-         "unsupported elements attr bit width");
-  auto vector = toFlatbuffer(cache, elementsAttr);
-  return std::make_pair(
-      ::tt::target::metal::HostBuffer::ConstantBuffer32,
-      ::tt::target::metal::CreateConstantBuffer32(*cache.fbb, vector).Union());
-}
-
-Value getOperandThroughDPSOps(Value value) {
-  auto *op = value.getDefiningOp();
-  if (!op) {
-    return value;
+  DataType dtype = DataType::Float32;
+  ::tt::target::Dim2d tileShape(1, 1);
+  Type elementType = memref.getElementType();
+  int64_t elementSize = 0;
+  if (isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+    tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
+    elementSize = tileType.getSizeBytes();
+  } else {
+    dtype = elementTypeToDataType(elementType);
+    elementSize = getElementSizeBytes(dtype);
   }
-  while (isa<DestinationStyleOpInterface>(op)) {
-    assert(op->getResults().size() == 1);
-    auto dps = cast<DestinationStyleOpInterface>(op);
-    assert(dps.getNumDpsInits() == 1);
-    auto *opOperand = dps.getDpsInitOperand(0);
-    value = opOperand->get();
-    op = value.getDefiningOp();
+
+  if (auto layout = mlir::dyn_cast_if_present<DeviceLayoutInterface>(
+          memref.getLayout())) {
+    auto arrRefGridShape = layout.getGridShape(memref);
+    gridShape = castVec<std::vector<int32_t>>(arrRefGridShape);
+    shardShape = castVec<std::vector<int32_t>>(layout.getShardShape(memref));
+    coreRangeSet = toFlatbuffer(cache, arrRefGridShape,
+                                device.getWorkerGrid().getMapping());
+    size = device.getMemrefSizeBytes(memref, 0);
+  } else {
+    auto memrefShape = memref.getShape();
+    shardShape = castVec<std::vector<int32_t>>(memrefShape);
+    size = volume(memrefShape, elementSize);
   }
-  return value;
+
+  ::tt::target::MemorySpace memorySpace =
+      memref.getMemorySpace()
+          ? toFlatbuffer(
+                cache,
+                mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue())
+          : ::tt::target::MemorySpace::System;
+
+  return ::tt::target::metal::CreateBufferDescDirect(
+      *cache.fbb, &gridShape, &shardShape, &coreRangeSet, &tileShape,
+      toFlatbuffer(cache, dtype), memorySpace,
+      size);
 }
 
-static flatbuffers::Offset<::tt::target::metal::LayoutDesc>
-encodingToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
-                     ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
-  assert(isa<MetalLayoutAttr>(attr) && "unsupported layout attr");
-  return metalLayoutAttrToFlatbuffer(cache, cast<MetalLayoutAttr>(attr),
-                                     logicalShape, deviceAttr);
-}
-
-static flatbuffers::Offset<::tt::target::metal::TensorDesc>
-tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
-                       DeviceAttr deviceAttr) {
-  auto tensorType = mlir::cast<RankedTensorType>(type);
-  auto shapeInt64 = tensorType.getShape();
-  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
-  return ::tt::target::metal::CreateTensorDescDirect(
-      *cache.fbb, &shape,
-      cache.getOrCreate(tensorType.getEncoding(), encodingToFlatbuffer,
-                        shapeInt64, deviceAttr));
-}
-
-static flatbuffers::Offset<::tt::target::metal::TensorRef>
-tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
+static ::flatbuffers::Offset<::tt::target::metal::BufferRef>
+bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         uint64_t address, uint64_t size) {
-  auto deviceAttr = lookupDevice(value.getParentBlock()->getParentOp());
-  assert(deviceAttr);
-  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
-  auto tensorDesc =
-      cache.getOrCreate(tensorType, tensorTypeToFlatbuffer, deviceAttr);
-  return ::tt::target::metal::CreateTensorRef(*cache.fbb, cache.global_id++,
-                                              address, size, tensorDesc);
+  auto device = lookupDevice(value.getParentBlock()->getParentOp());
+  assert(device);
+  auto memrefType = mlir::cast<MemRefType>(value.getType());
+  auto bufferDesc =
+      cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device);
+  return ::tt::target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
+                                              address, size, bufferDesc);
+}
+
+static ::flatbuffers::Offset<::tt::target::metal::KernelArg>
+toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
+  ::tt::target::metal::KernelArgType argType;
+  ::flatbuffers::Offset<void> arg;
+  switch (kernelArg.getType()) {
+  case ttkernel::ArgType::CBPort: {
+    argType = ::tt::target::metal::KernelArgType::KernelArgCBPort;
+    arg = ::tt::target::metal::CreateKernelArgCBPort(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::BufferAddress: {
+    argType = ::tt::target::metal::KernelArgType::KernelArgBufferAddress;
+    arg = ::tt::target::metal::CreateKernelArgBufferAddress(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::Semaphore: {
+    argType = ::tt::target::metal::KernelArgType::KernelArgSemaphore;
+    arg = ::tt::target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
+    break;
+  }
+  }
+
+  return kernelArg.isCompileTime()
+             ? ::tt::target::metal::CreateKernelArg(*cache.fbb, argType, arg,
+                                                    kernelArg.getCtValue())
+             : ::tt::target::metal::CreateKernelArg(*cache.fbb, argType, arg);
+}
+
+static ::flatbuffers::Offset<::tt::target::metal::KernelArgs>
+kernelArgsToFlatbuffer(FlatbufferObjectCache &cache,
+                       KernelArgsAttr kernelArgs) {
+  auto rtArgs = toFlatbuffer(cache, kernelArgs.getRtArgs());
+  auto ctArgs = toFlatbuffer(cache, kernelArgs.getCtArgs());
+  return ::tt::target::metal::CreateKernelArgs(*cache.fbb, rtArgs, ctArgs);
+}
+
+static ::flatbuffers::Offset<::tt::target::metal::NocConfig>
+nocConfigToFlatbuffer(FlatbufferObjectCache &cache,
+                      NocConfigAttr nocConfigAttr) {
+  return ::tt::target::metal::CreateNocConfig(
+      *cache.fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
+}
+
+static ::flatbuffers::Offset<::tt::target::metal::TensixConfig>
+tensixConfigToFlatbuffer(FlatbufferObjectCache &cache,
+                         TensixConfigAttr tensixConfigAttr) {
+  auto unpackToDestModeVec =
+        toFlatbuffer(tensixConfigAttr.getUnpackToDestMode());
+  return ::tt::target::metal::CreateTensixConfigDirect(
+      *cache.fbb, toFlatbuffer(tensixConfigAttr.getMathFidelity()),
+      tensixConfigAttr.getFp32DestAccEn(), tensixConfigAttr.getMathApproxMode(),
+      &unpackToDestModeVec);
+}
+
+static ::flatbuffers::Offset<::tt::target::metal::EthernetConfig>
+ethernetConfigToFlatbuffer(FlatbufferObjectCache &cache,
+                           EthernetConfigAttr ethernetConfigAttr) {
+  return ::tt::target::metal::CreateEthernetConfig(
+      *cache.fbb, toFlatbuffer(ethernetConfigAttr.getEthType()),
+      toFlatbuffer(ethernetConfigAttr.getNocIndex()));
+}
+
+static ::flatbuffers::Offset<::tt::target::metal::KernelConfig>
+kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
+                         KernelConfigInterface kernelConfig,
+                         SymbolTable const &symbolTable) {
+  StringRef kernelSymbol = kernelConfig.getKernelSymbol().getRootReference();
+  auto kernelEntry = symbolTable.lookup<func::FuncOp>(kernelSymbol);
+  assert(kernelEntry);
+  std::string source;
+  llvm::raw_string_ostream stream(source);
+  LogicalResult result =
+      ttkernel::translateKernelFuncToCpp(kernelEntry, stream);
+  assert(result.succeeded());
+  assert(source.size() > 0 && "empty kernel source");
+
+  std::vector<::tt::target::Dim2dRange> coreRangeSet = {
+      toFlatbuffer(mlir::cast<CoreRangeAttr>(kernelConfig.getCoreRange()))};
+
+  ::flatbuffers::Offset<::tt::target::metal::KernelArgs> args =
+      cache.getOrCreate(
+          mlir::cast<KernelArgsAttr>(kernelConfig.getKernelArgs()),
+          kernelArgsToFlatbuffer);
+
+  ::tt::target::metal::KernelConfigType configType;
+  ::flatbuffers::Offset<void> configUnion;
+  switch (kernelConfig.getThreadType()) {
+  case ttkernel::ThreadType::Noc: {
+    configType = ::tt::target::metal::KernelConfigType::NocConfig;
+    configUnion = cache
+                      .getOrCreate(mlir::cast<NocConfigAttr>(kernelConfig),
+                                   nocConfigToFlatbuffer)
+                      .Union();
+    break;
+  }
+  case ttkernel::ThreadType::Tensix: {
+    configType = ::tt::target::metal::KernelConfigType::TensixConfig;
+    configUnion = cache
+                      .getOrCreate(mlir::cast<TensixConfigAttr>(kernelConfig),
+                                   tensixConfigToFlatbuffer)
+                      .Union();
+    break;
+  }
+  case ttkernel::ThreadType::Ethernet: {
+    configType = ::tt::target::metal::KernelConfigType::EthernetConfig;
+    configUnion = cache
+                      .getOrCreate(mlir::cast<EthernetConfigAttr>(kernelConfig),
+                                   ethernetConfigToFlatbuffer)
+                      .Union();
+    break;
+  }
+  }
+
+  return ::tt::target::metal::CreateKernelConfigDirect(
+      *cache.fbb, ::tt::target::metal::Kernel::KernelSource,
+      ::tt::target::metal::CreateKernelSourceDirect(*cache.fbb, source.c_str())
+          .Union(),
+      &coreRangeSet, args, configType, configUnion, kernelSymbol.data());
 }
 
 static std::shared_ptr<void> translateModuleToFlatbuffer(
@@ -291,6 +316,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
   ModuleOp module = dyn_cast<ModuleOp>(op);
   assert(module && "Expected ModuleOp as top level operation");
+  SymbolTable symbolTable(module);
 
   auto systemDesc =
       mlir::cast<tt::SystemDescAttr>(module->getAttr(tt::SystemDescAttr::name));
@@ -300,102 +326,60 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   std::vector<::flatbuffers::Offset<::tt::target::metal::Program>> programs;
 
   module->walk([&](func::FuncOp entry) {
+    if (!entry.isPublic()) {
+      // skip private functions
+      return;
+    }
+
     CQBuilder cqBuilder(&fbb);
     cqBuilder.name = entry.getSymName().data();
 
-    auto argumentAllocations = mlir::cast<ArrayAttr>(
-        entry->getDiscardableAttr(ArgumentAllocationAttr::name));
-    assert(argumentAllocations && "expected argument_allocations attribute");
+    cqBuilder.inputs.reserve(entry.getBody().getArguments().size());
     for (auto &input : entry.getBody().getArguments()) {
-      auto argAlloc = mlir::cast<tt::ArgumentAllocationAttr>(
-          argumentAllocations[input.getArgNumber()]);
-      assert(
-          argAlloc.getMemorySpace() ==
-              mlir::cast<tt::MetalLayoutAttr>(
-                  mlir::cast<RankedTensorType>(input.getType()).getEncoding())
-                  .getMemorySpace() &&
-          "argument allocation memory space does not match tensor type "
-          "memory "
-          "space");
       cqBuilder.inputs.push_back(
-          cache.getOrCreate(input, tensorValueToFlatbuffer,
-                            argAlloc.getAddress(), argAlloc.getSize()));
+          cache.getOrCreate(input, bufferValueToFlatbuffer, 0, 0));
     }
 
+    cqBuilder.commands.reserve(entry.getBody().front().getOperations().size());
     entry->walk([&](mlir::Operation *op) {
-      if (auto enqueueProgramOp =
-              dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
-          enqueueProgramOp) {
-        std::vector<::flatbuffers::Offset<::tt::target::metal::TensorRef>>
-            operands;
-        for (auto operand : enqueueProgramOp.getOperands()) {
-          operands.push_back(cache.at<::tt::target::metal::TensorRef>(
-              getOperandThroughDPSOps(operand)));
+      if (auto allocOp = dyn_cast_if_present<memref::AllocOp>(op); allocOp) {
+        cqBuilder.appendCommand(
+            ::tt::target::metal::CreateHostAllocCommand(
+                fbb, cache.getOrCreate(allocOp.getResult(),
+                                       bufferValueToFlatbuffer, 0, 0)),
+            op);
+      } else if (auto enqueueProgramOp =
+                     dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
+                 enqueueProgramOp) {
+        std::vector<::flatbuffers::Offset<::tt::target::metal::BufferRef>>
+            buffers;
+        buffers.reserve(enqueueProgramOp.getBuffers().size());
+        for (auto buffer : enqueueProgramOp.getBuffers()) {
+          buffers.push_back(cache.at<::tt::target::metal::BufferRef>(buffer));
         }
 
-        std::vector<::flatbuffers::Offset<::tt::target::metal::KernelDesc>>
-            kernels;
+        std::vector<::flatbuffers::Offset<::tt::target::metal::CBRef>> cbs;
+        uint32_t port = 0;
+        cbs.reserve(enqueueProgramOp.getCbs().size());
+        for (auto cb : enqueueProgramOp.getCbs()) {
+          auto buffer = cache.at<::tt::target::metal::BufferRef>(cb);
+          cbs.push_back(
+              ::tt::target::metal::CreateCBRef(*cache.fbb, port, buffer));
+        }
 
-        llvm::SmallVector<std::string> cppKernels(
-            enqueueProgramOp->getNumRegions());
-        llvm::LogicalResult success =
-            emitEnqueueProgramOpRegionsAsCpp(enqueueProgramOp, cppKernels);
-        assert(success.succeeded() &&
-               "failed to emit enqueue program op regions as cpp");
-        // for (auto &region : enqueueProgramOp.getRegions()) {
-        //   std::vector<::tt::target::Dim2dRange> coreRangeSet = {
-        //       toFlatbuffer(mlir::cast<CoreRangeAttr>(
-        //           enqueueProgramOp.getCoreRanges()[region.getRegionNumber()]))};
-        //   std::vector<::flatbuffers::Offset<::tt::target::metal::CBRef>> cbs;
-        //   size_t argNumber = 0;
-        //   std::vector<::tt::target::metal::RuntimeArg> runtime_args_type;
-        //   std::vector<::flatbuffers::Offset<void>> runtime_args;
-        //   for (auto arg : region.getArguments()) {
-        //     if (mlir::isa<ttkernel::CBType>(arg.getType())) {
-        //       auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
-        //       auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-        //       auto tensorRef =
-        //           argNumber >= operands.size() ? 0 : operands[argNumber++];
-        //       cbs.push_back(::tt::target::metal::CreateCBRef(
-        //           fbb, cache.global_id++, tensorRef, cbType.getAddress(),
-        //           cbDesc));
-        //     } else if (mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
-        //       auto semType =
-        //       mlir::cast<ttkernel::SemaphoreType>(arg.getType()); auto
-        //       [runtime_arg_type, runtime_arg] =
-        //           toFlatbuffer(cache, semType);
-        //       runtime_args_type.push_back(runtime_arg_type);
-        //       runtime_args.push_back(runtime_arg);
-        //     } else {
-        //       llvm_unreachable(
-        //           "Block arguments must be either CBType or SemaphoreType");
-        //     }
-        //   }
-
-        //   std::string &source = cppKernels[region.getRegionNumber()];
-        //   assert(source.size() > 0 && "empty kernel source");
-
-        //   // Get pair of kernel's config type and config itself.
-        //   auto kernelConfig =
-        //       enqueueProgramOp.getKernelConfigs()[region.getRegionNumber()];
-        //   auto [kernelConfigType, kernelConfigUnion] = toFlatbuffer(
-        //       fbb,
-        //       mlir::cast<ttmetal::KernelConfigInterface>(kernelConfig));
-
-        //   kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
-        //       fbb, ::tt::target::metal::Kernel::KernelSource,
-        //       ::tt::target::metal::CreateKernelSourceDirect(
-        //           fbb, source.c_str(), kernelConfigType, kernelConfigUnion)
-        //           .Union(),
-        //       &coreRangeSet, &cbs, &runtime_args_type, &runtime_args,
-        //       nullptr /*TODO debug info*/));
-        // }
-        ::flatbuffers::Offset<::tt::target::metal::ProgramDesc> program =
-            ::tt::target::metal::CreateProgramDescDirect(fbb, &kernels);
-
+        std::vector<::flatbuffers::Offset<::tt::target::metal::KernelConfig>>
+            kernelConfigs;
+        kernelConfigs.reserve(enqueueProgramOp.getKernelConfigs().size());
+        for (Attribute kernelConfig : enqueueProgramOp.getKernelConfigs()) {
+          kernelConfigs.push_back(kernelConfigToFlatbuffer(
+              cache, mlir::cast<KernelConfigInterface>(kernelConfig),
+              symbolTable));
+        }
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueProgramCommandDirect(
-                fbb, &operands, program),
+                fbb, &buffers, &cbs,
+                ::tt::target::metal::CreateProgramDescDirect(fbb,
+                                                             &kernelConfigs)),
             op);
       } else if (auto createBufferOp =
                      dyn_cast_if_present<tt::ttmetal::CreateBufferOp>(op);
@@ -403,7 +387,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateCreateBufferCommand(
                 fbb, cache.getOrCreate(createBufferOp.getResult(),
-                                       tensorValueToFlatbuffer,
+                                       bufferValueToFlatbuffer,
                                        createBufferOp.getAddress(),
                                        createBufferOp.getSize())),
             op);
@@ -412,9 +396,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                  deallocateBufferOp) {
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateDeallocateBufferCommand(
-                fbb,
-                cache.at<::tt::target::metal::TensorRef>(
-                    getOperandThroughDPSOps(deallocateBufferOp.getInput()))),
+                fbb, cache.at<::tt::target::metal::BufferRef>(
+                         deallocateBufferOp.getInput())),
             op);
       } else if (auto enqueueReadBufferOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueReadBufferOp>(op);
@@ -422,10 +405,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueReadBufferCommand(
                 fbb,
-                cache.at<::tt::target::metal::TensorRef>(
-                    getOperandThroughDPSOps(enqueueReadBufferOp.getInput())),
-                cache.at<::tt::target::metal::TensorRef>(
-                    getOperandThroughDPSOps(enqueueReadBufferOp.getOutput()))),
+                cache.at<::tt::target::metal::BufferRef>(
+                    enqueueReadBufferOp.getInput()),
+                cache.at<::tt::target::metal::BufferRef>(
+                    enqueueReadBufferOp.getOutput())),
             op);
       } else if (auto enqueueWriteBufferOp =
                      dyn_cast_if_present<tt::ttmetal::EnqueueWriteBufferOp>(op);
@@ -433,16 +416,16 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueWriteBufferCommand(
                 fbb,
-                cache.at<::tt::target::metal::TensorRef>(
-                    getOperandThroughDPSOps(enqueueWriteBufferOp.getInput())),
-                cache.at<::tt::target::metal::TensorRef>(
-                    getOperandThroughDPSOps(enqueueWriteBufferOp.getOutput()))),
+                cache.at<::tt::target::metal::BufferRef>(
+                    enqueueWriteBufferOp.getInput()),
+                cache.at<::tt::target::metal::BufferRef>(
+                    enqueueWriteBufferOp.getOutput())),
             op);
       } else if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op);
                  returnOp) {
         for (auto output : returnOp.getOperands()) {
-          cqBuilder.outputs.push_back(cache.at<::tt::target::metal::TensorRef>(
-              getOperandThroughDPSOps(output)));
+          cqBuilder.outputs.push_back(
+              cache.at<::tt::target::metal::BufferRef>(output));
         }
       }
     });

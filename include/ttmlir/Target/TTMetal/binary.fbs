@@ -7,15 +7,15 @@ include "ttmlir/Target/TTMetal/types.fbs";
 namespace tt.target.metal;
 
 table DeviceProgram {
-  inputs: [TensorRef];
-  outputs: [TensorRef];
+  inputs: [BufferRef];
+  outputs: [BufferRef];
   command_queues: [CommandQueue];
 }
 
 table Program {
   name: string;
-  inputs: [TensorRef];
-  outputs: [TensorRef];
+  inputs: [BufferRef];
+  outputs: [BufferRef];
   device_programs: [DeviceProgram];
   debug_info: DebugInfo;
 }

@@ -93,13 +93,12 @@ replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
                                    map.getNumDims(), numResultSyms);
 }
 
-template <typename IntType>
-IntType volume(mlir::ArrayRef<IntType> shape) {
-  IntType result = 1;
+template <typename IntType, template <typename> class Container>
+IntType volume(Container<IntType> const &shape, IntType stride = 1) {
   for (auto dim : shape) {
-    result *= dim;
+    stride *= dim;
   }
-  return result;
+  return stride;
 }
 
 // Returns a string that is the concatenation of the string representations of
@@ -589,6 +588,11 @@ static mlir::Region *getRegionWithParentOfType(mlir::Operation *op) {
   }
   return region;
 }
+
+template <typename T, typename From>
+T castVec(From const &value) {
+  return T(value.begin(), value.end());
+};
 
 } // namespace ttmlir::utils
 
