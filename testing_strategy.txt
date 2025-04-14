@@ -1,0 +1,58 @@
+Testing strategy
+
+/* Dialect */
+op tests
+- elementwise
+- matmul
+- reshape
+- reduce
+- dot general
+- broadcast
+- conv2d
+- quantize
+- dequantize
+- reduce window
+- compare
+- concat
+- transpose
+- bitwise
+- slice
+- clamp
+- gather
+- iota
+- dynamic iota
+- scatter
+- reverse
+- pad
+
+graph tests
+- no sharding annotations
+  - arguments with rank 1, 2, 3, 4
+- full sdy annotations for arguments and no op sdy annotations
+- partial sdy annotations for arguments and no op sdy annotations
+- full op sdy annotations and no sdy argument annotations
+- partial op sdy annotations and no sdy argument annotations
+- full argument and full op annotations
+- partial argument and full op annotations
+- full argument and partial op annotations
+- multiple functions within module
+- moduleOp with constants
+
+negative tests
+- gspmd graph
+- sdy annotations but no meshOp
+- sdy annotations and >1 meshOps
+- no annotations and invalid user mesh shape
+- argument tensor dimension not disible by sdy annotation
+- op tensor dimension not disible by sdy annotation
+
+future support
+- gspmd to sdy pass
+- insert explicit reshards + convert reshards to collectives support
+- generalize batch parallelism with rank != 4
+- tensor parallel user provided
+
+/* Silicon */
+- n300
+- llmbox
+- tg
