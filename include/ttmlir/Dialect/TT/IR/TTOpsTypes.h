@@ -62,6 +62,41 @@ inline void printVargDimensionList(::mlir::AsmPrinter &printer, Args... dims) {
   printDimensionList(printer, ::llvm::SmallVector<int64_t>({dims...}));
 }
 
+inline void printIdentityAffineMap(mlir::AsmPrinter &printer,
+                                   mlir::AffineMap affineMap) {
+  if (affineMap.isIdentity()) {
+    printer << "map(";
+    printer << affineMap.getNumResults() << ")";
+    return;
+  }
+
+  affineMap.print(printer.getStream());
+}
+
+inline ::mlir::ParseResult parseIdentityAffineMap(::mlir::AsmParser &odsParser,
+                                                  mlir::AffineMap &affineMap) {
+  if (odsParser.parseOptionalKeyword("map").succeeded()) {
+    if (odsParser.parseLParen().failed()) {
+      return failure();
+    }
+
+    unsigned rank;
+    if (odsParser.parseInteger(rank).failed()) {
+      return failure();
+    }
+
+    if (odsParser.parseRParen().failed()) {
+      return failure();
+    }
+
+    affineMap =
+        mlir::AffineMap::getMultiDimIdentityMap(rank, odsParser.getContext());
+
+    return success();
+  }
+  return odsParser.parseAffineMap(affineMap);
+}
+
 template <typename... Args>
 inline ::mlir::ParseResult parseVargDimensionList(::mlir::AsmParser &odsParser,
                                                   Args &...dims) {
@@ -195,19 +230,16 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
 template <typename T, typename TAttr>
 mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
                              ::llvm::ArrayRef<int64_t> shardShape,
-                             ::mlir::Type elementType, T memorySpace,
-                             mlir::tt::StreamLayoutAttr layout = {}) {
+                             ::mlir::Type elementType, T memorySpace) {
   ::llvm::SmallVector<int64_t> scalarShardShape(shardShape);
   if (mlir::isa<mlir::tt::TileType>(elementType)) {
     scalarShardShape = mlir::cast<mlir::tt::TileType>(elementType)
                            .getTiledShape(scalarShardShape);
   }
-  return layout ? mlir::MemRefType::get(scalarShardShape, elementType, layout,
-                                        TAttr::get(context, memorySpace))
-                : mlir::MemRefType::get(scalarShardShape, elementType,
-                                        mlir::AffineMap::getMultiDimIdentityMap(
-                                            scalarShardShape.size(), context),
-                                        TAttr::get(context, memorySpace));
+  return mlir::MemRefType::get(
+      scalarShardShape, elementType,
+      mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
+      TAttr::get(context, memorySpace));
 }
 
 #endif

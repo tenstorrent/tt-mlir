@@ -821,16 +821,22 @@ MetalLayoutAttr::projectOnto(mlir::AffineMap linearMap,
       .compose(linearMap);
 }
 
-mlir::MemRefType MetalLayoutAttr::getBufferType() const {
+mlir::MemRefType MetalLayoutAttr::getBufferType(bool isView) const {
   SmallVector<int64_t> fullMemrefShape;
   auto gridShape = getGrid().getShape();
   auto shardShape = getShardShape(/*convertTileToScalar*/ false);
   fullMemrefShape.append(gridShape.begin(), gridShape.end());
   fullMemrefShape.append(shardShape.begin(), shardShape.end());
-  return MemRefType::get(
-      fullMemrefShape, getElementType(),
-      ShardLayoutAttr::get(getContext(), getShardStride(), /*buffered=*/1),
-      MemorySpaceAttr::get(getContext(), getMemorySpace()));
+  MemRefLayoutAttrInterface layoutAttr;
+  if (isView) {
+    layoutAttr =
+        ViewLayoutAttr::get(getContext(), /*rank=*/fullMemrefShape.size());
+  } else {
+    layoutAttr = ShardLayoutAttr::get(getContext(), getShardStride(),
+                                      /*buffered=*/1);
+  }
+  return MemRefType::get(fullMemrefShape, getElementType(), layoutAttr,
+                         MemorySpaceAttr::get(getContext(), getMemorySpace()));
 }
 
 //
@@ -1048,10 +1054,16 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
 }
 
 mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
+                                         std::optional<AffineMap> view,
                                          size_t baseOffset) const {
+  assert(mlir::isa<ShardLayoutAttr>(memrefType.getLayout()) &&
+         "only memref with ShardLayout are supported by this function");
   tt::MemorySpace memorySpace =
       mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
   AffineMap affineMap = memrefType.getLayout().getAffineMap();
+  if (view) {
+    affineMap = affineMap.compose(*view);
+  }
   switch (memorySpace) {
   case MemorySpace::DeviceL1: {
     SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
@@ -1070,6 +1082,13 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     llvm_unreachable("Unsupported memory space");
   }
   }
+}
+
+mlir::AffineMap
+DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
+                         size_t pageSize, size_t baseOffset) const {
+  return getMemoryMap(memrefAndView.first, pageSize, memrefAndView.second,
+                      baseOffset);
 }
 
 size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType,
