@@ -76,7 +76,8 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
 
 mlir::tt::ttnn::TTNNLayoutAttr
 getLayoutAttrFromTensorSpec(MLIRContext *context,
-                            const ::ttnn::TensorSpec &tensorSpec);
+                            const ::ttnn::TensorSpec &tensorSpec,
+                            llvm::ArrayRef<int64_t> deviceGrid = {8, 8});
 
 } // namespace conversion
 } // namespace mlir::tt::op_model::ttnn

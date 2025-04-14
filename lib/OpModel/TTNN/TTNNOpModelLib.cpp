@@ -49,7 +49,7 @@ template <class Callable>
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 getOpConstraints(std::string_view name, MLIRContext *context,
-                 Callable &callable) {
+                 GridAttr deviceGrid, Callable &callable) {
   ::ttnn::graph::ConstraintQueryResponse query;
   try {
     query = callable();
@@ -72,11 +72,16 @@ getOpConstraints(std::string_view name, MLIRContext *context,
     assert(false && "Malformed op constraints query response");
   }
 
+  auto outputSpec = deviceGrid ? conversion::getLayoutAttrFromTensorSpec(
+                                     context, query.output_tensor_spec.value(),
+                                     deviceGrid.getShape())
+                               : conversion::getLayoutAttrFromTensorSpec(
+                                     context, query.output_tensor_spec.value());
+
   return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
                          query.resource_usage.l1_buffers_peak_per_core,
                          query.resource_usage.l1_output_buffer_per_core,
-                         conversion::getLayoutAttrFromTensorSpec(
-                             context, query.output_tensor_spec.value()));
+                         outputSpec);
 }
 
 template <class Callable>
@@ -234,6 +239,7 @@ template <typename OpSymbol>
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 getEltwiseUnaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
+                             GridAttr deviceGrid,
                              llvm::ArrayRef<int64_t> inputShape,
                              mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                              llvm::ArrayRef<int64_t> outputShape,
@@ -254,7 +260,8 @@ getEltwiseUnaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
         outputSpec.tensor_layout().get_memory_config());
   };
 
-  return operation::getOpConstraints(opName, outputLayout.getContext(), query);
+  return operation::getOpConstraints(opName, outputLayout.getContext(),
+                                     deviceGrid, query);
 }
 
 template <typename OpSymbol>
@@ -293,6 +300,7 @@ template <typename OpSymbol>
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
+                              GridAttr deviceGrid,
                               llvm::ArrayRef<int64_t> inputShapeA,
                               mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                               llvm::ArrayRef<int64_t> inputShapeB,
@@ -314,7 +322,8 @@ getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
         outputSpec.tensor_layout().get_memory_config());
   };
 
-  return operation::getOpConstraints(opName, outputLayout.getContext(), query);
+  return operation::getOpConstraints(opName, outputLayout.getContext(),
+                                     deviceGrid, query);
 }
 
 template <typename OpSymbol>
@@ -350,14 +359,15 @@ getEltwiseBinaryOpRuntime(std::string_view opName, OpSymbol opSymbol,
 //===----------------------------------------------------------------------===//
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-ReluOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+ReluOpInterface::getOpConstraints(GridAttr deviceGrid,
+                                  llvm::ArrayRef<int64_t> inputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                   llvm::ArrayRef<int64_t> outputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   return getEltwiseUnaryOpConstraints("ReluOpInterface", ::ttnn::relu,
-                                      inputShape, inputLayout, outputShape,
-                                      outputLayout);
+                                      deviceGrid, inputShape, inputLayout,
+                                      outputShape, outputLayout);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -381,14 +391,15 @@ ReluOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-SqrtOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+SqrtOpInterface::getOpConstraints(GridAttr deviceGrid,
+                                  llvm::ArrayRef<int64_t> inputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                   llvm::ArrayRef<int64_t> outputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   return getEltwiseUnaryOpConstraints("SqrtOpInterface", ::ttnn::sqrt,
-                                      inputShape, inputLayout, outputShape,
-                                      outputLayout);
+                                      deviceGrid, inputShape, inputLayout,
+                                      outputShape, outputLayout);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -412,16 +423,17 @@ SqrtOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-AddOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
+AddOpInterface::getOpConstraints(GridAttr deviceGrid,
+                                 llvm::ArrayRef<int64_t> inputShapeA,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                                  llvm::ArrayRef<int64_t> inputShapeB,
                                  mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
                                  llvm::ArrayRef<int64_t> outputShape,
                                  mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  return getEltwiseBinaryOpConstraints("AddOpInterface", ::ttnn::add,
-                                       inputShapeA, inputLayoutA, inputShapeB,
-                                       inputLayoutB, outputShape, outputLayout);
+  return getEltwiseBinaryOpConstraints(
+      "AddOpInterface", ::ttnn::add, deviceGrid, inputShapeA, inputLayoutA,
+      inputShapeB, inputLayoutB, outputShape, outputLayout);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -449,7 +461,7 @@ AddOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 SoftmaxOpInterface::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape,
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dimArg,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
@@ -471,7 +483,8 @@ SoftmaxOpInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("SoftmaxOpInterface",
-                                     outputLayout.getContext(), softmaxOpQuery);
+                                     outputLayout.getContext(), deviceGrid,
+                                     softmaxOpQuery);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -511,7 +524,8 @@ SoftmaxOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+MeanOpInterface::getOpConstraints(GridAttr deviceGrid,
+                                  llvm::ArrayRef<int64_t> inputShape,
                                   mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
                                   std::optional<llvm::ArrayRef<int64_t>> dimArg,
                                   bool keepDim,
@@ -540,8 +554,8 @@ MeanOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
         ::ttnn::mean, device, inputSpec, dimArgConverted, keepDim, memConfig);
   };
 
-  return operation::getOpConstraints("MeanOpInterface",
-                                     outputLayout.getContext(), meanOpQuery);
+  return operation::getOpConstraints(
+      "MeanOpInterface", outputLayout.getContext(), deviceGrid, meanOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -589,7 +603,7 @@ MeanOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 ReshapeOpInterface::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape,
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
@@ -611,7 +625,8 @@ ReshapeOpInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("ReshapeOpInterface",
-                                     outputLayout.getContext(), reshapeOpQuery);
+                                     outputLayout.getContext(), deviceGrid,
+                                     reshapeOpQuery);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -651,7 +666,7 @@ ReshapeOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 TypecastOpInterface::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape,
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, mlir::tt::DataTypeAttr dtype,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
@@ -673,8 +688,9 @@ TypecastOpInterface::getOpConstraints(
         outputSpec.tensor_layout().get_memory_config());
   };
 
-  return operation::getOpConstraints(
-      "typecastOpInterface", outputLayout.getContext(), typecastOpQuery);
+  return operation::getOpConstraints("typecastOpInterface",
+                                     outputLayout.getContext(), deviceGrid,
+                                     typecastOpQuery);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -716,7 +732,7 @@ TypecastOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 ToLayoutOpInterface::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape,
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     std::optional<mlir::tt::DataType> outputDtype,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout, bool passDevicePtr) {
@@ -746,8 +762,9 @@ ToLayoutOpInterface::getOpConstraints(
         conversion::getPageLayout(outputLayout.getLayout()), dtype,
         memoryConfig, passDevicePtr ? device : nullptr);
   };
-  return operation::getOpConstraints(
-      "ToLayoutOpInterface", outputLayout.getContext(), toLayoutOpQuery);
+  return operation::getOpConstraints("ToLayoutOpInterface",
+                                     outputLayout.getContext(), deviceGrid,
+                                     toLayoutOpQuery);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -798,7 +815,7 @@ ToLayoutOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 TransposeOpInterface::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape,
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, const int dim0, const int dim1,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -817,8 +834,9 @@ TransposeOpInterface::getOpConstraints(
         conversion::getMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints(
-      "TransposeOpInterface", outputLayout.getContext(), transposeOpQuery);
+  return operation::getOpConstraints("TransposeOpInterface",
+                                     outputLayout.getContext(), deviceGrid,
+                                     transposeOpQuery);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -855,7 +873,8 @@ llvm::Expected<size_t> TransposeOpInterface::getOpRuntime(
 //===----------------------------------------------------------------------===//
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
-MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
+MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
+                                    llvm::ArrayRef<int64_t> inputShapeA,
                                     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
                                     llvm::ArrayRef<int64_t> inputShapeB,
                                     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
@@ -881,7 +900,8 @@ MatmulOpInterface::getOpConstraints(llvm::ArrayRef<int64_t> inputShapeA,
   };
 
   return operation::getOpConstraints("MatmulOpInterface",
-                                     outputLayout.getContext(), matmulOpQuery);
+                                     outputLayout.getContext(), deviceGrid,
+                                     matmulOpQuery);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -922,16 +942,16 @@ MatmulOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 MultiplyOpInterface::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShapeA,
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutA,
     llvm::ArrayRef<int64_t> inputShapeB,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayoutB,
     llvm::ArrayRef<int64_t> outputShape,
     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  return getEltwiseBinaryOpConstraints("MultiplyOpInterface", ::ttnn::multiply,
-                                       inputShapeA, inputLayoutA, inputShapeB,
-                                       inputLayoutB, outputShape, outputLayout);
+  return getEltwiseBinaryOpConstraints(
+      "MultiplyOpInterface", ::ttnn::multiply, deviceGrid, inputShapeA,
+      inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -959,7 +979,7 @@ MultiplyOpInterface::getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA,
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 Conv2dOpInterface::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape,
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape,
     mlir::tt::ttnn::TTNNLayoutAttr weightLayout,
@@ -1007,7 +1027,8 @@ Conv2dOpInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("Conv2dOpInterface",
-                                     outputLayout.getContext(), conv2dOpQuery);
+                                     outputLayout.getContext(), deviceGrid,
+                                     conv2dOpQuery);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -1073,7 +1094,7 @@ llvm::Expected<size_t> Conv2dOpInterface::getOpRuntime(
 llvm::Expected<
     std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
 MaxPool2DInterface::getOpConstraints(
-    llvm::ArrayRef<int64_t> inputShape,
+    GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     mlir::tt::ttnn::TTNNLayoutAttr inputLayout, int32_t batchSize,
     int32_t inputHeight, int32_t inputWidth, int32_t inputChannels,
     llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
@@ -1113,7 +1134,8 @@ MaxPool2DInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("MaxPool2DInterface",
-                                     outputLayout.getContext(), maxPool2DQuery);
+                                     outputLayout.getContext(), deviceGrid,
+                                     maxPool2DQuery);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL

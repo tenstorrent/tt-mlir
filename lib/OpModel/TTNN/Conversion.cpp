@@ -298,9 +298,8 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
 
 mlir::tt::ttnn::TTNNLayoutAttr
 getLayoutAttrFromTensorSpec(MLIRContext *context,
-                            const ::ttnn::TensorSpec &tensorSpec) {
-  // TODO(@arminaleTT) pass in the device grid size
-  llvm::SmallVector<int64_t> deviceMaxGrid{8, 8};
+                            const ::ttnn::TensorSpec &tensorSpec,
+                            llvm::ArrayRef<int64_t> deviceGrid) {
   llvm::SmallVector<int64_t> shape;
   if (tensorSpec.logical_shape().size() > 0) {
     shape = getShape(tensorSpec.logical_shape());
@@ -328,10 +327,10 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
       context, getTensorMemoryLayout(tensorSpec.memory_config().memory_layout));
 
   GridAttr grid = mlir::tt::GridAttr::get(
-      context, getLogicalGridShape(tensorSpec.memory_config(), deviceMaxGrid),
+      context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
       ::mlir::tt::ttnn::optimizer_utils::
           createSingleDeviceVirtualToPhysicalAffineMap(
-              context, memoryLayoutAttr.getValue(), deviceMaxGrid));
+              context, memoryLayoutAttr.getValue(), deviceGrid));
 
   return mlir::tt::ttnn::TTNNLayoutAttr::get(
       context, shape, elementType, bufferType, grid, memoryLayoutAttr);
