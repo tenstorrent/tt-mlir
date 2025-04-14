@@ -190,7 +190,7 @@ func.func @constant_bf16() -> tensor<32x32xbf16> {
   return %0 : tensor<32x32xbf16>
 }
 
-func.func @main(%arg0 : tensor<1x256x1xf64>) -> tensor<1x256x1xf64> {
+func.func @fold_broadcast(%arg0 : tensor<1x256x1xf64>) -> tensor<1x256x1xf64> {
   // CHECK-NOT: "ttir.broadcast"
   // CHECK: -> tensor<1x256x1xf32>
   %0 = ttir.empty() : tensor<1x256x1xf64>
