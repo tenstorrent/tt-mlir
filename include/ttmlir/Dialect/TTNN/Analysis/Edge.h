@@ -17,7 +17,7 @@ struct Edge {
       : producerOp(producerOp), consumerOp(consumerOp),
         operandIndex(operandIndex) {}
 
-  bool operator==(const Edge &other) const {
+  constexpr bool operator==(const Edge &other) const {
     return producerOp == other.producerOp && consumerOp == other.consumerOp &&
            operandIndex == other.operandIndex;
   }
