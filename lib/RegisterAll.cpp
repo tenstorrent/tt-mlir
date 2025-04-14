@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/Utils/PopulateArgumentTypes.h"
@@ -36,6 +37,8 @@
 
 #if TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/sdy/ir/register.h"
+#include "shardy/dialect/sdy/transforms/passes.h"
+#include "shardy/round_trip_import/pipelines.h"
 #include "stablehlo/dialect/Register.h"
 #endif
 
@@ -92,12 +95,21 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttkernel::registerPasses();
   mlir::tt::llvm_util::registerPasses();
   mlir::tt::transforms::registerPasses();
+  mlir::tt::stablehlo::registerPasses();
 
   // Register pipelines.
   mlir::tt::ttir::registerTTIRPipelines();
   mlir::tt::ttnn::registerTTNNPipelines();
   mlir::tt::ttmetal::registerTTMetalPipelines();
   mlir::tt::ttkernel::registerTTKernelPipelines();
+
+#if TTMLIR_ENABLE_STABLEHLO
+  // Register all SDY passes and pipelines.
+  mlir::sdy::registerAllSdyPassesAndPipelines();
+
+  // Register all SDY round-trip-import passes and the pipeline.
+  mlir::sdy::registerAllSdyRoundTripImportPassesAndPipeline();
+#endif
 }
 
 void mlir::tt::MLIRModuleLogger::attachContext(
