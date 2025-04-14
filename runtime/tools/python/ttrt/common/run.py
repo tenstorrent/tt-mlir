@@ -749,12 +749,6 @@ class Run:
                                 fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EE"
 
                                 for loop in range(self["--loops"]):
-                                    # inputs_converted = convert_input_layouts(
-                                    #     device,
-                                    #     inputs,
-                                    #     bin.fbb,
-                                    #     program_index,
-                                    # )
                                     emitc_outs = ttrt.runtime.testing.run_so_program(
                                         emitc_dylib_handle,
                                         fwd_func_sym,
