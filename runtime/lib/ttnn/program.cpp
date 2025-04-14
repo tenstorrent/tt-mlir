@@ -51,6 +51,7 @@
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
@@ -100,11 +101,13 @@ public:
           input->global_id(), &(programInputs[inputIndex++]));
       LOG_ASSERT(inserted, "Duplicate input tensor");
       programInputIds.push_back(input->global_id());
+      std::cout << "Input tensor ID: " << input->global_id() << std::endl;
     }
 
     std::vector<uint32_t> programOutputIds;
     for (const ::tt::target::ttnn::TensorRef *output : *program->outputs()) {
       programOutputIds.push_back(output->global_id());
+      std::cout << "Output tensor ID: " << output->global_id() << std::endl;
     }
 
     context = std::make_unique<ProgramContext>(
@@ -117,34 +120,56 @@ public:
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
-  void callbackActions(::ttnn::MeshDevice &meshDevice);
-
   void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
+
+  void callbackActions(::ttnn::MeshDevice &meshDevice,
+                       const ::tt::target::ttnn::Operation *opContext) {
+    dumpPerfCountersIfNeeded(meshDevice);
+    allProgramOutputs.push_back(
+        opContext->debug_info()
+            ->c_str()); // uh an op would never have multiple outputs right?
+    // opnew = opContext.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+    // std::cout << "OP ID: " << opContext->id() << std::endl;
+    std::cout << "OP OUT: " << opContext->out()->c_str() << std::endl;
+#include <typeinfo>
+    std::cout << "OP TYPE: " << typeid(opContext->out()).name() << std::endl;
+  } // Note to self:
 
   void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-      LOG_DEBUG(LogType::LogRuntimeTTNN,
-                "Executing operation: ", op->debug_info()->c_str());
+      LOG_WARNING(LogType::LogRuntimeTTNN,
+                  "Executing operation: ", op->debug_info()->c_str());
       tracyLogOpLocation(op);
       runCallback(debug::Hooks::get().getPreOperatorCallback(),
                   executableHandle, op, context.get());
       runOperation(op);
       runCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
-      callbackActions(context->getParentMesh());
+      callbackActions(context->getParentMesh(), op);
     }
   }
 
   ProgramContext &getContext() { return *context; }
 
+  std::vector<std::string> getAllProgramOutputs() {
+    // LOG_DEBUG("Output tensors in program: ", allProgramOutputs);
+    return allProgramOutputs;
+  }
+  // Okay. Plan. We have to find a way to get global ID from opContext. Then
+  // maybe write function updateProgram to update the program outputs
+
   std::vector<::tt::runtime::Tensor> gatherOutputTensors() {
-    return context->getTensorPool().gatherOutputTensors();
+    std::vector<::tt::runtime::Tensor> outputTensors =
+        context->getTensorPool().gatherOutputTensors();
+    LOG_WARNING("Gathered output tensors: ", outputTensors.size());
+    return outputTensors;
   }
 
 private:
   const ::tt::target::ttnn::Program *program;
   Binary executableHandle;
   std::unique_ptr<ProgramContext> context;
+  std::vector<std::string> allProgramOutputs;
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
@@ -167,10 +192,6 @@ void ProgramExecutor::runCallback(
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
   }
-}
-
-void ProgramExecutor::callbackActions(::ttnn::MeshDevice &meshDevice) {
-  dumpPerfCountersIfNeeded(meshDevice);
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
@@ -391,6 +412,11 @@ runProgram(::ttnn::MeshDevice &meshDevice, Binary executableHandle,
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
+  LOG_WARNING("Output tensors in program: ",
+              executor.getAllProgramOutputs().size());
+  for (std::string output : executor.getAllProgramOutputs()) {
+    LOG_WARNING("Output tensor: ", output);
+  }
   return outputTensors;
 }
 

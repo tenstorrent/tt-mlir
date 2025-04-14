@@ -14,9 +14,9 @@ import torch
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
-    os.environ["LOGGER_LEVEL"] = "TRACE"
+    os.environ["LOGGER_LEVEL"] = "FATAL"
 if "TT_METAL_LOGGER_LEVEL" not in os.environ:
-    os.environ["TT_METAL_LOGGER_LEVEL"] = "TRACE"
+    os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
 
 def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:

@@ -270,6 +270,8 @@ class Run:
             self.artifacts.create_artifacts()
 
         self.logging.debug(f"------finished preprocessing read API")
+        for k, v in os.environ.items():
+            self.logging.debug(f"{k}={v}")
 
     def check_constraints(self):
         self.logging.debug(f"------checking constraints for run API")
@@ -861,6 +863,7 @@ class Run:
         self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing run API")
+        print("JUST A TEST")
 
     def __getitem__(self, key):
         return getattr(self, key)
