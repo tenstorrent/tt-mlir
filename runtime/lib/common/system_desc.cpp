@@ -278,8 +278,6 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt) {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  ::tt::tt_metal::DispatchCoreType type =
-      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
   ::tt::tt_metal::distributed::MeshShape meshShape{
@@ -287,7 +285,8 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc(
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
           ::tt::tt_metal::distributed::MeshDeviceConfig(meshShape),
-          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
+          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
+          ::tt::tt_metal::DispatchCoreType::WORKER);
   LOG_DEBUG("Device grid size = { ",
             meshDevice->compute_with_storage_grid_size().x, ", ",
             meshDevice->compute_with_storage_grid_size().y, " }");
