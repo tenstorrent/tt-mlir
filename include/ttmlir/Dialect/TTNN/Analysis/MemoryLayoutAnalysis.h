@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -20,6 +21,7 @@
 namespace mlir::tt::ttnn {
 
 struct MemoryLayoutAnalysisInput {
+  const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   unsigned usableL1CacheSize = 0;
   llvm::DenseSet<Edge> overrideReshardEdges;
@@ -29,11 +31,13 @@ struct MemoryLayoutAnalysisInput {
   MemoryLayoutAnalysisInput() : legalConfigs() {}
 
   MemoryLayoutAnalysisInput(
+      const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       unsigned usableL1CacheSize,
       const llvm::DenseSet<Edge> &overrideReshardEdges,
       MemoryLayoutAnalysisPolicyType policy)
-      : legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
+      : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
+        legalConfigs(legalConfigs), usableL1CacheSize(usableL1CacheSize),
         overrideReshardEdges(overrideReshardEdges), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {

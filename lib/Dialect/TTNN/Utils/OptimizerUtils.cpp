@@ -8,11 +8,14 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <unordered_set>
 
 namespace mlir::tt::ttnn::optimizer_utils {
 
@@ -151,6 +154,22 @@ std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
             .withMemoryLayout(ctx, TensorMemoryLayout::BlockSharded)
             .withElementType(ctx, elementType, tensorShape);
 
+    // We can cache shard shape and then discard larger grids with same shard
+    // TODO(rpavlovicTT) consider if we should reset this set in between
+    // sharding schemes
+    std::unordered_set<std::pair<int64_t, int64_t>,
+                       llvm::pair_hash<int64_t, int64_t>>
+        shardShapeSet;
+    auto checkIfShardShapeExists = [&](llvm::ArrayRef<int64_t> shape) {
+      assert(shape.size() == 2 && "Shard shape is expected to be 2D.");
+      auto it = shardShapeSet.find({shape[0], shape[1]});
+      if (it != shardShapeSet.end()) {
+        return true;
+      }
+      shardShapeSet.insert({shape[0], shape[1]});
+      return false;
+    };
+
     assert(maxGrid.getShape().size() == 2 &&
            "Max device grid is expected to be 2D.");
     // Block Sharded
@@ -163,8 +182,14 @@ std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
                 .withGrid(ctx, tensorType,
                           GridAttr::get(ctx, {height, width}, affineMapBs))
                 .withMemoryLayout(ctx, TensorMemoryLayout::BlockSharded));
+        if (checkIfShardShapeExists(
+                shardedResults.back().getMemref().getShape())) {
+          shardedResults.pop_back();
+        }
       }
     }
+
+    shardShapeSet.clear();
 
     int64_t numCores = maxGrid.getGridVolume();
     // Height Sharded
@@ -177,7 +202,14 @@ std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
               .withGrid(ctx, tensorType,
                         GridAttr::get(ctx, {height, 1}, affineMapHs))
               .withMemoryLayout(ctx, TensorMemoryLayout::HeightSharded));
+
+      if (checkIfShardShapeExists(
+              shardedResults.back().getMemref().getShape())) {
+        shardedResults.pop_back();
+      }
     }
+
+    shardShapeSet.clear();
 
     // Width Sharded
     auto affineMapWs = createSingleDeviceVirtualToPhysicalAffineMap(
@@ -188,6 +220,10 @@ std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
               .withGrid(ctx, tensorType,
                         GridAttr::get(ctx, {1, width}, affineMapWs))
               .withMemoryLayout(ctx, TensorMemoryLayout::WidthSharded));
+      if (checkIfShardShapeExists(
+              shardedResults.back().getMemref().getShape())) {
+        shardedResults.pop_back();
+      }
     }
   }
 

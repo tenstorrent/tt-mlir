@@ -127,7 +127,7 @@ inline std::string getCurrentTimestamp() {
         OS << ttmlir::getLogComponentStr(logComponent);                        \
         OS.resetColor();                                                       \
         OS << "] " << llvm::formatv(fmt, __VA_ARGS__) << "\n";                 \
-        if (logLevel == LogLevel::Fatal) {                                     \
+        if (logLevel == ttmlir::LogLevel::Fatal) {                             \
           abort();                                                             \
         }                                                                      \
       })
@@ -137,11 +137,11 @@ inline std::string getCurrentTimestamp() {
 
 // Public logging macros
 #define TTMLIR_TRACE(component, fmt, ...)                                      \
-  TTMLIR_LOG_FMT(component, LogLevel::Trace, fmt, __VA_ARGS__)
+  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Trace, fmt, __VA_ARGS__)
 #define TTMLIR_DEBUG(component, fmt, ...)                                      \
-  TTMLIR_LOG_FMT(component, LogLevel::Debug, fmt, __VA_ARGS__)
+  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Debug, fmt, __VA_ARGS__)
 #define TTMLIR_FATAL(component, fmt, ...)                                      \
-  TTMLIR_LOG_FMT(component, LogLevel::Fatal, fmt, __VA_ARGS__)
+  TTMLIR_LOG_FMT(component, ttmlir::LogLevel::Fatal, fmt, __VA_ARGS__)
 
 } // namespace ttmlir
 
