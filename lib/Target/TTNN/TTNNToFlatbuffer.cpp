@@ -1076,8 +1076,10 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  auto useLegacy = op.getUseLegacy().value_or(true);
+
   return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, targetDtype, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, targetDtype, memoryConfig, out, useLegacy);
 }
 
 template <typename EltwiseBinaryCompositeOp>
