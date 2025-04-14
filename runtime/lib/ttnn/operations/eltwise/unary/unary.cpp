@@ -68,7 +68,7 @@ static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out =
-      ttnnOp(in, (int)::ttnn::operations::unary::VecMode::RC,
+      ttnnOp(in, static_cast<int>(::ttnn::operations::unary::VecMode::RC),
              /*parameter=*/false, outputMemoryConfig, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
