@@ -85,6 +85,10 @@ def TTNN_TypecastOp : TTNN_Op<"typecast",
     let arguments = (ins AnyRankedTensor:$input,
                          TT_DataTypeAttr:$dtype);
     let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
+    let hasCanonicalizeMethod = 1;
+    let hasVerifier = 1;
 }
 
 def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
@@ -102,6 +106,8 @@ def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
+    let hasCanonicalizeMethod = 1;
+    let hasVerifier = 1;
 }
 
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {

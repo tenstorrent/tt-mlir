@@ -1754,6 +1754,40 @@ mlir::OpFoldResult mlir::tt::ttir::TransposeOp::fold(FoldAdaptor adaptor) {
   return llvm::failure();
 }
 
+// TypecastOp canonicalization method
+::llvm::LogicalResult
+mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
+                                         ::mlir::PatternRewriter &rewriter) {
+  // Fold two consecutive typecast ops into a single one
+  ::mlir::tt::ttir::TypecastOp previousTypecastOp =
+      op.getInputs()[0].getDefiningOp<mlir::tt::ttir::TypecastOp>();
+
+  if (!previousTypecastOp) {
+    return mlir::failure();
+  }
+
+  // Check if the previous cast op has only one use. We can only fold if the
+  // previous op has single use.
+  if (!previousTypecastOp->hasOneUse()) {
+    return mlir::failure();
+  }
+
+  // Replace the previous op with the merged TypecastOp.
+  mlir::tt::ttir::TypecastOp foldedTypecastOp =
+      ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::TypecastOp>(
+          rewriter, previousTypecastOp,
+          mlir::cast<mlir::RankedTensorType>(op.getType(0)),
+          previousTypecastOp.getInputs());
+
+  // Replace all uses of the current op with the merged TypecastOp.
+  rewriter.replaceAllUsesWith(op->getResult(0), foldedTypecastOp->getResult(0));
+
+  // Erase the current op.
+  rewriter.eraseOp(op);
+
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // UnsqueezeOp
 //===----------------------------------------------------------------------===//
