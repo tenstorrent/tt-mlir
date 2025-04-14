@@ -165,7 +165,8 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
     let arguments = (ins AnyRankedTensor:$lhs,
                          AnyRankedTensor:$rhs,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<BoolAttr>:$use_legacy);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -179,7 +180,8 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     [
       OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
       [{
-        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr,
+              /*use_legacy=*/nullptr);
       }]>
     ];
 }
