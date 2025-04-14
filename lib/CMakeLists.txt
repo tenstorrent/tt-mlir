@@ -28,15 +28,56 @@ set(TTMLIR_LIBS
   MLIRSupport
 )
 
+set(SHARDY_LIBS)
+if (TTMLIR_ENABLE_STABLEHLO)
+  list(APPEND SHARDY_LIBS
+    SdyDialect
+    SdyRegister
+    SdyTransformsPropagationOpShardingRuleBuilder
+    SdyTransformsPropagationPasses
+    SdyTransformsPropagationOpShardingRuleRegistry
+    SdyTransformsPropagationShardingGroupMap
+    SdyTransformsPropagationShardingProjection
+    SdyTransformsPropagationAutoPartitionerRegistry
+    SdyTransformsPropagationUtils
+    SdyTransformsPropagationBasicFactorPropagation
+    SdyTransformsPropagationAggressiveFactorPropagation
+    SdyTransformsCommonOpProperties
+    SdyTransformsCommonShardingWalker
+    SdyTransformsPropagationDebuggingSourceSharding
+    SdyCommonFileUtils
+    SdyTransformsExportPasses
+    SdyTransformsImportPasses
+    SdyTransformsPasses
+    SdyRoundtripImportShardyAttrs
+    SdyRoundtripImportCallbackCustomCalls
+    SdyRoundtripImportBackendFuncCalls
+    SdyRoundtripShardMapImport
+    SdyRoundtripPipelines
+  )
+endif()
+
+set(SHARDY_HEADER_DIRS)
+if (TTMLIR_ENABLE_STABLEHLO)
+    list(APPEND SHARDY_HEADER_DIRS
+      ${TTMLIR_TOOLCHAIN_DIR}/src/shardy
+      ${TTMLIR_TOOLCHAIN_DIR}/src/shardy-build
+    )
+endif()
+
 #
 # Static Target for tools like opt/translate/lspserver
 #
 add_mlir_library(TTMLIRCompilerStatic
   RegisterAll.cpp
 
+  ADDITIONAL_HEADER_DIRS
+  ${SHARDY_HEADER_DIRS}
+
   LINK_LIBS PUBLIC
   ${TTMLIR_LIBS}
   coverage_config
+  ${SHARDY_LIBS}
 )
 
 #
