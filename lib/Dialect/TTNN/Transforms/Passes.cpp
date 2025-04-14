@@ -361,42 +361,6 @@ public:
     assert(module->getRegions().size() == 1);
     assert(module->getRegion(0).getBlocks().size() == 1);
 
-    // Get the first block of the region at index 0
-    //
-    Block *firstBlock = module.getBody(0);
-
-    // Collect all functions with const_eval attribute
-    SmallVector<func::FuncOp, 4> constEvalFuncs;
-
-    // First pass: just collect const_eval functions
-    for (Operation &op : firstBlock->getOperations()) {
-      if (auto funcOp = dyn_cast<func::FuncOp>(&op)) {
-        if (funcOp->hasAttr("const_eval")) {
-          constEvalFuncs.push_back(funcOp);
-        }
-      }
-    }
-
-    // If we found any const_eval functions, move them to the beginning because
-    // emitC must define these funcs before they are used.
-    if (!constEvalFuncs.empty()) {
-      // Get the first non-terminator operation in the block
-      Operation *firstOp = &firstBlock->front();
-
-      // Move each const_eval function to the beginning
-      // We do this in reverse order to maintain their relative ordering
-      rewriter.setInsertionPoint(firstOp);
-      for (func::FuncOp func : constEvalFuncs) {
-        // Skip if this is already the first operation
-        if (func.getOperation() == firstOp)
-          continue;
-
-        // Move the function to the beginning
-        func->remove();
-        rewriter.insert(func);
-      }
-    }
-
     // Find all the func.func ops in the module that are "forward" functions
     //
     SmallVector<func::FuncOp, 1> forwardFuncOps;
