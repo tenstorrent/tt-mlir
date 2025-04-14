@@ -31,7 +31,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
                    - The first value is the CB L1 peak allocation in bytes.
                    - The second value is the Tensor L1 peak allocation in bytes.
                    - The third value is the Output L1 buffer allocation in bytes.
-                   - The third value is the actual TTNNLayoutAttr of the output tensor, as returned by the operation. For
+                   - The fourth value is the actual TTNNLayoutAttr of the output tensor, as returned by the operation. For
                      some operations this may be different from the requested output layout
                 If the op is illegal, returns an Error with a string describing the failure.
             }],
