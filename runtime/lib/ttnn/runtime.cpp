@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Constants.h"
+
 #include "tt-metalium/small_vector.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
@@ -12,11 +13,10 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
+#include "ttnn/tensor/types.hpp"
 
 #include "ttmlir/Target/TTNN/Target.h"
-
 #include "ttmlir/Version.h"
-#include "ttnn/tensor/types.hpp"
 
 namespace tt::runtime::ttnn {
 

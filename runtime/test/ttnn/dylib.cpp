@@ -40,9 +40,8 @@ runSoProgram(void *so, std::string func_name,
   ::ttnn::MeshDevice &ttnnMeshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  // In this path, we only ever test with a single device (for now), hence
-  // MeshDevice is unpacked to get the Device
-  //
+  // In this path, we only ever test with a single device (for now) in CI, but
+  // locally we may have 2 devices.
   assert(ttnnMeshDevice.get_devices().size() > 0);
   ::ttnn::IDevice *ttnnDevice = ttnnMeshDevice.get_devices()[0];
 
