@@ -120,21 +120,35 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
-                     "ArrayAttr": $iteratorTypes),
+                     "ArrayAttr": $iteratorTypes,
+                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
       [{
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
-        auto firstIndexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]).getValue();
-        auto grid = $_builder.getAttr<tt::GridAttr>(SmallVector<int64_t>(firstIndexingMap.getNumResults(), 1));
-        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(ThreadType::Compute));
+        assert(outputs.size() == 1 && "expected single output");
+        if (!grid) {
+          RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType());
+          if (tensorType) {
+            grid = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getGrid();
+          } else {
+            MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
+            assert(memrefType.getRank() % 2 == 0 && "expected even rank");
+            ArrayRef<int64_t> gridShape = memrefType.getShape().take_front(memrefType.getRank() / 2);
+            grid = $_builder.getAttr<tt::GridAttr>(gridShape);
+          }
+        }
+        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
         build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, indexingMaps, iteratorTypes, threads, 1);
       }]>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
-                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $computeRegionBuilder),
+                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
+                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
       [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes);
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, grid, singleThreadType);
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           return mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding()).getMemref();
@@ -143,11 +157,29 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
         OpBuilder::InsertionGuard guard($_builder);
         Block* block = $_builder.createBlock(&region, region.end(), blockTypes, locs);
-        computeRegionBuilder($_builder, $_state.location, block->getArguments());
+        singleThreadRegionBuilder($_builder, $_state.location, block->getArguments());
+      }]>,
+      OpBuilder<(ins "ValueRange": $inputs,
+                     "ValueRange": $outputs,
+                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
+                     CArg<"GridAttr", "nullptr">: $grid,
+                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType),
+      [{
+        assert(outputs.size() == 1 && "expected single output");
+        RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
+        MetalLayoutAttr layout = mlir::cast<tt::MetalLayoutAttr>(tensorType.getEncoding());
+        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder, inputs.size() + outputs.size(), layout.getRank());
+        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, grid, singleThreadType);
       }]>,
     ];
 
     let extraClassDeclaration = [{
+      static std::pair<ArrayAttr, ArrayAttr> buildParallelAffineMapsAndIteratorTypes(mlir::OpBuilder &builder, size_t arity, size_t rank) {
+        auto map = builder.getMultiDimIdentityMap(rank);
+        Attribute parallel = builder.getAttr<tt::IteratorTypeAttr>(tt::IteratorType::Parallel);
+        return std::make_pair(builder.getAffineMapArrayAttr(SmallVector<AffineMap>(arity, map)),
+                              builder.getArrayAttr(SmallVector<Attribute>(rank, parallel)));
+      }
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
       unsigned getNumLoops();
       unsigned getNumDims();
@@ -157,6 +189,10 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
       ThreadType getRegionThreadType(unsigned regionIndex) {
         return mlir::cast<ThreadAttr>(getThreads()[regionIndex]).getThreadType();
+      }
+      bool isComputeOnlyForm() {
+        auto threads = getThreads();
+        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
       }
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
@@ -182,14 +218,17 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                         AnyRankedTensorOrMemRef:$output);
+                         AnyRankedTensorOrMemRef:$output,
+                         OptionalAttr<TT_MetalLayoutAttr>:$layout);
     let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let assemblyFormat = [{ $input `,` $output `:` type($input) `into` type($output) (`hostInfo` `=` $layout^)? attr-dict (`->` type($results)^)? }];
 
     let builders =
     [
-      OpBuilder<(ins "Value": $input, "Value": $output),
+      OpBuilder<(ins "Value": $input, "Value": $output, CArg<"MetalLayoutAttr", "nullptr">: $layout),
       [{
-        build($_builder, $_state, {output.getType()}, input, output);
+        build($_builder, $_state, {output.getType()}, input, output, layout);
       }]>,
     ];
 
@@ -201,10 +240,19 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
         bool isGridChange = false;
         bool isFormatChange = false;
         bool isMemorySpaceChange = false;
+
+        bool isCompound() {
+          return (static_cast<int>(isLayoutChange) +
+                  static_cast<int>(isGridChange || isMemorySpaceChange) +
+                  static_cast<int>(isFormatChange)) > 1;
+        }
       };
 
       // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
       CompoundComponents compoundComponents();
+      bool isCompound() { return compoundComponents().isCompound(); }
+      MetalLayoutAttr getInputLayout();
+      MetalLayoutAttr getOutputLayout();
     }];
 
     let hasVerifier = 1;
