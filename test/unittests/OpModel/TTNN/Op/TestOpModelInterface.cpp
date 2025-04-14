@@ -19,7 +19,8 @@ namespace mlir::tt::ttnn {
 
 class OpModelBase : public OpModelFixture {
 public:
-  llvm::Expected<std::tuple<size_t, size_t, size_t>>
+  llvm::Expected<
+      std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>
   getOpConstraints(Operation *op) {
     if (OpModel backend = dyn_cast<OpModel>(op)) {
       return backend.getOpConstraints(getInputLayouts(op), getOutputLayout(op));
@@ -108,10 +109,10 @@ TEST_F(OpModelBase, ReluOpInterface) {
   auto constraintsExp = getOpConstraints(relu.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 8192);
-    EXPECT_EQ(peak_size, 2048);
-    EXPECT_EQ(output_size, 2048);
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -139,10 +140,10 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   auto constraintsExp = getOpConstraints(relu.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 8192);
-    EXPECT_EQ(peak_size, 2048);
-    EXPECT_EQ(output_size, 2048);
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -170,10 +171,10 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
   auto constraintsExp = getOpConstraints(softmax.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 137216);
-    EXPECT_EQ(peak_size, 2048);
-    EXPECT_EQ(output_size, 2048);
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 137216);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -202,10 +203,10 @@ TEST_F(OpModelBase, AddOpInterface) {
   auto constraintsExp = getOpConstraints(add.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 12288);
-    EXPECT_EQ(peak_size, 2048);
-    EXPECT_EQ(output_size, 2048);
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -235,10 +236,10 @@ TEST_F(OpModelBase, MultiplyOpInterface) {
   auto constraintsExp = getOpConstraints(multiply.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 12288);
-    EXPECT_EQ(peak_size, 2048);
-    EXPECT_EQ(output_size, 2048);
+    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -269,10 +270,10 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   auto constraintsExp = getOpConstraints(matmul.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 786432);
-    EXPECT_EQ(peak_size, 131072);
-    EXPECT_EQ(output_size, 131072);
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 786432);
+    EXPECT_EQ(peakSize, 131072);
+    EXPECT_EQ(outputSize, 131072);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -304,10 +305,10 @@ TEST_F(OpModelBase, MeanOpInterface) {
   auto constraintsExp = getOpConstraints(mean.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 12288);
-    EXPECT_EQ(peak_size, 2048);
-    EXPECT_EQ(output_size, 2048);
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -338,10 +339,10 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 262144);
-    EXPECT_EQ(peak_size, 4096);
-    EXPECT_EQ(output_size, 2048);
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 262144);
+    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -391,10 +392,10 @@ TEST_F(OpModelBase, toLayoutOp) {
       std::vector{layoutDRAMRowMajor}, layoutDRAMTiled);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 131072);
-    EXPECT_EQ(peak_size, 0);
-    EXPECT_EQ(output_size, 0);
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 131072);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -424,10 +425,10 @@ TEST_F(OpModelBase, transposeOp) {
   auto constraintsExp = getOpConstraints(transpose.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 8192);
-    EXPECT_EQ(peak_size, 2048);
-    EXPECT_EQ(output_size, 2048);
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -462,10 +463,10 @@ TEST_F(OpModelBase, typecastOp) {
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
-    EXPECT_EQ(cb_size, 12288);
-    EXPECT_EQ(peak_size, 4096);
-    EXPECT_EQ(output_size, 4096);
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -568,10 +569,10 @@ TEST_F(OpModelBase, maxPool2DOp) {
              << llvm::toString(constraintsExp.takeError()) << std::endl;
     }
     auto l1 = constraintsExp.get();
-    const auto &[cb_size, peak_size, output_size] = l1;
-    EXPECT_GT(cb_size, 0);
-    EXPECT_GT(peak_size, 0);
-    EXPECT_GT(output_size, 0);
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(outputSize, 0);
   }
   op_model::ttnn::SingletonDeviceContext::resetInstance();
 

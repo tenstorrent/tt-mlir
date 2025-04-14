@@ -33,7 +33,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
                    - The third value is the Output L1 buffer allocation in bytes.
                 If the op is illegal, returns an Error with a string describing the failure.
             }],
-            /*retTy=*/"llvm::Expected<std::tuple<size_t, size_t, size_t>>",
+            /*retTy=*/"llvm::Expected<std::tuple<size_t, size_t, size_t, ::mlir::tt::ttnn::TTNNLayoutAttr>>",
             /*methodName=*/"getOpConstraints",
             /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",

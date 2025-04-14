@@ -89,7 +89,8 @@ TEST_P(OpModelUnaryEltwiseParam, Relu) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] =
+        constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
     EXPECT_EQ(peakSize, expectedPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
@@ -174,7 +175,8 @@ TEST_P(OpModelUnaryEltwiseParam, Sqrt) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] =
+        constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
     EXPECT_EQ(peakSize, expectedPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
@@ -270,7 +272,8 @@ TEST_P(OpModelReductionParam, Reduction) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] =
+        constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
     EXPECT_EQ(peakSize, expectedPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
@@ -325,7 +328,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayout] = constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -333,7 +336,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 2048);
   EXPECT_EQ(peak_size, 2048);
@@ -341,7 +345,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -349,7 +354,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 2048);
   EXPECT_EQ(peak_size, 2048);
@@ -357,7 +363,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 137216);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -391,7 +398,7 @@ TEST_F(OpModelTest, Reshape) {
   auto constraintsExp = ReshapeOpInterface::getOpConstraints(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayout] = constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -404,7 +411,8 @@ TEST_F(OpModelTest, Reshape) {
   constraintsExp = ReshapeOpInterface::getOpConstraints(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
   EXPECT_EQ(output_size, 2048);
   EXPECT_EQ(peak_size, 4096);
@@ -433,7 +441,7 @@ TEST_F(OpModelTest, ToLayout) {
   auto constraintsExp = ToLayoutOpInterface::getOpConstraints(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, true);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayout] = constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -456,7 +464,8 @@ TEST_F(OpModelTest, ToLayout) {
   constraintsExp = ToLayoutOpInterface::getOpConstraints(
       tensorShape, layoutDRAMTiled, std::nullopt, layoutDRAMRowMajor, false);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 262144);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -486,7 +495,7 @@ TEST_F(OpModelTest, Transpose) {
   auto constraintsExp = TransposeOpInterface::getOpConstraints(
       tensorShape, layoutDRAM, 0, 1, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayout] = constraintsExp.get();
   EXPECT_EQ(cb_size, 8192);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -499,7 +508,8 @@ TEST_F(OpModelTest, Transpose) {
   constraintsExp = TransposeOpInterface::getOpConstraints(
       tensorShape, layoutDRAM, 0, 1, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 8192);
   EXPECT_EQ(output_size, 2048);
   EXPECT_EQ(peak_size, 2048);
@@ -537,7 +547,7 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   auto constraintsExp = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayout] = constraintsExp.get();
   EXPECT_EQ(cb_size, 24576);
   EXPECT_EQ(output_size, 32768);
   EXPECT_EQ(peak_size, 32768);
@@ -545,7 +555,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_i);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 24576);
   EXPECT_EQ(output_size, 32768);
   EXPECT_EQ(peak_size, 32768);
@@ -553,7 +564,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   constraintsExp = SoftmaxOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  std::tie(cb_size, peak_size, output_size) = constraintsExp.get();
+  std::tie(cb_size, peak_size, output_size, outputLayout) =
+      constraintsExp.get();
   EXPECT_EQ(cb_size, 24576);
   EXPECT_EQ(output_size, 32768);
   EXPECT_EQ(peak_size, 32768);
@@ -586,7 +598,7 @@ TEST_F(OpModelTest, Typecast) {
       DataTypeAttr::get(&context, DataType::Float32), tensorShape,
       inputLayoutDRAMIF32);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size] = constraintsExp.get();
+  auto [cb_size, peak_size, output_size, outputLayout] = constraintsExp.get();
   EXPECT_EQ(cb_size, 12288);
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
@@ -633,7 +645,8 @@ protected:
       };
 
   std::map<OpType,
-           std::function<llvm::Expected<std::tuple<size_t, size_t, size_t>>(
+           std::function<llvm::Expected<std::tuple<
+               size_t, size_t, size_t, mlir::tt::ttnn::TTNNLayoutAttr>>(
                llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
                llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr,
                llvm::ArrayRef<int64_t>, mlir::tt::ttnn::TTNNLayoutAttr)>>
@@ -667,7 +680,8 @@ protected:
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+      const auto [cbSize, peakSize, outputSize, outputLayout] =
+          constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
       EXPECT_EQ(peakSize, expectedPeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
@@ -896,7 +910,8 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] =
+        constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
     EXPECT_EQ(peakSize, expectedPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
@@ -1132,7 +1147,8 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), constraintsLegal);
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] =
+        constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(peakSize, 0);
     EXPECT_GT(outputSize, 0);
@@ -1237,7 +1253,8 @@ TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize] = constraintsExp.get();
+    const auto [cbSize, peakSize, outputSize, outputLayout] =
+        constraintsExp.get();
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(peakSize, 0);
     EXPECT_GT(outputSize, 0);
