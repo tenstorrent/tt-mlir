@@ -14,13 +14,12 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
     # CHECK: module {
     # CHECK: func.func @{{.*}}(%arg0: !ttkernel.cb<{{.*}}>, %arg1: !ttkernel.cb<{{.*}}>) {
     # CHECK: emitc.verbatim "// --- Python Function {{.*}}"
-    # CHECK: emitc.verbatim "// src_addr: int = rt_args[0]"
+    # CHECK: emitc.verbatim "// src_addr = rt_args[0]"
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    # CHECK: %[[SRC_ADDR:.*]] = memref.alloca(){{.*}}
     # CHECK: emitc.verbatim "// bank_id, num_tiles = rt_args[1:3]"
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
     # CHECK: {{.*}}"ttkernel.get_arg_val"{{.*}}
-    src_addr: int = rt_args[0]
+    src_addr = rt_args[0]
     bank_id, num_tiles = rt_args[1:3]
 
     # CHECK: emitc.verbatim "// ublock_size_tiles = 1"
@@ -30,6 +29,7 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
     ublock_size_bytes = get_tile_size(cb_in) * ublock_size_tiles
 
     # CHECK: emitc.verbatim "// for i in range(0, num_tiles, ublock_size_tiles):"
+    # CHECK: %{{.*}} = scf.for %arg2 = %c0_i32 to %{{.*}} step %c1_i32 iter_args(%arg3 = %{{.*}}) -> (i32)  : i32 {
     for i in range(0, num_tiles, ublock_size_tiles):
         # CHECK: emitc.verbatim "// src_noc_addr = get_noc_addr_from_bank_id(bank_id, src_addr)"
         # CHECK: %[[SRC_NOC_ADDR:.*]] = "ttkernel.get_noc_addr_from_bank_id"{{.*}}
@@ -50,9 +50,8 @@ def reader_unary(cb_in: CircularBuffer, cb_out: CircularBuffer, rt_args):
         cb_push_back(cb_in, ublock_size_tiles)
 
         # CHECK: emitc.verbatim "// src_addr += ublock_size_bytes"
-        # CHECK: {{.*}}memref.load %[[SRC_ADDR]]{{.*}}
-        # CHECK: {{.*}}arith.addi{{.*}}
-        # CHECK: memref.store {{.*}} %[[SRC_ADDR]]{{.*}}
+        # CHECK: {{.*}}arith.addi %arg3, %{{.*}} : i32
+        # CHECK: scf.yield %{{.*}} : i32
         src_addr += ublock_size_bytes
 
     return
