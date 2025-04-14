@@ -219,7 +219,7 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp generic,
                                 PatternRewriter &rewriter) const final {
-    if (generic.getNumRegions() > 1) {
+    if (!generic.isComputeOnlyForm()) {
       // Already inserted, skip.
       return failure();
     }

@@ -25,7 +25,7 @@ func.func @matmul(%arg0: tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>, %arg1: t
 func.func @to_layout(%arg0: tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>) -> tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3> {
   // CHECK: = memref.alloc(){{.*}}: memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.shard<8192x4096>, #l1_>
   %0 = ttir.empty() : tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3>
-  // CHECK: {{^  "ttir.to_layout".*}}
+  // CHECK: {{^  ttir.to_layout.*}}
   %1 = "ttir.to_layout"(%arg0, %0) : (tensor<1x1x2x4x!tt.tile<32x32, f32>, #layout>, tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3>) -> tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3>
   return %1 : tensor<1x2x2x2x!tt.tile<32x32, f32>, #layout3>
 }

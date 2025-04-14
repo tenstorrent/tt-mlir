@@ -195,8 +195,7 @@ struct TTIRGenericFormStreams : public OpRewritePattern<ttir::GenericOp> {
   static bool needsStream(AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
                           Value operand, bool isOutput) {
     auto *definingOp = operand.getDefiningOp();
-    if (mlir::isa_and_nonnull<ttir::StreamLayoutOp, memref::AllocOp>(
-            definingOp)) {
+    if (mlir::isa_and_nonnull<ttir::StreamLayoutOp>(definingOp)) {
       return false;
     }
 
