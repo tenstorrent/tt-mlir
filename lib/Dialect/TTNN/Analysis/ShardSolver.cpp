@@ -3,14 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
-
-#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
-#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -30,9 +28,9 @@
 namespace mlir::tt::ttnn {
 
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
-constexpr bool DEBUG = false;
 
 ShardSolver::ShardSolver(
+    const TensorTypeLayoutsMap *tensorTypePossibleLayouts,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const std::vector<OpL1MemSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
@@ -40,7 +38,8 @@ ShardSolver::ShardSolver(
     const llvm::DenseSet<Edge> &overrideReshardEdges,
     std::function<bool(Value, TTNNLayoutAttr, Operation *, OpConfig)>
         customCheckShardCompatible)
-    : legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
+    : tensorTypePossibleLayouts(tensorTypePossibleLayouts),
+      legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
       memReconfigEdges(overrideReshardEdges),
       customCheckShardCompatible(customCheckShardCompatible) {
@@ -86,14 +85,14 @@ bool ShardSolver::resolveStep() {
   // We need special handling for the first op in the chain.
   //
   if (!preprocessFirstOp()) {
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}",
+                 "Preprocessing first op failed, aborting.");
     return false;
   }
 
   for (const auto shardSpec : *shardSpecs) {
-    if (DEBUG) {
-      llvm::outs() << "Resolving constraints for:\n";
-      shardSpec.op->print(llvm::outs());
-    }
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "Resolving constraints for: {}", shardSpec.op->getName());
 
     Operation *consumerOp = shardSpec.op;
     Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
@@ -103,6 +102,11 @@ bool ShardSolver::resolveStep() {
 
       bool reshardOnEdge =
           memReconfigEdges.count(edge) > 0 || memReconfigMap.count(edge) > 0;
+
+      if (reshardOnEdge) {
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Found resharding on edge {}", edge);
+      }
 
       Operation *producerOp = edge.producerOp;
       Bitset *producerBitset = getOrInsertBitset(producerOp, kBitsetAll);
@@ -170,10 +174,9 @@ bool ShardSolver::resolveStep() {
             edgeConsumerBitset.set(consumerId);
           } else {
             std::string error = llvm::toString(shardCompatible.takeError());
-            if (DEBUG) {
-              llvm::errs() << "Error: " << error << "\n";
-              errorCount[error]++;
-            }
+            TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                         "Shard not compabitle, error: {}", error);
+            errorCount[error]++;
           }
         }
       }
@@ -181,13 +184,17 @@ bool ShardSolver::resolveStep() {
       if (paths.empty() || ((*producerBitset & edgeProducerBitset) == 0) ||
           ((*consumerBitset & edgeConsumerBitset) == 0)) {
 
-        if (DEBUG) {
-          // Print error counts.
-          //
+        if (llvm::DebugFlag) {
+          std::string errorStr;
           for (const auto &[error, count] : errorCount) {
-            llvm::errs() << "Count: " << count << " Error: " << error << "\n";
+            errorStr += llvm::formatv("  Count: {} Error: {}", count, error);
           }
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Error counts: {}",
+                       errorStr);
         }
+
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "No valid paths found on edge {}", edge);
 
         // No valid paths found for this edge, mark it for resharding.
         //
@@ -198,6 +205,10 @@ bool ShardSolver::resolveStep() {
       }
 
       if (!isSubset(*producerBitset, edgeProducerBitset) && !reshardInserted) {
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Producer bitset is not a subset of edge producer bitset, "
+                     "adding op {} to processor",
+                     producerOp->getName());
         opProcessor.addOp(producerOp);
       }
 
@@ -225,9 +236,15 @@ bool ShardSolver::resolveStep() {
     // No need to expand root as we are calling for all ops anyway.
     //
     if (!updateSolver(op, false /* expand_root */)) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Failed to update solver for op {}, returning false",
+                   op->getName());
       return false;
     }
   }
+
+  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "{}",
+               "ShardSolver::resolveStep: returning true");
 
   return true;
 }
@@ -236,6 +253,10 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
                                                         OpConfig outputConfig) {
   TTNNLayoutAttr inputLayout = mlir::cast<TTNNLayoutAttr>(
       mlir::cast<RankedTensorType>(op->getOperand(0).getType()).getEncoding());
+
+  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+               "Checking if interleaved to sharded is possible for op : {}",
+               op->getName());
 
   inputLayout =
       inputLayout.withBufferType(op->getContext(), BufferType::DRAM)
@@ -278,6 +299,8 @@ bool ShardSolver::preprocessFirstOp() {
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
     if (!supportsInterleavedInputShardedOutput(firstOp, firstOpConfigs[i])) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Interleaved to sharded not possible for config idx {}", i);
       // Invalidate this config.
       firstOpBitset->reset(i);
       continue;
@@ -287,6 +310,10 @@ bool ShardSolver::preprocessFirstOp() {
   }
 
   if (hasValidConfig) {
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "First op {} has valid interleaved to sharded config, no need "
+                 "to insert reshard",
+                 firstOp->getName());
     return true;
   }
 
@@ -294,11 +321,10 @@ bool ShardSolver::preprocessFirstOp() {
   Edge shardChainInputEdge =
       Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0 /*operandIndex*/);
 
-  if (DEBUG) {
-    llvm::errs() << "Interleaved to sharded is not possible, trying reshard "
-                    "for first op "
-                 << firstOp->getName() << "\n";
-  }
+  TTMLIR_DEBUG(
+      ttmlir::LogComponent::Optimizer,
+      "Interleaved to sharded is not possible, trying reshard for first op {}",
+      firstOp->getName());
 
   return insertReshard(shardChainInputEdge);
 }
@@ -314,25 +340,19 @@ bool ShardSolver::insertReshard(const Edge &edge) {
   std::vector<OpConfig> const &consumerConfigs = getLegalConfigs(consumerOp);
   std::vector<OpConfig> producerConfigs;
 
-  if (edge.producerOp == nullptr) {
-    auto inputTensor = mlir::cast<RankedTensorType>(
-        consumerOp->getOperand(edge.operandIndex).getType());
+  auto inputTensor = mlir::cast<RankedTensorType>(
+      consumerOp->getOperand(edge.operandIndex).getType());
 
-    Type scalarElementType =
-        mlir::cast<TTNNLayoutAttr>(inputTensor.getEncoding())
-            .getScalarElementType();
+  Type scalarElementType = mlir::cast<TTNNLayoutAttr>(inputTensor.getEncoding())
+                               .getScalarElementType();
 
-    std::vector<TTNNLayoutAttr> layouts =
-        optimizer_utils::generateAllPossibleLayouts(
-            consumerOp->getContext(), inputTensor, deviceAttr.getWorkerGrid(),
-            scalarElementType,
-            /*onlyShardedLayouts=*/true);
+  // Get sharded layouts using the helper function
+  std::vector<TTNNLayoutAttr> layouts =
+      getShardedLayoutsForTensorTypeAndScalarType(
+          *tensorTypePossibleLayouts, inputTensor, scalarElementType);
 
-    for (TTNNLayoutAttr layout : layouts) {
-      producerConfigs.emplace_back(layout);
-    }
-  } else {
-    producerConfigs = getLegalConfigs(edge.producerOp);
+  for (TTNNLayoutAttr layout : layouts) {
+    producerConfigs.emplace_back(layout);
   }
 
   std::unordered_map<std::string,
@@ -360,6 +380,11 @@ bool ShardSolver::insertReshard(const Edge &edge) {
           memReconfigEntry.reshardOutputConfigMap[i] =
               llvm::SmallVector<OpConfig>();
         }
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::Optimizer,
+            "Resharding found valid config for edge: {}, producer layout: {}",
+            edge, producerConfig.outputLayout);
+
         memReconfigEntry.reshardOutputConfigMap[i].push_back(
             producerConfig.outputLayout);
 
@@ -368,7 +393,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
         break;
       }
 
-      if (DEBUG) {
+      if (llvm::DebugFlag) {
         std::string errorMsg = ttmlir::utils::firstNLines(
             llvm::toString(shardCompatible.takeError()), 4);
         errorCount[errorMsg].push_back(
@@ -383,39 +408,42 @@ bool ShardSolver::insertReshard(const Edge &edge) {
     consumerOp->emitWarning()
         << "No valid output config found for resharded input!";
 
-    if (DEBUG) {
-      llvm::errs() << "Op location" << consumerOp->getLoc() << "\n";
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Resharding failed for edge: {}", edge);
+    for (auto &config : producerConfigs) {
+      (void)config;
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}",
+                   config.outputLayout);
+    }
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Consumer layouts: {}",
+                 consumerConfigs.size());
+    for (auto config : consumerConfigs) {
+      (void)config;
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "\t{}",
+                   config.outputLayout);
+    }
 
-      if (edge.producerOp) {
-        llvm::errs() << "Producer op" << *edge.producerOp << "\n";
-      } else {
-        llvm::errs() << "Producer op is null\n";
-      }
-
-      llvm::errs() << "Producer layouts: " << producerConfigs.size() << "\n";
-      for (auto config : producerConfigs) {
-        llvm::errs() << "\t" << config.outputLayout << "\n";
-      }
-      llvm::errs() << "Consumer layouts: " << consumerConfigs.size() << "\n";
-      for (auto config : consumerConfigs) {
-        llvm::errs() << "\t" << config.outputLayout << "\n";
-      }
-
-      llvm::errs() << "Error count: " << errorCount.size() << "\n";
-      for (const auto &[error, layouts] : errorCount) {
-        llvm::errs() << "Count: " << layouts.size() << " Error: " << error
-                     << "\n";
-        for (const auto &[producerLayout, consumerLayout] : layouts) {
-          llvm::errs() << "\nProducer layout: " << producerLayout;
-          llvm::errs() << "\nConsumer layout: " << consumerLayout;
-          llvm::errs() << "\n";
-        }
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Error count: {}",
+                 errorCount.size());
+    for (const auto &[error, layouts] : errorCount) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Count: {} Error: {}",
+                   layouts.size(), error);
+      for (const auto &[producerLayout, consumerLayout] : layouts) {
+        (void)producerLayout;
+        (void)consumerLayout;
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "Producer layout: {}\nConsumer layout: {}", producerLayout,
+                     consumerLayout);
       }
     }
 
     earlyExit = true;
     return false;
   }
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "Found viable resharding on edge: {}, entry {}", edge,
+               memReconfigEntry);
 
   memReconfigMap[edge] = memReconfigEntry;
 
@@ -436,9 +464,8 @@ bool ShardSolver::resolve() {
     // Try to resolve shard chain. Retry if not resolved(resharding).
     //
 
-    if (DEBUG) {
-      llvm::errs() << "Resolving shard chain, attempt: " << retry_step << "\n";
-    }
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Resolving shard chain, attempt: {}", retry_step);
 
     resolved = resolveStep();
     if (earlyExit) {
@@ -780,33 +807,18 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
       llvm::Error error = l1UsageExp.takeError();
 
       // early exit
-      if (DEBUG) {
-        std::string errorMsg = ttmlir::utils::firstNLines(
-            llvm::toStringWithoutConsuming(error), 4);
-
-        llvm::errs() << "OpModel constraints failed: ";
-        llvm::errs() << producerOperand.getLoc() << "->"
-                     << consumerOp->getName() << " :: " << errorMsg << "\n";
-        producerLayout.dump();
-        consumerConfig.dump();
-        llvm::errs() << "=== End of error dump ===\n";
-      }
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::Optimizer,
+          "OpModel constraints failed: {0}->{1} :: {2}, \nproducerLayout: {3}, "
+          "\nconsumerLayout: {4}",
+          producerOperand.getLoc(), consumerOp->getName(),
+          ttmlir::utils::firstNLines(llvm::toStringWithoutConsuming(error), 4),
+          producerLayout, consumerConfig.outputLayout);
 
       return error;
     }
     auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
         l1UsageExp.get();
-
-    if (DEBUG) {
-      llvm::errs() << "OpModel constraints valid. ";
-      llvm::errs() << producerOperand.getLoc() << "->" << consumerOp->getName()
-                   << "\n";
-      producerLayout.dump();
-      consumerConfig.dump();
-      llvm::errs() << "L1 usage: " << cBUsagePeak << ", " << tensorUsage << ", "
-                   << outputTensorUsage << "\n";
-      llvm::errs() << "=== End of debug dump ===\n";
-    }
 
     uint64_t producerL1OutputUsage = producerLayout.getShardSizeInBytes();
 
@@ -814,8 +826,19 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
                          cBUsagePeak) < tensorL1UsageCap * usableL1CacheSize;
 
     if (!l1UsageValid) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "OpModel constraints failed: {0}->{1} :: {2}",
+                   producerOperand.getLoc(), consumerOp->getName(),
+                   "Not enough L1 memory");
       return llvm::createStringError("Not enough L1 memory");
     }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "OpModel constraints valid. {0}->{1}\n{2}\n{3}\nL1 usage: "
+                 "{4}, {5}, {6}\n=== End of debug dump ===",
+                 producerOperand.getLoc(), consumerOp->getName(),
+                 producerLayout, consumerConfig.outputLayout, cBUsagePeak,
+                 tensorUsage, outputTensorUsage);
 
   } else {
     // Constraints are not implemented for this op. Use fallback.
@@ -849,12 +872,11 @@ llvm::Expected<bool> ShardSolver::checkShardCompatible(
   return true;
 }
 
-// Preprocess ShardSolver search space to make a helper structure which links op
-// config choices to global max core usage.
-// Example:
-// Lets assume simple case where configs at same index are compatible for input
-// graph provided below. Tupples represent grid core
-// usage (Config0GridVolume, Config1GridVolume, Config2GridVolume).
+// Preprocess ShardSolver search space to make a helper structure which links
+// op config choices to global max core usage. Example: Lets assume simple
+// case where configs at same index are compatible for input graph provided
+// below. Tupples represent grid core usage (Config0GridVolume,
+// Config1GridVolume, Config2GridVolume).
 //
 //    Op0 ----- (4, 8, 2)
 //     |
@@ -936,10 +958,10 @@ ShardSolver::produceMaxCoreUsage() {
         // once).
         //
         // Incorrect results will be produced in case chain consists of joins
-        // without previous forks, ie - chain having multiple input ops. In that
-        // case total sum of used cores would be a sum of maxCoreUsage generated
-        // by all input ops. This is currently not needed for making a
-        // decision on config choice for maximizing core usage.
+        // without previous forks, ie - chain having multiple input ops. In
+        // that case total sum of used cores would be a sum of maxCoreUsage
+        // generated by all input ops. This is currently not needed for making
+        // a decision on config choice for maximizing core usage.
         //
         accCoreUsage[op][i] += static_cast<float>(maxCoreUsage[i]) /
                                static_cast<float>(consumerInChainOperandSize);
@@ -956,4 +978,5 @@ ShardSolverSolution ShardSolver::finish() const {
   assert(selectedOpConfig.size() == shardedOps->size());
   return ShardSolverSolution(selectedOpConfig, memReconfigMap);
 }
+
 } // namespace mlir::tt::ttnn
