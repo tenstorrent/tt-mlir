@@ -55,7 +55,7 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
 static void runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &, const bool, const int,
+        ::ttnn::Tensor(const ::ttnn::Tensor &, const int, const bool,
                        const std::optional<::ttnn::MemoryConfig> &,
                        const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
 
