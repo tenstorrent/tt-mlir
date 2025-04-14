@@ -3,7 +3,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Allocate.cpp
         Broadcast.cpp
         Constant.cpp
-        ExplicateBroadcasts.cpp
+        ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
         GenericLinearizeMemref.cpp
         GenericGenerateDatamovement.cpp

@@ -459,11 +459,11 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
-def TTIRExplicateBroadcasts: Pass<"ttir-explicate-broadcasts", "::mlir::ModuleOp">
+def TTIRExplicateTMs: Pass<"ttir-explicate-tms", "::mlir::ModuleOp">
 {
-  let summary = "Insterts ttir.broadcast on graph edges where there is an implicit broadcast.";
+  let summary = "This pass walks through the graph and explicates implicit broadcasts and reshapes on the graph edges.";
   let description = [{
-    This pass walks through the graph and explicates implicit broadcasts on the graph edges.
+    This pass walks through the graph and explicates implicit broadcasts and reshapes on the graph edges.
   }];
 
   let dependentDialects = ["mlir::tt::TTDialect", "mlir::tt::ttir::TTIRDialect"];
