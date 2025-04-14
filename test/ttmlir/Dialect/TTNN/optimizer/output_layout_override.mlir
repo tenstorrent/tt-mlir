@@ -21,7 +21,7 @@ module attributes {} {
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_3]]>
     %5 = "ttir.add"(%arg2, %arg1, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc7)
     %6 = ttir.empty() : tensor<1x32x32xf32>
-    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_4]]>
+    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xbf16, #[[LAYOUT_4]]>
     %7 = "ttir.add"(%arg1, %5, %6) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc8)
     %8 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_1]]>
@@ -30,7 +30,7 @@ module attributes {} {
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_5]]>
     %11 = "ttir.add"(%arg1, %9, %10) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc10)
     %12 = ttir.empty() : tensor<1x32x32xf32>
-    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_6]]>
+    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xbf16, #[[LAYOUT_6]]>
     %13 = "ttir.add"(%arg1, %11, %12) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc11)
     %14 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_7]]>

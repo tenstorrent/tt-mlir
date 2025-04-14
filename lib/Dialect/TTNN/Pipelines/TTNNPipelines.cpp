@@ -54,20 +54,18 @@ void createTTNNPipelineTTIRPasses(
 
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  if (options.optimizerPassEnabled) {
-    ttnn::TTNNOptimizerOptions optimizerOptions;
-    optimizerOptions.overrideInputLayout = options.overrideInputLayout;
-    optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
-    optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
-    optimizerOptions.memoryLayoutAnalysisEnabled =
-        options.memoryLayoutAnalysisEnabled;
-    optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
-    optimizerOptions.memoryLayoutAnalysisPolicy =
-        options.memoryLayoutAnalysisPolicy;
-    optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
-    optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
-    pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-  }
+  ttnn::TTNNOptimizerOptions optimizerOptions;
+  optimizerOptions.overrideInputLayout = options.overrideInputLayout;
+  optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
+  optimizerOptions.overrideConv2dConfig = options.overrideConv2dConfig;
+  optimizerOptions.memoryLayoutAnalysisEnabled =
+      options.memoryLayoutAnalysisEnabled;
+  optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
+  optimizerOptions.memoryLayoutAnalysisPolicy =
+      options.memoryLayoutAnalysisPolicy;
+  optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
+  optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
+  pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
 }
 
 void createTTNNPipelineLoweringPasses(
@@ -89,7 +87,6 @@ void createTTNNPipelineWorkaroundPass(
       options.layoutWorkaroundsEnabled, options.decompositionWorkaroundsEnabled,
       options.repeatFoldingWorkaroundEnabled};
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
-  pm.addPass(mlir::createCanonicalizerPass());
 }
 
 void createTTNNPipelineLayoutDecompositionPass(
@@ -166,11 +163,20 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineTTIRPasses(devicePm, options);
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
   createTTNNPipelineLoweringPasses(devicePm, options);
-  createTTNNPipelineWorkaroundPass(devicePm, options);
+  if (!options.optimizerPassEnabled) {
+    // Optimizer solves op constraints using graph capture.
+    createTTNNPipelineWorkaroundPass(devicePm, options);
+  }
+
+  // Delete hanging ttnn.empty ops.
+  devicePm.addPass(mlir::createCanonicalizerPass());
+
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());
   }
-  createTTNNPipelineAnalysisPasses(devicePm, options);
+  if (options.optimizerPassEnabled) {
+    createTTNNPipelineAnalysisPasses(devicePm, options);
+  }
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
   createTTNNPipelineDeallocPass(devicePm, options);
 
