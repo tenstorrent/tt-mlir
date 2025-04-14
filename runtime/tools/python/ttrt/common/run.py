@@ -749,16 +749,16 @@ class Run:
                                 fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EE"
 
                                 for loop in range(self["--loops"]):
-                                    inputs_converted = convert_input_layouts(
-                                        device,
-                                        inputs,
-                                        bin.fbb,
-                                        program_index,
-                                    )
+                                    # inputs_converted = convert_input_layouts(
+                                    #     device,
+                                    #     inputs,
+                                    #     bin.fbb,
+                                    #     program_index,
+                                    # )
                                     emitc_outs = ttrt.runtime.testing.run_so_program(
                                         emitc_dylib_handle,
                                         fwd_func_sym,
-                                        inputs_converted,
+                                        inputs,
                                         device,
                                     )
                                     emitc_outs = [
@@ -770,23 +770,20 @@ class Run:
                                     self.logging.debug(
                                         f"got emitc outputs for program_index={program_index}, loop={loop}"
                                     )
-                                    try:
-                                        all_tensors_match = (
-                                            ttrt.runtime.testing.compare_outs(
-                                                outputs, emitc_outs
-                                            )
+                                    all_tensors_match = (
+                                        ttrt.runtime.testing.compare_outs(
+                                            outputs, emitc_outs
                                         )
+                                    )
 
-                                        if not all_tensors_match:
-                                            self.logging.error(
-                                                "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
-                                            )
-                                            self.logging.error(outputs, emitc_outs)
-                                            # raise Exception(
-                                            #     "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
-                                            # )
-                                    except:
-                                        pass
+                                    if not all_tensors_match:
+                                        self.logging.error(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+                                        self.logging.error(outputs, emitc_outs)
+                                        raise Exception(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
 
                             if self["--identity"]:
                                 self.logging.debug(
