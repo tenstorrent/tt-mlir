@@ -1,0 +1,151 @@
+shardy_ops
+
+- def Sdy_MeshOp
+let arguments = (ins SymbolNameAttr:$sym_name, Sdy_Mesh:$mesh);
+
+'''
+sdy.mesh @mesh = <["x"=1, "y"=2]>
+'''
+
+- def Sdy_ShardingConstraintOp
+let arguments = (ins AnyTensor:$input, Sdy_TensorSharding:$sharding);
+let results = (outs AnyTensor:$result);
+
+'''
+%1 = sdy.sharding_constraint %0 <@mesh_xy, [{"x"}, {?}]> : tensor<8x8xf32>
+'''
+
+- def Sdy_ReshardOp
+let arguments = (ins AnyTensor:$input, Sdy_TensorSharding:$sharding);
+let results = (outs AnyTensor:$result);
+
+'''
+%arg0 : tensor<16x8xf32> {sdy.sharding=#sdy.sharding<@mesh2d, [{"y"}, {"x"}]>}
+%0 = sdy.reshard %arg0 <@mesh2d, [{"y"}, {}]> : tensor<16x8xf32>
+'''
+
+- def Sdy_ReturnOp
+let arguments = (ins Variadic<AnyType>:$results);
+
+'''
+sdy.return %1 : tensor<32x64xf32>
+'''
+
+- def Sdy_ManualComputationOp
+let arguments = (ins Variadic<AnyRankedTensor>:$tensors, Sdy_TensorShardingPerValue:$in_shardings, Sdy_TensorShardingPerValue:$out_shardings, Sdy_ManualAxes:$manual_axes);
+let results = (outs Variadic<AnyRankedTensor>:$results);
+
+'''
+%0 = ... : tensor<16x32xf32>
+%1 = sdy.manual_computation(%0)
+    in_shardings=[<@mesh_name, [{"data"}, {"model",?}]>]
+    out_shardings=[<@mesh_name, [{"data"}, {?}]>]
+    manual_axes={"data"}
+    (%arg1: tensor<8x32xf32>) {
+  // body
+  return %42 : tensor<8x32xf32>
+} : (tensor<16x32xf32>) -> tensor<16x32xf32>
+'''
+
+- def Sdy_ShardingGroupOp
+let arguments = (ins AnyRankedTensor:$input, I64Attr:$group_id);
+let results = (outs);
+
+'''
+%0 = sdy.sharding_group %arg0, id=0 : tensor<8x2xi64>
+%1 = stablehlo.constant dense<0> : tensor<8x2xi64>
+%2 = sdy.sharding_group %1, id=0 : tensor<8x2xi64>
+'''
+
+- def Sdy_ConstantOp
+let arguments = (ins ElementsAttr:$value);
+let results = (outs AnyStaticShapeTensor:$output);
+
+'''
+%output = sdy.constant dense<[[0.0, 1.0], [2.0, 3.0]]> : tensor<2x2xf32>
+'''
+
+- def Sdy_PropagationBarrierOp
+let arguments = (ins AnyRankedTensor:$input, Sdy_PropagationDirection:$allowed_direction);
+let results = (outs AnyRankedTensor:$result);
+
+'''
+FORWARD
+BACKWARD
+NONE
+%0 = sdy.propagation_barrier %arg0 allowed_direction=BACKWARD : tensor<8x8xf32>
+'''
+
+- def Sdy_NamedComputationOp
+let arguments = (ins StrAttr:$name, Variadic<AnyType>:$operands, OptionalAttr<Sdy_TensorShardingPerValue>:$in_shardings, OptionalAttr<Sdy_TensorShardingPerValue>:$out_shardings);
+let results = (outs Variadic<AnyType>);
+
+'''
+%0 = sdy.named_computation<"foo">(%arg0) in_shardings=[<@mesh, [{"b"}, {}, {}]>] out_shardings=[<@mesh, [{"a"}, {}]>] (%arg1: tensor<8x2xi32>) {
+  sdy.return %arg1 : tensor<8x2xi32>
+}: (tensor<8x2xi32>) -> tensor<8x2xi32>
+'''
+
+- def Sdy_AllGatherOp
+let arguments = (ins AnyTensor:$tensor, Sdy_ListOfAxisRefLists:$gathering_axes, Sdy_TensorSharding:$out_sharding);
+let results = (outs AnyTensor:$result);
+
+'''
+sdy.mesh @mesh2d = <["x"=2, "y"=2]>
+func.func @all_gather_single_axis(%arg0: tensor<16x8xf32> {sdy.sharding = #sdy.sharding<@mesh2d, [{"y"}, {"x"}]>}) -> (tensor<16x8xf32> {sdy.sharding = #sdy.sharding<@mesh2d, [{"y", ?}, {?}]>}) {
+  %0 = sdy.all_gather [{}, {"x"}] %arg0 out_sharding=<@mesh2d, [{"y"}, {}]> : tensor<16x8xf32>
+  return %0 : tensor<16x8xf32>
+}
+'''
+
+
+- def Sdy_AllSliceOp
+let arguments = (ins AnyTensor:$tensor, Sdy_ListOfAxisRefLists:$slicing_axes, Sdy_TensorSharding:$out_sharding);
+let results = (outs AnyTensor:$result);
+
+'''
+%0 = sdy.all_gather [{}, {"x"}] %arg0 out_sharding=<@mesh, [{"y"}, {}]> :  tensor<16x2xf32>
+%1 = sdy.all_slice [{}, {"x"}] %0 out_sharding=<@mesh, [{"y"}, {"x"}]> :  tensor<16x2xf32>
+'''
+
+- def Sdy_AllToAllOp
+let arguments = (ins AnyTensor:$tensor, I64Attr:$src_dim, I64Attr:$tgt_dim, Sdy_AxisRefList:$axes, Sdy_TensorSharding:$out_sharding);
+let results = (outs AnyTensor:$result);
+
+'''
+%0 = sdy.all_to_all {"x"} 0->1 %arg0 out_sharding=<@mesh1, [{}, {"x"}]> : tensor<16x8xf32>
+'''
+
+- def Sdy_CollectivePermuteOp
+let arguments = (ins AnyTensor:$tensor, Sdy_TensorSharding:$out_sharding);
+let results = (outs AnyTensor:$result);
+
+'''
+func.func @collective_permute_reorder_axes_single_dim(%arg0 : tensor<16x8xf32> {sdy.sharding=#sdy.sharding<@mesh2, [{"x", "y", "z"}, {}]>}) -> tensor<16x8xf32> {
+  // CHECK-NEXT: sdy.collective_permute %arg0 out_sharding=<@mesh2, [{"z", "x", "y", ?}, {}]>
+  %0 = sdy.collective_permute %arg0 out_sharding=<@mesh2, [{"z", "x", "y", ?}, {}]> : tensor<16x8xf32>
+  return %0 : tensor<16x8xf32>
+}
+'''
+
+- def Sdy_AllReduceOp
+let arguments = (ins AnyTensor:$tensor, Sdy_AxisRefList:$reduction_axes, Sdy_TensorSharding:$out_sharding);
+let results = (outs AnyTensor:$result);
+
+
+
+
+shardy_passes
+
+-sdy-aggressive-propagate
+-sdy-reshard-to-collectives
+
+
+
+Chat with Nick
+- port shardy into ttmlir
+- followup with shardy folks about making sharding rule generic on discord or issue on github
+- syncup with TTNN visualizer + Sterling + investigate ttnn visualizer format (collin)
+- tt-explorer design doc (taps)
+- migration of module.cpp into runtime + integrate builder ontop of runtime (reachout to vincent/jackson/julia)
+- MLIR cpu runner???
