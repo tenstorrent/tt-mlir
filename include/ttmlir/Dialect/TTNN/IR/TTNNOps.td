@@ -22,10 +22,13 @@ include "mlir/IR/CommonAttrConstraints.td"
 def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TT_DuplicateConstEvalTrait]> {
     let summary = "Get Device op.";
     let description = [{
-      This op returns the current runtime device.
+      This op returns a submesh carved out from the parent runtime device.
+      Mesh shape and mesh offset define the size and offset of the submesh.
     }];
 
-    let arguments = (ins OptionalAttr<TTNN_MeshShapeAttr>:$mesh_shape);
+    let arguments = (ins OptionalAttr<TTNN_MeshShapeAttr>:$mesh_shape,
+                         OptionalAttr<TTNN_MeshOffsetAttr>:$mesh_offset);
+
     let results = (outs TTNN_Device:$device);
 }
 
