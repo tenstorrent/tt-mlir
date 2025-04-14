@@ -36,69 +36,16 @@ static void runEltwiseBinaryCompositeOp(
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-static void runEltwiseBinaryNGCompositeOp(
-    const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
-    ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(
-        const ::ttnn::Tensor &, const ::ttnn::Tensor &,
-        const std::optional<const ::ttnn::DataType> &,
-        const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::Tensor> &,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        std::optional<bool>)> &ttnnOp) {
-
-  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
-  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
-
-  if (op->type() != ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter &&
-      operations::utils::shouldSwapBinaryOperands(*lhs, *rhs)) {
-    std::swap(lhs, rhs);
-  }
-
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
-
-  std::optional<bool> use_legacy = std::nullopt;
-  if (lhs->logical_shape() != rhs->logical_shape()) {
-    // Set use_legacy to false when shapes require broadcasting
-    // TODO(brataTT): Remove after
-    // https://github.com/tenstorrent/tt-metal/issues/16147 is closed
-    use_legacy = false;
-  }
-  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, std::nullopt, outputMemoryConfig,
-                              std::nullopt, {}, {}, {}, use_legacy);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
-}
-
 void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
-  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Maximum: {
-    runEltwiseBinaryNGCompositeOp(op, tensorPool, ::ttnn::maximum);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Minimum: {
-    runEltwiseBinaryNGCompositeOp(op, tensorPool, ::ttnn::minimum);
-    break;
-  }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::remainder);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::scatter);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow: {
-    runEltwiseBinaryNGCompositeOp(op, tensorPool, ::ttnn::pow);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2: {
