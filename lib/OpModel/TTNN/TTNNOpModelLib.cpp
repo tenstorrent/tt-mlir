@@ -374,7 +374,7 @@ ReluOpInterface::getOpConstraints(GridAttr deviceGrid,
                                       deviceGrid, inputShape, inputLayout,
                                       outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -406,7 +406,7 @@ SqrtOpInterface::getOpConstraints(GridAttr deviceGrid,
                                       deviceGrid, inputShape, inputLayout,
                                       outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -440,7 +440,7 @@ AddOpInterface::getOpConstraints(GridAttr deviceGrid,
       "AddOpInterface", ::ttnn::add, deviceGrid, inputShapeA, inputLayoutA,
       inputShapeB, inputLayoutB, outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -491,7 +491,7 @@ SoftmaxOpInterface::getOpConstraints(
                                      outputLayout.getContext(), deviceGrid,
                                      softmaxOpQuery);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -633,7 +633,7 @@ ReshapeOpInterface::getOpConstraints(
                                      outputLayout.getContext(), deviceGrid,
                                      reshapeOpQuery);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -697,7 +697,7 @@ TypecastOpInterface::getOpConstraints(
                                      outputLayout.getContext(), deviceGrid,
                                      typecastOpQuery);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -771,7 +771,7 @@ ToLayoutOpInterface::getOpConstraints(
                                      outputLayout.getContext(), deviceGrid,
                                      toLayoutOpQuery);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -843,7 +843,7 @@ TransposeOpInterface::getOpConstraints(
                                      outputLayout.getContext(), deviceGrid,
                                      transposeOpQuery);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -908,7 +908,7 @@ MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
                                      outputLayout.getContext(), deviceGrid,
                                      matmulOpQuery);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -958,7 +958,7 @@ MultiplyOpInterface::getOpConstraints(
       "MultiplyOpInterface", ::ttnn::multiply, deviceGrid, inputShapeA,
       inputLayoutA, inputShapeB, inputLayoutB, outputShape, outputLayout);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1035,7 +1035,7 @@ Conv2dOpInterface::getOpConstraints(
                                      outputLayout.getContext(), deviceGrid,
                                      conv2dOpQuery);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -1142,7 +1142,7 @@ MaxPool2DInterface::getOpConstraints(
                                      outputLayout.getContext(), deviceGrid,
                                      maxPool2DQuery);
 #else
-  return std::make_tuple(0, 0, 0);
+  return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
