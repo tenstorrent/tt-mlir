@@ -17,7 +17,7 @@ struct Edge {
       : producerOp(producerOp), consumerOp(consumerOp),
         operandIndex(operandIndex) {}
 
-  constexpr bool operator==(const Edge &other) const {
+  bool operator==(const Edge &other) const {
     return producerOp == other.producerOp && consumerOp == other.consumerOp &&
            operandIndex == other.operandIndex;
   }
@@ -59,8 +59,8 @@ struct DenseMapInfo<mlir::tt::ttnn::Edge> {
     return mlir::tt::ttnn::Edge(nullptr, nullptr, TombstoneIndex);
   }
 
-  static constexpr bool isEqual(const mlir::tt::ttnn::Edge &lhs,
-                                const mlir::tt::ttnn::Edge &rhs) {
+  static bool isEqual(const mlir::tt::ttnn::Edge &lhs,
+                      const mlir::tt::ttnn::Edge &rhs) {
     return lhs == rhs;
   }
 
