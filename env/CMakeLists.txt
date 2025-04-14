@@ -74,6 +74,7 @@ ExternalProject_Add(stablehlo
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
+   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shlo.patch" && git commit -m "tt-mlir related patch"
 )
 
 ExternalProject_Add(shardy

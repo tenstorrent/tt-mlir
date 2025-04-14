@@ -34,9 +34,36 @@ set(TTMLIR_LIBS
 add_mlir_library(TTMLIRCompilerStatic
   RegisterAll.cpp
 
+  ADDITIONAL_HEADER_DIRS
+  ${TTMLIR_TOOLCHAIN_DIR}/src/shardy
+  ${TTMLIR_TOOLCHAIN_DIR}/src/shardy-build
+
   LINK_LIBS PUBLIC
   ${TTMLIR_LIBS}
   coverage_config
+  SdyDialect
+  SdyRegister
+  SdyTransformsPropagationOpShardingRuleBuilder
+  SdyTransformsPropagationPasses
+  SdyTransformsPropagationOpShardingRuleRegistry
+  SdyTransformsPropagationShardingGroupMap
+  SdyTransformsPropagationShardingProjection
+  SdyTransformsPropagationAutoPartitionerRegistry
+  SdyTransformsPropagationUtils
+  SdyTransformsPropagationBasicFactorPropagation
+  SdyTransformsPropagationAggressiveFactorPropagation
+  SdyTransformsCommonOpProperties
+  SdyTransformsCommonShardingWalker
+  SdyTransformsPropagationDebuggingSourceSharding
+  SdyCommonFileUtils
+  SdyTransformsExportPasses
+  SdyTransformsImportPasses
+  SdyTransformsPasses
+  SdyRoundtripImportShardyAttrs
+  SdyRoundtripImportCallbackCustomCalls
+  SdyRoundtripImportBackendFuncCalls
+  SdyRoundtripShardMapImport
+  SdyRoundtripPipelines
 )
 
 #
