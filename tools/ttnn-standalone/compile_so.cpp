@@ -28,7 +28,8 @@ std::string compile_cpp_to_so(const std::string &cpp_source,
 
   // Compile the C++ code to a shared object.
   //
-  std::string pythonScriptPath = "../tools/ttnn-standalone/ci_compile_dylib.py";
+  std::string pythonScriptPath = std::string(std::getenv("TT_MLIR_HOME")) +
+                                 "/tools/ttnn-standalone/ci_compile_dylib.py";
 
   // Check if the script exists
   if (!fs::exists(pythonScriptPath)) {
