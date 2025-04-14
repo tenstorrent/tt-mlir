@@ -77,19 +77,23 @@ public:
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
 
-      // Handle func op input parameters
-      for (BlockArgument arg : func.getArguments()) {
-        if (!isa<RankedTensorType>(arg.getType())) {
-          continue;
-        }
-        Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
+      // Const eval subgraphs may not dealloc their params since they don't own
+      // them.
+      if (!func->hasAttr("const_eval")) {
+        // Handle func op input parameters
+        for (BlockArgument arg : func.getArguments()) {
+          if (!isa<RankedTensorType>(arg.getType())) {
+            continue;
+          }
+          Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
 
-        if (isa<func::ReturnOp>(lastOp)) {
-          continue;
-        }
+          if (isa<func::ReturnOp>(lastOp)) {
+            continue;
+          }
 
-        rewriter.setInsertionPointAfter(lastOp);
-        rewriter.create<DeallocateOp>(lastOp->getLoc(), arg);
+          rewriter.setInsertionPointAfter(lastOp);
+          rewriter.create<DeallocateOp>(lastOp->getLoc(), arg);
+        }
       }
 
       // Handle non DPS ops which do not store function result and are used to

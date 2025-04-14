@@ -1660,55 +1660,36 @@ public:
     // Restore the insertion point to continue with the function
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
+    // Create the function pointer type
+    auto funcPtrType = emitc::OpaqueType::get(
+        rewriter.getContext(), "::std::function<::std::vector<::ttnn::Tensor>(:"
+                               ":std::vector<::ttnn::Tensor>)>");
+    auto addressAttr =
+        emitc::OpaqueAttr::get(rewriter.getContext(), "&" + callee.str());
+    auto funcPtrValue = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(), funcPtrType, addressAttr);
+
+    auto tupleOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), tupleType,
+        tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr, nullptr,
+        adaptor.getInputs());
+    Value tupleValue = tupleOp.getResult(0);
+
     // Get a reference to the global variable using GetGlobalOp
     auto globalVar = rewriter.create<emitc::GetGlobalOp>(
         srcOp.getLoc(), emitc::LValueType::get(tupleType), globalSym);
 
-    // Create a variable to hold the member function pointer for empty()
-    auto memberFuncPtrTy = emitc::OpaqueType::get(
-        rewriter.getContext(), "decltype(&std::vector<::ttnn::Tensor>::empty)");
-    auto memberFuncPtrAttr = emitc::OpaqueAttr::get(
-        rewriter.getContext(), "&std::vector<::ttnn::Tensor>::empty");
-    auto memberFuncPtrOp = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(), memberFuncPtrTy, memberFuncPtrAttr);
+    // Create a pointer type for the output parameter
+    auto ptrType = emitc::PointerType::get(rewriter.getContext(), tupleType);
 
-    // Get the address of the global variable to pass to std::invoke
-    auto globalVarAddrOp = rewriter.create<emitc::ApplyOp>(
-        srcOp.getLoc(),
-        emitc::PointerType::get(emitc::OpaqueType::get(
-            rewriter.getContext(), "std::vector<::ttnn::Tensor>")),
-        rewriter.getStringAttr("&"), globalVar);
+    // Get the address of the global variable
+    auto addressOfOp = rewriter.create<emitc::ApplyOp>(srcOp.getLoc(), ptrType,
+                                                       "&", globalVar);
 
-    // Call std::invoke with the member function pointer and global variable
-    // pointer
-    auto emptyCheckOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), rewriter.getI1Type(), "std::invoke", nullptr, nullptr,
-        ValueRange{memberFuncPtrOp.getResult(), globalVarAddrOp.getResult()});
-
-    // Conditional logic based on the empty check
-    rewriter.create<emitc::IfOp>(
-        srcOp.getLoc(), emptyCheckOp.getResult(0),
-        [&](OpBuilder &b, Location loc) {
-          auto tupleOp = b.create<emitc::CallOpaqueOp>(
-              loc, tupleType,
-              tt::ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr,
-              nullptr, adaptor.getInputs());
-          Value tupleValue = tupleOp.getResult(0);
-
-          // Call the function and store the result in the global variable
-          auto callOp = b.create<emitc::CallOpaqueOp>(
-              loc, tupleType,
-              callee.str(), // Use the function name directly
-              nullptr,      // No template arguments
-              nullptr,      // No array attributes
-              ValueRange{tupleValue});
-
-          // Assign the result to the global variable
-          b.create<emitc::AssignOp>(loc, globalVar, callOp.getResult(0));
-
-          // Add a yield operation to terminate the block
-          b.create<emitc::YieldOp>(loc);
-        });
+    // Call the wrapper function with the pointer
+    rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
+        ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
 
     // Load the value from the global variable
     auto resultVar =
