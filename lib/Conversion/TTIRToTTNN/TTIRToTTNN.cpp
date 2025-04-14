@@ -267,6 +267,36 @@ public:
 namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
+class ElementwiseBinaryOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+
+    if (resultTypes.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN ElementwiseBinaryOpConversionPattern one result type");
+    }
+
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
+        op, resultTypes[0], adaptor.getLhs(), adaptor.getRhs(),
+        rewriter.getBoolAttr(false) /*use_legacy*/);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+template <typename TTIROpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ReductionOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
   using OpConversionPattern<TTIROpTy>::OpConversionPattern;
@@ -1227,7 +1257,8 @@ public:
 
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
-          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs());
+          srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
+          rewriter.getBoolAttr(false) /*use_legacy*/);
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
@@ -1618,26 +1649,26 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            DequantizeOpConversionPattern,
            RequantizeOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
-           ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
            ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
            ElementwiseOpConversionPattern<ttir::IsFiniteOp, ttnn::IsFiniteOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalAndOp, ttnn::LogicalAndOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LogicalAndOp, ttnn::LogicalAndOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
            ElementwiseOpConversionPattern<ttir::LogicalNotOp, ttnn::LogicalNotOp>,
-           ElementwiseOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseAndOp, ttnn::BitwiseAndOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseOrOp, ttnn::BitwiseOrOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseXorOp, ttnn::BitwiseXorOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseNotOp, ttnn::BitwiseNotOp>,
-           ElementwiseOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
-           ElementwiseOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
-           ElementwiseOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
-           ElementwiseOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
-           ElementwiseOpConversionPattern<ttir::GreaterThanOp, ttnn::GreaterThanOp>,
-           ElementwiseOpConversionPattern<ttir::LessEqualOp, ttnn::LessEqualOp>,
-           ElementwiseOpConversionPattern<ttir::LessThanOp, ttnn::LessThanOp>,
-           ElementwiseOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::GreaterThanOp, ttnn::GreaterThanOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LessEqualOp, ttnn::LessEqualOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::LessThanOp, ttnn::LessThanOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
            ElementwiseOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
            ElementwiseOpConversionPattern<ttir::NegOp, ttnn::NegOp>,
            ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
@@ -1650,7 +1681,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
            ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
            ElementwiseOpConversionPattern<ttir::LogOp, ttnn::LogOp>,
-           ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivideOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::DivOp, ttnn::DivideOp>,
            ElementwiseOpConversionPattern<ttir::CeilOp, ttnn::CeilOp>,
            ElementwiseOpConversionPattern<ttir::SinOp, ttnn::SinOp>,
            ElementwiseOpConversionPattern<ttir::CosOp, ttnn::CosOp>,

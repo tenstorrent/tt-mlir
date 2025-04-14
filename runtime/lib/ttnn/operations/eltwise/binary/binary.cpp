@@ -19,8 +19,8 @@ static void runEltwiseBinaryOp(
         std::optional<::ttnn::Tensor>,
         tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
         tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
-        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>)>
-        &ttnnOp) {
+        tt::stl::Span<const ::ttnn::operations::unary::UnaryWithParam>,
+        std::optional<bool> &)> &ttnnOp) {
 
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
   ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
@@ -42,8 +42,15 @@ static void runEltwiseBinaryOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
+  std::optional<bool> useLegacy = op->use_legacy();
+  if (useLegacy.has_value()) {
+    std::cout << "useLegacy value: " << useLegacy.value() << std::endl;
+  } else {
+    std::cout << "useLegacy is not set" << std::endl;
+  }
+
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
-                              std::nullopt, {}, {}, {});
+                              std::nullopt, {}, {}, {}, useLegacy);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -103,6 +110,18 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalXor: {
     runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_xor);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseBinaryOpType::Maximum: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::maximum);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseBinaryOpType::Minimum: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::minimum);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseBinaryOpType::Pow: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::pow);
     break;
   }
   }

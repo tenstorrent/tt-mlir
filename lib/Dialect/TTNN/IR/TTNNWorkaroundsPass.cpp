@@ -404,19 +404,19 @@ static std::optional<DataType> binaryOpDTypeWorkaround(mlir::Operation *op,
       return {};
     }
     if (dType == DataType::Int32) {
-      // Although TTNN claims to support int32 for Add and Subtract ops,
-      // broadcasting with int32 inputs does not currently work as expected.
-      // As a temporary workaround, we fall back to BFloat16 when input shapes
-      // differ. This should be removed once int32 broadcasting is properly
-      // supported.
-      auto lhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-      auto rhsType =
-          mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
+      // // Although TTNN claims to support int32 for Add and Subtract ops,
+      // // broadcasting with int32 inputs does not currently work as expected.
+      // // As a temporary workaround, we fall back to BFloat16 when input shapes
+      // // differ. This should be removed once int32 broadcasting is properly
+      // // supported.
+      // auto lhsType =
+      //     mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+      // auto rhsType =
+      //     mlir::cast<mlir::RankedTensorType>(op->getOperand(1).getType());
 
-      if (lhsType.getShape() != rhsType.getShape()) {
-        return DataType::BFloat16;
-      }
+      // if (lhsType.getShape() != rhsType.getShape()) {
+      //   return DataType::BFloat16;
+      // }
       return {};
     }
     return DataType::BFloat16;
