@@ -240,7 +240,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
         Given some affine map, as demonstrated below, the dma op will be evaluated at each point in the affine map's iteration space.
       ```mlir
       #map1 = affine_map<(d0, d1, d2) -> (d0, d2)>
-      %tx = ttir.dma %stream<#map1>, %cb0 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 32768 + d3 * 4096)>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
+      %tx = ttir.dma %stream<#map1>, %cb0 : (memref<4x4x6x8x!tt.tile<32x32, f32>, #tt.view<rank(4)>, #l1_>, memref<6x8x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
       ```
 
       Some constraints:
