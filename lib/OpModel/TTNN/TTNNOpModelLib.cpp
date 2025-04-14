@@ -39,9 +39,14 @@ namespace operation {
  *
  * This function attempts to query operation constraints using the provided
  * callable and arguments. If successful, it returns a tuple with resource usage
- * details. Otherwise, an error message.
+ * details and the actual layout of the output tensor of the op. Otherwise, an
+ * error message.
  *
  * @param name The name of the operation to query constraints for.
+ * @param context The MLIRContext to use for creating the TTNNLayoutAttr for the
+ * output tensor
+ * @param deviceGrid The worker grid of the device the op is targetted for.
+ * Required for creating the output tensor layout
  * @param callable A callable object that performs the query.
  * @return A tuple containing query results or a string error.
  */
