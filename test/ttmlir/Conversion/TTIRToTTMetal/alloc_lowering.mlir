@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-ttir-to-ttmetal %s > %t.mlir
+// RUN: ttmlir-opt --tt-register-device --convert-ttir-to-ttmetal %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1_ = #tt.memory_space<l1>
@@ -8,7 +8,7 @@ func.func @alloc_no_addr(%arg0: memref<1x1x8x24x!tt.tile<32x32, f32>, #tt.shard<
     // CHECK-SAME: {{.*}}address = 1000 : i64
     // TODO(#1909): Change this default address to whatever the allocation pass decides the address is.
     // CHECK-SAME: {{.*}}memory_space = #l1_
-    // CHECK-SAME: {{.*}}size = 1048576 : i64
+    // CHECK-SAME: {{.*}}size = 16384 : i64
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<8x8x1x4x!tt.tile<32x32, f32>, #l1_>
     return %alloc : memref<8x8x1x4x!tt.tile<32x32, f32>, #l1_>
 }
@@ -17,7 +17,7 @@ func.func @alloc_with_addr(%arg0: memref<1x1x8x24x!tt.tile<32x32, f32>, #tt.shar
     // CHECK: %{{[0-9]+}} = "ttmetal.create_buffer"()
     // CHECK-SAME: {{.*}}address = 86016 : i64
     // CHECK-SAME: {{.*}}memory_space = #l1_
-    // CHECK-SAME: {{.*}}size = 786432 : i64
+    // CHECK-SAME: {{.*}}size = 12288 : i64
     %alloc = memref.alloc() {alignment = 64 : i64, address = 0x15000 : i64} : memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #l1_>
     return %alloc : memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #l1_>
 }
