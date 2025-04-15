@@ -93,7 +93,7 @@ struct TTIRToTTIRGenericPass final
 protected:
   Option<bool> useTileMatmul{*this, "use-tile-matmul",
                              llvm::cl::desc("Use tile_matmul"),
-                             llvm::cl::init(false)};
+                             llvm::cl::init(true)};
 
 }; // end of class
 } // namespace
