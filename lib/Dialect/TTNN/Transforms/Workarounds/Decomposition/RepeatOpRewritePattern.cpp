@@ -31,8 +31,9 @@ TTNNRepeatFoldingWorkaround::matchAndRewrite(ttnn::RepeatOp op,
   addInputs.push_back(zeroOp.getResult());
 
   // Replace the RepeatOp with an AddOp to perform implicit repeat.
-  rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, op.getResult().getType(),
-                                           addInputs);
+  rewriter.replaceOpWithNewOp<ttnn::AddOp>(
+      op, op.getResult().getType(), addInputs[0], addInputs[1],
+      rewriter.getBoolAttr(false) /*use_legacy*/);
 
   return success();
 }
