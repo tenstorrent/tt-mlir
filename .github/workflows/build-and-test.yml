@@ -284,6 +284,8 @@ jobs:
     - name: Run TTRT tests
       if: matrix.build.type == 'ttrt'
       shell: bash
+      env:
+        TTRT_LOGGER_LEVEL: "INFO"
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/${{ matrix.build.path }}
@@ -305,6 +307,8 @@ jobs:
     - name: Run pytest ttrt tests
       if: matrix.build.type == 'pytest'
       shell: bash
+      env:
+        TTRT_LOGGER_LEVEL: "INFO"
       run: |
         source env/activate
         export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
