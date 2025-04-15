@@ -297,27 +297,13 @@ def TTIRPrepareTensorsForBufferization : Pass<"ttir-prepare-tensors-for-bufferiz
   }];
 }
 
-def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
-  let summary = "Insert allocate/deallocate ops for tensors.";
+def TTIRFormStreams: Pass<"ttir-form-streams", "::mlir::ModuleOp"> {
+  let summary = "Create streams required by generic ops.";
   let description = [{
-    This pass walks through the graph and does the following:
-      - Replaces tensor empty ops with allocate ops.
-      - Inserts deallocate ops after a tensor value's last use.
-      - Allocates storage for graph inputs.
-
-    Currently the allocator is built into the pass itself, but in the future
-    this should be replaced with an analysis pass that can make global allocation
-    decisions, followed by this pass that mechanically applies those decisions.
-  }];
-}
-
-def TTIRPlaceholderAllocate : Pass<"ttir-placeholder-allocate", "::mlir::ModuleOp"> {
-  let summary = "Placeholder for the eventual full allocate pass.";
-  let description = [{
-    Currently this pass only does some simple heuristics for forming stream_layout ops
-    for the situations that require it for correctness.  In the future, this pass will
-    be replaced with a full allocate pass that has to do more sophisticated analysis
-    for inserting streams on top of actually allocating.
+    Currently this pass, a sub-pass of 'ttir-allocate-pipeline', only does some simple
+    heuristics for forming stream_layout ops for the situations that require them for correctness.
+    In the future, this pass will be replaced with a full allocate pass that has to do more
+    sophisticated analysis for forming streams on top of actually allocating.
 
     Converts generic arguments that require a stream (i.e. local storage
     buffer for circular buffer):
@@ -339,6 +325,22 @@ def TTIRPlaceholderAllocate : Pass<"ttir-placeholder-allocate", "::mlir::ModuleO
     "ttir.generic"(%stream, %stream_2, %alloc)
     ```
   }];
+  let dependentDialects = ["::mlir::tt::TTDialect"];
+}
+
+def TTIRAllocateBuffers: Pass<"ttir-allocate-buffers", "::mlir::ModuleOp"> {
+  let summary = "Allocate memrefs backing storage buffers in L1.";
+  let description = [{
+    Currently this pass, a sub-pass of 'ttir-allocate-pipeline', implements simple
+    bumper allocation of storage addresses needed for memref.alloc ops. The allocation
+    scope is each funcOp within the parent module and there is no deallocation and no
+    spilling into DRAM.
+
+    In the future this should be augmented with an analysis pass that can compute
+    a static allocation schedule, followed by this pass that mechanically applies those
+    allocation decisions.
+  }];
+  let dependentDialects = ["::mlir::tt::TTDialect", "::mlir::memref::MemRefDialect"];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {

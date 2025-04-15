@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --tt-register-device --ttir-placeholder-allocate --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttir-form-streams --canonicalize %s | FileCheck %s
 
 #l1_ = #tt.memory_space<l1>
 #parallel = #tt.iterator_type<parallel>
