@@ -144,6 +144,7 @@ if (TTMLIR_ENABLE_STABLEHLO)
     PATTERN "*.td"
   )
 endif()
+
 add_subdirectory(include)
 add_subdirectory(lib)
 if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)

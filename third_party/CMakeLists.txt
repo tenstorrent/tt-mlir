@@ -157,6 +157,40 @@ install(
   REGEX "third_party/umd/"
 )
 
+# TTNN Standalone install commands
+#
+# Copy .cpmcache libs
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/boost
+    ${CPM_SOURCE_CACHE}/fmt
+    ${CPM_SOURCE_CACHE}/magic_enum
+    ${CPM_SOURCE_CACHE}/nlohmann_json
+    ${CPM_SOURCE_CACHE}/reflect
+    ${CPM_SOURCE_CACHE}/xtensor
+    ${CPM_SOURCE_CACHE}/xtensor-blas
+    ${CPM_SOURCE_CACHE}/xtl
+  DESTINATION tt-metal/.cpmcache
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+# Copy third_party
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party
+  DESTINATION tt-metal/tt_metal
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+# Copy tt_stl
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
+  DESTINATION tt-metal
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+
 list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH})
 
