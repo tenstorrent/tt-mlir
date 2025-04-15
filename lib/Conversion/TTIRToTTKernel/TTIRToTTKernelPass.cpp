@@ -56,7 +56,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
-    // target.addIllegalOp<memref::LoadOp>();
+    target.addIllegalOp<memref::CollapseShapeOp>();
     target.addIllegalOp<memref::StoreOp>();
     target.addIllegalOp<memref::CollapseShapeOp>();
 
