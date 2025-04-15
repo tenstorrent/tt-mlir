@@ -594,8 +594,8 @@ class TTIRMatmulWithLinalgGenericRewriter final
 
   using ConcreteOp = ttir::MatmulOp;
   using TileOp = ttir::TileMatmulOp;
-  static constexpr std::size_t const tileOpNumInputs = 3;
-  static constexpr std::size_t const tileOpNumOutputs = 1;
+  static constexpr std::size_t tileOpNumInputs = 3;
+  static constexpr std::size_t tileOpNumOutputs = 1;
 
 public:
   TTIRMatmulWithLinalgGenericRewriter(const TypeConverter &typeConverter,
@@ -617,15 +617,15 @@ private:
         toLayoutOperands(rewriter, adaptor, op.getDpsInits().size(),
                          deviceGridRank, /*tiled*/ true);
 
-    std::size_t const numInputs = inputs.size();
-    std::size_t const numOutputs = outputs.size();
-    std::size_t const numOperands = (numInputs + numOutputs);
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+    const std::size_t numOperands = (numInputs + numOutputs);
 
     assert(numOperands == op->getNumOperands());
 
     tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
 
-    std::size_t const rank = grid.getShape().size();
+    const std::size_t rank = grid.getShape().size();
 
     // TODO(#2591) handle 'transpose_{a,b}' attributes
 
