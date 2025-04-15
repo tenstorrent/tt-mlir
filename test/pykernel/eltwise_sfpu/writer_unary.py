@@ -6,7 +6,7 @@
 # REQUIRES: pykernel
 
 from pykernel.pykernel_ast import *
-from pykernel.types import *
+from pykernel.pykernel_types import *
 
 
 @ttkernel_noc_compile()
