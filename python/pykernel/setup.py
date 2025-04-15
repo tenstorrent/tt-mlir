@@ -1,15 +1,16 @@
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 # SPDX-License-Identifier: Apache-2.0
 
-# PyKernel setup.py wheel
+# PyKernel Wheel setup.py
+# Heavily inspired by: https://github.com/tenstorrent/tt-forge-fe/blob/main/setup.py
 
 import os
 import pathlib
 import shutil
 import subprocess
 
-from setuptools import setup, Extension, find_packages
+from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 
 
@@ -92,7 +93,7 @@ class CMakeBuild(build_ext):
         self.rmdir(install_dir / "python")
 
 
-# Compute a dynamic version from git
+# Compute a dynamic version from git, taken from tt-forge-fe
 short_hash = (
     subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
     .decode("ascii")
@@ -107,6 +108,7 @@ date = (
 )
 version = "0.1." + date + "+dev." + short_hash
 
+# Only the ttmlir package relies on the CMake build process
 ttmlir_c = TTExtension("ttmlir")
 
 setup(
@@ -115,7 +117,9 @@ setup(
     install_requires=[],
     # Include both pykernel and ttmlir as top-level packages
     packages=["pykernel", "ttmlir"],
-    # Map the package names to their locations
+    # Map the package names to their locations.
+    # "." will redundantly include the pykernel files in both of the packages by default
+    # We delete all of this during the build_ext step
     package_dir={"pykernel": ".", "ttmlir": "."},
     ext_modules=[ttmlir_c],
     cmdclass={"build_ext": CMakeBuild},
