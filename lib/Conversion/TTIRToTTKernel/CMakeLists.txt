@@ -8,4 +8,5 @@ add_mlir_conversion_library(TTMLIRTTIRToTTKernel
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
+  MLIRTTIRAnalysis
 )

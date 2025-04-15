@@ -34,7 +34,7 @@ public:
     rewriter.moveOpBefore(
         rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc()), regsWait);
 
-    rewriter.moveOpAfter(
+    rewriter.moveOpBefore(
         rewriter.create<ttkernel::TileRegsAcquireOp>(op->getLoc()),
         op->getBlock(), op->getBlock()->begin());
 

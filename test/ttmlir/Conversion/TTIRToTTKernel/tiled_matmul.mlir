@@ -3,7 +3,7 @@
 
 #l1_ = #tt.memory_space<l1>
 module {
-  func.func private @datamovement_kernel0(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore, %arg5: !ttir.semaphore, %arg6: !ttir.semaphore) attributes {ttir.thread_type = 1 : i32} {
+  func.func private @datamovement_kernel0(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<datamovement>} {
     %c8 = arith.constant 8 : index
     %c1 = arith.constant 1 : index
     %c0 = arith.constant 0 : index
@@ -18,12 +18,14 @@ module {
       scf.if %0 {
         // CHECK: %{{[0-9]+}} = "ttkernel.get_compile_time_arg_val"
         %1 = ttir.get_global_operand(0) : memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 12288 + d3 * 4096)>, #l1_>
+        // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_addr_xy"
         // CHECK: "ttkernel.noc_async_read"
         %tx = ttir.dma %1 [%c0, %arg7, %c0, %c0], %arg0 [%c0, %c0] : (memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 12288 + d3 * 4096)>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_read_barrier"
         ttir.dma_wait %tx
         // ttir.semaphore_wait %arg3, %c7 reset %c0
+        // CHECK: %{{[0-9]+}} = "ttkernel.get_read_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_multicast_addr"
         // CHECK: "ttkernel.noc_async_write_multicast"
@@ -41,15 +43,18 @@ module {
     return
   }
 
-  func.func private @compute_kernel2(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore, %arg5: !ttir.semaphore, %arg6: !ttir.semaphore) attributes {ttir.thread_type = 0 : i32} {
+  func.func private @compute_kernel2(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
     %c4 = arith.constant 4 : index
     %c3 = arith.constant 3 : index
     %c1 = arith.constant 1 : index
     %c0 = arith.constant 0 : index
+    // CHECK: "ttkernel.cb_reserve_back"
+    // CHECK: "ttkernel.cb_reinterpret_shape"
+    // CHECK: "ttkernel.cb_reinterpret_shape"
+    // CHECK: "ttkernel.cb_reinterpret_shape"
     %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<1x3x!tt.tile<32x32, f32>, #l1_> into memref<3x!tt.tile<32x32, f32>, #l1_>
     %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<3x4x!tt.tile<32x32, f32>, #l1_> into memref<12x!tt.tile<32x32, f32>, #l1_>
     %collapse_shape_1 = memref.collapse_shape %arg2 [[0, 1]] : memref<1x4x!tt.tile<32x32, f32>, #l1_> into memref<4x!tt.tile<32x32, f32>, #l1_>
-    // CHECK: "ttkernel.cb_reserve_back"
     // CHECK: "ttkernel.cb_wait_front"
     // CHECK: "ttkernel.cb_wait_front"
     ttir.await %arg0, %arg1 : (memref<1x3x!tt.tile<32x32, f32>, #l1_>, memref<3x4x!tt.tile<32x32, f32>, #l1_>)
@@ -69,7 +74,6 @@ module {
           // CHECK: "ttkernel.copy_tile"
           %8 = memref.load %collapse_shape_1[%7] : memref<4x!tt.tile<32x32, f32>, #l1_>
           // CHECK: "ttkernel.matmul_tiles"
-          // CHECK-SAME: {{.*}}%arg0{{.*}}%arg1
           // CHECK: "ttkernel.tile_regs_commit"
           %9 = "ttir.tile_matmul"(%2, %5, %8) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
           %10 = arith.muli %arg7, %c4 overflow<nsw> : index

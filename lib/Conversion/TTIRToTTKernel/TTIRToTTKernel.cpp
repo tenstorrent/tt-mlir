@@ -74,7 +74,7 @@ public:
   }
 
   static void lowerLoadToCopyTile(memref::LoadOp op, bool cbIdxAsDstIdx,
-                                  PatternRewriter &rewriter) {
+                                  ConversionPatternRewriter &rewriter) {
     auto index = [&](int64_t value) {
       return rewriter
           .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
@@ -82,7 +82,7 @@ public:
           .getResult();
     };
 
-    auto cb = op.getMemref();
+    auto cb = rewriter.getRemappedValue(op.getMemref());
     auto cbType = mlir::dyn_cast<ttkernel::CBType>(cb.getType());
     rewriter.create<ttkernel::CopyTileInitOp>(op.getLoc(), cb);
     rewriter.create<ttkernel::CopyTileOp>(
@@ -123,7 +123,8 @@ public:
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
       auto dstIdx = index(0);
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
-          op->getLoc(), operands[0], operands[1], getLoadIndex(operands[0]),
+          op->getLoc(), getCB(rewriter, operands[0]),
+          getCB(rewriter, operands[1]), getLoadIndex(operands[0]),
           getLoadIndex(operands[1]), dstIdx);
     } else if (mlir::isa<ttir::TileTilizeBlockOp>(op)) {
       assert(operands.size() == 2);
@@ -202,9 +203,11 @@ public:
       } else if (mlir::isa<ttir::YieldOp>(op)) {
         auto reserveBack = rewriter.create<ttkernel::CBReserveBackOp>(
             op.getLoc(), input, numPages);
-        Operation *init =
-            input.getDefiningOp() ? input.getDefiningOp() : &block->front();
-        rewriter.moveOpAfter(reserveBack, init);
+        if (mlir::isa<func::FuncOp>(block->getParentOp())) {
+          rewriter.moveOpAfter(reserveBack, input.getDefiningOp());
+        } else {
+          rewriter.moveOpBefore(reserveBack, &block->front());
+        }
         rewriter.moveOpBefore(numPages.getDefiningOp(), reserveBack);
         rewriter.create<ttkernel::CBPushBackOp>(op.getLoc(), input, numPages);
       }
@@ -304,11 +307,10 @@ public:
   }
 
   static std::tuple<AffineMap, AffineMap, AffineMap>
-  getIndividualResultMaps(Operation *op, tt::DeviceAttr device,
+  getIndividualResultMaps(MemRefType memref, tt::DeviceAttr device,
                           OpBuilder &builder) {
-    std::pair<MemRefType, AffineMap> memrefAndView = ttir::applyViews(op);
-    size_t pageSize = getMemrefShardSizeBytes(memrefAndView.first);
-    AffineMap memoryMap = device.getMemoryMap(memrefAndView, pageSize, 0)
+    size_t pageSize = getMemrefShardSizeBytes(memref);
+    AffineMap memoryMap = device.getMemoryMap(memref, pageSize, 0)
                               .dropResult(0); // drop the device index
     assert(memoryMap.getNumResults() == 3);
     auto gridY = memoryMap.dropResults({1, 2});
@@ -410,8 +412,7 @@ public:
 
       AffineMap dstGridYMap, dstGridXMap, dstOffsetMap;
       std::tie(dstGridYMap, dstGridXMap, dstOffsetMap) =
-          getIndividualResultMaps(op.getDst().getDefiningOp(), device,
-                                  rewriter);
+          getIndividualResultMaps(op.getDstMemRefType(), device, rewriter);
 
       auto dstGridY = applyMap(dstGridYMap, op.getDstIndices());
       auto dstGridX = applyMap(dstGridXMap, op.getDstIndices());
@@ -435,8 +436,7 @@ public:
 
       AffineMap srcGridYMap, srcGridXMap, srcOffsetMap;
       std::tie(srcGridYMap, srcGridXMap, srcOffsetMap) =
-          getIndividualResultMaps(op.getSrc().getDefiningOp(), device,
-                                  rewriter);
+          getIndividualResultMaps(op.getSrcMemRefType(), device, rewriter);
 
       auto srcGridY = applyMap(srcGridYMap, op.getSrcIndices());
       auto srcGridX = applyMap(srcGridXMap, op.getSrcIndices());
