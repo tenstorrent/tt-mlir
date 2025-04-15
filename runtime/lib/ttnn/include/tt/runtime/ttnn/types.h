@@ -145,6 +145,9 @@ public:
 
   TensorPtrMapIterator erase(const ::tt::target::ttnn::TensorRef *tensorRef);
 
+  void replace(const ::tt::target::ttnn::TensorRef *replacement,
+               const ::tt::target::ttnn::TensorRef *toReplace);
+
   bool contains(const ::tt::target::ttnn::TensorRef *tensorRef) const {
     return liveTensors.contains(tensorRef->global_id());
   }
@@ -165,6 +168,11 @@ private:
 
   const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
   ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
+  const ::tt::runtime::Tensor &
+  replaceProgramInputID(std::uint32_t replacementId,
+                        std::uint32_t toReplaceId) const;
+  ::tt::runtime::Tensor &replaceProgramInputID(std::uint32_t replacementId,
+                                               std::uint32_t toReplaceId);
 };
 
 class ProgramContext {

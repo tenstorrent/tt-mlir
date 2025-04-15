@@ -277,6 +277,8 @@ PYBIND11_MODULE(_C, m) {
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
       "Get the output tensor of the op");
+  m.def("replace_input_tensor", &tt::runtime::replaceInputTensor,
+        "Replace an input tensor on the device");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

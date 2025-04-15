@@ -35,6 +35,7 @@ try:
         get_layout,
         get_op_output_tensor,
         get_op_debug_str,
+        replace_input_tensor,
         memcpy,
         deallocate_tensor,
         WorkaroundEnv,

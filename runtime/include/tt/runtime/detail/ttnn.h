@@ -171,6 +171,10 @@ std::string getOpLocInfo(OpContext opContextHandle);
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
                                         CallbackContext programContextHandle);
 
+void replaceInputTensor(CallbackContext programContextHandle,
+                        ::tt::runtime::Tensor replacementInput,
+                        ::tt::runtime::Tensor inputToReplace);
+
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);

@@ -728,6 +728,25 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   LOG_FATAL("runtime is not enabled");
 }
 
+void replaceInputTensor(CallbackContext programContextHandle,
+                        ::tt::runtime::Tensor replacementInput,
+                        ::tt::runtime::Tensor inputToReplace) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::replaceInputTensor(
+        programContextHandle, replacementInput, inputToReplace);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::replaceInputTensor(
+        programContextHandle, replacementInput, inputToReplace);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs) {

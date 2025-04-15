@@ -968,6 +968,24 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return utils::createRuntimeTensorFromTTNN(hostTensor);
 }
 
+void replaceInputTensor(CallbackContext programContextHandle,
+                        ::tt::runtime::Tensor replacementInput,
+                        ::tt::runtime::Tensor inputToReplace) {
+  auto const &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+  ::ttnn::Tensor &replacement =
+      replacementInput
+          .as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+          .getTensor();
+  ::ttnn::Tensor &toReplace =
+      inputToReplace
+          .as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+          .getTensor();
+  tensorPool.replace(replacement, toReplace); // Takes tensor refs
+} // Things I can use to get a tensor: ID, tensor ref,
+
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {

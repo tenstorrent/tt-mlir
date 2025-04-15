@@ -492,6 +492,50 @@ ProgramTensorPool::erase(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return liveTensors.erase(it);
 }
 
+const ::tt::runtime::Tensor &
+ProgramTensorPool::replaceProgramInputID(std::uint32_t replacementId,
+                                         std::uint32_t toReplaceId) const {
+  LOG_ASSERT(programInputIds.contains(toReplaceId),
+             "Tensor to replace not found in program inputs");
+  for (std::uint32_t id : programInputIds) {
+    if (programInputIds[i] == toReplaceId) {
+      programInputIds[i] = replacementId;
+    }
+  }
+  return getRuntimeTensor(replacementId);
+}
+
+::tt::runtime::Tensor &
+ProgramTensorPool::replaceProgramInputID(std::uint32_t replacementId,
+                                         std::uint32_t toReplaceId) {
+  return const_cast<::tt::runtime::Tensor &>(
+      static_cast<const ProgramTensorPool &>(*this).replaceProgramInputID(
+          replacementId, toReplaceId));
+}
+
+void ProgramTensorPool::replace(
+    const ::tt::target::ttnn::TensorRef *replacement,
+    const ::tt::target::ttnn::TensorRef *toReplace) {
+  LOG_ASSERT(replacement != nullptr, "replacement should not be null");
+  LOG_ASSERT(toReplace != nullptr, "toReplace should not be null");
+  std::uint32_t replacementId = replacement->global_id();
+  std::uint32_t toReplaceId = toReplace->global_id();
+  ::tt::runtime::Tensor &replacementTensor =
+      getRuntimeTensorAndValidate(replacement);
+  replaceProgramInputID(replacementId, toReplaceId);
+  // Duplicate with programOutputId
+  auto intermed = intermedTensors.find(toReplaceId);
+  auto live = liveTensors.find(toReplaceId);
+  if (intermed == intermedTensors.end()) {
+    intermedTensors.erase(intermed);
+    intermedTensors.insert_or_assign(replacementId, *replacementTensor);
+  }
+  if (live == liveTensors.end()) {
+    liveTensors.erase(live);
+    liveTensors.insert_or_assign(replacementId, replacementTensor);
+  }
+}
+
 //
 // ProgramContext APIs
 //

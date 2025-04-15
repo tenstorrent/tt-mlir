@@ -78,6 +78,10 @@ std::string getOpLocInfo(OpContext opContextHandle);
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 
+void replaceInputTensor(CallbackContext programContextHandle,
+                        ::tt::runtime::Tensor replacementInput,
+                        ::tt::runtime::Tensor inputToReplace);
+
 using InputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,
                std::shared_ptr<::tt::tt_metal::Event>>;

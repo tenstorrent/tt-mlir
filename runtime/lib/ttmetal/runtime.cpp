@@ -417,6 +417,14 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   return createNullTensor();
 }
 
+void replaceInputTensor(CallbackContext programContextHandle,
+                        ::tt::runtime::Tensor replacementInput,
+                        ::tt::runtime::Tensor inputToReplace) {
+  // Not implemented
+  LOG_WARNING(
+      "replacing device input tensor for metal runtime not implemented");
+}
+
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getDataBuffer not implemented for metal runtime");
   return {};
