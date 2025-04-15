@@ -47,8 +47,12 @@ public:
     // Verify if the buffer type is the same.
     if (memoryConfigAttr.getBufferType().getValue() !=
         outputLayoutAttr.getBufferType()) {
-      return op->emitOpError(
-          "Output tensor buffer type must match memory config buffer type.");
+      return op->emitOpError()
+             << "Output tensor buffer type "
+             << stringifyBufferType(outputLayoutAttr.getBufferType())
+             << " must match memory config buffer type "
+             << stringifyBufferType(
+                    memoryConfigAttr.getBufferType().getValue());
     }
 
     // Tensor memory layout is optional, if not set, it is assumed to be the
@@ -56,15 +60,25 @@ public:
     if (memoryConfigAttr.getTensorMemoryLayout() &&
         memoryConfigAttr.getTensorMemoryLayout() !=
             outputLayoutAttr.getMemLayout()) {
-      return op->emitOpError("Output tensor layout memory space must match "
-                             "memory config memory space.");
+      return op->emitOpError()
+             << "Output tensor layout memory space "
+             << stringifyTensorMemoryLayout(
+                    outputLayoutAttr.getMemLayout().getValue())
+             << " must match memory config memory space "
+             << stringifyTensorMemoryLayout(
+                    memoryConfigAttr.getTensorMemoryLayout().getValue());
     }
 
-    // Verify if the shard spec is the same.
-    if (!llvm::equal(memoryConfigAttr.getShardSpec().getShardShape().getShape(),
-                     outputLayoutAttr.getShardShape())) {
-      return op->emitOpError(
-          "Output tensor shard spec must match memory config shard spec.");
+    if (memoryConfigAttr.getShardSpec()) {
+      if (memoryConfigAttr.getShardSpec().getShape() !=
+          ShapeAttr::get(op->getContext(),
+                         outputLayoutAttr.getScalarShardShape())) {
+        return op->emitOpError()
+               << "Output tensor scalar shard shape ("
+               << outputLayoutAttr.getScalarShardShape()
+               << ") must match memory config shard spec shape ("
+               << memoryConfigAttr.getShardSpec().getShape().getShape() << ")";
+      }
     }
 
     return mlir::success();

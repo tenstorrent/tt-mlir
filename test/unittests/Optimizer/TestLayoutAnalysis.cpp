@@ -101,10 +101,9 @@ protected:
         &context,
         mlir::tt::ttnn::BufferTypeAttr::get(&context,
                                             mlir::tt::ttnn::BufferType::DRAM),
-        mlir::tt::ttnn::ShardSpecAttr::get(
-            &context, mlir::tt::ttnn::ShapeAttr::get(&context, {2, 2})),
         mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-            &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved));
+            &context, mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
+        mlir::tt::ttnn::ShardSpecAttr());
 
     // Create an empty op with all required parameters
     builder.create<mlir::tt::ttnn::EmptyOp>(

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-workaround --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --tt-register-device --ttnn-workaround --canonicalize %s | FileCheck %s
 
 #dram = #ttnn.buffer_type<dram>
 #system_memory = #ttnn.buffer_type<system_memory>
@@ -16,7 +16,7 @@ module @moreh_cumsum attributes {} {
     // CHECK-LABEL: func.func public @test_cumsum_layout_reshape
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<1x32xui32, #ttnn_layout>) -> tensor<1x32xui32, #ttnn_layout1>
-    %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<1x32xui32, #ttnn_layout1>, !ttnn.device) -> tensor<1x32xui32, #ttnn_layout2>
+    %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x32xui32, #ttnn_layout1>, !ttnn.device) -> tensor<1x32xui32, #ttnn_layout2>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x32xui32, #ttnn_layout1>) -> ()
     // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"
     // CHECK-SAME: {shape = [1 : i32, 32 : i32, 1 : i32, 1 : i32]}
@@ -43,7 +43,7 @@ module @moreh_cumsum attributes {} {
     // CHECK-LABEL: func.func public @test_cumsum_reshape(
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<1x32xf32, #ttnn_layout3>) -> tensor<1x32xf32, #ttnn_layout4>
-    %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<1x32xf32, #ttnn_layout4>, !ttnn.device) -> tensor<1x32xf32, #ttnn_layout5>
+    %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x32xf32, #ttnn_layout4>, !ttnn.device) -> tensor<1x32xf32, #ttnn_layout5>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x32xf32, #ttnn_layout4>) -> ()
     // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"
     // CHECK-SAME: {shape = [1 : i32, 32 : i32, 1 : i32, 1 : i32]}
@@ -71,7 +71,7 @@ module @moreh_cumsum attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<1x32x64x64xui32, #ttnn_layout6>) -> tensor<1x32x64x64xui32, #ttnn_layout7>
     // CHECK: "ttnn.to_layout"
-    %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <<64x2>>, <interleaved>>}> : (tensor<1x32x64x64xui32, #ttnn_layout7>, !ttnn.device) -> tensor<1x32x64x64xui32, #ttnn_layout8>
+    %2 = "ttnn.to_device"(%1, %0) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x32x64x64xui32, #ttnn_layout7>, !ttnn.device) -> tensor<1x32x64x64xui32, #ttnn_layout8>
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x32x64x64xui32, #ttnn_layout7>) -> ()
     // CHECK: %[[CUMSUM:[0-9]+]] = "ttnn.moreh_cumsum"
     // CHECK-SAME: <{dim = 1 : i64}>

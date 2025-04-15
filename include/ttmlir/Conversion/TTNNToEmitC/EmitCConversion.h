@@ -979,7 +979,7 @@ public:
     // ingoring it for now.
     ttnn::MemoryConfigAttr memoryConfigAttr =
         ttnn::MemoryConfigAttr::get(layoutAttr.getContext(), bufferTypeAttr,
-                                    /*shardSpec=*/nullptr, tensorMemoryLayout);
+                                    tensorMemoryLayout, /*shardSpec=*/nullptr);
 
     return emit(memoryConfigAttr);
   }
