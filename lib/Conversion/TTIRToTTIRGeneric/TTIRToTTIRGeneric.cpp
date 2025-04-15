@@ -475,132 +475,16 @@ private:
 } // namespace
 // ............................................................................
 namespace {
-// At this time, matmul ops are rewritten into a ttir.generic without a nested
-// linagl.generic because we use metal counterpart op that is already "blocked".
+template <typename TileOp>
 class TTIRMatmulRewriter final
     : public mlir::OpConversionPattern<ttir::MatmulOp>,
       TTIRNamedRewriterCommon {
 
   using ConcreteOp = ttir::MatmulOp;
-  using TileOp = ttir::TileMatmulBlockOp;
 
 public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
                      uint64_t deviceGridRank)
-      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
-        TTIRNamedRewriterCommon(deviceGridRank) {}
-
-private:
-  LogicalResult
-  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
-                  mlir::ConversionPatternRewriter &rewriter) const final {
-    checkPreconditions(op);
-
-    mlir::MLIRContext *ctx = rewriter.getContext();
-    mlir::Location loc = op->getLoc();
-
-    auto [inputs, outputs] =
-        toLayoutOperands(rewriter, adaptor, op.getDpsInits().size(),
-                         deviceGridRank, /*tiled*/ true);
-
-    std::size_t const numInputs = inputs.size();
-    std::size_t const numOutputs = outputs.size();
-    std::size_t const numOperands = (numInputs + numOutputs);
-
-    assert(numOperands == op->getNumOperands());
-
-    tt::GridAttr grid = tt::GridAttr::get(ctx, expectedInputGridShape());
-
-    std::size_t const rank = grid.getShape().size();
-
-    // TODO(#2591) handle 'transpose_{a,b}' attributes
-
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, rank);
-    SmallVector<mlir::Attribute> iteratorTypes =
-        getIteratorTypesArray(rewriter, rank);
-
-    // Create 'ttir.generic' accepting 'op's operands.
-    auto generic = rewriter.create<ttir::GenericOp>(
-        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes));
-
-    // Create one bb in 'generic''s region and set its arguments.
-    auto insertPoint = rewriter.saveInsertionPoint();
-    rewriter.startOpModification(generic);
-    {
-      mlir::Region &region = generic->getRegions().front();
-      mlir::Block *block = rewriter.createBlock(&region);
-
-      // Populate 'block'.
-      {
-        auto blockArgs = createBlockArguments(block, loc, TypeRange(inputs),
-                                              TypeRange(outputs));
-
-        // Delegate next level of nesting to a "block" op.
-
-        rewriter.create<TileOp>(loc,
-                                /* resultTypes */ mlir::TypeRange(),
-                                /* operands */ blockArgs);
-      }
-    }
-    rewriter.finalizeOpModification(generic);
-    rewriter.restoreInsertionPoint(insertPoint);
-
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
-    return llvm::success();
-  }
-
-  static void checkPreconditions(ConcreteOp op) {
-    assert((!op.getTransposeA() && !op.getTransposeB()) &&
-           "TODO(#2591) expected no transpose attributes");
-  }
-
-  static SmallVector<mlir::AffineMap>
-  getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
-                     std::size_t rank) {
-    assert(arity == 3 && "expected 3 operands");
-    // TODO(#2592) handle higher ranks, if needed in this pass
-    assert(rank == 2 && "expected a rank 2 operation");
-    mlir::MLIRContext *ctx = builder.getContext();
-
-    return SmallVector<mlir::AffineMap>{makeAffineMap(ctx, {0, 2}),
-                                        makeAffineMap(ctx, {2, 1}),
-                                        makeAffineMap(ctx, {0, 1})};
-  }
-
-  static SmallVector<mlir::Attribute>
-  getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
-    assert(rank == 2 && "expected a rank 2 operation");
-    auto parallel = tt::IteratorTypeAttr::get(builder.getContext(),
-                                              tt::IteratorType::Parallel);
-    auto reduction = tt::IteratorTypeAttr::get(builder.getContext(),
-                                               tt::IteratorType::Reduction);
-    return SmallVector<mlir::Attribute>{parallel, parallel, reduction};
-  }
-
-  static mlir::AffineMap makeAffineMap(mlir::MLIRContext *ctx,
-                                       std::array<unsigned, 2> targets) {
-    return mlir::AffineMap::getMultiDimMapWithTargets(3, targets, ctx);
-  }
-}; // end of class
-} // namespace
-// ............................................................................
-namespace {
-class TTIRMatmulWithLinalgGenericRewriter final
-    : public mlir::OpConversionPattern<ttir::MatmulOp>,
-      TTIRNamedRewriterCommon {
-
-  using ConcreteOp = ttir::MatmulOp;
-  using TileOp = ttir::TileMatmulOp;
-  static constexpr std::size_t tileOpNumInputs = 3;
-  static constexpr std::size_t tileOpNumOutputs = 1;
-
-public:
-  TTIRMatmulWithLinalgGenericRewriter(const TypeConverter &typeConverter,
-                                      mlir::MLIRContext *ctx,
-                                      uint64_t deviceGridRank)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(deviceGridRank) {}
 
@@ -653,23 +537,36 @@ private:
 
         // Delegate next level of nesting to a "block" op.
 
-        SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, numOperands, rank);
-        SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
-            iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+        if constexpr (std::is_same_v<ttir::TileMatmulBlockOp, TileOp>) {
+          rewriter.create<TileOp>(loc,
+                                  /* resultTypes */ mlir::TypeRange(),
+                                  /* operands */ blockArgs);
 
-        rewriter.create<mlir::linalg::GenericOp>(
-            loc, /* inputs */ blockArgs.take_front(numInputs),
-            /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
-            linalgIteratorTypes,
-            [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
-                mlir::ValueRange bbArgs) {
-              mlir::Value yield = bbBuilder.create<TileOp>(
-                  loc, /* resultTypes */ bbArgs.take_back(tileOpNumOutputs),
-                  /* operands */ bbArgs.take_front(tileOpNumInputs));
+        } else if constexpr (std::is_same_v<ttir::TileMatmulOp, TileOp>) {
 
-              bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
-            });
+          static constexpr std::size_t tileOpNumInputs = 3;
+          static constexpr std::size_t tileOpNumOutputs = 1;
+
+          SmallVector<mlir::AffineMap> linalgIndexingMaps =
+              getAffineMapsArray(rewriter, numOperands, rank);
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+              iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+          rewriter.create<mlir::linalg::GenericOp>(
+              loc, /* inputs */ blockArgs.take_front(numInputs),
+              /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                mlir::Value yield = bbBuilder.create<TileOp>(
+                    loc, /* resultTypes */ bbArgs.take_back(tileOpNumOutputs),
+                    /* operands */ bbArgs.take_front(tileOpNumInputs));
+
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+              });
+        } else {
+          static_assert(false, "Unsupported Matmul TileOp");
+        }
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -735,10 +632,10 @@ void populateTTIRToTTIRGenericPatterns(MLIRContext *ctx,
 
   // Matmul.
   if (useTileMatmul) {
-    patterns.add<TTIRMatmulWithLinalgGenericRewriter>(typeConverter, ctx, deviceGridRank);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, deviceGridRank);
   }
   else {
-    patterns.add<TTIRMatmulRewriter>(typeConverter, ctx, deviceGridRank);
+    patterns.add<TTIRMatmulRewriter<ttir::TileMatmulBlockOp>>(typeConverter, ctx, deviceGridRank);
   }
   // clang-format on
 }
