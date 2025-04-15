@@ -12,6 +12,7 @@ import subprocess
 import shutil
 import argparse
 
+
 # Returns the path where EmitC TTNN tests live
 #
 def get_emitc_tests_path(build_dir):
@@ -23,37 +24,23 @@ def get_emitc_tests_path(build_dir):
     return get_emitc_tests_path.path
 
 
-# Returns TT_MLIR_HOME env var value
-#
-def get_ttmlir_home():
-    if get_ttmlir_home.path:
-        return get_ttmlir_home.path
-
-    get_ttmlir_home.path = os.environ.get("TT_MLIR_HOME")
-    if not get_ttmlir_home.path:
-        print("Error: TT_MLIR_HOME environment variable is not set.")
-        sys.exit(1)
-
-    return get_ttmlir_home.path
-
-
 # Returns ttnn-standalone dir
 #
 def get_standalone_dir():
-    return os.path.join(get_ttmlir_home(), "tools/ttnn-standalone")
+    # Calculate standalone dir path by using this script's location
+    #
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 # Runs cmake setup for .so compilation
 # Runs only once per script
 #
-def run_cmake_setup():
+def run_cmake_setup(args):
     if run_cmake_setup.already_created:
         return
 
-    tt_mlir_home = get_ttmlir_home()
-
-    source_dir = get_standalone_dir()
-    standalone_build_dir = os.path.join(source_dir, "build")
+    standalone_source_dir = get_standalone_dir()
+    standalone_build_dir = os.path.join(standalone_source_dir, "build")
     cmake_command = [
         "cmake",
         "-G",
@@ -61,22 +48,29 @@ def run_cmake_setup():
         "-B",
         standalone_build_dir,
         "-S",
-        source_dir,
+        standalone_source_dir,
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_CXX_COMPILER=clang++",
     ]
 
+    if args.metal_src_dir:
+        cmake_command.append(f"-DMETAL_SRC_DIR={args.metal_src_dir}")
+
+    if args.metal_lib_dir:
+        cmake_command.append(f"-DMETAL_LIB_DIR={args.metal_lib_dir}")
+
     try:
         result = subprocess.run(
-            cmake_command, check=True, cwd=tt_mlir_home, capture_output=True, text=True
+            cmake_command,
+            check=True,
+            cwd=standalone_source_dir,
+            capture_output=True,
+            text=True,
         )
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         print(f"Error setting up cmake environment: {e}")
         print(e.stderr)
         print(e.stdout)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error setting up cmake environment: {e}")
         sys.exit(1)
 
     run_cmake_setup.already_created = True
@@ -86,23 +80,20 @@ def run_cmake_setup():
 #
 get_emitc_tests_path.path = None
 run_cmake_setup.already_created = None
-get_ttmlir_home.path = None
 
 
 # Compile shared object, given source cpp and dest dir
 #
-def compile_shared_object(cpp_file_path, output_dir):
-    tt_mlir_home = get_ttmlir_home()
-
+def compile_shared_object(cpp_file_path, output_dir, args):
     # Base name of the provided cpp file
     #
     cpp_base_name = os.path.basename(cpp_file_path).rsplit(".", 1)[0]
 
     # Various dirs
     #
-    source_dir = get_standalone_dir()
-    standalone_build_dir = os.path.join(source_dir, "build")
-    source_cpp_path = os.path.join(source_dir, "ttnn-dylib.cpp")
+    standalone_source_dir = get_standalone_dir()
+    standalone_build_dir = os.path.join(standalone_source_dir, "build")
+    source_cpp_path = os.path.join(standalone_source_dir, "ttnn-dylib.cpp")
     compiled_so_path = os.path.join(standalone_build_dir, "libttnn-dylib.so")
 
     try:
@@ -112,7 +103,7 @@ def compile_shared_object(cpp_file_path, output_dir):
 
         # Run cmake setup command first
         #
-        run_cmake_setup()
+        run_cmake_setup(args)
 
         # Remove previous .so if exists
         if os.path.exists(compiled_so_path):
@@ -121,9 +112,19 @@ def compile_shared_object(cpp_file_path, output_dir):
         # Run build
         #
         print(f"\nBuilding: {cpp_base_name}")
-        build_command = ["cmake", "--build", standalone_build_dir, "--", "ttnn-dylib"]
+        build_command = [
+            "cmake",
+            "--build",
+            standalone_build_dir,
+            "--",
+            "ttnn-dylib",
+        ]
         result = subprocess.run(
-            build_command, check=True, cwd=tt_mlir_home, capture_output=True, text=True
+            build_command,
+            check=True,
+            cwd=standalone_source_dir,
+            capture_output=True,
+            text=True,
         )
         print(f"  Build finished successfully!")
 
@@ -173,6 +174,20 @@ def parse_arguments():
         metavar="FILE",
         help="Specify a single cpp file for compilation",
     )
+
+    # Add option to override metal-src-dir and metal-lib-dir
+    #
+    group = parser.add_argument_group(
+        "dirs", description="Overrides for metal-src-dir and metal-lib-dir"
+    )
+    parser.add_argument(
+        "--metal-src-dir",
+        type=str,
+    )
+    parser.add_argument(
+        "--metal-lib-dir",
+        type=str,
+    )
     return parser.parse_args()
 
 
@@ -186,10 +201,19 @@ def main():
 
     if file:
         print(f"Using custom file for compilation: {file}")
+
+        if not os.path.isfile(file) or not file.endswith(".cpp"):
+            print(f"Error: File '{file}' does not exist or is not a .cpp file.")
+            sys.exit(1)
+
         cpp_files.append(file)
     else:
+        # If not even build_dir is provided, use default test path in tt-mlir
         if not build_dir:
-            build_dir = os.path.join(get_ttmlir_home(), "build")
+            build_dir = os.path.join(
+                get_standalone_dir(),
+                "../../build",
+            )
 
         test_path = get_emitc_tests_path(build_dir)
 
@@ -205,8 +229,16 @@ def main():
                     cpp_file_path = os.path.join(dir_path, file)
                     cpp_files.append(cpp_file_path)
 
+    if len(cpp_files) == 0:
+        print("Error: No .cpp files found for compilation.")
+        sys.exit(1)
+
     for cpp_file in cpp_files:
-        compile_shared_object(cpp_file, os.path.dirname(cpp_file))
+        compile_shared_object(
+            cpp_file_path=cpp_file,
+            output_dir=os.path.dirname(cpp_file),
+            args=args,
+        )
 
     print("Compilation completed successfully!")
 
