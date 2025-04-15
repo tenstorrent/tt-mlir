@@ -172,6 +172,9 @@ std::string getOpLocInfo(OpContext opContextHandle);
                                         CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
+getIntermediateTensors(CallbackContext programContextHandle);
+
+std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
 

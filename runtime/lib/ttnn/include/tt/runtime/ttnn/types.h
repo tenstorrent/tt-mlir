@@ -157,6 +157,22 @@ public:
     return programOutputIds;
   }
 
+  std::vector<::tt::runtime::Tensor> getLiveTensors() {
+    std::vector<::tt::runtime::Tensor> lTensors;
+    for (auto &tensor : liveTensors) {
+      lTensors.push_back(*tensor.second);
+    }
+    return lTensors;
+  }
+
+  std::vector<::tt::runtime::Tensor> getIntermediateTensors() {
+    std::vector<::tt::runtime::Tensor> intermediateTensors;
+    for (auto &tensor : intermedTensors) {
+      intermediateTensors.push_back(tensor.second);
+    }
+    return intermediateTensors;
+  }
+
 private:
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;

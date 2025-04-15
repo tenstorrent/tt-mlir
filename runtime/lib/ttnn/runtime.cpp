@@ -969,6 +969,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
+getIntermediateTensors(CallbackContext programContextHandle) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getTensorPool().getIntermediateTensors();
+}
+
+std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
   // Convert input tensors to the layout expected by the program

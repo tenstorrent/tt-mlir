@@ -417,6 +417,14 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   return createNullTensor();
 }
 
+std::vector<::tt::runtime::Tensor>
+getIntermediateTensors(CallbackContext programContextHandle) {
+  // Not implemented
+  LOG_WARNING(
+      "obtaining intermediate tensors for metal runtime not implemented");
+  return {};
+}
+
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor) {
   LOG_WARNING("getDataBuffer not implemented for metal runtime");
   return {};

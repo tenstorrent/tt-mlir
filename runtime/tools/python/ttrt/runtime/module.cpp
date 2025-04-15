@@ -277,6 +277,8 @@ PYBIND11_MODULE(_C, m) {
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
       "Get the output tensor of the op");
+  m.def("get_intermediate_tensors", &tt::runtime::getIntermediateTensors,
+        "Get intermediate tensors off device");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

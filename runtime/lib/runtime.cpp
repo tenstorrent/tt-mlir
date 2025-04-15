@@ -728,6 +728,22 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   LOG_FATAL("runtime is not enabled");
 }
 
+std::vector<::tt::runtime::Tensor>
+getIntermediateTensors(CallbackContext programContextHandle) {
+#ifdef TT_RUNTIME_ENABLE_TTNN
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getIntermediateTensors(programContextHandle);
+  }
+#endif
+
+#ifdef TT_RUNTIME_ENABLE_TTMETAL
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getIntermediateTensors(programContextHandle);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs) {
