@@ -454,7 +454,8 @@ public:
                                                 dstL1Start, size);
       isRead = true;
     } else {
-      assert(false && "Illegal DMA configuration");
+      emitError(op.getLoc(), "Unsupported DMA Configuration");
+      return failure();
     }
 
     auto dmaWaitOps = associatedDMAWaits->get(op);
