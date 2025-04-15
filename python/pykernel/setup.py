@@ -43,8 +43,6 @@ class CMakeBuild(build_ext):
         build_dir = cwd.parent.parent / "build"
         install_dir = extension_path.parent / "ttmlir"
 
-        print("!!!!!!!!!!!!!", build_dir, install_dir)
-
         cmake_args = [
             "-G",
             "Ninja",
@@ -110,8 +108,6 @@ date = (
 version = "0.1." + date + "+dev." + short_hash
 
 ttmlir_c = TTExtension("ttmlir")
-
-print(pathlib.Path().absolute())
 
 setup(
     name="pykernel",
