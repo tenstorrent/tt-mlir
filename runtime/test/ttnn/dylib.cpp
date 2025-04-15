@@ -37,6 +37,9 @@ runSoProgram(void *so, std::string func_name,
              std::vector<::tt::runtime::Tensor> inputs, Device device) {
   LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
 
+  std::cout << "ENTERED runSoProgram" << std::endl;
+  std::cout << "  so: " << so << std::endl;
+
   ::ttnn::MeshDevice &ttnnMeshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
@@ -44,6 +47,8 @@ runSoProgram(void *so, std::string func_name,
   // locally we may have 2 devices.
   assert(ttnnMeshDevice.get_devices().size() > 0);
   ::ttnn::IDevice *ttnnDevice = ttnnMeshDevice.get_devices()[0];
+
+  std::cout << "before inputs" << std::endl;
 
   // Convert inputs to TTNN tensors using .as method
   //
@@ -55,9 +60,15 @@ runSoProgram(void *so, std::string func_name,
             .getTensor());
   }
 
+  std::cout << "after inputs NOVO NOVO NOVO" << std::endl;
+  std::cout << "after inputs2" << std::endl;
+
   // Clear previous errors
   //
-  dlerror();
+  // char * err = dlerror();
+  // std::cout << "error: " << err << std::endl;
+
+  std::cout << "after clear error" << std::endl;
 
   // Get function from the shared object
   //
@@ -69,10 +80,16 @@ runSoProgram(void *so, std::string func_name,
   const char *dlsym_error;
   void *symbol;
   std::string mangledName;
+  int idx = 0;
   for (const char *addition : POTENTIAL_MANGLING_ADDITIONS) {
+    std::cout << "idx " << idx << std::endl;
+    idx++;
     mangledName = func_name + addition;
+    std::cout << "  BEFORE LOAD SYMBOL " << mangledName << std::endl;
     symbol = dlsym(so, mangledName.c_str());
+    std::cout << "  AFTER LOAD SYMBOL " << mangledName << std::endl;
     dlsym_error = dlerror();
+    std::cout << "  AFTER DLSYM ERROR" << std::endl;
     if (!dlsym_error) {
       break;
     }
@@ -81,6 +98,9 @@ runSoProgram(void *so, std::string func_name,
     dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsym_error);
   }
+
+  std::cout << "after symbol load" << std::endl;
+
   // Call program/function
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
@@ -92,12 +112,18 @@ runSoProgram(void *so, std::string func_name,
     ttnnOutputs = forwardFunc(ttnnInputs);
   }
 
+  dlclose(so);
+
+  std::cout << "after function call" << std::endl;
+
   // Convert TTNN Tensors to Runtime Tensors
   //
   std::vector<::tt::runtime::Tensor> outputs;
   for (::ttnn::Tensor &output : ttnnOutputs) {
     outputs.push_back(utils::createRuntimeTensorFromTTNN(output));
   }
+
+  std::cout << "after outputs" << std::endl;
 
   return outputs;
 }

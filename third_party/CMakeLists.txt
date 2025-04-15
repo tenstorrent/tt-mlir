@@ -157,6 +157,37 @@ install(
   REGEX "third_party/umd/"
 )
 
+# TTNN Standalone install commands
+#
+# Copy .cpmcache libs
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/boost
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/fmt
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/magic_enum
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/nlohmann_json
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/reflect
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal/.cpmcache
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+# Copy third_party
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal/tt_metal
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+# Copy tt_stl
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+
 list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
 list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH})
 
