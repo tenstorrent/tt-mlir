@@ -41,7 +41,6 @@ try:
         WorkaroundEnv,
         get_op_loc_info,
         unregister_hooks,
-        init_cache,
     )
 except ModuleNotFoundError:
     raise ImportError(
