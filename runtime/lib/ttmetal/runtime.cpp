@@ -411,9 +411,9 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
-getOutputTensors(CallbackContext programContextHandle) {
+getInputTensors(CallbackContext programContextHandle) {
   // Not implemented
-  LOG_WARNING("obtaining all output tensors for metal runtime not implemented");
+  LOG_WARNING("obtaining all input tensors for metal runtime not implemented");
   return {};
 }
 

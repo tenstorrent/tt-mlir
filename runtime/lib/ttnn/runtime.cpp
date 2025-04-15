@@ -747,11 +747,11 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
-getOutputTensors(CallbackContext programContextHandle) {
+getInputTensors(CallbackContext programContextHandle) {
   auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
-  return programContext.getTensorPool().gatherOutputTensors();
+  return programContext.getTensorPool().gatherInputTensors();
 }
 
 ::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
