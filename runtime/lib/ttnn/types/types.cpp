@@ -484,19 +484,15 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
 std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherInputTensors() {
   std::vector<::tt::runtime::Tensor> inputs;
   inputs.reserve(programInputIds.size());
-  std::transform(
-      programInputIds.begin(), programInputIds.end(),
-      std::back_inserter(inputs), [this](std::uint32_t globalId) {
-        if (!liveTensors.contains(globalId)) {
-          LOG_WARNING("Input tensor not found in tensor pool");
-          return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
-        }
-        ::tt::runtime::Tensor &in = getRuntimeTensor(globalId);
-        ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
-            in.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-        ttnnTensor.setRetain(false);
-        return in;
-      });
+  std::transform(programInputIds.begin(), programInputIds.end(),
+                 std::back_inserter(inputs), [this](std::uint32_t globalId) {
+                   ::tt::runtime::Tensor &in = getRuntimeTensor(globalId);
+                   ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
+                       in.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+                           DeviceRuntime::TTNN);
+                   ttnnTensor.setRetain(false);
+                   return in;
+                 });
   return inputs;
 }
 
