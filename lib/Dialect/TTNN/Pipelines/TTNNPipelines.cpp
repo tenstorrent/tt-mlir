@@ -68,6 +68,7 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
   }
+  pm.addPass(mlir::tt::ttnn::createTTNNOptimizeConv2d());
 }
 
 void createTTNNPipelineLoweringPasses(
