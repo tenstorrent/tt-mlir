@@ -169,6 +169,26 @@ inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
+inline ::tt::target::ttnn::ShardOrientation
+toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
+  switch (orientation) {
+  case ttnn::ShardOrientation::RowMajor:
+    return ::tt::target::ttnn::ShardOrientation::RowMajor;
+  case ttnn::ShardOrientation::ColMajor:
+    return ::tt::target::ttnn::ShardOrientation::ColMajor;
+  }
+}
+
+inline ::tt::target::ttnn::ShardMode toFlatbuffer(FlatbufferObjectCache &,
+                                                  ttnn::ShardMode mode) {
+  switch (mode) {
+  case ttnn::ShardMode::Physical:
+    return ::tt::target::ttnn::ShardMode::Physical;
+  case ttnn::ShardMode::Logical:
+    return ::tt::target::ttnn::ShardMode::Logical;
+  }
+}
+
 inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &, ArchAttr arch) {
   switch (arch.getValue()) {
   case Arch::Grayskull:

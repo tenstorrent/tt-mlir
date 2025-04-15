@@ -245,4 +245,28 @@ def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_ShardOrientation_RowMajor : I32EnumAttrCase<"RowMajor", 0, "row_major">;
+def TTNN_ShardOrientation_ColMajor : I32EnumAttrCase<"ColMajor", 1, "col_major">;
+
+def TTNN_ShardOrientation : I32EnumAttr<"ShardOrientation", "TTNN ShardOrientation",
+                           [
+                            TTNN_ShardOrientation_RowMajor,
+                            TTNN_ShardOrientation_ColMajor
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_ShardMode_Physical : I32EnumAttrCase<"Physical", 0, "physical">;
+def TTNN_ShardMode_Logical : I32EnumAttrCase<"Logical", 1, "logical">;
+
+def TTNN_ShardMode : I32EnumAttr<"ShardMode", "TTNN ShardMode",
+                           [
+                            TTNN_ShardMode_Physical,
+                            TTNN_ShardMode_Logical
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif
