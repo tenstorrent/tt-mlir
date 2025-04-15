@@ -122,7 +122,10 @@ def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
 def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
     let summary = "Matmul tiles operation";
     let description = [{
-      Matmul tiles operation
+      Performs tile-sized matrix multiplication *C=A\*B* between the tiles in two
+      specified input CBs and writes the result to DST. The DST register buffer
+      must be in acquired state via ttkernel.tile_regs_acquire call. This call is blocking and
+      is only available on the compute engine.
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb_id,
