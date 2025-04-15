@@ -14,23 +14,6 @@ elseif(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Release build is the default" FORCE)
 endif()
 
-# Handle env:ARCH_NAME
-#
-# Due to ttmetal's folder structure, we need to do some overriding for ARCH_NAME (e.g. wormhole_b0 -> wormhole)
-#
-if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
-  set(ARCH_NAME "grayskull")
-  set(ARCH_EXTRA_DIR "grayskull")
-elseif ("$ENV{ARCH_NAME}" STREQUAL "wormhole_b0")
-  set(ARCH_NAME "wormhole")
-  set(ARCH_EXTRA_DIR "wormhole/wormhole_b0_defines")
-elseif ("$ENV{ARCH_NAME}" STREQUAL "blackhole")
-  set(ARCH_NAME "blackhole")
-  set(ARCH_EXTRA_DIR "blackhole")
-else()
-  message(FATAL_ERROR "Unsupported ARCH_NAME: $ENV{ARCH_NAME}")
-endif()
-
 # Find clang 17
 #
 find_program(CLANG_17 clang++-17)
@@ -41,17 +24,14 @@ else()
     message(WARNING "Clang++-17 not found!!!")
 endif()
 
-if("$ENV{TT_METAL_HOME}" STREQUAL "")
+# TT_METAL_HOME env variable needs to be set
+if(NOT DEFINED ENV{TT_METAL_HOME})
     message(FATAL_ERROR "TT_METAL_HOME is not set")
 endif()
-if("$ENV{TT_METAL_BUILD_HOME}" STREQUAL "")
-    message(FATAL_ERROR "TT_METAL_BUILD_HOME is not set")
-endif()
-if("$ENV{ARCH_NAME}" STREQUAL "")
-    message(FATAL_ERROR "ARCH_NAME is not set")
-endif()
 
-message($ENV{TT_METAL_HOME}/tt_metal/third_party/src/firmware/riscv/$ENV{ARCH_NAME})
+# Metal dir variables
+set(METAL_SRC_DIR "$ENV{TT_METAL_HOME}" CACHE PATH "Path to the tt-metal root src directory")
+set(METAL_LIB_DIR "$ENV{TT_METAL_HOME}-build/lib" CACHE PATH "Path to the tt-metal lib directory")
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE $ENV{CPM_SOURCE_CACHE})
@@ -74,38 +54,38 @@ set(INCLUDE_DIRS
     ${CPM_SOURCE_CACHE}/xtl/0918808959d33a292c551b9f014a0e808bc4a95c/include
 
     # Metalium
-    $ENV{TT_METAL_HOME}
-    $ENV{TT_METAL_HOME}/tt_metal
-    $ENV{TT_METAL_HOME}/tt_metal/api
-    $ENV{TT_METAL_HOME}/tt_metal/hostdevcommon/api
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
-    $ENV{TT_METAL_HOME}/tt_metal/include
-    $ENV{TT_METAL_HOME}/tt_stl
-    $ENV{TT_METAL_HOME}/tt_stl/tt_stl
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/taskflow
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
+    ${METAL_SRC_DIR}
+    ${METAL_SRC_DIR}/tt_metal
+    ${METAL_SRC_DIR}/tt_metal/api
+    ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
+    ${METAL_SRC_DIR}/tt_metal/hw/inc
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/grayskull
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
+    ${METAL_SRC_DIR}/tt_metal/include
+    ${METAL_SRC_DIR}/tt_stl
+    ${METAL_SRC_DIR}/tt_stl/tt_stl
+    ${METAL_SRC_DIR}/tt_metal/third_party/fmt
+    ${METAL_SRC_DIR}/tt_metal/third_party/magic_enum
+    ${METAL_SRC_DIR}/tt_metal/third_party/taskflow
+    ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
 
     # TTNN
-    $ENV{TT_METAL_HOME}/ttnn
-    $ENV{TT_METAL_HOME}/ttnn/cpp
-    $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
-    $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
-
-    # TT_MLIR Runtime
-    $ENV{TT_MLIR_HOME}/runtime/lib/ttnn
+    ${METAL_SRC_DIR}/ttnn
+    ${METAL_SRC_DIR}/ttnn/cpp
+    ${METAL_SRC_DIR}/ttnn/cpp/ttnn
 )
 
 # Link directories
 #
 set(LINK_DIRS
-    $ENV{TT_METAL_BUILD_HOME}/lib
+    ${METAL_LIB_DIR}
 )
 
 # Libraries to link
@@ -113,12 +93,10 @@ set(LINK_DIRS
 set(LINK_LIBS
     tt_metal
     device
-    yaml-cpp
-    pthread
 
     # TTNN
     # _ttnn  # Why doesn't this work?
-    $ENV{TT_METAL_BUILD_HOME}/lib/_ttnn.so
+    ${METAL_LIB_DIR}/_ttnn.so
 )
 
 # Compile definitions
