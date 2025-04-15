@@ -80,7 +80,7 @@ public:
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case ttir::ThreadType::Compute: {
-        kernelConfig = builder.getAttr<ttmetal::TensixConfigAttr>(
+        kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs);
         break;
       }

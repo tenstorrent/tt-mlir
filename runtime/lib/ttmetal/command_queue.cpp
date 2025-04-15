@@ -143,35 +143,31 @@ void CQExecutor::execute(::tt::target::metal::Command const *command) {
   }
 }
 
-static char const *
-kernelSourceTypeString(::tt::target::metal::KernelSource const *kernelSource) {
-  switch (kernelSource->config_type()) {
-  case ::tt::target::metal::KernelConfig::NONE: {
-    break;
-  }
-  case ::tt::target::metal::KernelConfig::NocConfig: {
-    switch (kernelSource->config_as_NocConfig()->noc_index()) {
-    case tt::target::metal::NocIndex::Noc0: {
-      return "noc0";
-    }
-    case tt::target::metal::NocIndex::Noc1: {
-      return "noc1";
-    }
-    }
-  }
-  case ::tt::target::metal::KernelConfig::EthernetConfig: {
-    switch (kernelSource->config_as_EthernetConfig()->eth_type()) {
-    case tt::target::metal::EthType::Sender: {
-      return "ethSender";
-    }
-    case tt::target::metal::EthType::Receiver: {
-      return "ethReceiver";
-    }
-    }
-  }
-  case ::tt::target::metal::KernelConfig::TensixConfig: {
-    return "tensix";
-  }
+static std::string kernelConfigTypeString(
+    std::variant<::tt::tt_metal::DataMovementConfig,
+                 ::tt::tt_metal::ComputeConfig,
+                 ::tt::tt_metal::EthernetConfig> const &kernelConfig) {
+  // return a string representation of the kernel config type
+  if (auto const *dataMovementConfig =
+          std::get_if<::tt::tt_metal::DataMovementConfig>(&kernelConfig)) {
+    return "data_movement" +
+           std::to_string(static_cast<std::underlying_type_t<
+                              ::tt::tt_metal::DataMovementProcessor>>(
+               dataMovementConfig->processor)) +
+           "_noc" + std::to_string(dataMovementConfig->noc);
+  } else if (auto const *computeConfig =
+                 std::get_if<::tt::tt_metal::ComputeConfig>(&kernelConfig)) {
+    return "compute";
+  } else if (auto const *ethernetConfig =
+                 std::get_if<::tt::tt_metal::EthernetConfig>(&kernelConfig)) {
+    return "ethernet" +
+           std::to_string(static_cast<std::underlying_type_t<
+                              ::tt::tt_metal::DataMovementProcessor>>(
+               ethernetConfig->processor)) +
+           "_noc" + std::to_string(ethernetConfig->noc) + "_" +
+           (ethernetConfig->eth_mode == ::tt::tt_metal::Eth::SENDER
+                ? "sender"
+                : "receiver");
   }
   return "unknown";
 }
@@ -211,14 +207,16 @@ static std::string coreRangeToString(const CoreRangeSet &coreRanges) {
 static std::string createKernelFilePath(
     char const *currentProgramName, char const *programDebugInfo,
     const CoreRangeSet &coreRangeSet,
-    ::tt::target::metal::KernelSource const *kernelSource,
+    std::variant<::tt::tt_metal::DataMovementConfig,
+                 ::tt::tt_metal::ComputeConfig,
+                 ::tt::tt_metal::EthernetConfig> const &kernelConfig,
     char const *prefix = "/tmp/ttmlir_", char const *extention = ".cpp") {
   std::string path(prefix);
   path += currentProgramName;
   path += "_";
   path += parseLocFromDebugInfo(programDebugInfo);
   path += "_";
-  path += kernelSourceTypeString(kernelSource);
+  path += kernelConfigTypeString(kernelConfig);
 
   // Double underscore to visually separate core ranges from the rest.
   path += "__";
@@ -227,36 +225,70 @@ static std::string createKernelFilePath(
   return path;
 }
 
-static void writeFile(std::string const &fileName, char const *data,
-                      std::size_t size) {
+static void writeFile(std::string const &fileName, std::string const &source) {
   if (debug::Env::get().loadKernelsFromDisk) {
     std::ifstream file(fileName);
     LOG_ASSERT(file.is_open(), "Kernel file ", fileName, " not found");
     return;
   }
   std::ofstream file(fileName);
-  file.write(data, size);
+  file.write(source.c_str(), source.size());
   file.close();
+}
+
+static ::tt::tt_metal::KernelHandle
+createKernel(::tt::tt_metal::Program &program, std::string const &kernelSource,
+             CoreRangeSet const &coreRangeSet,
+             std::variant<::tt::tt_metal::DataMovementConfig,
+                          ::tt::tt_metal::ComputeConfig,
+                          ::tt::tt_metal::EthernetConfig> const &kernelConfig,
+             char const *currentProgramName, char const *debugInfo) {
+  bool const kernelFromFile = debug::Env::get().dumpKernelsToDisk ||
+                              debug::Env::get().loadKernelsFromDisk;
+  std::string fileName;
+  if (kernelFromFile) {
+    fileName = createKernelFilePath(currentProgramName, debugInfo, coreRangeSet,
+                                    kernelConfig);
+    writeFile(fileName, kernelSource);
+  }
+  return kernelFromFile
+             ? CreateKernel(program, fileName, coreRangeSet, kernelConfig)
+             : CreateKernelFromString(program, kernelSource, coreRangeSet,
+                                      kernelConfig);
+}
+
+static std::vector<uint32_t> processCompileArgs(
+    const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<::tt::target::metal::KernelArg>> *ctArgs) {
+  std::vector<uint32_t> args;
+  args.reserve(ctArgs->size());
+  for (auto const *ctArg : *ctArgs) {
+    args.push_back(ctArg->ct_value());
+  }
+  return args;
 }
 
 static std::variant<::tt::tt_metal::DataMovementConfig,
                     ::tt::tt_metal::ComputeConfig,
                     ::tt::tt_metal::EthernetConfig>
-createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
-  switch (kernelSource->config_type()) {
-  case ::tt::target::metal::KernelConfig::NocConfig: {
-    switch (kernelSource->config_as_NocConfig()->noc_index()) {
+createKernelConfig(::tt::target::metal::KernelConfig const *kernelConfig) {
+  std::vector<uint32_t> compileArgs =
+      processCompileArgs(kernelConfig->args()->ct_args());
+  switch (kernelConfig->type_type()) {
+  case ::tt::target::metal::KernelConfigType::NocConfig: {
+    switch (kernelConfig->type_as_NocConfig()->noc_index()) {
     case tt::target::metal::NocIndex::Noc0: {
-      return ::tt::tt_metal::ReaderDataMovementConfig();
+      return ::tt::tt_metal::ReaderDataMovementConfig(compileArgs);
     }
     case tt::target::metal::NocIndex::Noc1: {
-      return ::tt::tt_metal::WriterDataMovementConfig();
+      return ::tt::tt_metal::WriterDataMovementConfig(compileArgs);
     }
     }
   }
-  case ::tt::target::metal::KernelConfig::EthernetConfig: {
+  case ::tt::target::metal::KernelConfigType::EthernetConfig: {
     ::tt::tt_metal::EthernetConfig ethernetConfig;
-    switch (kernelSource->config_as_EthernetConfig()->eth_type()) {
+    ethernetConfig.compile_args = compileArgs;
+    switch (kernelConfig->type_as_EthernetConfig()->eth_type()) {
     case tt::target::metal::EthType::Sender: {
       ethernetConfig.eth_mode = ::tt::tt_metal::Eth::SENDER;
       break;
@@ -267,7 +299,7 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     }
     }
 
-    switch (kernelSource->config_as_EthernetConfig()->noc_index()) {
+    switch (kernelConfig->type_as_EthernetConfig()->noc_index()) {
     case tt::target::metal::NocIndex::Noc0: {
       ethernetConfig.noc = ::tt::tt_metal::NOC::NOC_0;
       break;
@@ -279,10 +311,11 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     }
     return ethernetConfig;
   }
-
-  case ::tt::target::metal::KernelConfig::TensixConfig: {
+  case ::tt::target::metal::KernelConfigType::ComputeConfig: {
+    auto const *fbComputeConfig = kernelConfig->type_as_ComputeConfig();
     ::tt::tt_metal::ComputeConfig computeConfig;
-    switch (kernelSource->config_as_TensixConfig()->math_fidelity()) {
+    computeConfig.compile_args = compileArgs;
+    switch (fbComputeConfig->math_fidelity()) {
     case tt::target::MathFidelity::HiFi4: {
       computeConfig.math_fidelity = MathFidelity::HiFi4;
       break;
@@ -301,16 +334,11 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     }
     }
 
-    computeConfig.fp32_dest_acc_en =
-        kernelSource->config_as_TensixConfig()->fp32_dest_acc_en();
-    computeConfig.math_approx_mode =
-        kernelSource->config_as_TensixConfig()->math_approx_mode();
+    computeConfig.fp32_dest_acc_en = fbComputeConfig->fp32_dest_acc_en();
+    computeConfig.math_approx_mode = fbComputeConfig->math_approx_mode();
 
-    auto const *unpackToDestModeVec =
-        kernelSource->config_as_TensixConfig()->unpack_to_dest_mode();
-    computeConfig.unpack_to_dest_mode.reserve(unpackToDestModeVec->size());
-
-    for (auto mode : *unpackToDestModeVec) {
+    computeConfig.unpack_to_dest_mode.reserve(fbComputeConfig->unpack_to_dest_mode()->size());
+    for (auto mode : *fbComputeConfig->unpack_to_dest_mode()) {
       switch (mode) {
       case tt::target::metal::UnpackToDestMode::UnpackToDestFp32: {
         computeConfig.unpack_to_dest_mode.push_back(
@@ -327,7 +355,7 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     return computeConfig;
   }
 
-  case ::tt::target::metal::KernelConfig::NONE: {
+  case ::tt::target::metal::KernelConfigType::NONE: {
     break;
   }
   }
@@ -371,73 +399,60 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
     std::unordered_map<std::uint32_t,
                        std::shared_ptr<::tt::tt_metal::Buffer>> const
         &buffers) {
-  std::uint32_t totalSize =
-      cbRef->desc()->memory_desc()->size() * cbRef->desc()->num_buffers();
-  ::tt::DataFormat dataFormat =
-      toDataFormat(cbRef->desc()->memory_desc()->data_type());
-
-  if (!cbRef->tensor_ref()) {
-    return ::tt::tt_metal::CircularBufferConfig(
-               totalSize, {{cbRef->desc()->port(), dataFormat}})
-        .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
-  }
-
+  auto const* bufferDesc = cbRef->buffer_ref()->desc();
+  std::uint32_t totalSize = bufferDesc->size();
+  ::tt::DataFormat dataFormat = toDataFormat(bufferDesc->data_type());
+  assert(cbRef->buffer_ref());
   return ::tt::tt_metal::CircularBufferConfig(
-             totalSize, {{cbRef->desc()->port(), dataFormat}},
-             *buffers.at(cbRef->tensor_ref()->global_id()))
-      .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
+             totalSize, {{cbRef->port(), dataFormat}},
+             *buffers.at(cbRef->buffer_ref()->global_id()))
+      .set_page_size(cbRef->port(), bufferDesc->page_size());
 }
 
 // Process various types of runtime args if present and call Metal APIs.
 static void processRuntimeArgs(
-    ::tt::tt_metal::Program &program,
-    ::tt::target::metal::KernelDesc const *kernelDesc,
-    ::tt::tt_metal::KernelHandle &handle, CoreRangeSet &coreRange,
+    ::tt::tt_metal::Program &program, ::tt::tt_metal::KernelHandle &handle,
+    CoreRangeSet const &coreRange,
     const ::flatbuffers::Vector<
-        ::flatbuffers::Offset<tt::target::metal::TensorRef>> *operands,
-    std::unordered_map<std::uint32_t,
-                       std::shared_ptr<::tt::tt_metal::Buffer>> const
-        &buffers) {
-
-  using SemaphoreAddr = ::tt::target::metal::RuntimeArgSemaphoreAddress;
-  using TensorAddr = ::tt::target::metal::RuntimeArgTensorAddress;
-
-  const auto *rt_args_types = kernelDesc->runtime_args_type();
-  const auto *rt_args = kernelDesc->runtime_args();
-
-  if (rt_args == nullptr || rt_args_types == nullptr || rt_args->size() == 0 ||
-      rt_args_types->size() == 0) {
+        ::flatbuffers::Offset<::tt::target::metal::KernelArg>> *rtArgs,
+    const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<tt::target::metal::BufferRef>> *buffers,
+    const ::flatbuffers::Vector<::flatbuffers::Offset<tt::target::metal::CBRef>>
+        *cbs) {
+  if (rtArgs == nullptr || rtArgs->size() == 0) {
     return;
   }
-
-  LOG_ASSERT(rt_args_types->size() == rt_args->size());
-  std::vector<uint32_t> rt_args_vec;
-
-  for (size_t i = 0; i < rt_args->size(); i++) {
-    switch (rt_args_types->Get(i)) {
-    case ::tt::target::metal::RuntimeArg::RuntimeArgTensorAddress: {
-      const auto *rt_arg = static_cast<const TensorAddr *>(rt_args->Get(i));
-      LOG_ASSERT(rt_arg->operand_idx() < operands->size(), "invalid operand ",
-                 rt_arg->operand_idx());
-      uint32_t global_id = operands->Get(rt_arg->operand_idx())->global_id();
-      uint32_t addr = buffers.at(global_id)->address();
-      rt_args_vec.push_back(addr);
+  std::vector<uint32_t> rtArgsVec;
+  rtArgsVec.reserve(rtArgs->size());
+  for (auto const* kernelArg : *rtArgs) {
+    switch (kernelArg->arg_type()) {
+    case ::tt::target::metal::KernelArgType::KernelArgCBPort: {
+      auto const *arg = kernelArg->arg_as_KernelArgCBPort();
+      LOG_ASSERT(arg->operand_idx() < cbs->size(), "invalid operand ",
+                 arg->operand_idx());
+      rtArgsVec.push_back(cbs->Get(arg->operand_idx())->port());
       break;
     }
-    case ::tt::target::metal::RuntimeArg::RuntimeArgSemaphoreAddress: {
-      const auto *rt_arg = static_cast<const SemaphoreAddr *>(rt_args->Get(i));
-      auto addr = ::tt::tt_metal::CreateSemaphore(
-          program, coreRange, rt_arg->initial_value(),
-          toCoreType(rt_arg->core_type()));
-      rt_args_vec.push_back(addr);
+    case ::tt::target::metal::KernelArgType::KernelArgBufferAddress: {
+      auto const *arg = kernelArg->arg_as_KernelArgBufferAddress();
+      LOG_ASSERT(arg->operand_idx() < buffers->size(), "invalid operand ",
+                 arg->operand_idx());
+      rtArgsVec.push_back(buffers->Get(arg->operand_idx())->address());
       break;
     }
-    case ::tt::target::metal::RuntimeArg::NONE:
+    case ::tt::target::metal::KernelArgType::KernelArgSemaphore: {
+      const auto *arg = kernelArg->arg_as_KernelArgSemaphore();
+      rtArgsVec.push_back(::tt::tt_metal::CreateSemaphore(
+          program, coreRange, arg->initial_value(),
+          toCoreType(arg->core_type())));
+      break;
+    }
+    case ::tt::target::metal::KernelArgType::NONE:
       LOG_FATAL("Unsupported runtime arg type");
     }
   }
 
-  ::tt::tt_metal::SetRuntimeArgs(program, handle, coreRange, rt_args_vec);
+  ::tt::tt_metal::SetRuntimeArgs(program, handle, coreRange, rtArgsVec);
 }
 
 void CQExecutor::execute(
@@ -447,56 +462,31 @@ void CQExecutor::execute(
   ZoneScopedN("EnqueueProgramCommand");
   ::tt::tt_metal::Program program = ::tt::tt_metal::CreateProgram();
 
-  std::unordered_set<uint32_t> createdCBs;
-  for (::tt::target::metal::KernelDesc const *kernelDesc :
+  for (::tt::target::metal::KernelConfig const *kernelConfig :
        *command->program()->kernels()) {
     ::tt::target::metal::KernelSource const *kernelSource =
-        kernelDesc->kernel_as_KernelSource();
+        kernelConfig->kernel_as_KernelSource();
     LOG_ASSERT(kernelSource, "Only source kernels supported for now");
-    CoreRangeSet coreRangeSet = toCoreRangeSet(kernelDesc->core_range_set());
-    // We need a new API to create a kernel from source string, or directly from
-    // binary
-    std::string fileName = createKernelFilePath(currentProgramName, debugInfo,
-                                                coreRangeSet, kernelSource);
-    writeFile(fileName, kernelSource->source()->c_str(),
-              kernelSource->source()->size());
-    std::variant<::tt::tt_metal::DataMovementConfig,
-                 ::tt::tt_metal::ComputeConfig, ::tt::tt_metal::EthernetConfig>
-        config = createKernelConfig(kernelSource);
+    std::string kernelSourceString(kernelSource->source()->c_str(),
+                                   kernelSource->source()->size());
+    CoreRangeSet coreRangeSet = toCoreRangeSet(kernelConfig->core_range_set());
 
-    ::tt::tt_metal::KernelHandle handle =
-        ::tt::tt_metal::CreateKernel(program, fileName, coreRangeSet, config);
+    ::tt::tt_metal::KernelHandle handle = createKernel(
+        program, kernelSourceString, coreRangeSet,
+        createKernelConfig(kernelConfig), currentProgramName, debugInfo);
 
-    for (::tt::target::metal::CBRef const *cbRef : *kernelDesc->cbs()) {
-      if (createdCBs.count(cbRef->desc()->port())) {
-        // Since kernels may share the same CB, we only need to create it once.
-        continue;
-      }
+    for (::tt::target::metal::CBRef const *cbRef : *command->cbs()) {
       ::tt::tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, buffers);
-      ::tt::tt_metal::CBHandle cbHandle =
-          ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
-
-      if (!cbRef->tensor_ref()) {
-        // Internally allocated CBs are not associated with any tensor ref. We
-        // need to set the address of the CB manually.
-        std::shared_ptr<::tt::tt_metal::CircularBuffer> cbPtr =
-            tt_metal::detail::GetCircularBuffer(program, cbHandle);
-        assert(!cbPtr->globally_allocated() &&
-               "CB should not be globally allocated");
-        cbPtr->set_locally_allocated_address(cbRef->address());
-      }
-
-      createdCBs.insert(cbRef->desc()->port());
+      ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
 
-    // Process Kernel's runtime args based on variant and call metal APIs.
-    processRuntimeArgs(program, kernelDesc, handle, coreRangeSet,
-                       command->operands(), buffers);
+    processRuntimeArgs(program, handle, coreRangeSet,
+                       kernelConfig->args()->rt_args(), command->buffers(),
+                       command->cbs());
   }
 
-  constexpr bool blocking = false;
-  ::tt::tt_metal::EnqueueProgram(*cq, program, blocking);
+  ::tt::tt_metal::EnqueueProgram(*cq, program, /*blocking=*/false);
 }
 
 void CQExecutor::execute(
@@ -516,7 +506,7 @@ void CQExecutor::execute(
   ZoneScopedN("CreateBufferCommand");
   if (buffers.find(command->ref()->global_id()) == buffers.end()) {
     buffers[command->ref()->global_id()] =
-        createBufferFromTensorRef(device, command->ref());
+        createBufferFromBufferRef(device, command->ref());
   }
 }
 

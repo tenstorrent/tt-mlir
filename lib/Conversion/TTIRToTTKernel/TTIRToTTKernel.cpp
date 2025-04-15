@@ -634,7 +634,7 @@ public:
     ThreadType threadType;
     switch (threadAttr.getThreadType()) {
     case ttir::ThreadType::Compute: {
-      threadType = ThreadType::Tensix;
+      threadType = ThreadType::Compute;
       break;
     }
     case ttir::ThreadType::Datamovement: {

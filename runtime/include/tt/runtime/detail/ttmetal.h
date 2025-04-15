@@ -111,65 +111,61 @@ inline CoreRangeSet toCoreRangeSet(
 #pragma clang diagnostic ignored "-Wc++20-designator"
 
 inline std::shared_ptr<::tt::tt_metal::Buffer>
-createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
-                          ::tt::target::metal::TensorRef const *tensorRef) {
-  ::tt::target::metal::TensorDesc const *tensorDesc = tensorRef->desc();
-  ::tt::target::metal::LayoutDesc const *layout = tensorDesc->layout();
-  ::tt::target::metal::MemoryDesc const *memoryDesc = layout->memory_desc();
-  CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
-  auto shardRank = memoryDesc->shape()->size();
-  ::tt::target::Dim2d const *tile_shape = memoryDesc->tile_shape();
-  std::array<uint32_t, 2> shardShape;
-  shardShape[1] = memoryDesc->shape()->Get(shardRank - 1) * tile_shape->x();
-  shardShape[0] = tile_shape->y();
-  for (unsigned i = 0; i < shardRank - 1; ++i) {
-    shardShape[0] *= layout->memory_desc()->shape()->Get(i);
-  }
-  ::tt::tt_metal::ShardSpec shardSpec(coreRangeSet, shardShape);
-  std::array<uint32_t, 2> pageShape = {static_cast<uint32_t>(tile_shape->y()),
-                                       shardShape[1]};
-
-  auto tensorRank = tensorDesc->shape()->size();
-  auto innerDim = tensorDesc->shape()->Get(tensorRank - 1);
-  assert(tensorDesc->shape()->size() >= 2);
-
-  uint32_t outerElements = 1;
-  for (size_t i = 0; i < tensorRank - 1; i++) {
-    outerElements *= tensorDesc->shape()->Get(i);
-  }
-
-  assert(outerElements % pageShape[0] == 0);
-  assert(innerDim % pageShape[1] == 0);
-
-  std::array<uint32_t, 2> tensorShape = {
-      outerElements / pageShape[0],
-      innerDim / pageShape[1],
+createBufferFromBufferRef(::tt::tt_metal::IDevice *device,
+                          ::tt::target::metal::BufferRef const *bufferRef) {
+  ::tt::target::metal::BufferDesc const *bufferDesc = bufferRef->desc();
+  auto *grid_shape = bufferDesc->grid_shape();
+  auto *shard_shape = bufferDesc->shard_shape();
+  ::tt::target::Dim2d const *tile_shape = bufferDesc->tile_shape();
+  assert(grid_shape->size() == 2);
+  assert(shard_shape->size() == 2);
+  CoreRangeSet coreRangeSet = toCoreRangeSet(bufferDesc->core_range_set());
+  std::array<uint32_t, 2> shardShape = {
+      static_cast<uint32_t>(shard_shape->Get(0) * tile_shape->y()),
+      static_cast<uint32_t>(shard_shape->Get(1) * tile_shape->x()),
   };
+  ::tt::tt_metal::ShardSpec shardSpec(coreRangeSet, shardShape);
 
+  std::array<uint32_t, 2> pageShape = {
+      static_cast<uint32_t>(tile_shape->y()),
+      shardShape[1],
+  };
+  std::array<uint32_t, 2> tensorScalarShape = {
+      static_cast<uint32_t>(grid_shape->Get(0) * shard_shape->Get(0) *
+                            tile_shape->y()),
+      static_cast<uint32_t>(grid_shape->Get(1) * shard_shape->Get(1) *
+                            tile_shape->x()),
+  };
+  assert(tensorScalarShape[0] % pageShape[0] == 0);
+  assert(tensorScalarShape[1] % pageShape[1] == 0);
+  std::array<uint32_t, 2> tensorShapeInPages = {
+      tensorScalarShape[0] / pageShape[0],
+      tensorScalarShape[1] / pageShape[1],
+  };
   ::tt::tt_metal::ShardSpecBuffer shardSpecBuffer(shardSpec, pageShape,
-                                                  tensorShape);
-  assert(memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM ||
-         memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceL1);
+                                                  tensorShapeInPages);
+
+  assert(bufferDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM ||
+         bufferDesc->memory_space() == ::tt::target::MemorySpace::DeviceL1);
   ::tt::tt_metal::BufferType bufferType =
-      memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM
+      bufferDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM
           ? ::tt::tt_metal::BufferType::DRAM
           : ::tt::tt_metal::BufferType::L1;
 
-  tt::target::DataType dataType = memoryDesc->data_type();
+  tt::target::DataType dataType = bufferDesc->data_type();
   uint64_t itemSize = ::tt::runtime::utils::dataTypeElementSize(dataType);
-  uint64_t pageSize = pageShape[0] * pageShape[1] * itemSize;
-  uint64_t size = tensorShape[0] * tensorShape[1] * pageSize;
+  assert(bufferDesc->page_size() == (pageShape[0] * pageShape[1] * itemSize));
   auto shardedBufferConfig = ::tt::tt_metal::ShardedBufferConfig{
       .device = device,
-      .size = size,
-      .page_size = pageSize,
+      .size = bufferDesc->size(),
+      .page_size = bufferDesc->page_size(),
       .buffer_type = bufferType,
       .buffer_layout = ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
       .shard_parameters = shardSpecBuffer};
 
-  assert(tensorRef->address());
+  assert(bufferRef->address());
   std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-      ::tt::tt_metal::CreateBuffer(shardedBufferConfig, tensorRef->address());
+      ::tt::tt_metal::CreateBuffer(shardedBufferConfig, bufferRef->address());
 
   return buffer;
 }

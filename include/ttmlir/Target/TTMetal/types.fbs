@@ -5,9 +5,9 @@ namespace tt.target.metal;
 table BufferDesc {
   grid_shape: [int];
   shard_shape: [int];
-  core_range_set: [Dim2dRange];
   tile_shape: Dim2d;
   data_type: DataType;
+  core_range_set: [Dim2dRange];
   memory_space: MemorySpace;
   size: uint64;
   num_buffers: uint64;

@@ -110,11 +110,18 @@ class Run:
             help="seed for random number generator",
         )
         Run.register_arg(
+            name="--dump-kernels-to-disk",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump the kernels to disk (/tmp) as they are being executed",
+        )
+        Run.register_arg(
             name="--load-kernels-from-disk",
             type=bool,
             default=False,
             choices=[True, False],
-            help="pickup the kernels from disk (/tmp) instead of the flatbuffer",
+            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels-to-disk",
         )
         Run.register_arg(
             name="--enable-async-ttnn",
@@ -422,7 +429,7 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            debug_env = ttrt.runtime.DebugEnv.get(self["--load-kernels-from-disk"])
+            debug_env = ttrt.runtime.DebugEnv.get(self["--dump-kernels-to-disk"], self["--load-kernels-from-disk"])
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],

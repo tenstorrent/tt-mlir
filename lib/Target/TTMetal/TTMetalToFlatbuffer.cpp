@@ -168,9 +168,8 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
           : ::tt::target::MemorySpace::System;
 
   return ::tt::target::metal::CreateBufferDescDirect(
-      *cache.fbb, &gridShape, &shardShape, &coreRangeSet, &tileShape,
-      toFlatbuffer(cache, dtype), memorySpace,
-      size);
+      *cache.fbb, &gridShape, &shardShape, &tileShape,
+      toFlatbuffer(cache, dtype), &coreRangeSet, memorySpace, size);
 }
 
 static ::flatbuffers::Offset<::tt::target::metal::BufferRef>
@@ -232,15 +231,15 @@ nocConfigToFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
 }
 
-static ::flatbuffers::Offset<::tt::target::metal::TensixConfig>
+static ::flatbuffers::Offset<::tt::target::metal::ComputeConfig>
 tensixConfigToFlatbuffer(FlatbufferObjectCache &cache,
-                         TensixConfigAttr tensixConfigAttr) {
+                         ComputeConfigAttr computeConfigAttr) {
   auto unpackToDestModeVec =
-        toFlatbuffer(tensixConfigAttr.getUnpackToDestMode());
-  return ::tt::target::metal::CreateTensixConfigDirect(
-      *cache.fbb, toFlatbuffer(tensixConfigAttr.getMathFidelity()),
-      tensixConfigAttr.getFp32DestAccEn(), tensixConfigAttr.getMathApproxMode(),
-      &unpackToDestModeVec);
+        toFlatbuffer(computeConfigAttr.getUnpackToDestMode());
+  return ::tt::target::metal::CreateComputeConfigDirect(
+      *cache.fbb, toFlatbuffer(computeConfigAttr.getMathFidelity()),
+      computeConfigAttr.getFp32DestAccEn(),
+      computeConfigAttr.getMathApproxMode(), &unpackToDestModeVec);
 }
 
 static ::flatbuffers::Offset<::tt::target::metal::EthernetConfig>
@@ -284,10 +283,10 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
                       .Union();
     break;
   }
-  case ttkernel::ThreadType::Tensix: {
-    configType = ::tt::target::metal::KernelConfigType::TensixConfig;
+  case ttkernel::ThreadType::Compute: {
+    configType = ::tt::target::metal::KernelConfigType::ComputeConfig;
     configUnion = cache
-                      .getOrCreate(mlir::cast<TensixConfigAttr>(kernelConfig),
+                      .getOrCreate(mlir::cast<ComputeConfigAttr>(kernelConfig),
                                    tensixConfigToFlatbuffer)
                       .Union();
     break;

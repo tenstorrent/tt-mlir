@@ -19,7 +19,7 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool loadKernelsFromDisk = false)
+  get(bool dumpKernelsToDisk = false, bool loadKernelsFromDisk = false)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
@@ -28,16 +28,21 @@ struct Env {
   }
 #endif
 
+  bool dumpKernelsToDisk;
   bool loadKernelsFromDisk;
 
 private:
-  constexpr Env(bool loadKernelsFromDisk)
-      : loadKernelsFromDisk(loadKernelsFromDisk) {}
+  constexpr Env(bool dumpKernelsToDisk, bool loadKernelsFromDisk)
+      : dumpKernelsToDisk(dumpKernelsToDisk),
+        loadKernelsFromDisk(loadKernelsFromDisk) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   os << "debug::Env{\n"
-     << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "\t"
+     << "dumpKernelsToDisk: " << env.dumpKernelsToDisk << "\n"
+     << "\t"
+     << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
      << "}";
   return os;
 }
