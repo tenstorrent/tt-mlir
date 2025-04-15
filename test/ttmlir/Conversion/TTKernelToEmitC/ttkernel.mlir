@@ -51,11 +51,11 @@ module {
     func.func @pack_tile(%out_cb: !cb0_tiles) -> () {
       // CHECK: %[[OUT_CB:.*]] = emitc.load{{.+}}<"::tt::CB">
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
-      %dst_index = arith.constant 3 : i32
+      %dst_index = arith.constant 3 : index
       // CHECK: %[[OUT_CB_INDEX:.*]] = "emitc.constant"
-      %out_cb_index = arith.constant 1 : i32
+      %out_cb_index = arith.constant 1 : index
       // CHECK: emitc.call_opaque "pack_tile"(%[[DST_INDEX]], %[[OUT_CB]], %[[OUT_CB_INDEX]])
-      "ttkernel.pack_tile"(%dst_index, %out_cb, %out_cb_index) : (i32, !cb0_tiles, i32) -> ()
+      "ttkernel.pack_tile"(%dst_index, %out_cb, %out_cb_index) : (index, !cb0_tiles, index) -> ()
       return
     }
 
@@ -71,11 +71,11 @@ module {
     func.func @copy_tile(%cb: !cb0_tiles) -> () {
       // CHECK: %[[CB:.*]] = emitc.load{{.+}}<"::tt::CB">
       // CHECK: %[[CB_INDEX:.*]] = "emitc.constant"
-      %cb_index = arith.constant 2 : i32
+      %cb_index = arith.constant 2 : index
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
-      %dst_index = arith.constant 1 : i32
+      %dst_index = arith.constant 1 : index
       // CHECK: emitc.call_opaque "copy_tile"(%[[CB]], %[[CB_INDEX]], %[[DST_INDEX]])
-      "ttkernel.copy_tile"(%cb, %cb_index, %dst_index) : (!cb0_tiles, i32, i32) -> ()
+      "ttkernel.copy_tile"(%cb, %cb_index, %dst_index) : (!cb0_tiles, index, index) -> ()
       return
     }
 
@@ -112,13 +112,13 @@ module {
       // CHECK: %[[CB0:.*]] = emitc.load{{.+}}<"::tt::CB">
       // CHECK: %[[CB1:.*]] = emitc.load{{.+}}<"::tt::CB">
       // CHECK: %[[CB0_INDEX:.*]] = "emitc.constant"
-      %cb0_index = arith.constant 1 : i32
+      %cb0_index = arith.constant 1 : index
       // CHECK: %[[CB1_INDEX:.*]] = "emitc.constant"
-      %cb1_index = arith.constant 2 : i32
+      %cb1_index = arith.constant 2 : index
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
-      %dst_index = arith.constant 3 : i32
+      %dst_index = arith.constant 3 : index
       // CHECK: emitc.call_opaque "add_tiles"(%[[CB0]], %[[CB1]], %[[CB0_INDEX]], %[[CB1_INDEX]], %[[DST_INDEX]])
-      "ttkernel.add_tiles"(%cb0, %cb1, %cb0_index, %cb1_index, %dst_index) : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
+      "ttkernel.add_tiles"(%cb0, %cb1, %cb0_index, %cb1_index, %dst_index) : (!cb0_tiles, !cb1_tiles, index, index, index) -> ()
       return
     }
 
@@ -360,14 +360,14 @@ module {
     // CHECK-LABEL: func @get_noc_addr_xy
     func.func @get_noc_addr_xy() -> () {
       // CHECK: %[[X:.*]] = "emitc.constant"
-      %x = arith.constant 1 : i32
+      %x = arith.constant 1 : index
       // CHECK: %[[Y:.*]] = "emitc.constant"
-      %y = arith.constant 2 : i32
+      %y = arith.constant 2 : index
       // CHECK: %[[ADDR:.*]] = "emitc.constant"
       %addr = arith.constant 262400 : i32
       // note: ttkernel.get_noc_addr_xy() converts to one of metallium get_noc_addr() overloads
       // CHECK: emitc.call_opaque "get_noc_addr"(%[[X]], %[[Y]], %[[ADDR]])
-      "ttkernel.get_noc_addr_xy"(%x, %y, %addr) : (i32, i32, i32) -> (!ttkernel.noc_addr)
+      "ttkernel.get_noc_addr_xy"(%x, %y, %addr) : (index, index, i32) -> (!ttkernel.noc_addr)
       return
     }
 
