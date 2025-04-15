@@ -588,6 +588,7 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     }];
 
     let hasFolder = 1;
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {

@@ -6,9 +6,11 @@
 #include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -20,8 +22,11 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttnn {
 
@@ -206,12 +211,12 @@ public:
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
-    std::unordered_set<Edge> memReconfigEdges;
+    llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
     std::vector<Operation *> spillToDramOps;
     if (memoryLayoutAnalysisEnabled) {
       // Extract override resharding edges
       //
-      std::unordered_set<Edge> overrideReshardEdges;
+      llvm::DenseSet<Edge> overrideReshardEdges;
       extractReshardEdges(moduleOp, overrideReshardEdges);
 
       // Perform memory layout analysis.
@@ -223,8 +228,19 @@ public:
           memoryLayoutAnalysisPolicy));
       legalConfigs = memoryLayoutAnalysis.getResult().legalConfigs;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
-      memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;
+      memReconfigEntryMap =
+          memoryLayoutAnalysis.getResult().memReconfigEntryMap;
       spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
+
+      // Manually overriden resharding edges should be added to the
+      // memReconfigEntryMap.
+      for (const auto &edge : overrideReshardEdges) {
+        if (memReconfigEntryMap.count(edge) == 0) {
+          auto newEntry = MemReconfigEntry();
+          newEntry.setOverridenReconfig(true);
+          memReconfigEntryMap[edge] = newEntry;
+        }
+      }
     }
 
     // Pick optimal op configuration.
@@ -355,7 +371,7 @@ public:
       });
 
       if (memReconfigEnabled) {
-        processMemReconfigEdges(memReconfigEdges);
+        processMemReconfigEdges(memReconfigEntryMap);
       }
 
       processSpillOps(spillToDramOps);
@@ -415,7 +431,7 @@ private:
   }
 
   void extractReshardEdges(ModuleOp &moduleOp,
-                           std::unordered_set<Edge> &overrideReshardEdges) {
+                           llvm::DenseSet<Edge> &overrideReshardEdges) {
     moduleOp->walk([&](Operation *op) {
       if (isa<ToLayoutOp>(op)) {
         return;
@@ -465,33 +481,58 @@ private:
     if (meshShape.empty()) {
       meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
     }
+    // TODO (jnie): Currently hardcoding the mesh offset to 0x0
+    // Need a proper plan to dynamically determine this.
+    llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
+
     auto deviceOp = builder.create<ttnn::GetDeviceOp>(
         contextOp->getLoc(), builder.getType<DeviceType>(),
         ttnn::MeshShapeAttr::get(contextOp->getContext(), meshShape[0],
-                                 meshShape[1]));
+                                 meshShape[1]),
+        ttnn::MeshOffsetAttr::get(contextOp->getContext(), meshOffset[0],
+                                  meshOffset[1]));
     builder.restoreInsertionPoint(currentInsertionPoint);
     return deviceOp;
   }
 
-  void
-  processMemReconfigEdges(const std::unordered_set<Edge> &memReconfigEdges) {
+  void processMemReconfigEdges(
+      const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap) {
+
     // Insert memory reconfig ops here based on results of memory layout
     // analysis.
     //
-    for (const Edge &edge : memReconfigEdges) {
+    for (const auto &[edge, memReconfigEntry] : memReconfigEntryMap) {
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
-      TTNNLayoutAttr consumerOpOutputLayout = mlir::cast<TTNNLayoutAttr>(
-          mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
-              .getEncoding());
+      const bool overridenReconfig = memReconfigEntry.hasOverridenReconfig();
+      assert(overridenReconfig ||
+             memReconfigEntry.hasSelectedReshardOutputConfigBitIndex());
 
+      // If there's no producer, tensor is defined by the consumer op input
+      // operand.
       RankedTensorType producerOpTensorType =
-          mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+          producerOp
+              ? mlir::cast<RankedTensorType>(producerOp->getResult(0).getType())
+              : mlir::cast<RankedTensorType>(
+                    consumerOp->getOperand(edge.operandIndex).getType());
+
       llvm::ArrayRef<int64_t> producerOpTensorShape =
           producerOpTensorType.getShape();
+
+      // Pick first layout from the list of layouts or consumer output layout if
+      // this is the case of an override.
       TTNNLayoutAttr producerOpLayout =
-          mlir::cast<TTNNLayoutAttr>(producerOpTensorType.getEncoding());
+          overridenReconfig
+              ? mlir::cast<TTNNLayoutAttr>(
+                    mlir::cast<RankedTensorType>(
+                        consumerOp->getResult(0).getType())
+                        .getEncoding())
+              : memReconfigEntry.reshardOutputConfigMap
+                    .at(memReconfigEntry
+                            .getSelectedReshardOutputConfigBitIndex())
+                    .front()
+                    .outputLayout;
 
       // TODO(nobradovic): Match memory space and layout of consumer op.
       // This actually needs to be properly resolved based on op type, output
@@ -499,30 +540,16 @@ private:
       //
       RankedTensorType newTensorType = RankedTensorType::get(
           producerOpTensorShape, producerOpTensorType.getElementType(),
-          producerOpLayout
-              .withElementType(consumerOp->getContext(),
-                               consumerOpOutputLayout.getElementType(),
-                               producerOpTensorShape)
-              .withBufferType(consumerOp->getContext(),
-                              consumerOpOutputLayout.getBufferType())
-              .withMemoryLayout(consumerOp->getContext(),
-                                consumerOpOutputLayout.getMemLayout())
-              .withGrid(consumerOp->getContext(), producerOpTensorType,
-                        consumerOpOutputLayout.getGrid()));
+          producerOpLayout);
 
-      BufferType outputBufferType = consumerOpOutputLayout.getBufferType();
-      TensorMemoryLayoutAttr outputTensorMemoryLayoutAttr =
-          consumerOpOutputLayout.getMemLayout();
-
-      llvm::SmallVector<int64_t> shardShape =
-          consumerOpOutputLayout.getShardShape();
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
           consumerOp->getContext(),
-          BufferTypeAttr::get(consumerOp->getContext(), outputBufferType),
-          ShardSpecAttr::get(
-              consumerOp->getContext(),
-              ShapeAttr::get(consumerOp->getContext(), shardShape)),
-          outputTensorMemoryLayoutAttr);
+          BufferTypeAttr::get(consumerOp->getContext(),
+                              producerOpLayout.getBufferType()),
+          ShardSpecAttr::get(consumerOp->getContext(),
+                             ShapeAttr::get(consumerOp->getContext(),
+                                            producerOpLayout.getShardShape())),
+          producerOpLayout.getMemLayout());
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -536,17 +563,17 @@ private:
       } else {
         OpBuilder builder(consumerOp);
 
-        DataTypeAttr outputDataType = DataTypeAttr::get(
-            consumerOp->getContext(), consumerOpOutputLayout.getDataType());
-        Layout outputLayoutEnum = consumerOpOutputLayout.getLayout();
-        LayoutAttr outputLayout =
-            LayoutAttr::get(consumerOp->getContext(), outputLayoutEnum);
         Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                            "_mem_reconfig");
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
-            loc, newTensorType, producerOp->getResult(0), outputLayout,
-            outputDataType, outputMemConfigAttr,
-            getOrCreateDeviceOpValue(consumerOp, builder));
+            loc,
+            newTensorType,                             // output type
+            consumerOp->getOperand(edge.operandIndex), // input value
+            LayoutAttr::get(consumerOp->getContext(),
+                            producerOpLayout.getLayout()),
+            DataTypeAttr::get(consumerOp->getContext(),
+                              producerOpLayout.getDataType()),
+            outputMemConfigAttr, getOrCreateDeviceOpValue(consumerOp, builder));
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));

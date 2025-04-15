@@ -428,7 +428,6 @@ class Run:
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-to-layout-api-assume-single-chip"],
-                not self["--disable-manual-device-storage-from-borrowed-storage"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
@@ -443,7 +442,6 @@ class Run:
 
             mesh_shape = [1, len(self.query.device_ids)]
             mesh_options = ttrt.runtime.MeshDeviceOptions()
-            mesh_options.device_ids = self.query.device_ids
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)

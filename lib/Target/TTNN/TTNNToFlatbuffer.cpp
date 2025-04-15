@@ -336,9 +336,15 @@ createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
     mesh = ::tt::target::Dim2d(1, 1);
   }
 
+  ::tt::target::Dim2d offset(0, 0);
+  if (auto offsetAttr = op.getMeshOffset()) {
+    offset = ::tt::target::Dim2d(offsetAttr->getY(), offsetAttr->getX());
+  }
+
   auto chipIds = toFlatbuffer(cache, desc.getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
-  return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, chipIds, out);
+  return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, &offset,
+                                               chipIds, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToMemoryConfigOp>

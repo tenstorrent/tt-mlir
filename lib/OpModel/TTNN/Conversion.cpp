@@ -10,7 +10,7 @@
 
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
 #include "llvm/ADT/ArrayRef.h"
 
@@ -322,8 +322,9 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   GridAttr grid = mlir::tt::GridAttr::get(
       context, getLogicalGridShape(tensorSpec.memory_config(), deviceMaxGrid),
-      ::mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
-          context, memoryLayoutAttr.getValue(), deviceMaxGrid));
+      ::mlir::tt::ttnn::optimizer_utils::
+          createSingleDeviceVirtualToPhysicalAffineMap(
+              context, memoryLayoutAttr.getValue(), deviceMaxGrid));
 
   return mlir::tt::ttnn::TTNNLayoutAttr::get(
       context, shape, elementType, bufferType, grid, memoryLayoutAttr);

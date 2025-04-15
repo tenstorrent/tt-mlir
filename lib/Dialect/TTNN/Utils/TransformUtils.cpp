@@ -28,9 +28,14 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Operation *op) {
   if (meshShape.empty()) {
     meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
   }
+  // TODO (jnie): Currently hardcoding the mesh offset to 0x0
+  // Need a proper plan to dynamically determine this.
+  llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
   auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
       op->getLoc(), rewriter.getType<DeviceType>(),
-      ttnn::MeshShapeAttr::get(op->getContext(), meshShape[0], meshShape[1]));
+      ttnn::MeshShapeAttr::get(op->getContext(), meshShape[0], meshShape[1]),
+      ttnn::MeshOffsetAttr::get(op->getContext(), meshOffset[0],
+                                meshOffset[1]));
   rewriter.restoreInsertionPoint(currentInsertionPoint);
   return deviceOp;
 }
