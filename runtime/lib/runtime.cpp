@@ -711,19 +711,16 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
-getOutputTensors(CallbackContext programContextHandle, Binary executableHandle,
-                 std::uint32_t programIndex) {
+getOutputTensors(CallbackContext programContextHandle) {
 #ifdef TT_RUNTIME_ENABLE_TTNN
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getOutputTensors(
-        programContextHandle, executableHandle, programIndex);
+    return ::tt::runtime::ttnn::getOutputTensors(programContextHandle);
   }
 #endif
 
 #ifdef TT_RUNTIME_ENABLE_TTMETAL
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getOutputTensors(
-        programContextHandle, executableHandle, programIndex);
+    return ::tt::runtime::ttmetal::getOutputTensors(programContextHandle);
   }
 #endif
   throw std::runtime_error("runtime is not enabled");

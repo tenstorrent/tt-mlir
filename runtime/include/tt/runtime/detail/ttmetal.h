@@ -79,8 +79,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
-getOutputTensors(CallbackContext programContextHandle, Binary executableHandle,
-                 std::uint32_t programIndex);
+getOutputTensors(CallbackContext programContextHandle);
 
 using InputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,
