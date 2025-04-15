@@ -2223,13 +2223,41 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   size_t programIdx = 0;
   llvm::StringMap<uint32_t> programIdxMap;
+  // Preserve original ordering by skipping const-eval in the first pass.
   module->walk([&](func::FuncOp func) {
-    // llvm::outs() << func.getSymName().str() << " : " << programIdx << "\n";
+    if (func->hasAttr("const_eval")) {
+      return;
+    }
+    programIdxMap[func.getSymName().str()] = programIdx++;
+  });
+
+  // Add const-eval funcs after normal funcs.
+  module->walk([&](func::FuncOp func) {
+    if (!func->hasAttr("const_eval")) {
+      return;
+    }
     programIdxMap[func.getSymName().str()] = programIdx++;
   });
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
+  // Again, process original funcs in order first to perserve input order.
   module->walk([&](func::FuncOp func) {
+    if (func->hasAttr("const_eval")) {
+      return;
+    }
+    Program<::tt::target::ttnn::Operation> program =
+        funcOpToProgram<::tt::target::ttnn::Operation>(
+            cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
+            programIdxMap);
+    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+        &dylibs, debugInfo));
+  });
+  // Then process const-eval funcs in 2nd pass.
+  module->walk([&](func::FuncOp func) {
+    if (!func->hasAttr("const_eval")) {
+      return;
+    }
     Program<::tt::target::ttnn::Operation> program =
         funcOpToProgram<::tt::target::ttnn::Operation>(
             cache, func, emitTTNNOperation, tensorValueToFlatbuffer,

@@ -58,6 +58,8 @@ PYBIND11_MODULE(_C, m) {
                      &tt::runtime::MeshDeviceOptions::enableAsyncTTNN)
       .def_readwrite("enable_program_cache",
                      &tt::runtime::MeshDeviceOptions::enableProgramCache)
+      .def_readwrite("enable_tensor_cache",
+                     &tt::runtime::MeshDeviceOptions::enableTensorCache)
       .def_property(
           "l1_small_size",
           [](const tt::runtime::MeshDeviceOptions &o) {

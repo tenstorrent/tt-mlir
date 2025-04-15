@@ -120,6 +120,7 @@ struct MeshDeviceOptions {
   size_t numHWCQs = 1;
   bool enableAsyncTTNN = false;
   bool enableProgramCache = false;
+  bool enableTensorCache = false;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
@@ -161,6 +162,9 @@ struct Binary : public Flatbuffer {
 
 class TensorCache;
 struct Device : public detail::RuntimeCheckedObjectImpl {
+  Device(std::shared_ptr<void> handle, DeviceRuntime runtime,
+         std::shared_ptr<TensorCache> tensorCache)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), cache(tensorCache) {}
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
   std::shared_ptr<TensorCache> cache;
 };
