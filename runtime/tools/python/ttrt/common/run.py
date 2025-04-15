@@ -433,11 +433,16 @@ class Run:
                     input_layout = ttrt.runtime.get_layout(
                         fbb, program_index, input_index
                     )
-                    inputs_converted.append(
-                        ttrt.runtime.to_layout(
-                            inputs[input_index], device, input_layout, True
-                        )
+                    self.logging.info(
+                        f"original input was allocated? {inputs[input_index].is_allocated()}"
                     )
+                    new_input = ttrt.runtime.to_layout(
+                        inputs[input_index], device, input_layout, True
+                    )
+                    self.logging.info(
+                        f"original input was allocated? {new_input.is_allocated()}"
+                    )
+                    inputs_converted.append(new_input)
                 return inputs_converted
 
             if len(binaries) == 0:
@@ -468,6 +473,7 @@ class Run:
             mesh_options.device_ids = self.query.device_ids
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
+            mesh_options.enable_tensor_cache = self["--enable-tensor-cache"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             pre_op_callback_runtime_config = CallbackRuntimeConfig(
@@ -499,10 +505,6 @@ class Run:
                 pre_op_get_callback_fn(pre_op_callback_runtime_config),
                 post_op_get_callback_fn(post_op_callback_runtime_config),
             )
-
-            # Create a tensor cache if enabled
-            if self["--enable-tensor-cache"]:
-                ttrt.runtime.init_cache(device)
 
             try:
                 for bin in binaries:
@@ -749,6 +751,12 @@ class Run:
                                 fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EE"
 
                                 for loop in range(self["--loops"]):
+                                    # inputs_converted = convert_input_layouts(
+                                    #     device,
+                                    #     inputs,
+                                    #     bin.fbb,
+                                    #     program_index,
+                                    # )
                                     emitc_outs = ttrt.runtime.testing.run_so_program(
                                         emitc_dylib_handle,
                                         fwd_func_sym,
