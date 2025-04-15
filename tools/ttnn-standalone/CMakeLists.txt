@@ -156,3 +156,9 @@ set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
 target_compile_options(ttnn-dylib PRIVATE -mavx -mavx2)
 
 target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)
+
+# Test compile_so
+add_executable(test_compile_so
+    test_compile_so.cpp
+    compile_so.cpp
+)
