@@ -235,10 +235,6 @@ Tensor createTensor(std::shared_ptr<void> data,
   LOG_FATAL("runtime is not enabled");
 }
 
-void initCache(Device &device) {
-  device.cache = std::make_shared<TensorCache>();
-}
-
 Tensor createOwnedMultiDeviceHostTensor(
     std::vector<void const *> const &data,
     std::vector<std::uint32_t> const &shape,
