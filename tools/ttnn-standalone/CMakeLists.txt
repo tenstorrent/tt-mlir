@@ -14,23 +14,6 @@ elseif(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Release build is the default" FORCE)
 endif()
 
-# Handle env:ARCH_NAME
-#
-# Due to ttmetal's folder structure, we need to do some overriding for ARCH_NAME (e.g. wormhole_b0 -> wormhole)
-#
-if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
-  set(ARCH_NAME "grayskull")
-  set(ARCH_EXTRA_DIR "grayskull")
-elseif ("$ENV{ARCH_NAME}" STREQUAL "wormhole_b0")
-  set(ARCH_NAME "wormhole")
-  set(ARCH_EXTRA_DIR "wormhole/wormhole_b0_defines")
-elseif ("$ENV{ARCH_NAME}" STREQUAL "blackhole")
-  set(ARCH_NAME "blackhole")
-  set(ARCH_EXTRA_DIR "blackhole")
-else()
-  message(FATAL_ERROR "Unsupported ARCH_NAME: $ENV{ARCH_NAME}")
-endif()
-
 # Find clang 17
 #
 find_program(CLANG_17 clang++-17)
@@ -47,11 +30,6 @@ endif()
 if("$ENV{TT_METAL_BUILD_HOME}" STREQUAL "")
     message(FATAL_ERROR "TT_METAL_BUILD_HOME is not set")
 endif()
-if("$ENV{ARCH_NAME}" STREQUAL "")
-    message(FATAL_ERROR "ARCH_NAME is not set")
-endif()
-
-message($ENV{TT_METAL_HOME}/tt_metal/third_party/src/firmware/riscv/$ENV{ARCH_NAME})
 
 # Directories to search for headers
 #
@@ -69,8 +47,10 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/tt_metal/api
     $ENV{TT_METAL_HOME}/tt_metal/hostdevcommon/api
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/grayskull
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/wormhole
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/blackhole
     $ENV{TT_METAL_HOME}/tt_metal/include
     $ENV{TT_METAL_HOME}/tt_stl
     $ENV{TT_METAL_HOME}/tt_stl/tt_stl
@@ -80,7 +60,9 @@ set(INCLUDE_DIRS
     $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
 
     # TTNN
     $ENV{TT_METAL_HOME}/ttnn
