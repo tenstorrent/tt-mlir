@@ -182,6 +182,12 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       [{
         build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr,
               /*use_legacy=*/nullptr);
+      }]>,
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs,
+                 "BoolAttr": $use_legacy),
+      [{
+        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr,
+              use_legacy);
       }]>
     ];
 }
