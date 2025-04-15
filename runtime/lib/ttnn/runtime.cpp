@@ -443,15 +443,14 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
   if (options.enableProgramCache) {
     meshDevice->enable_program_cache();
   }
-  std::shared_ptr<TensorCache> tensorCache =
-      options.enableTensorCache ? std::make_shared<TensorCache>() : nullptr;
 
   LOG_DEBUG("Device grid size = { ",
             meshDevice->compute_with_storage_grid_size().x, ", ",
             meshDevice->compute_with_storage_grid_size().y, " }");
 
   return Device(std::static_pointer_cast<void>(meshDevice), DeviceRuntime::TTNN,
-                tensorCache);
+                options.enableTensorCache ? std::make_shared<TensorCache>()
+                                          : nullptr);
 }
 
 void closeMeshDevice(Device parentMesh) {
