@@ -19,15 +19,15 @@ module {
     return %view : memref<1x1x8x32x!tt.tile<32x32, f32>, #tt.shard<131072x4096>, #l1_>
   }
 
-  func.func private @datamovement_kernel0(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore, %arg5: !ttir.semaphore, %arg6: !ttir.semaphore) attributes {ttir.thread_type = 1 : i32} {
+  func.func private @datamovement_kernel0(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore, %arg5: !ttir.semaphore, %arg6: !ttir.semaphore) attributes {ttir.thread = #ttir.thread<datamovement>} {
     return
   }
 
-  func.func private @datamovement_kernel1(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore, %arg5: !ttir.semaphore, %arg6: !ttir.semaphore) attributes {ttir.thread_type = 1 : i32} {
+  func.func private @datamovement_kernel1(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore, %arg5: !ttir.semaphore, %arg6: !ttir.semaphore) attributes {ttir.thread = #ttir.thread<datamovement>} {
     return
   }
 
-  func.func private @compute_kernel2(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore, %arg5: !ttir.semaphore, %arg6: !ttir.semaphore) attributes {ttir.thread_type = 1 : i32} {
+  func.func private @compute_kernel2(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore, %arg5: !ttir.semaphore, %arg6: !ttir.semaphore) attributes {ttir.thread = #ttir.thread<compute>} {
     return
   }
 }

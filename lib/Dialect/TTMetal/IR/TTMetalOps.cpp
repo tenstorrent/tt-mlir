@@ -65,11 +65,12 @@ namespace mlir::tt::ttmetal {
   // Assert inputs/outputs device memspace
 
   for (auto operand : getOperands()) {
-    ::mlir::MemRefType outputTy = mlir::cast<MemRefType>(operand.getType());
+    ::mlir::MemRefType operandType = mlir::cast<MemRefType>(operand.getType());
     MemorySpaceAttr memSpaceAttr =
-        mlir::cast<MemorySpaceAttr>(outputTy.getMemorySpace());
+        mlir::cast<MemorySpaceAttr>(operandType.getMemorySpace());
     if (not isDeviceMemorySpace(memSpaceAttr.getValue())) {
-      return emitOpError("Input tensor must be in device memory space");
+      return emitOpError(
+          "Operand tensor to EnqueueProgramOp must be in device memory space");
     }
   }
   return success();

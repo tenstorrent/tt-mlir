@@ -342,6 +342,13 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
             emitEnqueueProgramOpRegionsAsCpp(enqueueProgramOp, cppKernels);
         assert(success.succeeded() &&
                "failed to emit enqueue program op regions as cpp");
+
+        // TODO(jdesousa #2960): This code is commented to allow for compilation
+        // after the new TTMetal lowering flow was implemented. This needs to be
+        // replaced with lowering for new enqueue program semantics.
+        llvm_unreachable(
+            "EnqueueProgramOp to Flatbuffer is not yet implemented for "
+            "new D2M lowering flow.");
         // for (auto &region : enqueueProgramOp.getRegions()) {
         //   std::vector<::tt::target::Dim2dRange> coreRangeSet = {
         //       toFlatbuffer(mlir::cast<CoreRangeAttr>(

@@ -19,12 +19,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::GenericOp op, ttir::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    llvm::SmallVector<Attribute> coreRanges;
-    coreRanges.reserve(op.getThreads().size());
-    for (size_t i = 0; i < op.getThreads().size(); i++) {
-      coreRanges.emplace_back(
-          rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
-    }
+    llvm::SmallVector<Attribute> coreRanges(
+        op.getThreads().size(),
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, op.getInputs(), op.getOutputs(), op.getThreads(),
         rewriter.getArrayAttr(coreRanges), rewriter.getArrayAttr({}));
@@ -48,7 +45,7 @@ public:
                              1000); // TODO(#1909): arbitrary default for now,
                                     // remove when allocate pass is implemented
     assert(op.getMemref().getType().getMemorySpace() &&
-           "No memref memroy space found, failing.");
+           "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
     auto size = device.getMemrefSizeBytes(memrefType, 0);
     auto memorySpace =
