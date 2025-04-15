@@ -31,6 +31,12 @@ namespace {
 struct TTIRToTTIRGenericPass final
     : ttir::impl::TTIRToTTIRGenericBase<TTIRToTTIRGenericPass> {
 
+  TTIRToTTIRGenericPass(const TTIRToTTIRGenericPass &other)
+      : TTIRToTTIRGenericBase<TTIRToTTIRGenericPass>(other) {
+    useTileMatmul = other.useTileMatmul;
+  }
+  TTIRToTTIRGenericPass() : TTIRToTTIRGenericBase<TTIRToTTIRGenericPass>() {}
+
   void runOnOperation() final {
 
     auto &ctx = getContext();
@@ -76,12 +82,18 @@ struct TTIRToTTIRGenericPass final
 
     mlir::RewritePatternSet patterns{&ctx};
     populateTTIRToTTIRGenericPatterns(&ctx, patterns, typeConverter,
-                                      deviceAttr.getWorkerGrid().getRank());
+                                      deviceAttr.getWorkerGrid().getRank(),
+                                      useTileMatmul);
 
     if (failed(mlir::applyFullConversion(op, target, std::move(patterns)))) {
       signalPassFailure();
     }
   }
+
+protected:
+  Option<bool> useTileMatmul{*this, "use-tile-matmul",
+                             llvm::cl::desc("Use tile_matmul"),
+                             llvm::cl::init(false)};
 
 }; // end of class
 } // namespace
