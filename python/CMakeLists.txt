@@ -114,6 +114,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRArmNeonToLLVMIRTranslation
     MLIRArmSMEToLLVMIRTranslation
     MLIRArmSVEToLLVMIRTranslation
+    MLIRBuiltinToLLVMIRTranslation
     MLIRGPUToLLVMIRTranslation
     MLIRLLVMToLLVMIRTranslation
     MLIRNVVMToLLVMIRTranslation
