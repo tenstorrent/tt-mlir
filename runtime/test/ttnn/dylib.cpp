@@ -81,6 +81,7 @@ runSoProgram(void *so, std::string func_name,
     dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsym_error);
   }
+
   // Call program/function
   //
   std::vector<::ttnn::Tensor> ttnnOutputs;
@@ -91,6 +92,10 @@ runSoProgram(void *so, std::string func_name,
     auto forwardFunc = reinterpret_cast<ForwardFunctionNoDevice>(symbol);
     ttnnOutputs = forwardFunc(ttnnInputs);
   }
+
+  // Make sure to close the dylib after use
+  //
+  dlclose(so);
 
   // Convert TTNN Tensors to Runtime Tensors
   //
