@@ -88,13 +88,19 @@ def gelu(in0: Operand, builder: TTIRBuilder):
     return builder.gelu(in0)
 
 
-@pytest.mark.parametrize("shape", [[(64, 128)]])
-@pytest.mark.parametrize("max_arg,min_arg", [[3.0, 2.0]])
+@pytest.mark.parametrize("shape", [(64, 128)])
+@pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
 def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
     def clamp_scalar(in0: Operand, builder: TTIRBuilder):
         return builder.clamp_scalar(in0, max_arg=max_arg, min_arg=min_arg)
 
-    compile_to_flatbuffer(clamp_scalar, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        clamp_scalar,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
 
 
 @pytest.mark.parametrize("shapes", [[(32, 64), (32, 64), (32, 64), (32, 64)]])
@@ -104,7 +110,13 @@ def test_clamp_tensor(shapes: List[Shape], request):
     ):
         return builder.clamp_tensor(in0, in1, in2, in3)
 
-    compile_to_flatbuffer(clamp_tensor, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        clamp_tensor,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
 
 
 def leaky_relu(in0: Operand, builder: TTIRBuilder):
@@ -251,7 +263,13 @@ def test_linear(shapes: List[Shape], request):
     def linear(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         return builder.linear(in0, in1, in2)
 
-    compile_to_flatbuffer(linear, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        linear,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
 
 
 def pow(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -300,22 +318,6 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-
-def embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    return builder.embedding(in0, in1)
-
-
-def hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    # Use op_proxy directly since it accepts ttir_kwargs
-    return builder.op_proxy(
-        torch.add,
-        ttir.AddOp,
-        [in0, in1],
-        unit_attrs={"should_hoist": UnitAttr.get(builder._ctx)},
-        use_zeros=True,
     )
 
 
@@ -633,7 +635,7 @@ def test_pad(shapes: List[Shape], padding: List[int], value: int, request):
 
     compile_to_flatbuffer(
         pad,
-        inputs_shapes=[shape],
+        inputs_shapes=shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -673,10 +675,10 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, request):
 
 
 # TODO: these three nullary tensor creation ops can probably be combined in some way
-@pytest.mark.parametrize("shapes", [[(128, 128)]], ids=["128x128"])
-def test_zeros(shapes: List[Shape], request):
+@pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
+def test_zeros(shape: Shape, request):
     def zeros(builder: TTIRBuilder):
-        return builder.zeros(shapes)
+        return builder.zeros(shape)
 
     compile_to_flatbuffer(
         zeros,
@@ -872,7 +874,13 @@ def test_fill_cache(shapes: List[Shape], request):
     def fill_cache(in0: Operand, in1: Operand, builder: TTIRBuilder):
         return builder.fill_cache(in0, in1)
 
-    compile_to_flatbuffer(fill_cache, shapes, test_base=request.node.name)
+    compile_to_flatbuffer(
+        fill_cache,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
 
 
 @pytest.mark.parametrize("shapes", [[512, 1024]])
@@ -889,12 +897,17 @@ def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
         return builder.update_cache(in0, in1, in2)
 
     compile_to_flatbuffer(
-        update_cache, shapes, inputs_types=dtypes, test_base=request.node.name
+        update_cache,
+        shapes,
+        inputs_types=dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-def embedding(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-    return builder.embedding(in0, in1, in2)
+def embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.embedding(in0, in1)
 
 
 def hoisted_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -918,7 +931,13 @@ def test_quantize(
     def quantize(in0: Operand, builder: TTIRBuilder):
         return builder.quantize(in0, scale, zero_point, dtype)
 
-    compile_to_flatbuffer(quantize, [shape], test_base=request.node.name)
+    compile_to_flatbuffer(
+        quantize,
+        [shape],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
@@ -938,7 +957,12 @@ def test_dequantize(
         return builder.dequantize(in0, scale, zero_point, dtype)
 
     compile_to_flatbuffer(
-        dequantize, [shape], inputs_types=[input_dtype], test_base=request.node.name
+        dequantize,
+        [shape],
+        inputs_types=[input_dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -946,7 +970,7 @@ def test_dequantize(
 @pytest.mark.parametrize("input_dtype", [TypeInfo(torch.qint32, 0.1, 0)])
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
-@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize("dtype", [torch.qint32])
 def test_requantize(
     shape: Shape,
     input_dtype: TypeInfo,
@@ -959,7 +983,12 @@ def test_requantize(
         return builder.requantize(in0, scale, zero_point, dtype)
 
     compile_to_flatbuffer(
-        requantize, [shape], inputs_types=[input_dtype], test_base=request.node.name
+        requantize,
+        [shape],
+        inputs_types=[input_dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 

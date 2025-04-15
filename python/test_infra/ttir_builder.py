@@ -1158,12 +1158,8 @@ class TTIRBuilder:
     ) -> Operand:
         # Reorganize ttir_kwargs into golden_kwargs
         stride = list(stride) if not isinstance(stride, int) else int(stride)
-        padding = (
-            list(padding) if not isinstance(padding, int) else int(padding)
-        )
-        dilation = (
-            list(dilation) if not isinstance(dilation, int) else int(dilation)
-        )
+        padding = list(padding) if not isinstance(padding, int) else int(padding)
+        dilation = list(dilation) if not isinstance(dilation, int) else int(dilation)
 
         # ttir can handle a broadcastable bias in the shape [1, 1, 1, C_out], but PyTorch requires the bias is rank 1: [C_out]
         bias = bias.squeeze()  # Removes all dims of size 1
@@ -1454,15 +1450,15 @@ class TTIRBuilder:
             organize_golden_args=lambda i: 0,
         )
 
-    def zeros(self, shapes: List[Shape], data_type: Optional[Type] = None) -> OpView:
-        output = self.ranked_tensor_type(shapes)
+    def zeros(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
+        output = self.ranked_tensor_type(shape)
         dtype = data_type if data_type is not None else self._default_dtype
         return self.op_proxy(
             torch.zeros,
             ttir.ZerosOp,
             [],
-            golden_kwargs={"size": shapes},
-            ttir_kwargs={"result": output, "shape": shapes},
+            golden_kwargs={"size": shape},
+            ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
         )
