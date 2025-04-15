@@ -140,6 +140,7 @@ jobs:
           # {runs-on: tg,     name: "run",  suite: "run",             image: "speedy", type: "ttrt",    path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           # {runs-on: tg,     name: "perf", suite: "perf",            image: "tracy",  type: "ttrt",    path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
           {runs-on: n150,   name: "perf", suite: "perf",              image: "tracy",  type: "pytest",  path: "runtime/tools/python/test", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150,   name: "run",  suite: "run",               image: "tracy",  type: "pytest",  path: "test/python/golden/test_ttir_ops.py", container-options: "--device /dev/tenstorrent/0"},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
           {runs-on: n150,   name: "run",  suite: "ttnn_runtime",      image: "speedy", type: "pytest",  path: "runtime/test/python/ttnn/device_agnostic", container-options: "--device /dev/tenstorrent/0"},
@@ -289,28 +290,6 @@ jobs:
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
-
-    - name: Run Builder Op & Model Tests
-      if: matrix.build.type == 'ttrt' && matrix.build.runs-on == 'n150' && matrix.build.image == 'tracy'
-      shell: bash
-      run: |
-        source env/activate
-        ttrt query --save-artifacts
-        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        export LD_LIBRARY_PATH=$(pwd)/build/lib
-        pytest test/python/golden/test_ttir_ops.py --junit-xml="device-ops-tests.xml" --path="device-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "not fails_golden and not run_error" -v
-        cp device-ops-tests.xml ${{ steps.strings.outputs.device_ops_test_report_path }}
-        ttrt ${{ matrix.build.name }} ./device-ops/ttnn/
-
-        pytest test/python/golden/test_ttir_ops.py --junit-xml="compile-ops-tests.xml" --path="compile-ops" --sys-desc="${SYSTEM_DESC_PATH}" -m "fails_golden or run_error" -v
-        cp compile-ops-tests.xml ${{ steps.strings.outputs.compile_ops_test_report_path }}
-
-        pytest test/python/golden/test_ttir_models.py --junit-xml="device-models-tests.xml" --path="device-models" --sys-desc="${SYSTEM_DESC_PATH}" -m "not fails_golden and not run_error" -v
-        cp device-models-tests.xml ${{ steps.strings.outputs.device_models_test_report_path }}
-        ttrt ${{ matrix.build.name }} ./device-models/ttnn/
-
-        pytest test/python/golden/test_ttir_models.py --junit-xml="compile-models-tests.xml" --path="compile-models" --sys-desc="${SYSTEM_DESC_PATH}" -m "fails_golden or run_error" -v
-        cp compile-models-tests.xml ${{ steps.strings.outputs.compile_models_test_report_path }}
 
     # TTRT test runner
     - name: Run TTRT tests
