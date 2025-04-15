@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "pip"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pykernel"
+description = "Python Endpoint to write TT-Metal Kernels"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Tenstorrent", email = "info@tenstorrent.com" }
+]
+requires-python = ">=3.8"
+keywords = ["pykernel", "tt-metal", "kernel", "machine learning", "tenstorrent"]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+# We will dynamically provide `version` and `dependencies` in setup.py
+dynamic = ["version", "dependencies"]
