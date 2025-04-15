@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -56,15 +57,25 @@ private:
     ttnn::Layout layoutEnum;
     DataType dataType;
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
+    GridAttr deviceGrid;
     GridAttr shardGrid;
     llvm::SmallVector<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
+      ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr();
+      if (tensorMemoryLayout &&
+          isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
+        shardSpecAttr = ttnn::ShardSpecAttr::get(
+            context, ttnn::ShapeAttr::get(context, shardShape), shardGrid,
+            deviceGrid);
+      }
       return ttnn::MemoryConfigAttr::get(
           context, ttnn::BufferTypeAttr::get(context, bufferType),
-          ttnn::ShardSpecAttr::get(context,
-                                   ttnn::ShapeAttr::get(context, shardShape)),
-          tensorMemoryLayout);
+          tensorMemoryLayout,
+          utils::createShardSpecIfNeeded(
+              context, tensorMemoryLayout,
+              ttnn::ShapeAttr::get(context, shardShape), shardGrid,
+              deviceGrid));
     }
     bool isL1Sharded() const {
       return isShardedMemoryLayout(tensorMemoryLayout.getValue());
@@ -166,8 +177,14 @@ private:
     input.shardGrid = inputLayoutAttr.getGrid();
     output.shardGrid = outputLayoutAttr.getGrid();
 
-    input.shardShape = inputLayoutAttr.getShardShape();
-    output.shardShape = outputLayoutAttr.getShardShape();
+    input.shardShape = inputLayoutAttr.getScalarShardShape();
+    output.shardShape = outputLayoutAttr.getScalarShardShape();
+
+    DeviceAttr deviceAttr =
+        lookupDevice(op.getResult().getParentBlock()->getParentOp());
+    input.deviceGrid = deviceAttr.getWorkerGrid();
+    output.deviceGrid = deviceAttr.getWorkerGrid();
+
     TTMLIR_DEBUG(ttmlir::LogComponent::General,
                  "Decompose layouts pass for op {} \nInput layout: {} \nOutput "
                  "layout: {} \n",

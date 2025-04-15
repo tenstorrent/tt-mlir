@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
@@ -155,6 +156,33 @@ llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
         ttmlir::utils::alignUp<int64_t>(shape[shape.size() - 2], TILE_HEIGHT);
   }
   return tiledShape;
+}
+
+// Helper method to create a ShardSpecAttr if needed.
+ShardSpecAttr createShardSpecIfNeeded(MLIRContext *context,
+                                      TTNNLayoutAttr layout,
+                                      GridAttr deviceGrid) {
+  ShardSpecAttr shardSpecAttr = ShardSpecAttr();
+  TensorMemoryLayoutAttr tensorMemoryLayout = layout.getMemLayout();
+  if (tensorMemoryLayout &&
+      isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
+    shardSpecAttr = ShardSpecAttr::get(context, layout, deviceGrid);
+  }
+  return shardSpecAttr;
+}
+
+// Helper method to create a ShardSpecAttr if needed.
+ShardSpecAttr createShardSpecIfNeeded(MLIRContext *context,
+                                      TensorMemoryLayoutAttr tensorMemoryLayout,
+                                      ShapeAttr shardShape, GridAttr shardGrid,
+                                      GridAttr deviceGrid) {
+  ShardSpecAttr shardSpecAttr = ShardSpecAttr();
+  if (tensorMemoryLayout &&
+      isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
+    shardSpecAttr =
+        ShardSpecAttr::get(context, shardShape, shardGrid, deviceGrid);
+  }
+  return shardSpecAttr;
 }
 
 } // namespace mlir::tt::ttnn::utils

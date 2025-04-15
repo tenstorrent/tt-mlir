@@ -136,15 +136,45 @@ def TTNN_ShapeAttr : TTNN_Attr<"Shape", "shape"> {
   let assemblyFormat = "`<` custom<DimensionList>($shape) `>`";
 }
 
+def TTNN_ShardOrientationAttr : EnumAttr<TTNN_Dialect, TTNN_ShardOrientation, "shard_orientation"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTNN_ShardModeAttr : EnumAttr<TTNN_Dialect, TTNN_ShardMode, "shard_mode"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   let summary = "TTNN ShardSpec attribute";
   let description = [{
     TTNN ShardSpec attribute
   }];
 
-  // TODO (#620): Add other fields like core_ranges, shard orientation etc.
-  let parameters = (ins AttrParameter<"ShapeAttr", "">:$shardShape);
+  let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
+                    "ShapeAttr":$shape,
+                    "ShardOrientationAttr":$shardOrientation,
+                    "ShardModeAttr":$shardMode,
+                    OptionalParameter<"ShapeAttr">:$physical_shard_shape);
+
+  let builders =
+    [
+      AttrBuilder<(ins "ShapeAttr": $shape, "GridAttr": $shardGrid, "GridAttr": $deviceGrid),
+      [{
+        CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
+        return Base::get($_ctxt, coreRangeSet, shape, ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
+      }]>,
+      AttrBuilder<(ins "TTNNLayoutAttr": $layout, "GridAttr": $deviceGrid),
+      [{
+        GridAttr shardGrid = layout.getGrid();
+        CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
+        return Base::get($_ctxt, coreRangeSet, ShapeAttr::get($_ctxt,layout.getScalarShardShape()), ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
+      }]>
+    ];
+
   let assemblyFormat = "`<` params `>`";
+  let extraClassDeclaration = [{
+    static CoreRangeSetAttr getCoreRangeSet(mlir::MLIRContext *context, GridAttr shardGrid, GridAttr deviceGrid);
+  }];
 }
 
 def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
@@ -153,9 +183,9 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
     TTNN memory config attribute
   }];
 
-  let parameters = (ins AttrParameter<"BufferTypeAttr", "">:$bufferType,
-                        AttrParameter<"ShardSpecAttr", "">:$shardSpec,
-                        OptionalParameter<"TensorMemoryLayoutAttr">:$tensorMemoryLayout);
+  let parameters = (ins "BufferTypeAttr":$bufferType,
+                    OptionalParameter<"TensorMemoryLayoutAttr">:$tensorMemoryLayout,
+                    OptionalParameter<"ShardSpecAttr">:$shardSpec);
 
   let assemblyFormat = "`<` params `>`";
 

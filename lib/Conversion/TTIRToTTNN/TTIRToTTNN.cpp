@@ -83,12 +83,9 @@ public:
       //
       ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
           op.getContext(), layoutAttr.getBufferType());
-      ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
-          op.getContext(),
-          ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
-      ttnn::MemoryConfigAttr memoryConfigAttr =
-          ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
-                                      shardSpecAttr, layoutAttr.getMemLayout());
+      ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+          op.getContext(), bufferTypeAttr, layoutAttr.getMemLayout(),
+          ttnn::ShardSpecAttr());
 
       // Replace op
       //
@@ -150,15 +147,11 @@ public:
     // MemoryConfigAttr only exists if memLayout is *not* null
     //
     ttnn::MemoryConfigAttr memoryConfigAttr =
-        memLayout
-            ? ttnn::MemoryConfigAttr::get(
-                  op.getContext(),
-                  ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
-                  ttnn::ShardSpecAttr::get(
-                      op.getContext(),
-                      ttnn::ShapeAttr::get(op.getContext(), memref.getShape())),
-                  memLayout)
-            : nullptr;
+        memLayout ? ttnn::MemoryConfigAttr::get(
+                        op.getContext(),
+                        ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+                        memLayout, ttnn::ShardSpecAttr())
+                  : nullptr;
 
     rewriter.replaceOpWithNewOp<TTNNType>(
         op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
@@ -210,16 +203,11 @@ public:
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
-    llvm::SmallVector<int64_t> outputShardShape =
-        outputLayoutAttr.getShardShape();
 
     ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
         rewriter.getContext(),
         ttnn::BufferTypeAttr::get(rewriter.getContext(), outputBufferType),
-        ttnn::ShardSpecAttr::get(
-            op.getContext(),
-            ttnn::ShapeAttr::get(rewriter.getContext(), outputShardShape)),
-        outputLayoutAttr.getMemLayout());
+        outputLayoutAttr.getMemLayout(), ttnn::ShardSpecAttr());
 
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
@@ -392,7 +380,6 @@ public:
     // Get TTNNLayoutAttr of the result type.
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
-    mlir::MemRefType memref = layoutAttr.getMemref();
 
     // Get data type, tensor layout, buffer type and memory config.
     DataTypeAttr dTypeAttr =
@@ -402,10 +389,7 @@ public:
 
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
-        ttnn::ShardSpecAttr::get(
-            op.getContext(),
-            ttnn::ShapeAttr::get(rewriter.getContext(), memref.getShape())),
-        memLayout);
+        memLayout, ttnn::ShardSpecAttr());
 
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -752,11 +736,7 @@ public:
           op.getContext(),
           ttnn::BufferTypeAttr::get(op.getContext(),
                                     layoutAttr.getBufferType()),
-          ttnn::ShardSpecAttr::get(
-              op.getContext(),
-              ttnn::ShapeAttr::get(op.getContext(),
-                                   layoutAttr.getShardShape())),
-          layoutAttr.getMemLayout());
+          layoutAttr.getMemLayout(), ttnn::ShardSpecAttr());
     }
     rewriter.replaceOpWithNewOp<ttnn::PadOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -1398,9 +1378,7 @@ public:
     ttnn::MemoryConfigAttr memConfigAttr =
         rewriter.getAttr<ttnn::MemoryConfigAttr>(
             rewriter.getAttr<ttnn::BufferTypeAttr>(layoutAttr.getBufferType()),
-            rewriter.getAttr<ttnn::ShardSpecAttr>(
-                rewriter.getAttr<ttnn::ShapeAttr>(layoutAttr.getShardShape())),
-            layoutAttr.getMemLayout());
+            layoutAttr.getMemLayout(), ttnn::ShardSpecAttr());
 
     rewriter.replaceOpWithNewOp<ttnn::ArangeOp>(
         op, outputType, adaptor.getStart(), adaptor.getEnd(), adaptor.getStep(),
