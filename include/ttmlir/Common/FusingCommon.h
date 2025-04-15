@@ -33,7 +33,7 @@ public:
 
     mlir::Value newConv = replaceConv2d(rewriter, srcOp, newBias);
 
-    rewriter.replaceAllUsesWith(addOp.getResult(0), newConv);
+    rewriter.replaceAllUsesWith(getAddResult(addOp), newConv);
 
     return mlir::success();
   }
@@ -41,6 +41,9 @@ public:
   virtual mlir::Value replaceConv2d(mlir::PatternRewriter &rewriter,
                                     Conv2dOpTy srcOp,
                                     mlir::Value bias) const = 0;
+
+  // Remove this once https://github.com/tenstorrent/tt-mlir/issues/2829
+  virtual mlir::Value getAddResult(AddOpTy addOp) const = 0;
 
 private:
   bool isFusable(Conv2dOpTy srcOp) const {

@@ -27,6 +27,10 @@ public:
         srcOp.getKernelSize(), srcOp.getStride(), srcOp.getPadding(),
         srcOp.getDilation(), srcOp.getGroups(), srcOp.getConv2dConfigAttr());
   }
+
+  mlir::Value getAddResult(AddOp addOp) const final {
+    return addOp.getResult();
+  }
 };
 
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {

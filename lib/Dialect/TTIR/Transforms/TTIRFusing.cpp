@@ -23,7 +23,12 @@ public:
     return rewriter.replaceOpWithNewOp<Conv2dOp>(
         srcOp, srcOp.getResult().getType(), srcOp.getInput(), srcOp.getWeight(),
         bias, srcOp.getOutput(), srcOp.getStride(), srcOp.getPadding(),
-        srcOp.getDilation(), srcOp.getGroups());
+        srcOp.getDilation(), srcOp.getGroupsAttr(),
+        srcOp.getFlattenedCompatInfo());
+  }
+
+  mlir::Value getAddResult(AddOp addOp) const final {
+    return addOp.getResult(0);
   }
 };
 
