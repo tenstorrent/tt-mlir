@@ -304,8 +304,8 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
   if (tensorSpec.logical_shape().size() > 0) {
     shape = getShape(tensorSpec.logical_shape());
   } else {
-    // scalar. can result from reduction operations. convert to (1,1) for
-    // compatibility
+    // Scalar. This can result from reduction operations. Convert it to (1,1)
+    // for compatibility
     shape = {1, 1};
   }
 
