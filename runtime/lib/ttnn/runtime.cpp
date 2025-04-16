@@ -106,9 +106,9 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                         ::ttnn::Layout::ROW_MAJOR);
 }
 
-static ::tt::runtime::Tensor createNullTensor() {
-  return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
-}
+// static ::tt::runtime::Tensor createNullTensor() {
+//   return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
+// }
 
 static ::tt::runtime::Tensor toHostSingleTensor(::tt::runtime::Tensor tensor,
                                                 bool untilize) {
@@ -904,12 +904,11 @@ getOpOutputTensor(OpContext opContextHandle,
   const auto &outPtr =
       &tensorPool.getTTNNTensorAndValidate(tensorRefPtr.value());
 
-  ::ttnn::Tensor hostTensor = ::ttnn::to_layout(
-      ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-      std::nullopt, static_cast<::ttnn::MeshDevice *>(nullptr));
+  std::shared_ptr<::ttnn::Tensor> hostTensor =
+      std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+          ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+          std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
 
-  // TODO: what is this???
-  // return utils::createRuntimeTensorFromTTNN(hostTensor);
   return std::make_unique<CallbackTensor>(
       ::tt::runtime::Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
                             DeviceRuntime::TTNN),
