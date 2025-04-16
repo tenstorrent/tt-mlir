@@ -621,7 +621,8 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
 
   GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
       builder.getUnknownLoc(), builder.getType<DeviceType>(),
-      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
   Conv2dOp conv2d = builder.create<Conv2dOp>(
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
