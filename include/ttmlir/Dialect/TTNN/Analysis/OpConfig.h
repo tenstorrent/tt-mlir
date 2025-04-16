@@ -19,8 +19,9 @@ struct OpConfig {
   Attribute config;
 
   OpConfig() = default;
-  OpConfig(TTNNLayoutAttr outputLayout)
-      : outputLayout(outputLayout), config(nullptr) {}
+  OpConfig(TTNNLayoutAttr outputLayout) : outputLayout(outputLayout) {}
+  OpConfig(TTNNLayoutAttr outputLayout, Attribute config)
+      : outputLayout(outputLayout), config(config) {}
 
   bool operator==(const OpConfig &other) const {
     return outputLayout == other.outputLayout && config == other.config;

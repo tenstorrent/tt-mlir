@@ -761,6 +761,84 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
   }
 }
 
+TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
+      ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto badConvConfig = Conv2dConfigAttr::get(
+      &context, DataType::BFloat16, DataType::BFloat16,
+      StringAttr::get(&context, ""), 32, false, true, 0, 1, false, false,
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved),
+      ttnn::CoreRangeSetAttr(), false, Layout::Tile, false, false, false, false,
+      false, false);
+  OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d),
+      OpConfig(getOutputLayout(conv2d), badConvConfig));
+  ASSERT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto runtimeExp =
+      backend.getOpRuntime(getInputLayouts(conv2d),
+                           OpConfig(getOutputLayout(conv2d), badConvConfig));
+  ASSERT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  auto goodConvConfig = Conv2dConfigAttr::get(
+      &context, DataType::BFloat16, DataType::BFloat16,
+      StringAttr::get(&context, ""), 32, false, true, 0, 1, false, false,
+      TensorMemoryLayoutAttr(), ttnn::CoreRangeSetAttr(), false, Layout::Tile,
+      false, false, /*enable_act_double_buffer=*/true,
+      /*enable_weights_double_buffer=*/true, false, false);
+
+  constraintsExp = backend.getOpConstraints(
+      getInputLayouts(conv2d),
+      OpConfig(getOutputLayout(conv2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cb_size, peak_size, output_size] = constraintsExp.get();
+  EXPECT_EQ(
+      cb_size,
+      243776); // Higher CB usage than baseline Conv2dInterface test due to
+               // enable_act_double_buffer and enable_weights_double_buffer
+  EXPECT_EQ(peak_size, 190568);
+  EXPECT_EQ(output_size, 26624);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  runtimeExp =
+      backend.getOpRuntime(getInputLayouts(conv2d),
+                           OpConfig(getOutputLayout(conv2d), goodConvConfig));
+  ASSERT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_GT(runtimeExp.get(), 0);
+}
+
 TEST_F(OpModelBase, maxPool2DOp) {
   // TODO(2976): Some of these test cases return L1 interleaved row major
   // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled
