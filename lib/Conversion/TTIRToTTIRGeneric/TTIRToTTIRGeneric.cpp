@@ -481,6 +481,9 @@ class TTIRMatmulRewriter final
       TTIRNamedRewriterCommon {
 
   using ConcreteOp = ttir::MatmulOp;
+  static_assert(std::is_same_v<TileOp, ttir::TileMatmulBlockOp> ||
+                    std::is_same_v<TileOp, ttir::TileMatmulOp>,
+                "Unsupported Matmul TileOp");
 
 public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
@@ -564,8 +567,6 @@ private:
 
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
-        } else {
-          static_assert(false, "Unsupported Matmul TileOp");
         }
       }
     }
