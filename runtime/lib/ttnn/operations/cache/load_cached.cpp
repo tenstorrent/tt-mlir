@@ -28,9 +28,10 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   std::shared_ptr<TensorCache> cache = context.getCache();
   LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
-  // Get the binary UUID and generate the cache outer key
+  // Generate the cache outer key using the binary content hash
+  const Binary &executableHandle = context.getExecutableHandle();
   const std::string outerKey = generateCacheOuterKey(
-      context.getExecutableHandle().getUUID(), context.getProgramIndex());
+      executableHandle.getContentHash(), context.getProgramIndex());
   const std::string &constEvalFuncname = op->callee_name()->str();
 
   std::vector<uint64_t> inputVersions;

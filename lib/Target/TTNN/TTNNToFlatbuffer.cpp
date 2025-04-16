@@ -59,42 +59,6 @@ static OpType findOpAtTopLevel(mlir::ModuleOp module) {
 
 namespace mlir::tt::ttnn {
 
-// Function to generate a random UUID string (RFC 4122 version 4)
-static std::string generateUUID() {
-  // Use a hardware random device if available, otherwise use a PRNG with random
-  // seed
-  std::random_device rd;
-  std::mt19937_64 gen(rd());
-  std::uniform_int_distribution<uint64_t> dis(
-      0, std::numeric_limits<uint64_t>::max());
-
-  // Generate two 64-bit random numbers
-  uint64_t a = dis(gen);
-  uint64_t b = dis(gen);
-
-  // Set the version (4) and variant bits according to RFC 4122
-  a = (a & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL; // Set version to 4
-  b = (b & 0x3FFFFFFFFFFFFFFFULL) |
-      0x8000000000000000ULL; // Set variant to RFC 4122
-
-  // Format the UUID string
-  std::stringstream ss;
-  ss << std::hex << std::setfill('0');
-
-  // Format: 8-4-4-4-12 hex digits
-  ss << std::setw(8) << (a >> 32);
-  ss << "-";
-  ss << std::setw(4) << ((a >> 16) & 0xFFFF);
-  ss << "-";
-  ss << std::setw(4) << (a & 0xFFFF);
-  ss << "-";
-  ss << std::setw(4) << (b >> 48);
-  ss << "-";
-  ss << std::setw(12) << (b & 0xFFFFFFFFFFFFULL);
-
-  return ss.str();
-}
-
 constexpr uint64_t kHostAllocatedSize = 0;
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -2267,12 +2231,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
         &dylibs, debugInfo));
   });
 
-  // Generate a unique UUID for this binary
-  std::string uuid = generateUUID();
-
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
-      fbb, &binaryVersion, ::ttmlir::getGitHash(), uuid.c_str(), systemDesc,
-      &programs);
+      fbb, &binaryVersion, ::ttmlir::getGitHash(), systemDesc, &programs);
 
   ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

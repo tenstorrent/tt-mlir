@@ -368,16 +368,26 @@ Binary::getDebugInfoGolden(std::string &loc) const {
   LOG_FATAL("Unsupported binary format for obtaining golden information");
 }
 
-std::string Binary::getUUID() const {
-  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          handle.get())) {
-    auto const *ttnnBinary = ttnn::getBinary(*this);
-    if (ttnnBinary && ttnnBinary->uuid()) {
-      return ttnnBinary->uuid()->str();
-    }
-    LOG_FATAL("UUID not found in TTNN binary");
+std::string Binary::getContentHash() const {
+  // Check if we've already computed the hash
+  if (cachedHash.has_value()) {
+    return cachedHash.value();
   }
-  LOG_FATAL("Unsupported binary format");
+
+  // If not cached, compute the hash
+  const uint8_t *data = static_cast<const uint8_t *>(handle.get());
+
+  // Use the FlatBuffers API to get the total size of the buffer
+  const size_t totalSize = ::flatbuffers::GetSizePrefixedBufferLength(data);
+
+  // Use a standard hash function from the C++ standard library
+  const size_t hash = std::hash<std::string_view>()(
+      std::string_view(reinterpret_cast<const char *>(data), totalSize));
+
+  // Convert to string and store in cache
+  cachedHash = std::to_string(hash);
+
+  return cachedHash.value();
 }
 
 } // namespace tt::runtime
