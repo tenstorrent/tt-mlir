@@ -1197,7 +1197,7 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
 }
 
 def TTNN_Conv2dOp : TTNN_Op<"conv2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpRuntime"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Conv2d operation.";
     let description = [{
@@ -1280,9 +1280,6 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
             getBias() != nullptr
         );
       }
-
-      llvm::Expected<std::tuple<size_t, size_t, size_t>> getOpConstraints(
-        const std::vector<TTNNLayoutAttr> &inputs, const TTNNLayoutAttr &output, Conv2dConfigAttr conv2dConfigAttr = nullptr);
     }];
 }
 
