@@ -22,6 +22,24 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
+static Value i32(PatternRewriter &rewriter, Location loc, int32_t value) {
+  return rewriter
+      .create<arith::ConstantOp>(loc, rewriter.getI32Type(),
+                                 rewriter.getI32IntegerAttr(value))
+      .getResult();
+}
+
+static Value index(PatternRewriter &rewriter, Location loc, int64_t value) {
+  return rewriter
+      .create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                 rewriter.getIndexAttr(value))
+      .getResult();
+}
+
+} // namespace
+
+namespace {
+
 class MemrefStoreRewriter : public OpConversionPattern<memref::StoreOp> {
 public:
   using OpConversionPattern<memref::StoreOp>::OpConversionPattern;
@@ -29,17 +47,11 @@ public:
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto index = [&](int64_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
-                                     rewriter.getIndexAttr(value))
-          .getResult();
-    };
-
     auto cb = adaptor.getMemref();
     auto storeIdx = op.getIndices().front();
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
-        op, index(0), cb, storeIdx, rewriter.getBoolAttr(true));
+        op, index(rewriter, op->getLoc(), 0), cb, storeIdx,
+        rewriter.getBoolAttr(true));
 
     return success();
   };
@@ -94,34 +106,21 @@ public:
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
-    auto i32 = [&](int32_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(op->getLoc(), rewriter.getI32Type(),
-                                     rewriter.getI32IntegerAttr(value))
-          .getResult();
-    };
-
-    auto index = [&](int64_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(op->getLoc(), rewriter.getIndexType(),
-                                     rewriter.getIndexAttr(value))
-          .getResult();
-    };
-
     Operation *newOp;
 
     if (mlir::isa<ttir::TileMaximumOp>(op)) {
       rewriter.create<ttkernel::MaxTilesInitOp>(op->getLoc());
-      newOp =
-          rewriter.create<ttkernel::MaxTilesOp>(op->getLoc(), i32(0), i32(1));
+      newOp = rewriter.create<ttkernel::MaxTilesOp>(
+          op->getLoc(), i32(rewriter, op->getLoc(), 0),
+          i32(rewriter, op->getLoc(), 1));
     } else if (mlir::isa<ttir::TileAddOp>(op)) {
-      auto dstIdx = index(0);
+      auto dstIdx = index(rewriter, op->getLoc(), 0);
       newOp = rewriter.create<ttkernel::AddTilesOp>(
           op->getLoc(), getCB(rewriter, operands[0]),
           getCB(rewriter, operands[1]), getLoadIndex(operands[0]),
           getLoadIndex(operands[1]), dstIdx);
     } else if (mlir::isa<ttir::TileMatmulOp>(op)) {
-      auto dstIdx = index(0);
+      auto dstIdx = index(rewriter, op->getLoc(), 0);
       newOp = rewriter.create<ttkernel::MatmulTilesOp>(
           op->getLoc(), getCB(rewriter, operands[0]),
           getCB(rewriter, operands[1]), getLoadIndex(operands[0]),
@@ -131,7 +130,8 @@ public:
       Value src = operands[0];
       Value dst = operands[1];
       auto numTiles =
-          i32(mlir::cast<ttkernel::CBType>(dst.getType()).getNumTiles());
+          i32(rewriter, op->getLoc(),
+              mlir::cast<ttkernel::CBType>(dst.getType()).getNumTiles());
       newOp = rewriter.create<ttkernel::TilizeBlockOp>(op->getLoc(), src,
                                                        numTiles, dst);
     } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
@@ -139,7 +139,8 @@ public:
       Value src = operands[0];
       Value dst = operands[1];
       auto numTiles =
-          i32(mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
+          i32(rewriter, op->getLoc(),
+              mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
       newOp = rewriter.create<ttkernel::UntilizeBlockOp>(op->getLoc(), src,
                                                          numTiles, dst);
     } else {
@@ -182,18 +183,12 @@ public:
   LogicalResult
   matchAndRewrite(T op, typename T::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto i32 = [&](int32_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(op.getLoc(), rewriter.getI32Type(),
-                                     rewriter.getI32IntegerAttr(value))
-          .getResult();
-    };
 
     for (Value input : adaptor.getValues()) {
       auto cb = mlir::dyn_cast<ttkernel::CBType>(input.getType());
       assert(cb && "Expected CB input type to await/yield, failing.");
       auto memref = cb.getMemref();
-      auto numPages = i32(memref.getNumElements());
+      auto numPages = i32(rewriter, op->getLoc(), memref.getNumElements());
       Block *block = op->getBlock();
       if (mlir::isa<ttir::AwaitOp>(op)) {
         rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), input, numPages);
@@ -232,24 +227,17 @@ public:
   getVirtualCoordsFromLogicalCoords(PatternRewriter &rewriter, Location loc,
                                     ChipDescAttr chipDesc,
                                     ValueRange dstCoreIndex) {
-    auto index = [&](int64_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(loc, rewriter.getIndexType(),
-                                     rewriter.getIndexAttr(value))
-          .getResult();
-    };
-
     std::pair<Value, Value> nocCoords;
     auto offset = chipDesc.getChipPhysicalCores().getWorker().front();
     nocCoords.first =
         rewriter
             .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                   index(offset.getY()))
+                                   index(rewriter, loc, offset.getY()))
             .getResult();
     nocCoords.second =
         rewriter
             .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                   index(offset.getX()))
+                                   index(rewriter, loc, offset.getX()))
             .getResult();
     return nocCoords;
   }
@@ -257,24 +245,17 @@ public:
   static std::pair<Value, Value>
   getMcastEndCoords(PatternRewriter &rewriter, Location loc, Value &nocStartY,
                     Value &nocStartX, OperandRange mcastShape) {
-    auto index = [&](int64_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(loc, rewriter.getIndexType(),
-                                     rewriter.getIndexAttr(value))
-          .getResult();
-    };
-
     std::pair<Value, Value> nocEndCoords;
     nocEndCoords.first = rewriter.create<arith::SubIOp>(
         nocStartY.getLoc(),
         rewriter.create<arith::AddIOp>(nocStartY.getLoc(), nocStartY,
                                        mcastShape[0]),
-        index(1));
+        index(rewriter, loc, 1));
     nocEndCoords.second = rewriter.create<arith::SubIOp>(
         nocStartX.getLoc(),
         rewriter.create<arith::AddIOp>(nocStartX.getLoc(), nocStartX,
                                        mcastShape[1]),
-        index(1));
+        index(rewriter, loc, 1));
     return nocEndCoords;
   }
 
@@ -322,14 +303,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::DMAOp op, ttir::DMAOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
-    auto i32 = [&](int32_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(op.getLoc(), rewriter.getI32Type(),
-                                     rewriter.getI32IntegerAttr(value))
-          .getResult();
-    };
-
     auto device = lookupDevice(op);
     auto chipIds = device.getChipIds();
     auto chipDescs =
@@ -365,7 +338,8 @@ public:
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
-      Value transferSize = i32(getMemrefSizeBytes(srcCb.getMemref()));
+      Value transferSize =
+          i32(rewriter, op->getLoc(), getMemrefSizeBytes(srcCb.getMemref()));
       // local movement
       if (op.isMcast()) {
         // mcast
@@ -382,8 +356,8 @@ public:
             nullptr);
         if (adaptor.getSrc() == adaptor.getDst()) {
           // no loopback
-          auto numDestsLessOne =
-              rewriter.create<arith::SubIOp>(op.getLoc(), numDests, i32(1));
+          auto numDestsLessOne = rewriter.create<arith::SubIOp>(
+              op.getLoc(), numDests, i32(rewriter, op->getLoc(), 1));
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDestsLessOne,
               nullptr, nullptr, nullptr);
@@ -414,7 +388,8 @@ public:
         op.setOptNumElems(getMemrefShardNumElems(op.getDst().getType()));
       }
       auto transferSize =
-          i32(op.getNumElems() * getElementSizeBytes(op.getDstMemRefType()));
+          i32(rewriter, op->getLoc(),
+              op.getNumElems() * getElementSizeBytes(op.getDstMemRefType()));
 
       Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
           op.getLoc(), adaptor.getSrc());
@@ -453,7 +428,8 @@ public:
       auto srcOffsetInt = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), srcOffset);
       auto size =
-          i32(op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
+          i32(rewriter, op->getLoc(),
+              op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDescs.front(),
           ValueRange{srcGridY, srcGridX});
@@ -497,13 +473,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::CoreIndexOp op, ttir::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto index = [&](int64_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(),
-                                     rewriter.getIndexAttr(value))
-          .getResult();
-    };
-
     auto device = lookupDevice(op);
     auto chipIds = device.getChipIds();
     auto chipDescs =
@@ -520,7 +489,8 @@ public:
       auto coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
       auto normalizedCoreIndex =
           rewriter.create<arith::SubIOp>(op.getLoc(), coreIndex,
-                                         index(chipDescs.front()
+                                         index(rewriter, op->getLoc(),
+                                               chipDescs.front()
                                                    .getChipPhysicalCores()
                                                    .getWorker()
                                                    .front()
@@ -530,7 +500,8 @@ public:
       auto coreIndex = rewriter.create<ttkernel::MyYOp>(op.getLoc(), nullptr);
       auto normalizedCoreIndex =
           rewriter.create<arith::SubIOp>(op.getLoc(), coreIndex,
-                                         index(chipDescs.front()
+                                         index(rewriter, op->getLoc(),
+                                               chipDescs.front()
                                                    .getChipPhysicalCores()
                                                    .getWorker()
                                                    .front()
@@ -580,15 +551,9 @@ public:
   matchAndRewrite(ttir::GetGlobalOperandOp op,
                   ttir::GetGlobalOperandOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto i32 = [&](int32_t value) {
-      return rewriter
-          .create<arith::ConstantOp>(op->getLoc(), rewriter.getI32Type(),
-                                     rewriter.getI32IntegerAttr(value))
-          .getResult();
-    };
-
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-        op, rewriter.getI32Type(), i32(op.getOperandIndex()));
+        op, rewriter.getI32Type(),
+        i32(rewriter, op->getLoc(), op.getOperandIndex()));
     return success();
   }
 };
