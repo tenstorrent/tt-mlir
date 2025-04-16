@@ -122,6 +122,34 @@ if (TTMLIR_ENABLE_STABLEHLO)
     PATTERN "*.td"
   )
 endif()
+
+# Install TTNN Standalone
+#
+# There are 2 install commands:
+#   1. Copies over all the FILES
+#   2. Copies over all the PROGRAMS - these are files that are given execute permissions
+#
+install(
+  FILES
+    tools/ttnn-standalone/ci_compile_dylib.py
+    tools/ttnn-standalone/CMakeLists.txt
+    tools/ttnn-standalone/compile_so.cpp
+    tools/ttnn-standalone/compile_so.hpp
+    tools/ttnn-standalone/README.md
+    tools/ttnn-standalone/ttnn-dylib.cpp
+    tools/ttnn-standalone/ttnn-precompiled.hpp
+    tools/ttnn-standalone/ttnn-standalone.cpp
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/tools/ttnn-standalone"
+  COMPONENT TTNNStandalone
+)
+install(
+  PROGRAMS
+    tools/ttnn-standalone/run
+    tools/ttnn-standalone/runinstall
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/tools/ttnn-standalone"
+  COMPONENT TTNNStandalone
+)
+
 add_subdirectory(include)
 add_subdirectory(lib)
 if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
