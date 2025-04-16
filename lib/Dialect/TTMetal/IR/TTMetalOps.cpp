@@ -15,43 +15,31 @@
 namespace mlir::tt::ttmetal {
 
 ::mlir::LogicalResult EnqueueWriteBufferOp::verify() {
-  ::mlir::RankedTensorType outputTy = getOutput().getType();
-  auto outputLayout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
-      outputTy.getEncoding());
-  if (not outputLayout) {
-    return emitOpError("Input tensor missing layout attribute");
-  }
-  if (not outputLayout.isDeviceMemorySpace()) {
+  ::mlir::MemRefType outputTy = getOutput().getType();
+  MemorySpaceAttr memSpaceAttr =
+      mlir::cast<MemorySpaceAttr>(outputTy.getMemorySpace());
+  if (not isDeviceMemorySpace(memSpaceAttr.getValue())) {
     return emitOpError("Output tensor must be in device memory space");
   }
   return success();
 }
 
 ::mlir::LogicalResult EnqueueReadBufferOp::verify() {
-  ::mlir::RankedTensorType outputTy = getOutput().getType();
-  auto outputLayout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
-      outputTy.getEncoding());
-  if (not outputLayout) {
-    return emitOpError("Input tensor missing layout attribute");
-  }
-  if (not outputLayout.isSystemMemorySpace()) {
+  ::mlir::MemRefType outputTy = getOutput().getType();
+  MemorySpaceAttr memSpaceAttr =
+      mlir::dyn_cast_if_present<MemorySpaceAttr>(outputTy.getMemorySpace());
+  if (memSpaceAttr && not isSystemMemorySpace(memSpaceAttr.getValue())) {
     return emitOpError("Output tensor must be in system memory space");
   }
   return success();
 }
 
 ::mlir::LogicalResult CreateBufferOp::verify() {
-  auto layout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
-      getResult().getType().getEncoding());
-  if (not layout) {
-    return emitOpError("Result type missing layout attribute");
-  }
-
   if (getSize() == 0) {
     return emitOpError("Alloc size must be non-zero");
   }
 
-  auto memref = layout.getMemref();
+  auto memref = getResult().getType();
   auto memspace =
       mlir::cast<mlir::tt::MemorySpaceAttr>(memref.getMemorySpace()).getValue();
   if (memspace != getMemorySpace()) {
@@ -75,24 +63,14 @@ namespace mlir::tt::ttmetal {
 
 ::mlir::LogicalResult EnqueueProgramOp::verify() {
   // Assert inputs/outputs device memspace
-  for (auto operand : getOperands()) {
-    auto layout = mlir::dyn_cast_if_present<mlir::tt::MetalLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(operand.getType()).getEncoding());
-    if (not layout) {
-      return emitOpError("Input tensor missing layout attribute");
-    }
-    if (not layout.isDeviceMemorySpace()) {
-      return emitOpError("Input tensor must be in device memory space");
-    }
-  }
 
-  // Assert block inputs are CBs
-  for (auto &region : getRegions()) {
-    for (auto arg : region.getArguments()) {
-      if (!mlir::isa<ttkernel::CBType>(arg.getType()) &&
-          !mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
-        return emitOpError("Block inputs must be CBType or SemType");
-      }
+  for (auto operand : getOperands()) {
+    ::mlir::MemRefType operandType = mlir::cast<MemRefType>(operand.getType());
+    MemorySpaceAttr memSpaceAttr =
+        mlir::cast<MemorySpaceAttr>(operandType.getMemorySpace());
+    if (not isDeviceMemorySpace(memSpaceAttr.getValue())) {
+      return emitOpError(
+          "Operand tensor to EnqueueProgramOp must be in device memory space");
     }
   }
   return success();
