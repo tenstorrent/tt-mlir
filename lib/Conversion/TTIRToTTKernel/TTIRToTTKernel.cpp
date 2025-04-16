@@ -339,6 +339,15 @@ public:
     assert((chipIds.size() == 1) && (chipDescs.size() == 1) &&
            "Chip ids and chip descs size must equal 1, failing.");
 
+    // TODO(jdesousa): Temporary L1 assertion until DRAM is supported
+    assert(isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
+                               op.getSrc().getType().getMemorySpace())
+                               .getValue()) &&
+           isL1MemorySpace(mlir::cast<MemorySpaceAttr>(
+                               op.getDst().getType().getMemorySpace())
+                               .getValue()) &&
+           "Expected src and dst memory spaces to be L1, failing.");
+
     auto applyMap = [&](AffineMap map, ValueRange index) {
       auto apply =
           rewriter.create<affine::AffineApplyOp>(op.getLoc(), map, index);
