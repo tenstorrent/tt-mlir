@@ -67,10 +67,6 @@ static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
 }
 
 static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
-  // if (tilizedCB.getPort() == scalarCB.getPort()) {
-  //   return "Input circular buffer port and output circular buffer "
-  //          "port must be different";
-  // }
   if (mlir::isa<tt::TileType>(scalarCB.getMemref().getElementType())) {
     return "Input to TilizeOp or Output to UntilizeOp must have scalar "
            "element type";
@@ -159,11 +155,6 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
     return emitOpError("input circular buffer element type and output "
                        "circular buffer element type must be the same");
   }
-
-  // if (inCBType.getPageSize() != outCBType.getPageSize()) {
-  //   return emitOpError("input circular buffer page size and output "
-  //                      "circular buffer page size must be the same");
-  // }
 
   if (inCBType.getNumBuffers() != outCBType.getNumBuffers()) {
     return emitOpError("input circular buffer number of buffers and output "
