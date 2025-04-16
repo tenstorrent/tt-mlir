@@ -69,7 +69,7 @@ struct Hooks {
 #endif
   }
 
-  static void unregisterHooks() {
+  void unregisterHooks() {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     preOperatorCallback = std::nullopt;
     postOperatorCallback = std::nullopt;

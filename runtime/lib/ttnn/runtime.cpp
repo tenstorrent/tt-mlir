@@ -1007,8 +1007,8 @@ getOpOutputTensor(OpContext opContextHandle,
     return std::make_unique<CallbackTensor>();
   }
 
-  const auto &outPtr = &tensorPool.getTTNNTensorAndValidate(tensorRefPtr.value());
-
+  const auto &outPtr =
+      &tensorPool.getTTNNTensorAndValidate(tensorRefPtr.value());
 
   std::shared_ptr<::ttnn::Tensor> hostTensor =
       std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
@@ -1017,7 +1017,7 @@ getOpOutputTensor(OpContext opContextHandle,
 
   return std::make_unique<CallbackTensor>(
       ::tt::runtime::Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
-             DeviceRuntime::TTNN),
+                            DeviceRuntime::TTNN),
       tensorRefPtr.value(), nullptr, DeviceRuntime::TTNN);
 }
 
@@ -1085,9 +1085,32 @@ getOpInputTensorRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_FromDeviceOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::EltwiseOp: {
-    tensorRefs =
-        convertFbTensorRefsToVector(opContext.type_as_EltwiseOp()->ins());
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryOp()->lhs(),
+                  opContext.type_as_EltwiseBinaryOp()->rhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryCompositeOp()->lhs(),
+                  opContext.type_as_EltwiseBinaryCompositeOp()->rhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
+    tensorRefs = {opContext.type_as_EltwiseTernaryWhereOp()->first(),
+                  opContext.type_as_EltwiseTernaryWhereOp()->second(),
+                  opContext.type_as_EltwiseTernaryWhereOp()->third()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    tensorRefs = {opContext.type_as_EltwiseQuantizationOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    tensorRefs = {opContext.type_as_EltwiseUnaryOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    tensorRefs = {opContext.type_as_EltwiseUnaryCompositeOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::LinearOp: {
@@ -1236,7 +1259,8 @@ getOpInputTensors(OpContext opContextHandle,
 
     const void *tensorRefPtr = reinterpret_cast<const void *>(tensorRef);
     tensors.push_back(std::make_unique<CallbackTensor>(
-        ::tt::runtime::Tensor(std::move(hostTensor), nullptr, DeviceRuntime::TTNN),
+        ::tt::runtime::Tensor(std::move(hostTensor), nullptr,
+                              DeviceRuntime::TTNN),
         tensorRefPtr, nullptr, DeviceRuntime::TTNN));
   }
   return tensors;
