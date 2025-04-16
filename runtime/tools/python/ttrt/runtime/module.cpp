@@ -278,7 +278,7 @@ PYBIND11_MODULE(_C, m) {
                    ? std::nullopt
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
-      "Get the output tensor of the op");
+      "Get the intermediate output tensor of the op");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
@@ -290,9 +290,9 @@ PYBIND11_MODULE(_C, m) {
   m.def("get_intermediate_input_tensor_ids",
         &tt::runtime::getIntermediateInputTensorIds,
         "Get intermediate input tensor IDs for an operation");
-  m.def("get_intermediate_output_tensor_ids",
-        &tt::runtime::getIntermediateOutputTensorIds,
-        "Get intermediate output tensor IDs for an operation");
+  m.def("get_intermediate_output_tensor_id",
+        &tt::runtime::getIntermediateOutputTensorId,
+        "Get intermediate output tensor ID for an operation");
   m.def("is_tensor_live", &tt::runtime::isTensorLive,
         "Check if a tensor is live by its global ID");
   m.def(

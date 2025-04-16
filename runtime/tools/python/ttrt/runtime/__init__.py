@@ -39,7 +39,7 @@ try:
         get_input_tensor_ids,
         get_output_tensor_ids,
         get_intermediate_input_tensor_ids,
-        get_intermediate_output_tensor_ids,
+        get_intermediate_output_tensor_id,
         is_tensor_live,
         get_tensor,
         memcpy,

@@ -467,18 +467,15 @@ getOutputTensorIds(CallbackContext programContextHandle) {
 }
 
 std::vector<std::uint32_t>
-getIntermediateInputTensorIds(OpContext opContextHandle,
-                              CallbackContext programContextHandle) {
+getIntermediateInputTensorIds(OpContext opContextHandle) {
   LOG_WARNING(
       "getIntermediateInputTensorIds not implemented for metal runtime");
   return {};
 }
 
-std::vector<std::uint32_t>
-getIntermediateOutputTensorIds(OpContext opContextHandle,
-                               CallbackContext programContextHandle) {
+std::uint32_t getIntermediateOutputTensorId(OpContext opContextHandle) {
   LOG_WARNING(
-      "getIntermediateOutputTensorIds not implemented for metal runtime");
+      "getIntermediateOutputTensorId not implemented for metal runtime");
   return {};
 }
 

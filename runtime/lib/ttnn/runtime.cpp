@@ -750,6 +750,499 @@ getOutputTensors(CallbackContext programContextHandle) {
   return programContext.getTensorPool().gatherOutputTensors();
 }
 
+std::vector<std::uint32_t>
+getIntermediateInputTensorIds(OpContext opContextHandle) {
+  auto const &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  std::vector<std::uint32_t> ids;
+
+  switch (opContext.type_type()) {
+  case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
+    auto op = opContext.type_as_ToMemoryConfigOp();
+    ids.push_back(op->in0()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToLayoutOp: {
+    auto op = opContext.type_as_ToLayoutOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDTypeOp: {
+    auto op = opContext.type_as_ToDTypeOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TypecastOp: {
+    auto op = opContext.type_as_TypecastOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDeviceOp: {
+    auto op = opContext.type_as_ToDeviceOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FromDeviceOp: {
+    auto op = opContext.type_as_FromDeviceOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    auto op = opContext.type_as_FillCacheOp();
+    ids.push_back(op->input()->global_id());
+    ids.push_back(op->cache()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
+    auto op = opContext.type_as_UpdateCacheOp();
+    ids.push_back(op->input()->global_id());
+    ids.push_back(op->cache()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DeallocateOp: {
+    auto op = opContext.type_as_DeallocateOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PadOp: {
+    auto op = opContext.type_as_PadOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatOp: {
+    auto op = opContext.type_as_ConcatOp();
+    for (const auto *input : *op->inputs()) {
+      ids.push_back(input->global_id());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PermuteOp: {
+    auto op = opContext.type_as_PermuteOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReshapeOp: {
+    auto op = opContext.type_as_ReshapeOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    auto op = opContext.type_as_SliceOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    auto op = opContext.type_as_RepeatOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    auto op = opContext.type_as_RepeatInterleaveOp();
+    ids.push_back(op->input()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv2dOp: {
+    auto op = opContext.type_as_Conv2dOp();
+    ids.push_back(op->input()->global_id());
+    ids.push_back(op->weight()->global_id());
+    ids.push_back(op->bias()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    auto op = opContext.type_as_ConvTranspose2dOp();
+    ids.push_back(op->input()->global_id());
+    ids.push_back(op->weight()->global_id());
+    ids.push_back(op->bias()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dOp: {
+    auto op = opContext.type_as_MaxPool2dOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllGatherOp: {
+    auto op = opContext.type_as_AllGatherOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    auto op = opContext.type_as_ReduceScatterOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
+    auto op = opContext.type_as_CollectivePermuteOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    auto op = opContext.type_as_MeshShardOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    auto op = opContext.type_as_EltwiseBinaryOp();
+    ids.push_back(op->lhs()->global_id());
+    ids.push_back(op->rhs()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    auto op = opContext.type_as_EltwiseBinaryCompositeOp();
+    ids.push_back(op->lhs()->global_id());
+    ids.push_back(op->rhs()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
+    auto op = opContext.type_as_EltwiseTernaryWhereOp();
+    ids.push_back(op->first()->global_id());
+    ids.push_back(op->second()->global_id());
+    ids.push_back(op->third()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    auto op = opContext.type_as_EltwiseQuantizationOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    auto op = opContext.type_as_EltwiseUnaryOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    auto op = opContext.type_as_EltwiseUnaryCompositeOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LinearOp: {
+    auto op = opContext.type_as_LinearOp();
+    ids.push_back(op->a()->global_id());
+    ids.push_back(op->b()->global_id());
+    if (op->bias())
+      ids.push_back(op->bias()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MatmulOp: {
+    auto op = opContext.type_as_MatmulOp();
+    ids.push_back(op->a()->global_id());
+    ids.push_back(op->b()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
+    auto op = opContext.type_as_MorehCumSumOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
+    auto op = opContext.type_as_ReductionArgMaxOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    auto op = opContext.type_as_ReductionProdOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionOp: {
+    auto op = opContext.type_as_ReductionOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingOp: {
+    auto op = opContext.type_as_EmbeddingOp();
+    ids.push_back(op->input()->global_id());
+    ids.push_back(op->weight()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
+    auto op = opContext.type_as_EmbeddingBackwardOp();
+    ids.push_back(op->input()->global_id());
+    ids.push_back(op->weight()->global_id());
+    ids.push_back(op->in_grad()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxOp: {
+    auto op = opContext.type_as_SoftmaxOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TransposeOp: {
+    auto op = opContext.type_as_TransposeOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    auto op = opContext.type_as_UpsampleOp();
+    ids.push_back(op->in()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    auto op = opContext.type_as_CpuOp();
+    for (const auto *input : *op->ins()) {
+      ids.push_back(input->global_id());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmptyOp:
+  case ::tt::target::ttnn::OpType::ConstructTensorOp:
+  case ::tt::target::ttnn::OpType::NamedFullOp:
+  case ::tt::target::ttnn::OpType::FullOp:
+  case ::tt::target::ttnn::OpType::ArangeOp:
+  case ::tt::target::ttnn::OpType::ConstantOp:
+  case ::tt::target::ttnn::OpType::GetDeviceOp: {
+    LOG_DEBUG("Op type has no inputs.");
+    break;
+  }
+  default:
+    LOG_WARNING("unhandled op type in getIntermediateInputTensor");
+    break;
+  }
+  return ids;
+}
+
+std::uint32_t getIntermediateOutputTensorId(OpContext opContextHandle) {
+  auto const &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  // std::optional<const ::tt::target::ttnn::TensorRef *> tensorRef =
+  // std::nullopt;
+  std::vector<std::uint32_t> ids;
+
+  switch (opContext.type_type()) {
+  case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
+    ids.push_back(opContext.type_as_ToMemoryConfigOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToLayoutOp: {
+    ids.push_back(opContext.type_as_ToLayoutOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDTypeOp: {
+    ids.push_back(opContext.type_as_ToDTypeOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TypecastOp: {
+    ids.push_back(opContext.type_as_TypecastOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDeviceOp: {
+    ids.push_back(opContext.type_as_ToDeviceOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FromDeviceOp: {
+    ids.push_back(opContext.type_as_FromDeviceOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmptyOp: {
+    ids.push_back(opContext.type_as_EmptyOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConstructTensorOp: {
+    ids.push_back(opContext.type_as_ConstructTensorOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NamedFullOp: {
+    ids.push_back(opContext.type_as_NamedFullOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FullOp: {
+    ids.push_back(opContext.type_as_FullOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    ids.push_back(opContext.type_as_EltwiseBinaryOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    ids.push_back(
+        opContext.type_as_EltwiseBinaryCompositeOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
+    ids.push_back(
+        opContext.type_as_EltwiseTernaryWhereOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    ids.push_back(
+        opContext.type_as_EltwiseQuantizationOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    ids.push_back(opContext.type_as_EltwiseUnaryOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    ids.push_back(
+        opContext.type_as_EltwiseUnaryCompositeOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LinearOp: {
+    ids.push_back(opContext.type_as_LinearOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MatmulOp: {
+    ids.push_back(opContext.type_as_MatmulOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MorehCumSumOp: {
+    ids.push_back(opContext.type_as_MorehCumSumOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
+    ids.push_back(opContext.type_as_ReductionArgMaxOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    ids.push_back(opContext.type_as_ReductionProdOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionOp: {
+    ids.push_back(opContext.type_as_ReductionOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingOp: {
+    ids.push_back(opContext.type_as_EmbeddingOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
+    ids.push_back(opContext.type_as_EmbeddingBackwardOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxOp: {
+    ids.push_back(opContext.type_as_SoftmaxOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TransposeOp: {
+    ids.push_back(opContext.type_as_TransposeOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PadOp: {
+    ids.push_back(opContext.type_as_PadOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatOp: {
+    ids.push_back(opContext.type_as_ConcatOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PermuteOp: {
+    ids.push_back(opContext.type_as_PermuteOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReshapeOp: {
+    ids.push_back(opContext.type_as_ReshapeOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    ids.push_back(opContext.type_as_SliceOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    ids.push_back(opContext.type_as_RepeatOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    ids.push_back(opContext.type_as_RepeatInterleaveOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv2dOp: {
+    ids.push_back(opContext.type_as_Conv2dOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
+    ids.push_back(opContext.type_as_ConvTranspose2dOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dOp: {
+    ids.push_back(opContext.type_as_MaxPool2dOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllGatherOp: {
+    ids.push_back(opContext.type_as_AllGatherOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    ids.push_back(opContext.type_as_ReduceScatterOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
+    ids.push_back(opContext.type_as_CollectivePermuteOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    ids.push_back(opContext.type_as_MeshShardOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    ids.push_back(opContext.type_as_ArangeOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpsampleOp: {
+    ids.push_back(opContext.type_as_UpsampleOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    ids.push_back(opContext.type_as_CpuOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConstantOp: {
+    ids.push_back(opContext.type_as_ConstantOp()->out()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    ids.push_back(opContext.type_as_FillCacheOp()->cache()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
+    ids.push_back(opContext.type_as_UpdateCacheOp()->cache()->global_id());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GetDeviceOp:
+  case ::tt::target::ttnn::OpType::DeallocateOp: {
+    LOG_WARNING("getting output tensor is not supported for ",
+                ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
+                    opContext.type_type())]);
+    return ids[0];
+  }
+  default: {
+    LOG_FATAL("Unsupported operation type");
+  }
+  }
+  return ids[0];
+}
+
+std::vector<::tt::runtime::Tensor>
+getIntermediateInputTensors(OpContext opContextHandle,
+                            CallbackContext programContextHandle) {
+  auto const &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  std::vector<std::uint32_t> ids =
+      getIntermediateInputTensorIds(opContextHandle);
+  std::vector<::tt::runtime::Tensor> results;
+  results.reserve(ids.size());
+  for (auto id : ids) {
+    results.push_back(programContext.getTensorPool().getRuntimeTensor(id));
+  }
+  return results;
+}
+
+::tt::runtime::Tensor
+getIntermediateOutputTensor(OpContext opContextHandle,
+                            CallbackContext programContextHandle) {
+  auto const &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+
+  std::uint32_t id = getIntermediateOutputTensorId(opContextHandle);
+  ::tt::runtime::Tensor result =
+      programContext.getTensorPool().getRuntimeTensor(id);
+
+  return result;
+}
+
+// Okay you still have to go through and make sure all the names and return
+// types are right and then you can test this
+
 std::vector<const ::tt::target::ttnn::TensorRef *>
 getIntermediateInputTensorRefs(OpContext opContextHandle) {
   auto const &opContext =
@@ -1206,7 +1699,7 @@ getIntermediateOutputTensorRefs(OpContext opContextHandle) {
   }
   return tensorRefs;
 }
-
+/*
 std::vector<::tt::runtime::Tensor>
 getIntermediateInputTensors(OpContext opContextHandle,
                             CallbackContext programContextHandle) {
@@ -1293,7 +1786,7 @@ getIntermediateOutputTensorIds(OpContext opContextHandle) {
   }
   return result;
 }
-
+*/
 std::vector<std::uint32_t>
 getInputTensorIds(CallbackContext programContextHandle) {
   auto &programContext =

@@ -178,12 +178,9 @@ std::vector<std::uint32_t>
 getOutputTensorIds(CallbackContext programContextHandle);
 
 std::vector<std::uint32_t>
-getIntermediateInputTensorIds(OpContext opContextHandle,
-                              CallbackContext programContextHandle);
+getIntermediateInputTensorIds(OpContext opContextHandle);
 
-std::vector<std::uint32_t>
-getIntermediateOutputTensorIds(OpContext opContextHandle,
-                               CallbackContext programContextHandle);
+std::uint32_t getIntermediateOutputTensorId(OpContext opContextHandle);
 
 bool isTensorLive(CallbackContext programContextHandle,
                   std::uint32_t global_id);
