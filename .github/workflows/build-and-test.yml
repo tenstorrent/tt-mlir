@@ -49,7 +49,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, name: "speedy"},
+          {runs-on: ubuntu-latest, enable_op_model: ON, enable_emitc: ON, enable_ttmlir_whl: ON, name: "speedy"},
           {runs-on: ubuntu-latest, enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, name: "tracy"},
         ]
 
@@ -103,6 +103,7 @@ jobs:
         enable-emitc: ${{ matrix.build.enable_emitc }}
         enable-explorer: ${{ matrix.build.enable_explorer }}
         enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
+        enable-ttmlir-whl: ${{ matrix.build.enable_ttmlir_whl }}
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
