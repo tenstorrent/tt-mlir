@@ -730,6 +730,129 @@ public:
 };
 } // namespace
 
+namespace {
+template <typename T>
+class TTIRSemaphoreUpdateRewriter : public OpConversionPattern<T> {
+public:
+  using OpConversionPattern<T>::OpConversionPattern;
+
+  static Value castSemaphoreAsAddress(OpBuilder &rewriter, Location loc,
+                                      Value semaphore) {
+    return rewriter
+        .create<UnrealizedConversionCastOp>(
+            loc, rewriter.getType<ttkernel::L1AddrType>(), semaphore)
+        ->getResult(0);
+  }
+
+  LogicalResult
+  matchAndRewrite(T op, typename T::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto device = lookupDevice(op);
+    auto systemDesc = getCurrentScopeSystemDesc(op);
+    auto chipIds = device.getChipIds();
+    auto chipDescs = systemDesc.getChipDescs();
+    auto chipDescIndices = systemDesc.getChipDescIndices();
+    assert(chipIds.size() == 1);
+    auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
+
+    Value value = op.getValue();
+
+    Value semaphoreAddr =
+        castSemaphoreAsAddress(rewriter, op->getLoc(), adaptor.getSemaphore());
+
+    if (op.getDstCoreIndex().empty()) {
+      if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
+        emitError(op.getLoc(), "ttir.semaphore_inc to local core is illegal.");
+        return failure();
+      }
+
+      // Local semaphore set
+      auto semaphorePtr =
+          rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+
+      if (mlir::isa<ttir::SemaphoreSetOp>(op)) {
+        rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetOp>(
+            op, semaphorePtr, value);
+      }
+    } else if (op.getMcastShape().empty()) {
+      if (mlir::isa<ttir::SemaphoreSetOp>(op)) {
+        emitError(op.getLoc(),
+                  "ttir.semaphore_set to single remote core is illegal.");
+        return failure();
+      }
+      auto [virtY, virtX] = TTIRDMARewriter::getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+      auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
+          op.getLoc(), virtX, virtY, semaphoreAddr);
+      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
+                                                               value, nullptr);
+    } else {
+      if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
+        emitError(op.getLoc(), "ttir.semaphore_inc multicast is illegal.");
+        return failure();
+      }
+
+      auto [virtY, virtX] = TTIRDMARewriter::getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+      auto [mcastEndY, mcastEndX] = TTIRDMARewriter::getMcastEndCoords(
+          rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
+      Value numDestsIdx = rewriter.create<arith::MulIOp>(
+          op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
+      Value numDests = rewriter.create<arith::IndexCastOp>(
+          op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+      auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
+          op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
+          nullptr);
+
+      auto semaphorePtr =
+          rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
+                                                   value);
+      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
+          op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTIRSemaphoreWaitRewriter
+    : public OpConversionPattern<ttir::SemaphoreWaitOp> {
+  using OpConversionPattern<ttir::SemaphoreWaitOp>::OpConversionPattern;
+
+public:
+  static Value castSemaphoreAsAddress(OpBuilder &rewriter, Location loc,
+                                      Value semaphore) {
+    return rewriter
+        .create<UnrealizedConversionCastOp>(
+            loc, rewriter.getType<ttkernel::L1AddrType>(), semaphore)
+        ->getResult(0);
+  }
+
+  LogicalResult
+  matchAndRewrite(ttir::SemaphoreWaitOp op,
+                  ttir::SemaphoreWaitOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+
+    Value semaphoreAddr =
+        castSemaphoreAsAddress(rewriter, op->getLoc(), adaptor.getSemaphore());
+    auto semaphorePtr =
+        rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+
+    rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreWaitOp>(op, semaphorePtr,
+                                                              op.getValue());
+    if (op.getResetValue()) {
+      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
+                                                   op.getResetValue());
+    }
+
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
@@ -743,8 +866,10 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
                ttkernel::TTIRDMAWaitRewriter, ttkernel::TTIRCoreIndexRewriter,
                ttkernel::TTIRGetGlobalOperandRewriter,
-               ttkernel::TTIRNullTxRewriter, ttkernel::MemRefCollapseRewriter>(
-      typeConverter, ctx);
+               ttkernel::TTIRNullTxRewriter, ttkernel::MemRefCollapseRewriter,
+               ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreSetOp>,
+               ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
+               ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::TTIRDMARewriter>(typeConverter, ctx,
                                           &associatedDMAWaits);
