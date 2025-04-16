@@ -120,7 +120,6 @@ struct MeshDeviceOptions {
   size_t numHWCQs = 1;
   bool enableAsyncTTNN = false;
   bool enableProgramCache = false;
-  bool enableTensorCache = false;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
@@ -149,6 +148,7 @@ struct SystemDesc : public Flatbuffer {
   ::tt::target::SystemDesc const *operator->() const { return get(); }
 };
 
+class TensorCache;
 struct Binary : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
 
@@ -158,21 +158,22 @@ struct Binary : public Flatbuffer {
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
 
-  // Get a unique content hash identifier for this binary
-  std::string getContentHash() const;
+  // Get the tensor cache associated with this binary
+  std::shared_ptr<TensorCache> getCache() const { return cache; }
+
+  // Set the tensor cache for this binary
+  void setCache(std::shared_ptr<TensorCache> newCache) { cache = newCache; }
 
 private:
-  // Cache for the content hash
-  mutable std::optional<std::string> cachedHash;
+  // The tensor cache associated with this binary
+  mutable std::shared_ptr<TensorCache> cache;
 };
 
-class TensorCache;
 struct Device : public detail::RuntimeCheckedObjectImpl {
   Device(std::shared_ptr<void> handle, DeviceRuntime runtime,
          std::shared_ptr<TensorCache> tensorCache)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime), cache(tensorCache) {}
+      : detail::RuntimeCheckedObjectImpl(handle, runtime) {}
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
-  std::shared_ptr<TensorCache> cache;
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {

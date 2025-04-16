@@ -28,10 +28,10 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   std::shared_ptr<TensorCache> cache = context.getCache();
   LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
-  // Generate the cache outer key using the binary content hash
-  const Binary &executableHandle = context.getExecutableHandle();
-  const std::string outerKey = generateCacheOuterKey(
-      executableHandle.getContentHash(), context.getProgramIndex());
+  // Get the device ID from the parent mesh
+  const int deviceId = context.getParentMesh().id();
+  const std::string cacheKey =
+      generateCacheOuterKey(deviceId, context.getProgramIndex());
   const std::string &constEvalFuncname = op->callee_name()->str();
 
   std::vector<uint64_t> inputVersions;
@@ -45,7 +45,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Get the cached tensors, which will be empty if cache is invalid
   const std::vector<Tensor> *cachedOutputs =
-      cache->getAll(outerKey, constEvalFuncname, inputVersions);
+      cache->getAll(cacheKey, constEvalFuncname, inputVersions);
 
   if (cachedOutputs) {
     LOG_DEBUG("Cache hit for function: ", constEvalFuncname.c_str());
@@ -77,12 +77,12 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   ::tt::target::ttnn::Program const *subProgram =
       fbb.programs()->Get(programIndex);
   ProgramExecutor exec(subProgram, context.getExecutableHandle(), inputs,
-                       &context.getParentMesh(), nullptr);
+                       &context.getParentMesh(), programIndex);
   exec.execute();
   LOG_DEBUG("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();
 
-  cache->store(outerKey, constEvalFuncname, outputs, inputVersions);
+  cache->store(cacheKey, constEvalFuncname, outputs, inputVersions);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     Tensor &runtimeOutput = outputs[i];

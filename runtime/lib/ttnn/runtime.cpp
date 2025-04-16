@@ -448,9 +448,8 @@ Device openMeshDevice(const std::vector<uint32_t> &meshShape,
             meshDevice->compute_with_storage_grid_size().x, ", ",
             meshDevice->compute_with_storage_grid_size().y, " }");
 
-  return Device(std::static_pointer_cast<void>(meshDevice), DeviceRuntime::TTNN,
-                options.enableTensorCache ? std::make_shared<TensorCache>()
-                                          : nullptr);
+  return Device(std::static_pointer_cast<void>(meshDevice),
+                DeviceRuntime::TTNN);
 }
 
 void closeMeshDevice(Device parentMesh) {
@@ -942,15 +941,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::vector<::tt::runtime::Tensor>
-submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
-       std::vector<::tt::runtime::Tensor> &inputs) {
+submit(Device deviceHandle, Binary &executableHandle,
+       std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs) {
 
-  std::shared_ptr<TensorCache> cache = deviceHandle.cache;
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
   std::vector<::tt::runtime::Tensor> outputs = ::tt::runtime::ttnn::runProgram(
-      meshDevice, executableHandle, programIndex, inputs, cache);
+      meshDevice, executableHandle, programIndex, inputs);
 
   return outputs;
 }

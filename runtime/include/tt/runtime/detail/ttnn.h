@@ -173,14 +173,13 @@ std::string getOpLocInfo(OpContext opContextHandle);
                                         CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
-submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
-       std::vector<::tt::runtime::Tensor> &inputs);
+submit(Device deviceHandle, Binary &executableHandle,
+       std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs);
 
 std::vector<::tt::runtime::Tensor>
-runProgram(::ttnn::MeshDevice &meshDevice, Binary executableHandle,
+runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
            std::uint32_t programIndex,
-           std::vector<::tt::runtime::Tensor> &inputs,
-           std::shared_ptr<::tt::runtime::TensorCache> tensorCache);
+           std::vector<::tt::runtime::Tensor> &inputs);
 } // namespace tt::runtime::ttnn
 
 #endif

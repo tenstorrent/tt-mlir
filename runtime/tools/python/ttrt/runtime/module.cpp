@@ -38,11 +38,7 @@ PYBIND11_MODULE(_C, m) {
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
       .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
       .def("get_memory_view", &tt::runtime::detail::getMemoryView,
-           py::arg("device_id") = 0)
-      .def(
-          "get_tensor_cache",
-          [](tt::runtime::Device &device) { return device.cache; },
-          py::return_value_policy::reference);
+           py::arg("device_id") = 0);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::TensorDesc>(m, "TensorDesc")
       .def_readonly("shape", &tt::runtime::TensorDesc::shape)
@@ -58,8 +54,6 @@ PYBIND11_MODULE(_C, m) {
                      &tt::runtime::MeshDeviceOptions::enableAsyncTTNN)
       .def_readwrite("enable_program_cache",
                      &tt::runtime::MeshDeviceOptions::enableProgramCache)
-      .def_readwrite("enable_tensor_cache",
-                     &tt::runtime::MeshDeviceOptions::enableTensorCache)
       .def_property(
           "l1_small_size",
           [](const tt::runtime::MeshDeviceOptions &o) {
@@ -133,22 +127,6 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
-
-  py::class_<tt::runtime::TensorCache,
-             std::shared_ptr<tt::runtime::TensorCache>>(m, "TensorCache")
-      .def(py::init<>())
-      .def("clear", &tt::runtime::TensorCache::clear)
-      .def("size", &tt::runtime::TensorCache::size)
-      .def("get_stats", &tt::runtime::TensorCache::getStats)
-      .def(
-          "remove_program",
-          [](tt::runtime::TensorCache &cache, const tt::runtime::Binary &binary,
-             size_t programIndex) {
-            std::string outerKey = tt::runtime::generateCacheOuterKey(
-                binary.getContentHash(), programIndex);
-            cache.remove(outerKey);
-          },
-          "Remove cache entries for a specific binary and program index");
 
   py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
       .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
@@ -258,7 +236,7 @@ PYBIND11_MODULE(_C, m) {
         "Get the layout of the input tensor");
   m.def(
       "submit",
-      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
+      [](::tt::runtime::Device device, ::tt::runtime::Binary &executable,
          std::uint32_t programIndex, std::vector<::tt::runtime::Tensor> &inputs)
           -> std::vector<::tt::runtime::Tensor> {
         return ::tt::runtime::submit(device, executable, programIndex, inputs);

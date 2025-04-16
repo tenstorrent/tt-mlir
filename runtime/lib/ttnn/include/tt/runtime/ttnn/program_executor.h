@@ -24,12 +24,11 @@ class ProgramContext; // Forward declaration
  */
 class ProgramExecutor {
 public:
-  // Constructor that accepts an external cache and input versions
+  // Constructor for executing a program
   ProgramExecutor(const ::tt::target::ttnn::Program *program,
-                  const Binary &executableHandle,
+                  Binary &executableHandle,
                   std::vector<::tt::runtime::Tensor> &programInputs,
                   ::ttnn::MeshDevice *meshDevice,
-                  std::shared_ptr<TensorCache> externalCache,
                   const size_t programIndex = 0);
 
   /**

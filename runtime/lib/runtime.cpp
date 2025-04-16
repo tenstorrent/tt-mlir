@@ -78,6 +78,11 @@ getMemoryView(Device device, int deviceID) {
 
   LOG_FATAL("runtime is not enabled");
 }
+
+std::shared_ptr<TensorCache> createTensorCache() {
+  return std::make_shared<TensorCache>();
+}
+
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {
@@ -731,7 +736,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   LOG_FATAL("runtime is not enabled");
 }
 
-std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+std::vector<Tensor> submit(Device deviceHandle, Binary &executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)

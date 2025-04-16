@@ -17,14 +17,12 @@
 namespace tt::runtime {
 
 /**
- * Generate a cache outer key using the binary content hash and program index.
- * This provides a unique identifier for each program in a binary without
- * requiring an explicit UUID field in the flatbuffer. The outer key is used to
- * avoid conflicts when sharing a cache across multiple binaries.
+ * Generate a cache key using the device ID and program index.
+ * This provides a unique identifier for each program execution context.
  */
-inline std::string generateCacheOuterKey(const std::string &contentHash,
+inline std::string generateCacheOuterKey(const int deviceId,
                                          const size_t programIndex) {
-  return contentHash + ":" + std::to_string(programIndex);
+  return std::to_string(deviceId) + ":" + std::to_string(programIndex);
 }
 
 /**
@@ -116,8 +114,8 @@ public:
     cache.erase(it);
   }
 
-  void remove(const std::string &uuid, const size_t programIdx) {
-    remove(generateCacheOuterKey(uuid, programIdx));
+  void remove(const int deviceId, const size_t programIdx) {
+    remove(generateCacheOuterKey(deviceId, programIdx));
   }
 
 private:

@@ -215,14 +215,6 @@ class Run:
             help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
         )
         Run.register_arg(
-            name="--enable-tensor-cache",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="enable tensor caching between program runs for const-eval",
-        )
-        # Register the argument
-        Run.register_arg(
             name="--dirty-tensor-schedule",
             type=str,
             default="",
@@ -467,7 +459,6 @@ class Run:
             if self["--disable-eth-dispatch"]:
                 dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
-<<<<<<< HEAD
             for bin in binaries:
                 try:
                     self.logging.info(f"evaluating binary={bin.file_path}")
@@ -476,14 +467,6 @@ class Run:
                     mesh_options.dispatch_core_type = dispatch_core_type
                     mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
                     device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
-=======
-            mesh_shape = [1, len(self.query.device_ids)]
-            mesh_options = ttrt.runtime.MeshDeviceOptions()
-            mesh_options.dispatch_core_type = dispatch_core_type
-            mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
-            mesh_options.enable_tensor_cache = self["--enable-tensor-cache"]
-            device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
->>>>>>> 62ddd8eb9 (address Predrag's feedback)
 
                     pre_op_callback_runtime_config = CallbackRuntimeConfig(
                         device,
@@ -515,19 +498,12 @@ class Run:
                         post_op_get_callback_fn(post_op_callback_runtime_config),
                     )
 
-<<<<<<< HEAD
                     if self["--save-artifacts"]:
                         self.artifacts.create_binary_artifacts_folder(bin)
 
                     if self["--emitc"]:
                         # .so are compiled such that they have the same name as flatbuffers, so we rename here
                         emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
-=======
-            try:
-                for bin in binaries:
-                    try:
-                        self.logging.info(f"evaluating binary={bin.file_path}")
->>>>>>> 62ddd8eb9 (address Predrag's feedback)
 
                         # Open the dylib
                         emitc_dylib_handle = ttrt.runtime.testing.open_so(
