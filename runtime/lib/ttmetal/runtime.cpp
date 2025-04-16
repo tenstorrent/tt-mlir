@@ -33,9 +33,9 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
 }
 
-static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
-}
+// static Tensor createNullTensor() {
+//   return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
+// }
 
 static tt::runtime::MemoryView
 createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
