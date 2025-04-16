@@ -77,16 +77,12 @@ getOpConstraints(std::string_view name, MLIRContext *context,
     assert(false && "Malformed op constraints query response");
   }
 
-  auto outputSpec = deviceGrid ? conversion::getLayoutAttrFromTensorSpec(
-                                     context, query.output_tensor_spec.value(),
-                                     deviceGrid.getShape())
-                               : conversion::getLayoutAttrFromTensorSpec(
-                                     context, query.output_tensor_spec.value());
-
-  return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
-                         query.resource_usage.l1_buffers_peak_per_core,
-                         query.resource_usage.l1_output_buffer_per_core,
-                         outputSpec);
+  return std::make_tuple(
+      query.resource_usage.cb_peak_size_per_core,
+      query.resource_usage.l1_buffers_peak_per_core,
+      query.resource_usage.l1_output_buffer_per_core,
+      conversion::getLayoutAttrFromTensorSpec(
+          context, query.output_tensor_spec.value(), deviceGrid.getShape()));
 }
 
 template <class Callable>

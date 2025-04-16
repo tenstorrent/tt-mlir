@@ -633,7 +633,7 @@ TEST_F(Conversion, TensorSpecToLayout) {
         tensorShape, originalLayout);
     const auto reconvertedLayout =
         mlir::tt::op_model::ttnn::conversion::getLayoutAttrFromTensorSpec(
-            &context, tensorSpec);
+            &context, tensorSpec, /*deviceGrid=*/{8, 8});
 
     ExpectLayoutsEQ(originalLayout, reconvertedLayout);
   }
@@ -707,7 +707,7 @@ TEST_F(Conversion, TensorSpecToLayoutReversed) {
   for (tt::tt_metal::TensorSpec originalTensorSpec : tensorSpecs) {
     const auto layout =
         mlir::tt::op_model::ttnn::conversion::getLayoutAttrFromTensorSpec(
-            &context, originalTensorSpec);
+            &context, originalTensorSpec, /*deviceGrid=*/{8, 8});
     const auto reconvertedTensorSpec =
         mlir::tt::op_model::ttnn::conversion::getTensorSpec(
             mlir::tt::op_model::ttnn::conversion::getShape(tensorShape),
