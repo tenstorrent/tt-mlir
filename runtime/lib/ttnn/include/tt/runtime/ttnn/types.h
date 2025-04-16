@@ -7,7 +7,6 @@
 
 #include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
-#include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 
@@ -15,12 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <string>
-#include <string_view>
 #include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 
 namespace tt::runtime::ttnn {
 using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::IDevice>,
@@ -227,6 +221,9 @@ public:
 
   DeviceVariant getTargetDevice(uint32_t meshId);
 
+  //
+  // Dylib Manager Operation
+  //
   void *tryGetDylibHandle(const uint32_t dylibId) {
     return dylibManager.getHandle(dylibId);
   }
@@ -235,6 +232,7 @@ public:
   // Tensor Pool Operations
   //
   ProgramTensorPool &getTensorPool() { return tensorPool; }
+
   const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
   //
@@ -252,7 +250,9 @@ public:
 
   Binary &getExecutableHandle() { return executableHandle; }
 
-  // Get the program index within the binary
+  //
+  // Program Index getter
+  //
   size_t getProgramIndex() const { return programIndex; }
 
 private:
