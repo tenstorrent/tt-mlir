@@ -24,9 +24,9 @@ void registerDevice(ModuleOp module, std::string path,
     module->setAttr(tt::SystemDescAttr::name,
                     tt::SystemDescAttr::getFromPath(context, path));
   } else if (!module->hasAttr(tt::SystemDescAttr::name)) {
-    module->setAttr(
-        tt::SystemDescAttr::name,
-        tt::SystemDescAttr::getDefault(context, llvm::to_vector(meshShape)));
+    module->setAttr(tt::SystemDescAttr::name,
+                    tt::SystemDescAttr::getDefault(context, "wormhole_b0",
+                                                   llvm::to_vector(meshShape)));
   }
 
   SymbolTable symbolTable(module);
