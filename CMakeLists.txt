@@ -136,7 +136,7 @@ install(
     tools/ttnn-standalone/compile_so.cpp
     tools/ttnn-standalone/compile_so.hpp
     tools/ttnn-standalone/README.md
-    tools/ttnn-standalone/ttnn-dylib.cpp
+    # tools/ttnn-standalone/ttnn-dylib.cpp
     tools/ttnn-standalone/ttnn-precompiled.hpp
     tools/ttnn-standalone/ttnn-standalone.cpp
   DESTINATION "${CMAKE_INSTALL_PREFIX}/tools/ttnn-standalone"
