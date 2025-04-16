@@ -11,6 +11,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
@@ -40,8 +41,130 @@ unsigned mlir::tt::ChipDescAttr::getScratchL1RegionAddress() const {
   return getL1Size() - getScratchL1RegionSize();
 }
 
-mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
-    MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
+mlir::tt::SystemDescAttr createDefaultBlackholeSystemDesc(
+    mlir::MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
+  // Set default values
+  constexpr auto l1Size = 1572864;
+  constexpr auto numDramChannels = 8;
+  constexpr auto dramChannelSize = 4278190080;
+  constexpr auto nocL1AddressAlignBytes = 16;
+  constexpr auto pcieAddressAlignBytes = 64;
+  constexpr auto nocDRAMAddressAlignBytes = 64;
+  constexpr auto l1UnreservedBase = 98304;
+  constexpr auto eriscL1UnreservedBase = 100032;
+  constexpr auto dramUnreservedBase = 64;
+  constexpr auto dramUnreservedEnd = 4276383744;
+  constexpr auto numCBs = 32;
+  constexpr auto numComputeThreads = 1;
+  constexpr auto numDatamovementThreads = 2;
+
+  // Get number of chips in mesh.
+  int64_t numberOfChips =
+      std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
+                      std::multiplies<int64_t>());
+
+  // Populate dummy values for single chip or multi chip config.
+  llvm::SmallVector<std::int64_t> gridShape = {10, 13};
+
+  // Physical-to-translated coordinate translation offsets
+  llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18};
+
+  // Populate a placeholder for supported tile sizes.
+  llvm::SmallVector<DataTypeAttr> supported_data_types = {
+      DataTypeAttr::get(context, DataType::Float32),
+      DataTypeAttr::get(context, DataType::Float16),
+      DataTypeAttr::get(context, DataType::BFloat16),
+      DataTypeAttr::get(context, DataType::BFP_Float8),
+      DataTypeAttr::get(context, DataType::BFP_BFloat8),
+      DataTypeAttr::get(context, DataType::BFP_Float4),
+      DataTypeAttr::get(context, DataType::BFP_BFloat4),
+      DataTypeAttr::get(context, DataType::BFP_Float2),
+      DataTypeAttr::get(context, DataType::BFP_BFloat2),
+      DataTypeAttr::get(context, DataType::UInt32),
+      DataTypeAttr::get(context, DataType::UInt16),
+      DataTypeAttr::get(context, DataType::UInt8),
+      DataTypeAttr::get(context, DataType::Int32),
+  };
+
+  // Populate a placeholder for supported tile sizes.
+  llvm::SmallVector<TileSizeAttr> supported_tile_sizes = {
+      TileSizeAttr::get(context, 4, 16),  TileSizeAttr::get(context, 16, 16),
+      TileSizeAttr::get(context, 32, 16), TileSizeAttr::get(context, 4, 32),
+      TileSizeAttr::get(context, 16, 32), TileSizeAttr::get(context, 32, 32),
+  };
+
+  // dram = [ 0x0,  1x0,  2x0,  3x0,  4x0,  5x0,  6x0,  7x0]
+  llvm::SmallVector<CoreCoordAttr> dramCores;
+  for (std::int64_t y = 0; y < 8; ++y) {
+    dramCores.push_back(CoreCoordAttr::get(context, y, 0));
+  }
+
+  // Get number of chips indices.
+  llvm::SmallVector<uint32_t> chipIndicesList =
+      llvm::to_vector(llvm::seq<uint32_t>(numberOfChips));
+
+  // Duplicate number of chip desc attributes based on number of chips.
+  llvm::SmallVector<ChipDescAttr> chipDescs;
+  chipDescs.reserve(numberOfChips);
+
+  for (auto i = 0; i < numberOfChips; i++) {
+    chipDescs.push_back(ChipDescAttr::get(
+        context, ArchAttr::get(context, Arch::Blackhole), gridShape,
+        coordTranslationOffsets, l1Size, numDramChannels, dramChannelSize,
+        nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
+        l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
+        dramUnreservedEnd,
+        ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
+        supported_data_types, supported_tile_sizes, numCBs, numComputeThreads,
+        numDatamovementThreads));
+  }
+
+  // Duplicate number of chip capabilities based on number of chips.
+  llvm::SmallVector<ChipCapabilityAttr> chipCapabilities;
+  chipCapabilities.reserve(numberOfChips);
+
+  for (auto i = 0; i < numberOfChips; i++) {
+    chipCapabilities.push_back(ChipCapabilityAttr::get(
+        context,
+        // NOLINTNEXTLINE
+        ChipCapability::PCIE | ChipCapability::HostMMIO));
+  }
+
+  // Update chip channels based on number of chips.
+  llvm::SmallVector<ChipChannelAttr> chipChannelList;
+  chipChannelList.reserve(numberOfChips);
+
+  if (numberOfChips != 1) {
+    for (auto i = 0; i < numberOfChips; i++) {
+      // Assume a default ring topology where final chip connects with initial
+      // chip.
+      chipChannelList.push_back(ChipChannelAttr::get(
+          context, i, {0, 0}, (i + 1) % numberOfChips, {0, 0}));
+    }
+  }
+
+  return SystemDescAttr::get(
+      context,
+      // CPU Descriptors
+      {CPUDescAttr::get(context, CPURole::Host,
+                        mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
+      // Chip Descriptors
+      chipDescs,
+      // Chip Descriptor Indices
+      chipIndicesList,
+      // Chip capabilities
+      chipCapabilities,
+      // Chip Mesh Coordinates
+      {
+          ChipCoordAttr::get(context, 0, 0, 0, 0),
+      },
+      // Chip Channel Connections
+      chipChannelList);
+}
+
+mlir::tt::SystemDescAttr
+createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
+                                const ::llvm::SmallVector<int64_t> &meshShape) {
   // Set default values
   constexpr auto l1Size = 1499136;
   constexpr auto numDramChannels = 12;
@@ -104,7 +227,7 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
       llvm::to_vector(llvm::seq<uint32_t>(numberOfChips));
 
   // Duplicate number of chip desc attributes based on number of chips.
-  llvm::SmallVector<tt::ChipDescAttr> chipDescs;
+  llvm::SmallVector<ChipDescAttr> chipDescs;
   chipDescs.reserve(numberOfChips);
 
   for (auto i = 0; i < numberOfChips; i++) {
@@ -120,35 +243,34 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
   }
 
   // Duplicate number of chip capabilities based on number of chips.
-  llvm::SmallVector<tt::ChipCapabilityAttr> chipCapabilities;
+  llvm::SmallVector<ChipCapabilityAttr> chipCapabilities;
   chipCapabilities.reserve(numberOfChips);
 
   for (auto i = 0; i < numberOfChips; i++) {
-    chipCapabilities.push_back(tt::ChipCapabilityAttr::get(
+    chipCapabilities.push_back(ChipCapabilityAttr::get(
         context,
         // NOLINTNEXTLINE
-        tt::ChipCapability::PCIE | tt::ChipCapability::HostMMIO));
+        ChipCapability::PCIE | ChipCapability::HostMMIO));
   }
 
   // Update chip channels based on number of chips.
-  llvm::SmallVector<tt::ChipChannelAttr> chipChannelList;
+  llvm::SmallVector<ChipChannelAttr> chipChannelList;
   chipChannelList.reserve(numberOfChips);
 
   if (numberOfChips != 1) {
     for (auto i = 0; i < numberOfChips; i++) {
       // Assume a default ring topology where final chip connects with initial
       // chip.
-      chipChannelList.push_back(tt::ChipChannelAttr::get(
+      chipChannelList.push_back(ChipChannelAttr::get(
           context, i, {0, 0}, (i + 1) % numberOfChips, {0, 0}));
     }
   }
 
-  return tt::SystemDescAttr::get(
+  return SystemDescAttr::get(
       context,
       // CPU Descriptors
-      {tt::CPUDescAttr::get(
-          context, tt::CPURole::Host,
-          mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
+      {CPUDescAttr::get(context, CPURole::Host,
+                        mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
       // Chip Descriptors
       chipDescs,
       // Chip Descriptor Indices
@@ -157,10 +279,23 @@ mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
       chipCapabilities,
       // Chip Mesh Coordinates
       {
-          tt::ChipCoordAttr::get(context, 0, 0, 0, 0),
+          ChipCoordAttr::get(context, 0, 0, 0, 0),
       },
       // Chip Channel Connections
       chipChannelList);
+}
+
+mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
+    MLIRContext *context, tt::Arch arch,
+    const ::llvm::SmallVector<int64_t> &meshShape) {
+  switch (arch) {
+  case tt::Arch::WormholeB0:
+    return createDefaultWormholeSystemDesc(context, meshShape);
+  case tt::Arch::Blackhole:
+    return createDefaultBlackholeSystemDesc(context, meshShape);
+  default:
+    llvm_unreachable("Unsupported arch");
+  }
 }
 
 mlir::tt::SystemDescAttr

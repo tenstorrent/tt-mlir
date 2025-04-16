@@ -16,7 +16,7 @@ namespace mlir::tt {
 // Register device pass
 //===----------------------------------------------------------------------===//
 
-void registerDevice(ModuleOp module, std::string path,
+void registerDevice(ModuleOp module, tt::Arch arch, std::string path,
                     ArrayRef<int64_t> meshShape) {
   MLIRContext *context = module.getContext();
 
@@ -24,9 +24,9 @@ void registerDevice(ModuleOp module, std::string path,
     module->setAttr(tt::SystemDescAttr::name,
                     tt::SystemDescAttr::getFromPath(context, path));
   } else if (!module->hasAttr(tt::SystemDescAttr::name)) {
-    module->setAttr(
-        tt::SystemDescAttr::name,
-        tt::SystemDescAttr::getDefault(context, llvm::to_vector(meshShape)));
+    module->setAttr(tt::SystemDescAttr::name,
+                    tt::SystemDescAttr::getDefault(context, arch,
+                                                   llvm::to_vector(meshShape)));
   }
 
   SymbolTable symbolTable(module);
@@ -55,7 +55,7 @@ public:
       TTRegisterDevicePass>::TTRegisterDevicePassBase;
 
   void runOnOperation() final {
-    registerDevice(getOperation(), systemDescPath, *meshShape);
+    registerDevice(getOperation(), archName, systemDescPath, *meshShape);
   }
 };
 } // namespace
