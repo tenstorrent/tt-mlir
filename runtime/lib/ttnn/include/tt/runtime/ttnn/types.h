@@ -188,19 +188,13 @@ public:
                  const std::vector<uint32_t> &programOutputIds,
                  TensorPtrMap &&liveTensors,
                  common::DylibManager &&programDylibManager,
-                 ::ttnn::MeshDevice *parentMesh, const Binary &executableHandle,
-                 std::shared_ptr<TensorCache> externalCache,
+                 ::ttnn::MeshDevice *parentMesh, Binary &executableHandle,
                  size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         dylibManager(std::move(programDylibManager)), parentMesh(parentMesh),
-        executableHandle(executableHandle), externalCache(externalCache),
-        programIndex(programIndex) {
+        executableHandle(executableHandle), programIndex(programIndex) {
     LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
-    // If no external cache was provided, create a default one
-    if (!this->externalCache) {
-      this->externalCache = std::make_shared<TensorCache>();
-    }
   }
 
   ProgramContext(const ProgramContext &) = delete;
@@ -216,8 +210,6 @@ public:
   const ::ttnn::MeshDevice &getParentMesh() const { return *parentMesh; }
 
   size_t parentMeshSize() const { return parentMesh->num_devices(); }
-
-  Binary getExecutableHandle() { return executableHandle; }
 
   //
   // Sub Mesh Operations
@@ -246,9 +238,19 @@ public:
   const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
   //
-  // Tensor Cache Operations
+  // Executable Handle Operations
   //
-  std::shared_ptr<TensorCache> getCache() { return externalCache; }
+  std::shared_ptr<TensorCache> getCache() {
+    auto cache = executableHandle.getCache();
+    if (!cache) {
+      // Create a new cache if it doesn't exist
+      executableHandle.setCache(std::make_shared<TensorCache>());
+      return executableHandle.getCache();
+    }
+    return cache;
+  }
+
+  Binary &getExecutableHandle() { return executableHandle; }
 
   // Get the program index within the binary
   size_t getProgramIndex() const { return programIndex; }
@@ -265,10 +267,8 @@ private:
   // Will be populated by GetDevice ops
   std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
 
-  Binary executableHandle;
-
-  // The shared tensor cache
-  std::shared_ptr<TensorCache> externalCache;
+  // The executable binary handle
+  Binary &executableHandle;
 
   // The index of the program within the binary
   const size_t programIndex;

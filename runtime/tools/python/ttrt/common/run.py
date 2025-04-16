@@ -215,14 +215,6 @@ class Run:
             help="Ignore check for Major/Minor/Patch between flatbuffer and TTRT, use at your own risk.",
         )
         Run.register_arg(
-            name="--enable-tensor-cache",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="enable tensor caching between program runs for const-eval",
-        )
-        # Register the argument
-        Run.register_arg(
             name="--dirty-tensor-schedule",
             type=str,
             default="",
@@ -473,7 +465,6 @@ class Run:
             mesh_options.device_ids = self.query.device_ids
             mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_async_ttnn = self["--enable-async-ttnn"]
-            mesh_options.enable_tensor_cache = self["--enable-tensor-cache"]
             device = ttrt.runtime.open_mesh_device(mesh_shape, mesh_options)
 
             pre_op_callback_runtime_config = CallbackRuntimeConfig(
@@ -698,10 +689,10 @@ class Run:
                                         program_index,
                                         inputs,
                                     )
-                                    if self["--enable-tensor-cache"]:
+                                    if self["--check-cache-stats"]:
                                         # Log cache stats after execution
                                         cache_stats = (
-                                            device.get_tensor_cache().get_stats()
+                                            bin.fbb.get_tensor_cache().get_stats()
                                         )
                                         hits = cache_stats.get("hits", 0)
                                         misses = cache_stats.get("misses", 0)
@@ -880,32 +871,31 @@ class Run:
                                         f"Finished comparing program level golden for output_{idx}"
                                     )
 
-                            if self["--enable-tensor-cache"]:
-                                # Check cache statistics if requested
-                                if self["--check-cache-stats"]:
-                                    # Parse the requested cache stats from the parameter
-                                    requested_stats = {}
-                                    try:
-                                        stats_configs = self[
-                                            "--check-cache-stats"
-                                        ].split(",")
-                                        for config in stats_configs:
-                                            if ":" not in config:
-                                                raise Exception(
-                                                    f"Invalid cache stats format: '{config}'. Expected format 'key:value'"
-                                                )
-                                            key, value = config.split(":", 1)
-                                            key = key.strip().lower()
-                                            value = value.strip()
-                                            if not value.isdigit():
-                                                raise Exception(
-                                                    f"Invalid cache stats value: '{value}'. Expected a non-negative integer"
-                                                )
-                                            requested_stats[key] = int(value)
+                            # Check cache statistics if requested
+                            if self["--check-cache-stats"]:
+                                # Parse the requested cache stats from the parameter
+                                requested_stats = {}
+                                try:
+                                    stats_configs = self["--check-cache-stats"].split(
+                                        ","
+                                    )
+                                    for config in stats_configs:
+                                        if ":" not in config:
+                                            raise Exception(
+                                                f"Invalid cache stats format: '{config}'. Expected format 'key:value'"
+                                            )
+                                        key, value = config.split(":", 1)
+                                        key = key.strip().lower()
+                                        value = value.strip()
+                                        if not value.isdigit():
+                                            raise Exception(
+                                                f"Invalid cache stats value: '{value}'. Expected a non-negative integer"
+                                            )
+                                        requested_stats[key] = int(value)
 
                                         # Get the actual cache stats from the device
                                         cache_stats = (
-                                            device.get_tensor_cache().get_stats()
+                                            bin.fbb.get_tensor_cache().get_stats()
                                         )
 
                                         # Compare the requested stats with the actual stats
@@ -927,11 +917,13 @@ class Run:
                                             f"Cache statistics validation successful: {requested_stats}"
                                         )
 
-                                    except Exception as e:
-                                        error_msg = f"Failed to validate cache statistics: {str(e)}"
-                                        self.logging.error(error_msg)
-                                        # Wrap in a TTRTTestException so it gets properly handled as a test error
-                                        raise TTRTTestException(error_msg)
+                                except Exception as e:
+                                    error_msg = (
+                                        f"Failed to validate cache statistics: {str(e)}"
+                                    )
+                                    self.logging.error(error_msg)
+                                    # Wrap in a TTRTTestException so it gets properly handled as a test error
+                                    raise TTRTTestException(error_msg)
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:

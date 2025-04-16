@@ -72,10 +72,9 @@ static void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
 }
 
 ProgramExecutor::ProgramExecutor(
-    const ::tt::target::ttnn::Program *program, const Binary &executableHandle,
+    const ::tt::target::ttnn::Program *program, Binary &executableHandle,
     std::vector<::tt::runtime::Tensor> &programInputs,
-    ::ttnn::MeshDevice *meshDevice, std::shared_ptr<TensorCache> externalCache,
-    const size_t programIndex)
+    ::ttnn::MeshDevice *meshDevice, const size_t programIndex)
     : program(program), executableHandle(executableHandle) {
   LOG_ASSERT(program, "Program must be provided for execution");
 
@@ -100,7 +99,7 @@ ProgramExecutor::ProgramExecutor(
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
       common::DylibManager(program->dylibs()), meshDevice, executableHandle,
-      externalCache, programIndex);
+      programIndex);
 }
 
 void ProgramExecutor::runCallback(

@@ -25,15 +25,14 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 }
 
 std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
-                               Binary executableHandle,
+                               Binary &executableHandle,
                                std::uint32_t programIndex,
-                               std::vector<::tt::runtime::Tensor> &inputs,
-                               std::shared_ptr<TensorCache> externalCache) {
+                               std::vector<::tt::runtime::Tensor> &inputs) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
   ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
-                           externalCache, programIndex);
+                           programIndex);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
