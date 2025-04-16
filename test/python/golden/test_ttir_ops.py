@@ -9,7 +9,6 @@ from typing import Callable, List
 from ttmlir.test_utils import compile_to_flatbuffer
 from ttmlir.ttir_builder import Operand, TTIRBuilder, UnitAttr, Shape, TypeInfo
 from ttmlir.dialects import ttir
-from ttmlir.passes import GoldenTensor, DataType
 from ttmlir.ir import (
     DenseI64ArrayAttr,
     DenseI32ArrayAttr,
@@ -991,65 +990,6 @@ def test_requantize(
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
-
-# FIXME: figure out how to incorporate this into the pytest framework
-# def test_provided_graph_input_output():
-#    def golden_tensor_to_torch_tensor(golden):
-#        shape = golden.shape
-#        stride = golden.strides
-#        match golden.dtype:
-#            case DataType.Float16:
-#                np_dtype = np.float16
-#            case DataType.BFloat16:
-#                np_dtype = np.bfloat16
-#            case DataType.Float32:
-#                np_dtype = np.float32
-#            case DataType.Int32:
-#                np_dtype = np.int32
-#            case None:
-#                np_dtype = np.float32
-#        np_array = (
-#            np.frombuffer(bytes(golden.data), dtype=np_dtype).copy().reshape(shape)
-#        )
-#        tensor = torch.as_strided(torch.from_numpy(np_array), size=shape, stride=stride)
-#        return tensor
-#
-#    @compile_to_flatbuffer(
-#        [
-#            (64, 128),
-#            (64, 128),
-#        ],
-#        targets=["ttnn"],
-#    )
-#    def test_simple_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-#        input_0 = torch.randn(builder.get_shape(in0))
-#        input_1 = torch.randn(builder.get_shape(in1))
-#        output = input_0 + input_1
-#        builder.set_graph_input_output([input_0, input_1], [output])
-#        result = builder.add(in0, in1)
-#
-#        # Verify graph input / output on golden map
-#        golden_map = builder.get_golden_map()
-#
-#        assert "input_0" in golden_map
-#        golden_input_0 = golden_tensor_to_torch_tensor(golden_map["input_0"])
-#        assert torch.equal(golden_input_0, input_0)
-#
-#        assert "input_1" in golden_map
-#        golden_input_1 = golden_tensor_to_torch_tensor(golden_map["input_1"])
-#        assert torch.equal(golden_input_1, input_1)
-#
-#        assert "output_0" in golden_map
-#        golden_output_0 = golden_tensor_to_torch_tensor(golden_map["output_0"])
-#        assert torch.equal(golden_output_0, output)
-#
-#        return result
-#
-#    test_simple_add()
-#
-#
-# if __name__ == "__main__":
-#    import argparse, os
 
 unary_ops = [
     exp,
