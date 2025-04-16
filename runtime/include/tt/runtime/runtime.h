@@ -181,8 +181,31 @@ std::string getOpLocInfo(OpContext opContextHandle);
 std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::vector<std::uint32_t>
+getInputTensorIds(CallbackContext programContextHandle);
+
+std::vector<std::uint32_t>
+getOutputTensorIds(CallbackContext programContextHandle);
+
+std::vector<std::uint32_t>
+getIntermediateInputTensorIds(OpContext opContextHandle,
+                              CallbackContext programContextHandle);
+
+std::vector<std::uint32_t>
+getIntermediateOutputTensorIds(OpContext opContextHandle,
+                               CallbackContext programContextHandle);
+
+bool isTensorLive(CallbackContext programContextHandle,
+                  std::uint32_t global_id);
+
+Tensor getTensor(CallbackContext programContextHandle, std::uint32_t global_id);
+
+Tensor getIntermediateOutputTensor(OpContext opContextHandle,
+                                   CallbackContext programContextHandle);
+
+std::vector<Tensor>
+getIntermediateInputTensors(OpContext opContextHandle,
+                            CallbackContext programContextHandle);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

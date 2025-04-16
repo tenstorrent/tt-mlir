@@ -269,10 +269,10 @@ PYBIND11_MODULE(_C, m) {
   m.def("get_output_tensors", &tt::runtime::getOutputTensors,
         "Get output tensors off device");
   m.def(
-      "get_op_output_tensor",
+      "get_intermediate_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
+        tt::runtime::Tensor tensor = tt::runtime::getIntermediateOutputTensor(
             opContextHandle, programContextHandle);
         return tensor.handle.get() == nullptr
                    ? std::nullopt
@@ -283,6 +283,29 @@ PYBIND11_MODULE(_C, m) {
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
+  m.def("get_input_tensor_ids", &tt::runtime::getInputTensorIds,
+        "Get input tensor IDs");
+  m.def("get_output_tensor_ids", &tt::runtime::getOutputTensorIds,
+        "Get output tensor IDs");
+  m.def("get_intermediate_input_tensor_ids",
+        &tt::runtime::getIntermediateInputTensorIds,
+        "Get intermediate input tensor IDs for an operation");
+  m.def("get_intermediate_output_tensor_ids",
+        &tt::runtime::getIntermediateOutputTensorIds,
+        "Get intermediate output tensor IDs for an operation");
+  m.def("is_tensor_live", &tt::runtime::isTensorLive,
+        "Check if a tensor is live by its global ID");
+  m.def(
+      "get_tensor",
+      [](tt::runtime::CallbackContext &programContextHandle,
+         std::uint32_t global_id) {
+        tt::runtime::Tensor tensor =
+            tt::runtime::getTensor(programContextHandle, global_id);
+        return tensor.handle.get() == nullptr
+                   ? std::nullopt
+                   : std::optional<tt::runtime::Tensor>(tensor);
+      },
+      "Get a tensor by its global ID");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {

@@ -75,11 +75,30 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+Tensor getIntermediateOutputTensor(OpContext opContextHandle,
+                                   CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
 getOutputTensors(CallbackContext programContextHandle);
+
+std::vector<std::uint32_t>
+getInputTensorIds(CallbackContext programContextHandle);
+
+std::vector<std::uint32_t>
+getOutputTensorIds(CallbackContext programContextHandle);
+
+std::vector<std::uint32_t>
+getIntermediateInputTensorIds(OpContext opContextHandle,
+                              CallbackContext programContextHandle);
+
+std::vector<std::uint32_t>
+getIntermediateOutputTensorIds(OpContext opContextHandle,
+                               CallbackContext programContextHandle);
+
+bool isTensorLive(CallbackContext programContextHandle,
+                  std::uint32_t global_id);
+
+Tensor getTensor(CallbackContext programContextHandle, std::uint32_t global_id);
 
 using InputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,
