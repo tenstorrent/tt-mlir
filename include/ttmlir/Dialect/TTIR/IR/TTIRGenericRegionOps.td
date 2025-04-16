@@ -389,19 +389,19 @@ class TTIR_SemaphoreUpdateOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic,
 
       - Set or increment this local core's semaphore value
       ```mlir
-      ttir.semaphore_set %sem0, %c1
-      ttir.semaphore_inc %sem0, %c1
+      ttir.semaphore_set %sem0, %c1 - done
+      ttir.semaphore_inc %sem0, %c1 - done
       ```
 
       - Update a remote core's semaphore value
       ```mlir
-      ttir.semaphore_set %sem0, %c1 core[%c2, %c2]
+      ttir.semaphore_set %sem0, %c1 core[%c2, %c2] -> illegal
       ttir.semaphore_inc %sem0, %c1 core[%c2, %c2]
       ```
 
       - Update a remote mcast region of cores' semaphore value
       ```mlir
-      ttir.semaphore_set %sem0, %c1 core[%c2, %c2] mcast[%c4, %c4]
+      ttir.semaphore_set %sem0, %c1 core[%c2, %c2] mcast[%c4, %c4] - done
       ttir.semaphore_inc %sem0, %c1 core[%c2, %c2] mcast[%c4, %c4]
       ```
     }];

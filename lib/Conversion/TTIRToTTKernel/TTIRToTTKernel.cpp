@@ -638,6 +638,108 @@ public:
 };
 } // namespace
 
+namespace {
+template <typename T>
+class TTIRSemaphoreSetRewriter : public OpConversionPattern<T> {
+public:
+  using OpConversionPattern<T>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(T op, typename T::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto device = lookupDevice(op);
+    auto systemDesc = getCurrentScopeSystemDesc(op);
+    auto chipIds = device.getChipIds();
+    auto chipDescs = systemDesc.getChipDescs();
+    auto chipDescIndices = systemDesc.getChipDescIndices();
+    assert(chipIds.size() == 1);
+    auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
+
+    Value value = op.getValue();
+
+    Value semaphoreAddr = rewriter.create<ttkernel::GetSemaphoreOp>(
+        op.getLoc(), op.getSemaphore());
+
+    if (op.getDstCoreIndex().empty()) {
+      if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
+        emitError(op.getLoc(), "ttir.semaphore_inc to local core is illegal.");
+        return failure();
+      }
+
+      // Local semaphore set
+      auto semaphorePtr =
+          rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+
+      if (mlir::isa<ttir::SemaphoreSetOp>(op)) {
+        rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetOp>(
+            op, semaphorePtr, value);
+      }
+    } else if (op.getMcastShape().empty()) {
+      if (mlir::isa<ttir::SemaphoreSetOp>(op)) {
+        emitError(op.getLoc(),
+                  "ttir.semaphore_set to single remote core is illegal.");
+        return failure();
+      }
+      auto [virtY, virtX] = TTIRDMARewriter::getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+      auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+          op.getLoc(), virtX, virtY, semaphoreAddr);
+      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
+                                                               value);
+    } else {
+      if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
+        emitError(op.getLoc(), "ttir.semaphore_inc multicast is illegal.");
+        return failure();
+      }
+
+      auto [virtY, virtX] = TTIRDMARewriter::getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+      auto [mcastEndY, mcastEndX] = TTIRDMARewriter::getMcastEndCoords(
+          rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
+      Value numDestsIdx = rewriter.create<arith::MulIOp>(
+          op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
+      Value numDests = rewriter.create<arith::IndexCastOp>(
+          op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+      auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
+          op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
+          nullptr);
+
+      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphoreAddr,
+                                                   value);
+      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
+          op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTIRSemaphoreWaitRewriter
+    : public OpConversionPattern<ttir::SemaphoreWaitOp> {
+  using OpConversionPattern<ttir::SemaphoreWaitOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::SemaphoreWaitOp op,
+                  ttir::SemaphoreWaitOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value semaphoreAddr = rewriter.create<ttkernel::GetSemaphoreOp>(
+        op.getLoc(), op.getSemaphore());
+
+    rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreWaitOp>(op, semaphoreAddr,
+                                                              op.getValue());
+    if (op.getResetValue()) {
+      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphoreAddr,
+                                                   op.getResetValue());
+    }
+
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {

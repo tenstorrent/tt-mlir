@@ -501,7 +501,7 @@ def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
       Get L1 addr of the semaphore with specified semaphore id
     }];
 
-    let arguments = (ins IndexLike:$semaphore_id);
+    let arguments = (ins I32:$semaphore);
     let results = (outs TTKernel_L1Addr:$sem_addr);
 }
 
@@ -574,8 +574,8 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
     let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
-                         BoolAttr:$linked,
-                         BoolAttr:$multicast_path_reserve);
+                         OptionalAttr<BoolAttr>:$linked,
+                         OptionalAttr<BoolAttr>:$multicast_path_reserve);
 }
 
 def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set_multicast_loopback_src"> {
