@@ -126,6 +126,33 @@ TEST_F(OpModelBase, ReluOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, ReluOpInterfaceNullOutput) {
+  // create ReluOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), outputType,
+                                     ::mlir::ValueRange{input});
+
+  // test ReluOp interface
+  OpModel backend = dyn_cast<OpModel>(relu.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(relu), nullptr);
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 8192);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+}
+
 TEST_F(OpModelBase, SqrtOpInterface) {
   // create SqrtOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -220,6 +247,33 @@ TEST_F(OpModelBase, AddOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, AddOpInterfaceNullOutput) {
+  // create AddOp
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  auto add = builder.create<AddOp>(builder.getUnknownLoc(), outputType,
+                                   ::mlir::ValueRange{input1, input2});
+
+  // test AddOp interface
+  OpModel backend = dyn_cast<OpModel>(add.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(add), nullptr);
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 12288);
+  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+}
+
 TEST_F(OpModelBase, MultiplyOpInterface) {
   // create MultiplyOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -285,6 +339,36 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+}
+
+TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
+  // create MatmulOp
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 2048};
+
+  auto inputA = createEmptyTensor(tensorShapeA);
+  auto inputB = createEmptyTensor(tensorShapeB);
+  auto outputType = createRankedTensorType(tensorShapeO);
+
+  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
+                                         ::mlir::ValueRange{inputA, inputB});
+
+  // test MatmulOp interface
+  OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(matmul), nullptr);
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 786432);
+  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(outputSize, 0);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
 }
 
 TEST_F(OpModelBase, MeanOpInterface) {
@@ -481,9 +565,6 @@ TEST_F(OpModelBase, typecastOp) {
 }
 
 TEST_F(OpModelBase, Conv2dInterface) {
-  // Enable test once #2588 is fixed.
-  GTEST_SKIP();
-
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
   llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
@@ -509,9 +590,12 @@ TEST_F(OpModelBase, Conv2dInterface) {
 
   // test Conv2dOp interface
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
-  // TODO(odjuricic): This will change to EXPECT_TRUE once a fix lands in metal.
-  EXPECT_FALSE(static_cast<bool>(constraintsExp));
-  llvm::consumeError(constraintsExp.takeError());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 229440);
+  EXPECT_EQ(peakSize, 190568);
+  EXPECT_EQ(outputSize, 26624);
 
   // Device hangs otherwise.
   mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
@@ -523,6 +607,47 @@ TEST_F(OpModelBase, Conv2dInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
+}
+
+TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
+  // create Conv2dOp
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
+  llvm::SmallVector<int64_t> weightShape = {1, 1, 1568, 64};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<ttnn::GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1));
+
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
+      64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
+      llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), 1, nullptr);
+
+  // Device hangs otherwise.
+  mlir::tt::op_model::ttnn::SingletonDeviceContext::resetInstance();
+
+  // test Conv2dOp interface
+  OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(conv2d), nullptr);
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  EXPECT_EQ(cbSize, 229440);
+  EXPECT_EQ(peakSize, 190568);
+  EXPECT_EQ(outputSize, 28672);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasShardedL1TensorMemoryLayout());
+  EXPECT_EQ(outputLayout.getMemLayout().getValue(),
+            TensorMemoryLayout::HeightSharded);
 }
 
 TEST_F(OpModelBase, maxPool2DOp) {

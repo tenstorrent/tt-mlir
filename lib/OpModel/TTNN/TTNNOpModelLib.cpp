@@ -277,7 +277,7 @@ getEltwiseUnaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints(opName, outputLayout.getContext(),
+  return operation::getOpConstraints(opName, inputLayout.getContext(),
                                      deviceGrid, query);
 }
 
@@ -347,7 +347,7 @@ getEltwiseBinaryOpConstraints(std::string_view opName, OpSymbol opSymbol,
                                                outputMemoryConfig);
   };
 
-  return operation::getOpConstraints(opName, outputLayout.getContext(),
+  return operation::getOpConstraints(opName, inputLayoutA.getContext(),
                                      deviceGrid, query);
 }
 
@@ -513,7 +513,7 @@ SoftmaxOpInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("SoftmaxOpInterface",
-                                     outputLayout.getContext(), deviceGrid,
+                                     inputLayout.getContext(), deviceGrid,
                                      softmaxOpQuery);
 #else
   return std::make_tuple(0, 0, 0, nullptr);
@@ -584,7 +584,7 @@ MeanOpInterface::getOpConstraints(GridAttr deviceGrid,
   };
 
   return operation::getOpConstraints(
-      "MeanOpInterface", outputLayout.getContext(), deviceGrid, meanOpQuery);
+      "MeanOpInterface", inputLayout.getContext(), deviceGrid, meanOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -653,7 +653,7 @@ ReshapeOpInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("ReshapeOpInterface",
-                                     outputLayout.getContext(), deviceGrid,
+                                     inputLayout.getContext(), deviceGrid,
                                      reshapeOpQuery);
 #else
   return std::make_tuple(0, 0, 0, nullptr);
@@ -715,7 +715,7 @@ TypecastOpInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("typecastOpInterface",
-                                     outputLayout.getContext(), deviceGrid,
+                                     inputLayout.getContext(), deviceGrid,
                                      typecastOpQuery);
 #else
   return std::make_tuple(0, 0, 0, nullptr);
@@ -786,7 +786,7 @@ ToLayoutOpInterface::getOpConstraints(
         passDevicePtr ? device : nullptr);
   };
   return operation::getOpConstraints("ToLayoutOpInterface",
-                                     outputLayout.getContext(), deviceGrid,
+                                     inputLayout.getContext(), deviceGrid,
                                      toLayoutOpQuery);
 #else
   return std::make_tuple(0, 0, 0, nullptr);
@@ -856,7 +856,7 @@ TransposeOpInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("TransposeOpInterface",
-                                     outputLayout.getContext(), deviceGrid,
+                                     inputLayout.getContext(), deviceGrid,
                                      transposeOpQuery);
 #else
   return std::make_tuple(0, 0, 0, nullptr);
@@ -929,7 +929,7 @@ MatmulOpInterface::getOpConstraints(GridAttr deviceGrid,
   };
 
   return operation::getOpConstraints("MatmulOpInterface",
-                                     outputLayout.getContext(), deviceGrid,
+                                     inputLayoutA.getContext(), deviceGrid,
                                      matmulOpQuery);
 #else
   return std::make_tuple(0, 0, 0, nullptr);
@@ -1062,9 +1062,8 @@ Conv2dOpInterface::getOpConstraints(
         detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints("Conv2dOpInterface",
-                                     outputLayout.getContext(), deviceGrid,
-                                     conv2dOpQuery);
+  return operation::getOpConstraints(
+      "Conv2dOpInterface", inputLayout.getContext(), deviceGrid, conv2dOpQuery);
 #else
   return std::make_tuple(0, 0, 0, nullptr);
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -1168,7 +1167,7 @@ MaxPool2DInterface::getOpConstraints(
   };
 
   return operation::getOpConstraints("MaxPool2DInterface",
-                                     outputLayout.getContext(), deviceGrid,
+                                     inputLayout.getContext(), deviceGrid,
                                      maxPool2DQuery);
 #else
   return std::make_tuple(0, 0, 0, nullptr);
