@@ -16,6 +16,8 @@ include "mlir/IR/CommonTypeConstraints.td"
 
 def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 
+def IndexLike: AnyTypeOf<[Index, I32]>;
+
 //===----------------------------------------------------------------------===//
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
@@ -77,7 +79,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
       the reserved section of the circular buffer to the consumer.
     }];
 
-    let arguments = (ins Index:$dst_index, TTKernel_CB:$out_cb, Index:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
+    let arguments = (ins IndexLike:$dst_index, TTKernel_CB:$out_cb, IndexLike:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
 }
 
 def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
@@ -103,7 +105,7 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
       engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$cb0, Index:$tile_index_cb, Index:$tile_index_dst);
+    let arguments = (ins TTKernel_CB:$cb0, IndexLike:$tile_index_cb, IndexLike:$tile_index_dst);
 }
 
 //===----------------------------------------------------------------------===//
@@ -130,9 +132,9 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles"> {
 
     let arguments = (ins TTKernel_CB:$in0_cb_id,
                          TTKernel_CB:$in1_cb_id,
-                         Index:$in0_tile_idx,
-                         Index:$in1_tile_idx,
-                         Index:$dst_tile_idx);
+                         IndexLike:$in0_tile_idx,
+                         IndexLike:$in1_tile_idx,
+                         IndexLike:$dst_tile_idx);
 }
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
@@ -153,7 +155,7 @@ def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles"> {
       is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, Index:$in0_tile_index, Index:$in1_tile_index, Index:$dst_index);
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
 }
 
 def TTKernel_MulTilesInitOp : TTKernel_InitOp<"mul_tiles_init"> {
@@ -401,7 +403,7 @@ def TTKernel_GetNocAddrXYOp : TTKernel_Op<"get_noc_addr_xy"> {
       GetNocAddr api including core coordinates
     }];
 
-    let arguments = (ins Index:$x, Index:$y, I32:$l1Address);
+    let arguments = (ins IndexLike:$x, IndexLike:$y, I32:$l1Address);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
@@ -639,7 +641,7 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
       Get compile-time argument value at specified index.
     }];
 
-    let arguments = (ins I32Attr:$arg_index);
+    let arguments = (ins I32:$arg_index);
 
     let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
 }
@@ -720,7 +722,7 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
     GetNocMulticastAddr
   }];
 
-  let arguments = (ins Index:$noc_x_start, Index:$noc_y_start, Index:$noc_x_end, Index:$noc_y_end, I32:$addr, Optional<I8>:$noc);
+  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, I32:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 }
 
