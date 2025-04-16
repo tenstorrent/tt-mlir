@@ -145,7 +145,7 @@ PYBIND11_MODULE(_C, m) {
           [](tt::runtime::TensorCache &cache, const tt::runtime::Binary &binary,
              size_t programIndex) {
             std::string outerKey = tt::runtime::generateCacheOuterKey(
-                binary.getUUID(), programIndex);
+                binary.getContentHash(), programIndex);
             cache.remove(outerKey);
           },
           "Remove cache entries for a specific binary and program index");
