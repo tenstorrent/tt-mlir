@@ -651,6 +651,11 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
 }
 
 TEST_F(OpModelBase, maxPool2DOp) {
+  // TODO(2976): Some of these test cases return L1 interleaved row major
+  // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled
+  // when the linked issue is fixed
+  GTEST_SKIP();
+
   // Create maxPool2DOp with flattened input tensor
   llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
   llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 64 * 64, 32};

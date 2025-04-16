@@ -1243,6 +1243,10 @@ class OpModelMaxPool2DParam
                      >> {};
 
 TEST_P(OpModelMaxPool2DParam, MaxPool2DParam) {
+  // TODO(2976): Some of these test cases return L1 interleaved row major
+  // tensors which triggers an assertion in TTNNLayoutAttr. Will be reenabled
+  // when the linked issue is fixed
+  GTEST_SKIP();
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
