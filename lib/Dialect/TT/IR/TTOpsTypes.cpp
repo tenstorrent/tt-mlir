@@ -41,7 +41,157 @@ unsigned mlir::tt::ChipDescAttr::getScratchL1RegionAddress() const {
 }
 
 mlir::tt::SystemDescAttr mlir::tt::SystemDescAttr::getDefault(
-    MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
+    MLIRContext *context, std::string arch,
+    const ::llvm::SmallVector<int64_t> &meshShape) {
+  if (arch == "blackhole") {
+    // Set default values
+    constexpr auto l1Size = 1572864;
+    constexpr auto numDramChannels = 8;
+    constexpr auto dramChannelSize = 4278190080;
+    constexpr auto nocL1AddressAlignBytes = 16;
+    constexpr auto pcieAddressAlignBytes = 64;
+    constexpr auto nocDRAMAddressAlignBytes = 64;
+    constexpr auto l1UnreservedBase = 98304;
+    constexpr auto eriscL1UnreservedBase = 100032;
+    constexpr auto dramUnreservedBase = 64;
+    constexpr auto dramUnreservedEnd = 4276383744;
+    constexpr auto numCBs = 32;
+    constexpr auto numComputeThreads = 1;
+    constexpr auto numDatamovementThreads = 2;
+
+    // Get number of chips in mesh.
+    int64_t numberOfChips =
+        std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
+                        std::multiplies<int64_t>());
+
+    // Populate dummy values for single chip or multi chip config.
+    llvm::SmallVector<std::int64_t> gridShape = {10, 13};
+
+    // Physical-to-translated coordinate translation offsets
+    llvm::SmallVector<std::int64_t> coordTranslationOffsets = {
+        18, 18}; // TODO what is this for BH?
+
+    // Populate a placeholder for supported tile sizes.
+    llvm::SmallVector<DataTypeAttr> supported_data_types = {
+        DataTypeAttr::get(context, DataType::Float32),
+        DataTypeAttr::get(context, DataType::Float16),
+        DataTypeAttr::get(context, DataType::BFloat16),
+        DataTypeAttr::get(context, DataType::BFP_Float8),
+        DataTypeAttr::get(context, DataType::BFP_BFloat8),
+        DataTypeAttr::get(context, DataType::BFP_Float4),
+        DataTypeAttr::get(context, DataType::BFP_BFloat4),
+        DataTypeAttr::get(context, DataType::BFP_Float2),
+        DataTypeAttr::get(context, DataType::BFP_BFloat2),
+        DataTypeAttr::get(context, DataType::UInt32),
+        DataTypeAttr::get(context, DataType::UInt16),
+        DataTypeAttr::get(context, DataType::UInt8),
+        DataTypeAttr::get(context, DataType::Int32),
+    };
+
+    // Populate a placeholder for supported tile sizes.
+    llvm::SmallVector<TileSizeAttr> supported_tile_sizes = {
+        TileSizeAttr::get(context, 4, 16),  TileSizeAttr::get(context, 16, 16),
+        TileSizeAttr::get(context, 32, 16), TileSizeAttr::get(context, 4, 32),
+        TileSizeAttr::get(context, 16, 32), TileSizeAttr::get(context, 32, 32),
+    };
+
+    /*
+    llvm::SmallVector<CoreCoordAttr> workerCores;
+    // workerCores.reserve(gridShape[0] * gridShape[1]);
+    for (std::int64_t y = 2; y <= 11; ++y) {
+      for (std::int64_t x = 1; x <= 7; ++x) {
+        workerCores.push_back(CoreCoordAttr::get(context, y, x));
+      }
+      for (std::int64_t x = 10; x <= 15; ++x) {
+        workerCores.push_back(CoreCoordAttr::get(context, y, x));
+      }
+    }
+    */
+
+    // dram = [ 0x0,  1x0,  2x0,  3x0,  4x0,  5x0,  6x0,  7x0]
+    llvm::SmallVector<CoreCoordAttr> dramCores;
+    for (std::int64_t y = 0; y < 8; ++y) {
+      dramCores.push_back(CoreCoordAttr::get(context, y, 0));
+    }
+
+    /*
+    // eth = [ 1x3,  1x5,  1x6,  1x7,  1x10,  1x11,  1x14]
+    llvm::SmallVector<CoreCoordAttr> ethCores;
+    for (std::int64_t x : {3, 5, 6, 7, 10, 11, 14}) {
+      ethCores.push_back(CoreCoordAttr::get(context, 1, x));
+    }
+
+    // eth_inactive = [ 1x1,  1x2,  1x13,  1x15,  1x16]
+    llvm::SmallVector<CoreCoordAttr> inactiveEthCores;
+    for (std::int64_t x : {1, 2, 13, 15, 16}) {
+      inactiveEthCores.push_back(CoreCoordAttr::get(context, 1, x));
+    }
+    */
+
+    // Get number of chips indices.
+    llvm::SmallVector<uint32_t> chipIndicesList =
+        llvm::to_vector(llvm::seq<uint32_t>(numberOfChips));
+
+    // Duplicate number of chip desc attributes based on number of chips.
+    llvm::SmallVector<tt::ChipDescAttr> chipDescs;
+    chipDescs.reserve(numberOfChips);
+
+    for (auto i = 0; i < numberOfChips; i++) {
+      chipDescs.push_back(ChipDescAttr::get(
+          context, ArchAttr::get(context, Arch::Blackhole), gridShape,
+          coordTranslationOffsets, l1Size, numDramChannels, dramChannelSize,
+          nocL1AddressAlignBytes, pcieAddressAlignBytes,
+          nocDRAMAddressAlignBytes, l1UnreservedBase, eriscL1UnreservedBase,
+          dramUnreservedBase, dramUnreservedEnd,
+          ChipPhysicalHelperCoresAttr::get(context, dramCores, {}, {}),
+          supported_data_types, supported_tile_sizes, numCBs, numComputeThreads,
+          numDatamovementThreads));
+    }
+
+    // Duplicate number of chip capabilities based on number of chips.
+    llvm::SmallVector<tt::ChipCapabilityAttr> chipCapabilities;
+    chipCapabilities.reserve(numberOfChips);
+
+    for (auto i = 0; i < numberOfChips; i++) {
+      chipCapabilities.push_back(tt::ChipCapabilityAttr::get(
+          context,
+          // NOLINTNEXTLINE
+          tt::ChipCapability::PCIE | tt::ChipCapability::HostMMIO));
+    }
+
+    // Update chip channels based on number of chips.
+    llvm::SmallVector<tt::ChipChannelAttr> chipChannelList;
+    chipChannelList.reserve(numberOfChips);
+
+    if (numberOfChips != 1) {
+      for (auto i = 0; i < numberOfChips; i++) {
+        // Assume a default ring topology where final chip connects with initial
+        // chip.
+        chipChannelList.push_back(tt::ChipChannelAttr::get(
+            context, i, {0, 0}, (i + 1) % numberOfChips, {0, 0}));
+      }
+    }
+
+    return tt::SystemDescAttr::get(
+        context,
+        // CPU Descriptors
+        {tt::CPUDescAttr::get(
+            context, tt::CPURole::Host,
+            mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
+        // Chip Descriptors
+        chipDescs,
+        // Chip Descriptor Indices
+        chipIndicesList,
+        // Chip capabilities
+        chipCapabilities,
+        // Chip Mesh Coordinates
+        {
+            tt::ChipCoordAttr::get(context, 0, 0, 0, 0),
+        },
+        // Chip Channel Connections
+        chipChannelList);
+  }
+
   // Set default values
   constexpr auto l1Size = 1499136;
   constexpr auto numDramChannels = 12;
