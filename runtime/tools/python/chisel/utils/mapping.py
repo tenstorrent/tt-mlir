@@ -117,6 +117,11 @@ def custom_constant(*args, **kwargs):
     kwargs.pop("data")
     return torch.tensor([data], *args, **kwargs)
 
+def custom_reduce_and(x, dim, keepdim):
+    x = x.to(torch.bool)
+
+    return torch.all(x, dim=dim, keepdim=keepdim)
+
 
 ttir_to_torch_mapping = {
     # do nothing
@@ -159,4 +164,5 @@ ttir_to_torch_mapping = {
     "ttir.where": OpMapping(custom_where),
     "ttir.concat": OpMapping(torch.concat, {"dim": "dim"}, unpack_inputs=False),
     "ttir.embedding": OpMapping(torch.nn.functional.embedding),
+    "ttir.reduce_and": OpMapping(custom_reduce_and, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False),
 }

@@ -787,6 +787,22 @@ getOpInputTensorRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_TypecastOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmptyOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GetDeviceOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FullOp: {
+    tensorRefs = {};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ToDeviceOp: {
     tensorRefs = {opContext.type_as_ToDeviceOp()->in()};
     break;

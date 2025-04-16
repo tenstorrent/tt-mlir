@@ -236,7 +236,6 @@ def create_and_save_arrays(array_specs, arrays_file):
     logger.info(f"Arrays created and saved in {elapsed:.4f} seconds")
     logger.info(f"File size: {os.path.getsize(arrays_file) / (1024*1024):.2f} MB")
 
-
 def load_tensor_list(file_path):
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -271,41 +270,8 @@ def main():
     )
     args = parser.parse_args()
 
-    inputs_specs = [
-        ((1, 6), np.int32),
-        ((1, 6), np.int32),
-        ((128,), np.float32),
-        ((128,), np.float32),
-        ((512, 128), np.float32),
-        ((2, 128), np.float32),
-        ((30000, 128), np.float32),
-        ((768,), np.float32),
-        ((768,), np.float32),
-        ((768,), np.float32),
-        ((768, 768), np.float32),
-        ((768,), np.float32),
-        ((768, 768), np.float32),
-        ((768,), np.float32),
-        ((768, 768), np.float32),
-        ((768,), np.float32),
-        ((768, 768), np.float32),
-        ((3072,), np.float32),
-        ((768, 3072), np.float32),
-        ((768,), np.float32),
-        ((3072, 768), np.float32),
-        ((768,), np.float32),
-        ((768,), np.float32),
-        ((768,), np.float32),
-        ((128, 768), np.float32),
-        ((128,), np.float32),
-        ((128,), np.float32),
-        ((30000,), np.float32),
-        ((128,), np.float32),
-        ((768, 128), np.float32),
-        ((1, 6), np.int32),
-    ]
     arrays_file = args.inputs_path
-    create_and_save_arrays(inputs_specs, arrays_file)
+    
     inputs = load_tensor_list(arrays_file)
 
     chisel_context = ChiselContext(args)

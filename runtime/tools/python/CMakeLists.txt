@@ -9,6 +9,7 @@ endforeach (filename)
 add_custom_command(
   COMMAND rm -rf build
   COMMAND python -m pip install -r "${CMAKE_CURRENT_BINARY_DIR}/requirements.txt"
+  COMMAND mkdir -p build
   COMMAND TTMLIR_ENABLE_RUNTIME=${TTMLIR_ENABLE_RUNTIME}
           TT_RUNTIME_ENABLE_TTNN=${TT_RUNTIME_ENABLE_TTNN}
           TT_RUNTIME_ENABLE_TTMETAL=${TT_RUNTIME_ENABLE_TTMETAL}
@@ -20,8 +21,7 @@ add_custom_command(
           TTMLIR_VERSION_MINOR=${TTMLIR_VERSION_MINOR}
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
-          python -m pip wheel . --wheel-dir build --verbose
-  COMMAND python -m pip install build/*.whl --force-reinstall
+          python -m pip install -e .
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS ${TTRT_SOURCES} ${TTRT_FILES} TTMLIRRuntime TTRuntimeTTNNTypes TTRuntimeTTNNUtils TTRuntimeTTNNTestLib
