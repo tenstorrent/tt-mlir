@@ -486,6 +486,9 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherInputTensors() {
   inputs.reserve(programInputIds.size());
   std::transform(programInputIds.begin(), programInputIds.end(),
                  std::back_inserter(inputs), [this](std::uint32_t globalId) {
+                   LOG_ASSERT(liveTensors.contains(globalId),
+                              "Input tensor not found in tensor pool. Input "
+                              "tensor may no longer be in use");
                    ::tt::runtime::Tensor &in = getRuntimeTensor(globalId);
                    ::tt::runtime::ttnn::TTNNTensorWrapper &ttnnTensor =
                        in.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
