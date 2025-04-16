@@ -6,7 +6,6 @@
 
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/runtime.h"
-#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
@@ -127,7 +126,6 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
-
   py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
       .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
       .value("L1", tt::runtime::MemoryBufferType::L1)
