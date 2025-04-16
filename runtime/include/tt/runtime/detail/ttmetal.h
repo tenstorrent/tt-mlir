@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_TTMETAL_H
 
 #define FMT_HEADER_ONLY
+#include "tt/runtime/detail/logger.h"
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/event.hpp"
 #include "tt-metalium/host_api.hpp"
