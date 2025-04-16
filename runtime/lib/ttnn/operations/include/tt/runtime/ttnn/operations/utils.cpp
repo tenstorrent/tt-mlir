@@ -286,6 +286,7 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg) {
       .enable_weights_double_buffer = memcfg->enable_weights_double_buffer(),
       .enable_split_reader = memcfg->enable_split_reader(),
       .enable_subblock_padding = memcfg->enable_subblock_padding(),
+      .in_place = memcfg->in_place(),
   };
 
   return conv2dConfig;
