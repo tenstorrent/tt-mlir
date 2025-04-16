@@ -183,7 +183,7 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles"> {
       This call is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
 }
 
 def TTKernel_UnaryOpInitCommonOp : TTKernel_InitOp<"unary_op_init_common"> {
@@ -212,7 +212,7 @@ def TTKernel_ExpTileOp : TTKernel_FPUOp<"exp_tile"> {
       available on the compute engine.
     }];
 
-    let arguments = (ins I32:$tile_index);
+    let arguments = (ins IndexLike:$tile_index);
 }
 
 def TTKernel_RecipTileInitOp : TTKernel_InitOp<"recip_tile_init"> {
@@ -232,7 +232,7 @@ def TTKernel_RecipTileOp : TTKernel_FPUOp<"recip_tile"> {
       Only works for Float32, Float16_b, Bfp8_b data formats for full accuracy.
     }];
 
-    let arguments = (ins I32:$tile_index);
+    let arguments = (ins IndexLike:$tile_index);
 }
 
 def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
@@ -265,9 +265,9 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile"> {
 
     let arguments = (ins TTKernel_CB:$in_cb,
                          TTKernel_CB:$scaling_cb,
-                         I32:$in_tile_index,
-                         I32:$scaling_tile_index,
-                         I32:$dst_index,
+                         IndexLike:$in_tile_index,
+                         IndexLike:$scaling_tile_index,
+                         IndexLike:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
                          TTKernel_ReduceDimAttr:$reduce_dim);
 }
@@ -294,7 +294,7 @@ def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile"> {
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins I32:$dst0_index, I32:$dst1_index);
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
 }
 
 //===----------------------------------------------------------------------===//
@@ -485,7 +485,7 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
       NocAsyncWriteTilie
     }];
 
-    let arguments = (ins I32:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$srcLocalL1Addr);
+    let arguments = (ins IndexLike:$id, TTKernel_InterleavedAddrGenFast:$addrGenStruct, I32:$srcLocalL1Addr);
 }
 
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
@@ -501,7 +501,7 @@ def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
       Get L1 addr of the semaphore with specified semaphore id
     }];
 
-    let arguments = (ins I32:$semaphore_id);
+    let arguments = (ins IndexLike:$semaphore_id);
     let results = (outs TTKernel_L1Addr:$sem_addr);
 }
 
@@ -630,7 +630,7 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
       Get runtime argument value at specified index.
     }];
 
-    let arguments = (ins I32:$arg_index);
+    let arguments = (ins IndexLike:$arg_index);
 
     let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
 }
@@ -641,7 +641,7 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val"> {
       Get compile-time argument value at specified index.
     }];
 
-    let arguments = (ins I32:$arg_index);
+    let arguments = (ins IndexLike:$arg_index);
 
     let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
 }
