@@ -580,8 +580,15 @@ public:
   matchAndRewrite(ttir::GetGlobalOperandOp op,
                   ttir::GetGlobalOperandOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    auto i32 = [&](int32_t value) {
+      return rewriter
+          .create<arith::ConstantOp>(op->getLoc(), rewriter.getI32Type(),
+                                     rewriter.getI32IntegerAttr(value))
+          .getResult();
+    };
+
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-        op, rewriter.getI32Type(), op.getOperandIndex());
+        op, rewriter.getI32Type(), i32(op.getOperandIndex()));
     return success();
   }
 };
