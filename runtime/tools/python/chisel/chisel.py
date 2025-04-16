@@ -35,7 +35,7 @@ logger = logging.getLogger("chisel")
 
 import pdb
 
-sys.excepthook = lambda *args: pdb.pm()
+# sys.excepthook = lambda *args: pdb.pm()
 
 
 class ChiselContext:
@@ -58,8 +58,9 @@ class ChiselContext:
         )
 
         self.context = Context()
-        ttir.register_dialect(self.context)
-        ttnn.register_dialect(self.context)
+        # ttir.register_dialect(self.context)
+        # ttnn.register_dialect(self.context)
+        self.context.load_all_available_dialects()
 
         logger.debug("Loading IRs...")
         self.load_irs()
@@ -210,8 +211,7 @@ class ChiselContext:
                 pdb.set_trace()
                 raise e
 
-        callback_env_pre = DebugHooks.get("pre-op", debug_preop)
-        callback_env_post = DebugHooks.get("post-op", debug_postop)
+        callback_env_pre = DebugHooks.get(debug_preop, debug_postop)
 
     def set_inputs(self, inputs):
         self.tensor_inputs = {f"%arg{idx}": input for idx, input in enumerate(inputs)}

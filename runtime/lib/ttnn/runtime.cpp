@@ -979,9 +979,32 @@ getOpInputTensorRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_FromDeviceOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::EltwiseOp: {
-    tensorRefs =
-        convertFbTensorRefsToVector(opContext.type_as_EltwiseOp()->ins());
+  case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryOp()->lhs(),
+                  opContext.type_as_EltwiseBinaryOp()->rhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryCompositeOp()->lhs(),
+                  opContext.type_as_EltwiseBinaryCompositeOp()->rhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
+    tensorRefs = {opContext.type_as_EltwiseTernaryWhereOp()->first(),
+                  opContext.type_as_EltwiseTernaryWhereOp()->second(),
+                  opContext.type_as_EltwiseTernaryWhereOp()->third()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseQuantizationOp: {
+    tensorRefs = {opContext.type_as_EltwiseQuantizationOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryOp: {
+    tensorRefs = {opContext.type_as_EltwiseUnaryOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
+    tensorRefs = {opContext.type_as_EltwiseUnaryCompositeOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::LinearOp: {
