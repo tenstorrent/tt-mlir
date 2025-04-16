@@ -476,9 +476,9 @@ module {
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
-      %noc_id = arith.constant 3 : i32
+      %noc_id = arith.constant 3 : i8
       // CHECK: emitc.call_opaque "noc_semaphore_inc"(%[[ADDR]], %[[INCR]], %[[NOC_ID]])
-      "ttkernel.noc_semaphore_inc"(%addr, %incr, %noc_id) : (!ttkernel.noc_addr, i32, i32) -> ()
+      "ttkernel.noc_semaphore_inc"(%addr, %incr, %noc_id) : (!ttkernel.noc_addr, i32, i8) -> ()
       return
     }
 

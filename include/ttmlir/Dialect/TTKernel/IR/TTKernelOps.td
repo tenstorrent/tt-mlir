@@ -413,7 +413,7 @@ def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
       GetNocAddr api including core coordinates
     }];
 
-    let arguments = (ins IndexLike:$x, IndexLike:$y, I32:$l1Address);
+    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr]>:$l1Address);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
@@ -501,7 +501,7 @@ def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
       Get L1 addr of the semaphore with specified semaphore id
     }];
 
-    let arguments = (ins IndexLike:$semaphore_id);
+    let arguments = (ins I32:$semaphore);
     let results = (outs TTKernel_L1Addr:$sem_addr);
 }
 
@@ -514,7 +514,7 @@ def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
       mechanism.
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$addr, I32:$incr, I32:$noc_id);
+    let arguments = (ins TTKernel_NocAddr:$addr, IndexLike:$incr, Optional<I8>:$noc_id);
 }
 
 def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
@@ -526,7 +526,7 @@ def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
       *noc_semaphore_wait*.
     }];
 
-    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, I32:$val);
+    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, IndexLike:$val);
 }
 
 def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
@@ -538,7 +538,7 @@ def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
       synchronization mechanism. Also, see *noc_semaphore_set*.
     }];
 
-    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, I32:$val);
+    let arguments = (ins TTKernel_L1AddrPtr:$sem_addr, IndexLike:$val);
 }
 
 def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"noc_semaphore_wait_min"> {
@@ -574,8 +574,8 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
     let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
-                         BoolAttr:$linked,
-                         BoolAttr:$multicast_path_reserve);
+                         OptionalAttr<BoolAttr>:$linked,
+                         OptionalAttr<BoolAttr>:$multicast_path_reserve);
 }
 
 def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set_multicast_loopback_src"> {
@@ -695,7 +695,7 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
     GetNocMulticastAddr
   }];
 
-  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, I32:$addr, Optional<I8>:$noc);
+  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr]>:$addr, Optional<I8>:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 }
 

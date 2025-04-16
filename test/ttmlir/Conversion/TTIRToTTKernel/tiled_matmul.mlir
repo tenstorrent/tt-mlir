@@ -3,7 +3,7 @@
 
 #l1_ = #tt.memory_space<l1>
 module {
-  func.func private @datamovement_kernel0(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<datamovement>} {
+  func.func private @datamovement_kernel0(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore) attributes {ttir.thread = #ttir.thread<datamovement>} {
     %c8 = arith.constant 8 : index
     %c1 = arith.constant 1 : index
     %c0 = arith.constant 0 : index
@@ -24,7 +24,7 @@ module {
         %tx = ttir.dma %1 [%c0, %arg7, %c0, %c0], %arg0 [%c0, %c0] : (memref<8x8x1x3x!tt.tile<32x32, f32>, #tt.shard<12288x4096>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_read_barrier"
         ttir.dma_wait %tx
-        // ttir.semaphore_wait %arg3, %c7 reset %c0
+        ttir.semaphore_wait %arg3, %c7 reset %c0
         // CHECK: %{{[0-9]+}} = "ttkernel.get_read_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_write_ptr"
         // CHECK: %{{[0-9]+}} = "ttkernel.get_noc_multicast_addr"
@@ -32,10 +32,10 @@ module {
         %tx_0 = ttir.dma %arg0 [%c0, %c0], %arg0 [%c0, %c0] core[%core0, %c0] mcast[%c1, %c8] : (memref<1x3x!tt.tile<32x32, f32>, #l1_>, memref<1x3x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
         // CHECK: "ttkernel.noc_async_write_barrier"
         ttir.dma_wait %tx_0
-        // ttir.semaphore_set %arg4, %c1, core[%core0, %c0] mcast[%c1, %c8]
+        ttir.semaphore_set %arg4, %c1, core[%core0, %c0] mcast[%c1, %c8]
       } else {
-        // ttir.semaphore_inc %arg3, %c1, core[%core0, %c0]
-        // ttir.semaphore_wait %arg4, %c1 reset %c0
+        ttir.semaphore_inc %arg3, %c1, core[%core0, %c0]
+        ttir.semaphore_wait %arg4, %c1 reset %c0
       }
       // CHECK: "ttkernel.cb_push_back"
       ttir.yield %arg0 : (memref<1x3x!tt.tile<32x32, f32>, #l1_>)
@@ -43,7 +43,7 @@ module {
     return
   }
 
-  func.func private @compute_kernel2(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+  func.func private @compute_kernel2(%arg0: memref<1x3x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<3x4x!tt.tile<32x32, f32>, #l1_>, %arg2: memref<1x4x!tt.tile<32x32, f32>, #l1_>, %arg3: !ttir.semaphore, %arg4: !ttir.semaphore) attributes {ttir.thread = #ttir.thread<compute>} {
     %c4 = arith.constant 4 : index
     %c3 = arith.constant 3 : index
     %c1 = arith.constant 1 : index
