@@ -103,7 +103,7 @@ runs:
 
     - name: Upload ttmlir Python Bindings Wheel
       if: inputs.enable-ttmlir-whl == 'ON'
-      uses: actions/upload-artifacts@v4
+      uses: actions/upload-artifact@v4
       with:
         name: ttmlir-whl
         path: build/ttmlir*.whl
