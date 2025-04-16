@@ -13,6 +13,7 @@
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Version.h"
 #include "ttnn/tensor/types.hpp"
 #include <memory>
@@ -1044,6 +1045,22 @@ getOpInputTensorRefs(OpContext opContextHandle,
   std::vector<const ::tt::target::ttnn::TensorRef *> tensorRefs;
 
   switch (opContext.type_type()) {
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmptyOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GetDeviceOp: {
+    tensorRefs = {};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FullOp: {
+    tensorRefs = {};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     tensorRefs = {opContext.type_as_ToMemoryConfigOp()->in0()};
     break;
