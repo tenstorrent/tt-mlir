@@ -575,16 +575,15 @@ public:
     target.addIllegalDialect<arith::ArithDialect>();
     target.addIllegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<memref::MemRefDialect>();
+    target.addIllegalDialect<ttkernel::TTKernelDialect>();
 
+    target.addLegalOp<func::ReturnOp>();
     target.addIllegalOp<ttkernel::NocTransactionsTableOp>();
-    target.addLegalDialect<emitc::EmitCDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) -> bool {
       // Converting func op (kernel main) will result it having 0
       // arguments. At that point it becomes legal.
       return op.getNumArguments() == 0;
     });
-    target.addLegalOp<func::ReturnOp>();
-    target.addIllegalDialect<ttkernel::TTKernelDialect>();
 
     TTKernelToEmitCTypeConverter typeConverter(funcOp.getContext());
     RewritePatternSet patterns(funcOp.getContext());
