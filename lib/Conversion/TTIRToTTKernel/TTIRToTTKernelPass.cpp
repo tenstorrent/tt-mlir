@@ -69,6 +69,9 @@ struct ConvertTTIRToTTKernel
       return ttkernel::CBType::get(
           memref.getContext(), ttkernel::symbolizeCBPort(0).value(), 0, memref);
     });
+    typeConverter.addConversion([](ttir::SemaphoreType semaphore) {
+      return ttkernel::L1AddrType::get(semaphore.getContext());
+    });
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return !op->hasAttr(ttir::ThreadAttr::name) ||
              (op.getFunctionType().getNumInputs() == 0);

@@ -620,11 +620,22 @@ public:
     TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
     OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
     rewriter.setInsertionPointToStart(block);
+    auto numCbArgs = std::count_if(
+        op.getArgumentTypes().begin(), op.getArgumentTypes().end(),
+        [](Type type) { return mlir::isa<ttkernel::CBType>(type); });
     for (auto arg : blockArgs) {
-      auto cb = rewriter.create<GetCBOp>(
-          op.getLoc(), getTypeConverter()->convertType(arg.getType()),
-          rewriter.getI32IntegerAttr(arg.getArgNumber()));
-      signatureConverter.remapInput(arg.getArgNumber(), cb);
+      auto newType = getTypeConverter()->convertType(arg.getType());
+      if (mlir::isa<ttkernel::CBType>(newType)) {
+        auto cb = rewriter.create<GetCBOp>(
+            op.getLoc(), newType,
+            rewriter.getI32IntegerAttr(arg.getArgNumber()));
+        signatureConverter.remapInput(arg.getArgNumber(), cb);
+      } else if (mlir::isa<ttkernel::L1AddrType>(newType)) {
+        auto semaphore = rewriter.create<ttkernel::GetSemaphoreOp>(
+            op.getLoc(), newType,
+            rewriter.getI32IntegerAttr(arg.getArgNumber() - numCbArgs));
+        signatureConverter.remapInput(arg.getArgNumber(), semaphore);
+      }
     }
 
     rewriter.applySignatureConversion(block, signatureConverter,
@@ -640,7 +651,7 @@ public:
 
 namespace {
 template <typename T>
-class TTIRSemaphoreSetRewriter : public OpConversionPattern<T> {
+class TTIRSemaphoreUpdateRewriter : public OpConversionPattern<T> {
 public:
   using OpConversionPattern<T>::OpConversionPattern;
 
@@ -657,8 +668,7 @@ public:
 
     Value value = op.getValue();
 
-    Value semaphoreAddr = rewriter.create<ttkernel::GetSemaphoreOp>(
-        op.getLoc(), op.getSemaphore());
+    Value semaphoreAddr = adaptor.getSemaphore();
 
     if (op.getDstCoreIndex().empty()) {
       if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
@@ -685,7 +695,7 @@ public:
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
           op.getLoc(), virtX, virtY, semaphoreAddr);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
-                                                               value);
+                                                               value, nullptr);
     } else {
       if (mlir::isa<ttir::SemaphoreIncOp>(op)) {
         emitError(op.getLoc(), "ttir.semaphore_inc multicast is illegal.");
@@ -704,7 +714,9 @@ public:
           op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
           nullptr);
 
-      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphoreAddr,
+      auto semaphorePtr =
+          rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    value);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
           op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
@@ -725,13 +737,14 @@ public:
   matchAndRewrite(ttir::SemaphoreWaitOp op,
                   ttir::SemaphoreWaitOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Value semaphoreAddr = rewriter.create<ttkernel::GetSemaphoreOp>(
-        op.getLoc(), op.getSemaphore());
+    Value semaphoreAddr = adaptor.getSemaphore();
+    auto semaphorePtr =
+        rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
 
-    rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreWaitOp>(op, semaphoreAddr,
+    rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreWaitOp>(op, semaphorePtr,
                                                               op.getValue());
     if (op.getResetValue()) {
-      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphoreAddr,
+      rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    op.getResetValue());
     }
 
@@ -753,8 +766,10 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRAwaitYieldRewriter<ttir::YieldOp>,
                ttkernel::TTIRDMAWaitRewriter, ttkernel::TTIRCoreIndexRewriter,
                ttkernel::TTIRGetGlobalOperandRewriter,
-               ttkernel::TTIRNullTxRewriter, ttkernel::MemRefCollapseRewriter>(
-      typeConverter, ctx);
+               ttkernel::TTIRNullTxRewriter, ttkernel::MemRefCollapseRewriter,
+               ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreSetOp>,
+               ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
+               ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::TTIRDMARewriter>(typeConverter, ctx,
                                           &associatedDMAWaits);
