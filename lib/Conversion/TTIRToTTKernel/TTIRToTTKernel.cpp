@@ -132,6 +132,7 @@ public:
       auto numTiles =
           i32(rewriter, op->getLoc(),
               mlir::cast<ttkernel::CBType>(dst.getType()).getNumTiles());
+      rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, numTiles, dst);
       newOp = rewriter.create<ttkernel::TilizeBlockOp>(op->getLoc(), src,
                                                        numTiles, dst);
     } else if (mlir::isa<ttir::TileUntilizeBlockOp>(op)) {
@@ -141,6 +142,7 @@ public:
       auto numTiles =
           i32(rewriter, op->getLoc(),
               mlir::cast<ttkernel::CBType>(src.getType()).getNumTiles());
+      rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src, dst);
       newOp = rewriter.create<ttkernel::UntilizeBlockOp>(op->getLoc(), src,
                                                          numTiles, dst);
     } else {
@@ -606,7 +608,7 @@ public:
     ThreadType threadType;
     switch (threadAttr.getThreadType()) {
     case ttir::ThreadType::Compute: {
-      threadType = ThreadType::Tensix;
+      threadType = ThreadType::Compute;
       break;
     }
     case ttir::ThreadType::Datamovement: {

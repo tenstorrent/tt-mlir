@@ -37,5 +37,39 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
   return type;
 }
 
+inline CoreRangeSet toCoreRangeSet(
+    ::flatbuffers::Vector<tt::target::Dim2dRange const *> const *coreRangeSet) {
+  std::set<CoreRange> coreRanges;
+  for (::tt::target::Dim2dRange const *coreRange : *coreRangeSet) {
+    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
+    // End is inclusive
+    CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
+                  coreRange->loc().y() + coreRange->size().y() - 1);
+    coreRanges.emplace(start, end);
+  }
+  return CoreRangeSet(coreRanges);
+}
+
+inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
+  switch (dataType) {
+  case ::tt::target::DataType::Float32:
+    return ::tt::DataFormat::Float32;
+  case ::tt::target::DataType::Float16:
+    return ::tt::DataFormat::Float16;
+  case ::tt::target::DataType::BFloat16:
+    return ::tt::DataFormat::Float16_b;
+  case ::tt::target::DataType::UInt32:
+    return ::tt::DataFormat::UInt32;
+  case ::tt::target::DataType::UInt16:
+    return ::tt::DataFormat::UInt16;
+  case ::tt::target::DataType::UInt8:
+    return ::tt::DataFormat::UInt8;
+  case ::tt::target::DataType::Int32:
+    return ::tt::DataFormat::Int32;
+  default:
+    LOG_FATAL("Unsupported data type");
+  }
+}
+
 } // namespace tt::runtime::common
 #endif // TT_RUNTIME_DETAIL_COMMON_H

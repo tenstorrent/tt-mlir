@@ -36,7 +36,7 @@ public:
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
     }
-    if (threadType == ThreadType::Tensix) {
+    if (threadType == ThreadType::Compute) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
@@ -81,7 +81,7 @@ public:
   }
 
   ~ScopedModuleHelper() {
-    if (threadType == ThreadType::Tensix) {
+    if (threadType == ThreadType::Compute) {
       builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
       builder->create<emitc::VerbatimOp>(loc,
                                          "}"); // close namespace NAMESPACE

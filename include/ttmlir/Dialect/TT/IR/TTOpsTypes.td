@@ -265,6 +265,10 @@ def TT_ShardLayoutAttr : TT_Attr<"ShardLayout", "shard", [TT_DeviceLayoutInterfa
   let assemblyFormat = "`<` custom<DimensionList>($stride) (`,` $buffers^)? `>`";
 
   let extraClassDeclaration = [{
+    static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, int64_t elementSize, uint32_t buffers);
+    static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
+    static ShardLayoutAttr get(::mlir::MLIRContext *context, MemRefType memrefType, uint32_t buffers);
+
     AffineMap getAffineMap() const;
   }];
 }
@@ -427,7 +431,7 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
       AffineMap getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
                              size_t pageSize,
                              size_t baseOffset = 0) const;
-      size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize) const;
+      size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize, bool includeBuffers = false) const;
 
       // Returns the footprint size in bytes of the tensor layout distributed across the given memory space.
       // The resulting size is a function of the memory space, roughly speaking this ends up being:

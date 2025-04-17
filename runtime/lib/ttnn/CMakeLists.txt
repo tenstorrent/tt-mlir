@@ -21,6 +21,7 @@ add_library(TTRuntimeTTNN
 )
 # We have to set the C++ standard to 20 because tt-metal requires it
 set_property(TARGET TTRuntimeTTNN PROPERTY CXX_STANDARD 20)
+target_compile_definitions(TTRuntimeTTNN PUBLIC TT_RUNTIME_ENABLE_TTNN)
 target_include_directories(TTRuntimeTTNN PRIVATE
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn
 )

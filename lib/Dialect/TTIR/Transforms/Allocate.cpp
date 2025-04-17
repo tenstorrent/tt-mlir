@@ -170,7 +170,11 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     auto streamMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,
                         memref.getMemorySpace());
-    auto storage = rewriter.create<memref::AllocOp>(op.getLoc(), memref);
+    auto storageAttr = rewriter.getAttr<ShardLayoutAttr>(memref, /*buffers=*/1);
+    auto storageMemref =
+        MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
+                        memref.getMemorySpace());
+    auto storage = rewriter.create<memref::AllocOp>(op.getLoc(), storageMemref);
     auto streamLayout = rewriter.create<ttir::StreamLayoutOp>(
         op.getLoc(), streamMemref, operand.get(), storage);
     rewriter.modifyOpInPlace(

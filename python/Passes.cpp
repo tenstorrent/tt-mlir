@@ -232,7 +232,7 @@ void populatePassesModule(nb::module_ &m) {
         output_stream.flush();
         return output;
       },
-      nb::arg("module"), nb::arg("isTensixKernel"));
+      nb::arg("module"), nb::arg("isComputeKernel"));
 
   m.def(
       "pykernel_compile_pipeline",

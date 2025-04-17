@@ -53,7 +53,7 @@ public:
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case ttir::ThreadType::Compute: {
-        kernelConfig = builder.getAttr<ttmetal::TensixConfigAttr>(
+        kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs);
         break;
       }
@@ -118,21 +118,13 @@ public:
   LogicalResult
   matchAndRewrite(memref::AllocOp op, memref::AllocOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = lookupDevice(op);
-    auto address = op->getAttr("address")
-                       ? op->getAttrOfType<IntegerAttr>("address")
-                       : rewriter.getI64IntegerAttr(
-                             1000); // TODO(#1909): arbitrary default for now,
-                                    // remove when allocate pass is implemented
+    auto address = op->getAttrOfType<IntegerAttr>("address");
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
-    auto size = device.getMemrefSizeBytes(memrefType, 0);
-    auto memorySpace =
-        mlir::cast<tt::MemorySpaceAttr>(memrefType.getMemorySpace());
+    assert(mlir::isa<tt::ShardLayoutAttr>(memrefType.getLayout()));
     auto createBufferOp = rewriter.create<ttmetal::CreateBufferOp>(
-        op->getLoc(), memrefType, address.getInt(), size,
-        memorySpace.getValue());
+        op->getLoc(), memrefType, address);
     rewriter.replaceOp(op, createBufferOp);
 
     return success();

@@ -143,44 +143,39 @@ std::string asJson(Flatbuffer binary) {
       ::tt::target::metal::TTMetalBinaryBinarySchema::size());
 }
 
+static std::vector<TensorDesc>
+getTensorDescs(const ::flatbuffers::Vector<
+               ::flatbuffers::Offset<tt::target::metal::TensorRef>> *tensors) {
+  std::vector<TensorDesc> tensorDescs;
+  tensorDescs.reserve(tensors->size());
+  for (auto const *tensor : *tensors) {
+    TensorDesc desc;
+    desc.shape = {tensor->desc()->shape()->begin(),
+                  tensor->desc()->shape()->end()};
+    desc.stride = utils::calculateStride(desc.shape);
+    desc.dataType = tensor->desc()->layout()->memory_desc()->data_type();
+    desc.itemsize = utils::dataTypeElementSize(desc.dataType);
+    tensorDescs.push_back(desc);
+  }
+  return tensorDescs;
+}
+
 std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                                          std::uint32_t programIndex) {
-  std::vector<TensorDesc> inputs;
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
   LOG_ASSERT(program->device_programs()->size() == 1,
              "Currently only one device program is supported, got: ",
              program->device_programs()->size());
-  for (auto const *input : *program->device_programs()->Get(0)->inputs()) {
-    TensorDesc desc;
-    desc.shape = {input->desc()->shape()->begin(),
-                  input->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.itemsize = utils::dataTypeElementSize(
-        input->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = input->desc()->layout()->memory_desc()->data_type();
-    inputs.push_back(desc);
-  }
-  return inputs;
+  return getTensorDescs(program->inputs());
 }
 
 std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
                                           std::uint32_t programIndex) {
-  std::vector<TensorDesc> outputs;
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
   LOG_ASSERT(program->device_programs()->size() == 1,
              "Currently only one device program is supported, got: ",
              program->device_programs()->size());
-  for (auto const *output : *program->device_programs()->Get(0)->outputs()) {
-    TensorDesc desc;
-    desc.shape = {output->desc()->shape()->begin(),
-                  output->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.itemsize = utils::dataTypeElementSize(
-        output->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = output->desc()->layout()->memory_desc()->data_type();
-    outputs.push_back(desc);
-  }
-  return outputs;
+  return getTensorDescs(program->outputs());
 }
 
 const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
