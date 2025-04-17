@@ -46,8 +46,6 @@ class CMakeBuild(build_ext):
         # Set it to install directly into the wheel, so there's no need to raise the directory for ttmlir python files
         install_dir = extension_path.parent
 
-        print("Working Directories: ", cwd, build_dir, install_dir)
-
         cmake_args = [
             "-G",
             "Ninja",
@@ -57,6 +55,7 @@ class CMakeBuild(build_ext):
             "-DCMAKE_INSTALL_PREFIX=" + str(install_dir),
             "-DCMAKE_C_COMPILER=clang",
             "-DCMAKE_CXX_COMPILER=clang++",
+            "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
             # Add the Source Directory (root)
             "-S",
             str(cwd.parent),

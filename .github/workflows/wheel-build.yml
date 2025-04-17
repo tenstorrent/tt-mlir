@@ -92,4 +92,4 @@ jobs:
           pip install $WHEEL_FILE
 
           # Test the installation
-          python -c "import ttmlir; print(f'Successfully imported ttmlir version: {ttmlir.__version__}')"
+          python -c "from ttmlir import ir; print('Imported ttmlir & Created CTX: ', ir.Context())"
