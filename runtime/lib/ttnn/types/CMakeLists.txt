@@ -6,6 +6,7 @@ endif()
 add_library(TTRuntimeTTNNTypes
   STATIC
   types.cpp
+  layout_converter.cpp
 )
 set_property(TARGET TTRuntimeTTNNTypes PROPERTY CXX_STANDARD 20)
 target_compile_options(TTRuntimeTTNNTypes PUBLIC -mavx -mavx2)

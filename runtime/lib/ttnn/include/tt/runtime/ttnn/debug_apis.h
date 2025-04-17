@@ -17,6 +17,40 @@
 
 namespace tt::runtime::ttnn::debug {
 
+inline std::string toString(const ::ttnn::Layout &layout) {
+  switch (layout) {
+  case ::ttnn::Layout::ROW_MAJOR:
+    return "ROW_MAJOR";
+  case ::ttnn::Layout::TILE:
+    return "TILE";
+  case ::ttnn::Layout::INVALID:
+    return "INVALID";
+  }
+}
+
+inline std::string toString(const ::ttnn::DataType &dtype) {
+  switch (dtype) {
+  case ::ttnn::DataType::FLOAT32:
+    return "FLOAT32";
+  case ::ttnn::DataType::BFLOAT16:
+    return "BFLOAT16";
+  case ::ttnn::DataType::BFLOAT8_B:
+    return "BFLOAT8_B";
+  case ::ttnn::DataType::BFLOAT4_B:
+    return "BFLOAT4_B";
+  case ::ttnn::DataType::UINT32:
+    return "UINT32";
+  case ::ttnn::DataType::UINT16:
+    return "UINT16";
+  case ::ttnn::DataType::UINT8:
+    return "UINT8";
+  case ::ttnn::DataType::INT32:
+    return "INT32";
+  case ::ttnn::DataType::INVALID:
+    return "INVALID";
+  }
+}
+
 RUNTIME_DEBUG_MAYBE_CONST_INLINE void
 checkTensorRefMatchesTTNNTensor(const ::tt::target::ttnn::TensorRef *tensorRef,
                                 const ::ttnn::Tensor &ttnnTensor)
