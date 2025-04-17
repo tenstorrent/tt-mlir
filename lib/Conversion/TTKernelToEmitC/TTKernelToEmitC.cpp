@@ -665,9 +665,6 @@ public:
         TTMetalToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>>(
         typeConverter, funcOp.getContext());
 
-    patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(
-        typeConverter, funcOp.getContext(), "get_noc_addr");
-
     patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
                                                        funcOp.getContext());
 
