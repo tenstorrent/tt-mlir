@@ -179,6 +179,10 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("arch", &tt::ChipDescAttr::getArch)
       .def_prop_ro("grid",
                    [](tt::ChipDescAttr self) { return self.getGrid().vec(); })
+      .def_prop_ro("coord_translation_offsets",
+                   [](tt::ChipDescAttr self) {
+                     return self.getCoordTranslationOffsets().vec();
+                   })
       .def_prop_ro("l1_size", &tt::ChipDescAttr::getL1Size)
       .def_prop_ro("num_dram_channels", &tt::ChipDescAttr::getNumDramChannels)
       .def_prop_ro("dram_channel_size", &tt::ChipDescAttr::getDramChannelSize)

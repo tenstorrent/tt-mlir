@@ -233,7 +233,7 @@ def parse_tt_system_desc(attr):
                 value=", ".join(
                     [
                         "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_cores.dram
+                        for coord in chip_desc.chip_physical_helper_cores.dram
                     ]
                 ),
             )
@@ -244,7 +244,7 @@ def parse_tt_system_desc(attr):
                 value=", ".join(
                     [
                         "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_cores.eth
+                        for coord in chip_desc.chip_physical_helper_cores.eth
                     ]
                 ),
             )
@@ -255,7 +255,7 @@ def parse_tt_system_desc(attr):
                 value=", ".join(
                     [
                         "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_cores.eth_inactive
+                        for coord in chip_desc.chip_physical_helper_cores.eth_inactive
                     ]
                 ),
             )
@@ -265,8 +265,17 @@ def parse_tt_system_desc(attr):
                 key=f"chip#{i}-worker-core-coords",
                 value=", ".join(
                     [
-                        "x".join(map(str, (coord.y, coord.x)))
-                        for coord in chip_desc.chip_physical_cores.worker
+                        "x".join(
+                            map(
+                                str,
+                                (
+                                    chip_desc.coord_translation_offsets[0] + y,
+                                    chip_desc.coord_translation_offsets[1] + x,
+                                ),
+                            )
+                        )
+                        for y in range(chip_desc.grid[0])
+                        for x in range(chip_desc.grid[1])
                     ]
                 ),
             )
