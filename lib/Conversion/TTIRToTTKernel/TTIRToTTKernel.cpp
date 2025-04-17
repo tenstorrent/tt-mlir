@@ -376,7 +376,7 @@ public:
             rewriter.getI64IntegerAttr(1));
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
-        auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+        auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
             op.getLoc(), virtX, virtY, dstL1Start);
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                    nocAddr, transferSize);
@@ -405,7 +405,7 @@ public:
 
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, ValueRange{dstGridY, dstGridX});
-      auto nocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+      auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, dstOffsetInt);
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
                                                  nocAddr, transferSize);
@@ -430,7 +430,7 @@ public:
               op.getNumElems() * getElementSizeBytes(op.getSrcMemRefType()));
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, ValueRange{srcGridY, srcGridX});
-      auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrXYOp>(
+      auto srcNocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, srcOffsetInt);
       rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                                 dstL1Start, size);

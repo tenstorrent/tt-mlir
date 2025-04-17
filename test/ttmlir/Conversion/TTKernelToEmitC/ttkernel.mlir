@@ -357,17 +357,17 @@ module {
   // CHECK-LABEL: ttkernel_noc_operations
   module @ttkernel_noc_operations {
 
-    // CHECK-LABEL: func @get_noc_addr_xy
-    func.func @get_noc_addr_xy() -> () {
+    // CHECK-LABEL: func @get_noc_addr
+    func.func @get_noc_addr() -> () {
       // CHECK: %[[X:.*]] = "emitc.constant"
       %x = arith.constant 1 : index
       // CHECK: %[[Y:.*]] = "emitc.constant"
       %y = arith.constant 2 : index
       // CHECK: %[[ADDR:.*]] = "emitc.constant"
       %addr = arith.constant 262400 : i32
-      // note: ttkernel.get_noc_addr_xy() converts to one of metallium get_noc_addr() overloads
+      // note: ttkernel.get_noc_addr() converts to one of metallium get_noc_addr() overloads
       // CHECK: emitc.call_opaque "get_noc_addr"(%[[X]], %[[Y]], %[[ADDR]])
-      "ttkernel.get_noc_addr_xy"(%x, %y, %addr) : (index, index, i32) -> (!ttkernel.noc_addr)
+      "ttkernel.get_noc_addr"(%x, %y, %addr) : (index, index, i32) -> (!ttkernel.noc_addr)
       return
     }
 
@@ -382,20 +382,13 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @get_noc_addr
-    func.func @get_noc_addr() -> () {
-      // CHECK: %[[ADDR:.*]] = "emitc.constant"
-      %addr = arith.constant 262400 : i32
-      // CHECK: emitc.call_opaque "get_noc_addr"(%[[ADDR]])
-      "ttkernel.get_noc_addr"(%addr) : (i32) -> (!ttkernel.noc_addr)
-      return
-    }
-
     // CHECK-LABEL: func @noc_async_read
     func.func @noc_async_read() -> () {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %src_addr = "ttkernel.get_noc_addr"(%temp) : (i32) -> (!ttkernel.noc_addr)
+      %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %dst_addr = arith.constant 303104 : i32
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
@@ -408,8 +401,10 @@ module {
     // CHECK-LABEL: func @noc_async_read_one_packet_set_state
     func.func @noc_async_read_one_packet_set_state() -> () {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %src_addr = "ttkernel.get_noc_addr"(%temp) : (i32) -> (!ttkernel.noc_addr)
+      %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
       // CHECK: emitc.call_opaque "noc_async_read_one_packet_set_state"(%[[SRC_ADDR]], %[[SIZE]])
@@ -420,8 +415,10 @@ module {
     // CHECK-LABEL: func @noc_async_read_one_packet_with_state
     func.func @noc_async_read_one_packet_with_state() -> () {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
-      %temp1 = arith.constant 262400 : i32
-      %src_addr = "ttkernel.get_noc_addr"(%temp1) : (i32) -> (!ttkernel.noc_addr)
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
+      %temp = arith.constant 262400 : i32
+      %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %dst_addr = arith.constant 327680 : i32
       // CHECK: emitc.call_opaque "noc_async_read_one_packet_with_state"(%[[SRC_ADDR]], %[[DST_ADDR]])
@@ -442,8 +439,10 @@ module {
       // CHECK: %[[SRC_ADDR:.*]] = "emitc.constant"
       %src_addr = arith.constant 303104 : i32
       // CHECK: %[[DST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %dst_addr = "ttkernel.get_noc_addr"(%temp) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr
+      %dst_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
       // CHECK: emitc.call_opaque "noc_async_write"(%[[SRC_ADDR]], %[[DST_ADDR]], %[[SIZE]])
@@ -470,8 +469,10 @@ module {
     // CHECK-LABEL: func @noc_semaphore_inc
     func.func @noc_semaphore_inc() -> () {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.get_noc_addr"(%temp) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr
+      %addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[INCR:.*]] = "emitc.constant"
       %incr = arith.constant 1 : i32
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
@@ -523,8 +524,10 @@ module {
       %temp1 = arith.constant 2 : i32
       %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.l1_addr) // a dummy l1 addr
       // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
-      %temp2 = arith.constant 303104 : i32
-      %dst_mcast_addr = "ttkernel.get_noc_addr"(%temp2) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr TODO use mcast getter
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
+      %temp2 = arith.constant 262400 : i32
+      %dst_mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp2) : (index, index, i32) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
       // TODO(#2229): emitc lowering ignores 'linked' and 'multicast_path_reserve'
@@ -541,8 +544,10 @@ module {
       %temp1 = arith.constant 2 : i32
       %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.l1_addr) // a dummy l1 addr
       // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
       %temp2 = arith.constant 303104 : i32
-      %dst_mcast_addr = "ttkernel.get_noc_addr"(%temp2) : (i32) -> (!ttkernel.noc_addr) // a dummy noc addr TODO use mcast getter
+      %dst_mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp2) : (index, index, i32) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
       // TODO(#2229): emitc lowering ignores 'linked' and 'multicast_path_reserve'

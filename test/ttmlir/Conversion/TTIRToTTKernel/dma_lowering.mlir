@@ -10,7 +10,7 @@ module {
 func.func @test_local_to_local_same_core(%arg0: memref<2x2x!tt.tile<32x32, f32>, #l1_>, %arg1: memref<2x2x!tt.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<datamovement>} {
   // CHECK: ttkernel.get_read_ptr
   // CHECK: ttkernel.get_write_ptr
-  // CHECK: ttkernel.get_noc_addr_xy
+  // CHECK: ttkernel.get_noc_addr
   // CHECK: ttkernel.noc_async_write
   %c0 = arith.constant 0 : index
   %0 = ttir.dma %arg0[%c0, %c0], %arg1[%c0, %c0] : (memref<2x2x!tt.tile<32x32, f32>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
@@ -25,7 +25,7 @@ func.func @test_local_to_local_remote_core(%arg0: memref<2x2x!tt.tile<32x32, f32
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   // CHECK: ttkernel.get_read_ptr
-  // CHECK: ttkernel.get_noc_addr_xy
+  // CHECK: ttkernel.get_noc_addr
   // CHECK: ttkernel.noc_async_write
   %0 = ttir.dma %arg0[%c0, %c0], %dst[%c0, %c1, %c0, %c0] : (memref<2x2x!tt.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 16384 + d3 * 4096)>, #l1_>) -> !ttir.mem_tx
   ttir.dma_wait %0
@@ -73,7 +73,7 @@ func.func @test_remote_l1_to_local(%dst: memref<2x2x!tt.tile<32x32, f32>, #l1_>)
   %c1 = arith.constant 1 : index
   %src = ttir.get_global_operand(0) : memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 16384 + d3 * 4096)>, #l1_>
   // CHECK: ttkernel.get_write_ptr
-  // CHECK: ttkernel.get_noc_addr_xy
+  // CHECK: ttkernel.get_noc_addr
   // CHECK: ttkernel.noc_async_read
   %0 = ttir.dma %src[%c0, %c1, %c0, %c0], %dst[%c0, %c0] : (memref<1x2x2x2x!tt.tile<32x32, f32>, #tt.stream<(d0, d1, d2, d3) -> (d0, d1, d2 * 16384 + d3 * 4096)>, #l1_>, memref<2x2x!tt.tile<32x32, f32>, #l1_>) -> !ttir.mem_tx
   ttir.dma_wait %0
