@@ -192,6 +192,34 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+class TTNN_ElementwiseBinaryOp_NoBinaryNG<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    let summary = "Eltwise binary op.";
+    let description = [{
+      Eltwise binary op that currently lacks the flag to switch to binary_ng in metal.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+      [{
+        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+      }]>,
+    ];
+}
+
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise ternary op.";
@@ -563,7 +591,7 @@ def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
-def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryOp<"bitwise_and"> {
+def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryOp_NoBinaryNG<"bitwise_and"> {
     let summary = "Eltwise bitwise AND.";
     let description = [{
         Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
@@ -577,7 +605,7 @@ def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryOp<"bitwise_and"> {
     }];
 }
 
-def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryOp<"bitwise_or"> {
+def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryOp_NoBinaryNG<"bitwise_or"> {
     let summary = "Eltwise bitwise OR.";
     let description = [{
         Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
@@ -591,7 +619,7 @@ def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryOp<"bitwise_or"> {
     }];
 }
 
-def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryOp<"bitwise_xor"> {
+def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryOp_NoBinaryNG<"bitwise_xor"> {
     let summary = "Eltwise bitwise XOR.";
     let description = [{
         Performs element-wise bitwise XOR of two tensors `lhs` and `rhs`
@@ -617,7 +645,7 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum"> {
+def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp_NoBinaryNG<"minimum"> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -647,7 +675,7 @@ def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
     }];
 }
 
-def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp<"remainder"> {
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp_NoBinaryNG<"remainder"> {
     let summary = "Eltwise remainder.";
     let description = [{
       Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
@@ -662,7 +690,7 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp<"remainder"> {
     }];
 }
 
-def TTNN_PowOp : TTNN_ElementwiseBinaryOp<"pow"> {
+def TTNN_PowOp : TTNN_ElementwiseBinaryOp_NoBinaryNG<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -679,7 +707,7 @@ def TTNN_PowOp : TTNN_ElementwiseBinaryOp<"pow"> {
     }];
 }
 
-def TTNN_Atan2Op :  TTNN_ElementwiseBinaryOp<"atan2"> {
+def TTNN_Atan2Op :  TTNN_ElementwiseBinaryOp_NoBinaryNG<"atan2"> {
     let summary = "Eltwise atan2 OP.";
     let description = [{
       Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
@@ -1658,7 +1686,7 @@ def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryOp<"scatter"> {
+def TTNN_ScatterOp: TTNN_ElementwiseBinaryOp_NoBinaryNG<"scatter"> {
     let summary = "Scatter op.";
     let description = [{
       Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
