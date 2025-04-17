@@ -68,16 +68,6 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
   }];
 }
 
-def TT_CoordTranslationOffsetsAttr : TT_Attr<"CoordTranslationOffsets", "coord_translation_offsets"> {
-  let summary = "TT coord_translation_offsets attribute";
-  let description = [{
-    TT coord_translation_offsets attribute containing the offsets that translate physical coordinates to translated coordinates for the worker cores.
-  }];
-
-  let parameters = (ins ArrayRefParameter<"int64_t">:$offset_pair);
-  let assemblyFormat = "custom<DimensionList>($offset_pair)";
-}
-
 def TT_ArchAttr : EnumAttr<TT_Dialect, TT_Arch, "arch"> {
   let assemblyFormat = "`<` $value `>`";
 }
