@@ -157,7 +157,7 @@ TEST_F(OpModelBase, ReluOpInterfaceNullOutput) {
   // test ReluOp interface
   OpModel backend = dyn_cast<OpModel>(relu.getOperation());
   auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(relu), nullptr);
+      backend.getOpConstraints(getInputLayouts(relu), OpConfig(nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -282,7 +282,8 @@ TEST_F(OpModelBase, AddOpInterfaceNullOutput) {
 
   // test AddOp interface
   OpModel backend = dyn_cast<OpModel>(add.getOperation());
-  auto constraintsExp = backend.getOpConstraints(getInputLayouts(add), nullptr);
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(add), OpConfig(nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -379,7 +380,7 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
   // test MatmulOp interface
   OpModel backend = dyn_cast<OpModel>(matmul.getOperation());
   auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(matmul), nullptr);
+      backend.getOpConstraints(getInputLayouts(matmul), OpConfig(nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
@@ -702,7 +703,7 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   // test Conv2dOp interface
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp =
-      backend.getOpConstraints(getInputLayouts(conv2d), nullptr);
+      backend.getOpConstraints(getInputLayouts(conv2d), OpConfig(nullptr));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
@@ -821,7 +822,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       getInputLayouts(conv2d),
       OpConfig(getOutputLayout(conv2d), goodConvConfig));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cb_size, peak_size, output_size] = constraintsExp.get();
+  const auto &[cb_size, peak_size, output_size, outputLayout] =
+      constraintsExp.get();
   EXPECT_EQ(
       cb_size,
       243776); // Higher CB usage than baseline Conv2dInterface test due to
