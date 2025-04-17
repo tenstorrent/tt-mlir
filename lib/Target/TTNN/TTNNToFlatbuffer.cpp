@@ -2145,9 +2145,17 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     moduleCacheList.push_back(moduleCacheItem);
   }
 
+  const char *env = std::getenv("TT_DEBUG_DUMP_RATE");
+  std::uint32_t TT_DEBUG_DUMP_RATE;
+  if (env) {
+    TT_DEBUG_DUMP_RATE = std::stoi(env);
+  } else {
+    TT_DEBUG_DUMP_RATE = 1000;
+  }
+
   auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(
-      fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo);
+      fbb, mlir, cpp.c_str(), &moduleCacheList, goldenInfo, TT_DEBUG_DUMP_RATE);
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {

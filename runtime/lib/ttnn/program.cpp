@@ -115,8 +115,7 @@ public:
                    const ::tt::target::ttnn::Operation *opContext,
                    ProgramContext *programContext);
 
-  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
-                                std::uint32_t sampleRate = 1000);
+  void dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice);
 
   void execute() {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
@@ -162,11 +161,10 @@ void ProgramExecutor::runCallback(
   }
 }
 
-void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice,
-                                               std::uint32_t sampleRate) {
+void ProgramExecutor::dumpPerfCountersIfNeeded(::ttnn::MeshDevice &meshDevice) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
   static uint32_t counter = 0;
-  if (counter++ >= sampleRate) {
+  if (counter++ >= program->debug_info()->dump_device_rate()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
                                            std::to_string(counter) +
                                            " operations");
