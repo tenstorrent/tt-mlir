@@ -49,7 +49,7 @@ jobs:
           source env/activate
           mkdir -p ${{ steps.strings.outputs.wheel-output-dir }}
           cd python
-          python setup.py bdist_wheel --dist-dir=${{ steps.strings.outputs.wheel-output-dir }}
+          python -m pip wheel . --wheel-dir ${{ steps.strings.outputs.wheel-output-dir }} --verbose
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
@@ -84,7 +84,9 @@ jobs:
       - name: Test wheel installation
         shell: bash
         run: |
-          source env/activate
+          # Don't activate env since this will attempt to install in fresh venv
+          python3 -m venv whl_test
+          source whl_test/bin/activate
           WHEEL_FILE=$(ls ./dist/ttmlir-*.whl)
           echo "Installing wheel: $WHEEL_FILE"
           pip install $WHEEL_FILE
