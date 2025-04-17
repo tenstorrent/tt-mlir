@@ -131,11 +131,10 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineTTIRPasses(devicePm, options);
   createTTNNPipelineTTIRImplicitBroadcastFoldPass(devicePm, options);
 
-  if (!options.quantDataType.empty()) {
-    ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
-    quantOptions.targetBitWidth = options.quantDataType;
-    devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
-  }
+  ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
+  quantOptions.targetBitWidth = options.quantBitWidth;
+  devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+
   createTTNNPipelineLoweringPasses(devicePm, options);
   createTTNNPipelineWorkaroundPass(devicePm, options);
   if (options.enableConstEval) {

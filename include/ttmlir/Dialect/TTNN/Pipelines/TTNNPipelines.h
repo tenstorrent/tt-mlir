@@ -227,13 +227,13 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::init(false)};
 
   // Option to specify the target bit width for quantized data types.
-  Option<std::string> quantDataType{
-      *this, "quant-data-type",
-      llvm::cl::desc("Target integer bit width for quantized types (int8, "
-                     "int16, int32, int64). "
-                     "Set to enable quantized data type conversion pass. "
-                     "Leave empty to disable the pass."),
-      llvm::cl::init("int32")};
+  Option<uint32_t> quantBitWidth{
+      *this, "quant-bit-width",
+      llvm::cl::desc(
+          "Target integer bit width for quantized types (8, 16, 32, 64). "
+          "Set to enable quantized data type conversion pass. "
+          "Leave empty to disable the pass."),
+      llvm::cl::init(32)};
 };
 
 // TTIR to EmitC pipeline options.
