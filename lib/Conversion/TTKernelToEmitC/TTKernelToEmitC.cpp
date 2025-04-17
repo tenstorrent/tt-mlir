@@ -307,14 +307,10 @@ public:
   LogicalResult
   matchAndRewrite(ttkernel::GetCompileArgValOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto argIndex = rewriter
-                        .create<emitc::ConstantOp>(
-                            op.getLoc(), rewriter.getI32Type(),
-                            rewriter.getI32IntegerAttr(op.getArgIndex()))
-                        .getResult();
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
-        "get_compile_time_arg_val", argIndex);
+        (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
+            .str());
     return success();
   }
 };
