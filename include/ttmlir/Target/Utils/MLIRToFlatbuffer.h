@@ -648,27 +648,35 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::Conv2dConfigAttr conv2dConfigAttr) {
-  return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
-      toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
-      toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
-      conv2dConfigAttr.getInputChannelsAlignment(),
-      conv2dConfigAttr.getDeallocateActivation(),
-      conv2dConfigAttr.getReallocateHaloOutput(),
-      conv2dConfigAttr.getActBlockHOverride(),
-      conv2dConfigAttr.getActBlockWDiv(),
-      conv2dConfigAttr.getReshardIfNotOptimal(),
-      conv2dConfigAttr.getOverrideShardingConfig(),
-      toFlatbuffer(cache, conv2dConfigAttr.getShardLayout()),
-      toFlatbuffer(cache, conv2dConfigAttr.getCoreGrid()),
-      conv2dConfigAttr.getTransposeShards(),
-      toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
-      conv2dConfigAttr.getPreprocessWeightsOnDevice(),
-      conv2dConfigAttr.getAlwaysPreprocessWeights(),
-      conv2dConfigAttr.getEnableActDoubleBuffer(),
-      conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
-      conv2dConfigAttr.getEnableSplitReader(),
-      conv2dConfigAttr.getEnableSubblockPadding());
+  ::flatbuffers::Optional<::tt::target::ttnn::TensorMemoryLayout> shardLayout;
+  if (conv2dConfigAttr.getShardLayout()) {
+    shardLayout = toFlatbuffer(cache, conv2dConfigAttr.getShardLayout());
+  }
+  // TODO(vkovacevic): Add support for coreGrid #2781
+  ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> coreGrid;
+
+  ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig> conv2dConfigDesc =
+      ::tt::target::ttnn::CreateConv2dConfig(
+          *cache.fbb, toFlatbuffer(cache, conv2dConfigAttr.getDtype()),
+          toFlatbuffer(cache, conv2dConfigAttr.getWeightsDtype()),
+          toFlatbuffer(cache, conv2dConfigAttr.getActivation().getValue()),
+          conv2dConfigAttr.getInputChannelsAlignment(),
+          conv2dConfigAttr.getDeallocateActivation(),
+          conv2dConfigAttr.getReallocateHaloOutput(),
+          conv2dConfigAttr.getActBlockHOverride(),
+          conv2dConfigAttr.getActBlockWDiv(),
+          conv2dConfigAttr.getReshardIfNotOptimal(),
+          conv2dConfigAttr.getOverrideShardingConfig(), shardLayout, coreGrid,
+          conv2dConfigAttr.getTransposeShards(),
+          toFlatbuffer(cache, conv2dConfigAttr.getOutputLayout()),
+          conv2dConfigAttr.getPreprocessWeightsOnDevice(),
+          conv2dConfigAttr.getAlwaysPreprocessWeights(),
+          conv2dConfigAttr.getEnableActDoubleBuffer(),
+          conv2dConfigAttr.getEnableWeightsDoubleBuffer(),
+          conv2dConfigAttr.getEnableSplitReader(),
+          conv2dConfigAttr.getEnableSubblockPadding());
+
+  return conv2dConfigDesc;
 }
 
 } // namespace mlir::tt

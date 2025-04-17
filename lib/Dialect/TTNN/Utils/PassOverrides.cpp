@@ -114,7 +114,8 @@ bool Conv2dConfigOverrideParser::parse(
           opt.error("Duplicate activation: " + paramValue);
           return true;
         }
-        params.activation = activation.str();
+        params.activation =
+            activation.equals_insensitive("none") ? "" : activation.str();
       } else if (paramName == "input_channels_alignment") {
         uint32_t inputChannelsAlignment;
         if (paramValue.getAsInteger<uint32_t>(10, inputChannelsAlignment)) {
