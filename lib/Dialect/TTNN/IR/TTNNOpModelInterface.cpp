@@ -144,7 +144,7 @@ AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::AddOpInterface::getOpConstraints(
       deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape,
-     
+
       opConfig.outputLayout);
 }
 
@@ -222,7 +222,8 @@ MeanOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::MeanOpInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0],
-      detail::convertReductionArg(getDimArg()), getKeepDim(), opConfig.outputLayout);
+      detail::convertReductionArg(getDimArg()), getKeepDim(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -333,7 +334,8 @@ ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
 
   return op_model::ttnn::ToLayoutOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], getDtype(), opConfig.outputLayout, passDevicePtr);
+      deviceGrid, inputShape, inputs[0], getDtype(), opConfig.outputLayout,
+      passDevicePtr);
 }
 
 llvm::Expected<size_t>
@@ -370,7 +372,8 @@ TransposeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   GridAttr deviceGrid = lookupDevice(getOperation()).getWorkerGrid();
 
   return op_model::ttnn::TransposeOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], getDim0(), getDim1(), opConfig.outputLayout);
+      deviceGrid, inputShape, inputs[0], getDim0(), getDim1(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -448,7 +451,7 @@ MultiplyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return op_model::ttnn::MultiplyOpInterface::getOpConstraints(
       deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1], outputShape,
-     
+
       opConfig.outputLayout);
 }
 
@@ -502,10 +505,10 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
           : getConv2dConfig();
 
   return op_model::ttnn::Conv2dOpInterface::getOpConstraints(
-      deviceGrid, inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), conv2dConfig, outputShape,
+      deviceGrid, inputShape, inputs[0], weightShape, inputs[1], biasShape,
+      biasLayout, getInChannels(), getOutChannels(), getBatchSize(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getDilation(), getGroups(), conv2dConfig, outputShape,
       opConfig.outputLayout);
 }
 
@@ -564,7 +567,8 @@ MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return op_model::ttnn::MaxPool2DInterface::getOpConstraints(
       deviceGrid, inputShape, inputs[0], getBatchSize(), getInputHeight(),
       getInputWidth(), getChannels(), getKernelSize(), getStride(),
-      getPadding(), getDilation(), getCeilMode(), outputShape, opConfig.outputLayout);
+      getPadding(), getDilation(), getCeilMode(), outputShape,
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
