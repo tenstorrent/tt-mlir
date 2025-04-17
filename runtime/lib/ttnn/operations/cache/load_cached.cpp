@@ -15,13 +15,6 @@
 
 namespace tt::runtime::ttnn::operations::cache {
 
-static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
-  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-      binary.handle.get());
-  LOG_ASSERT(isTTNN, "Unsupported binary format");
-  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
-}
-
 using LogType = ::tt::runtime::logger::LogType;
 
 void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
@@ -38,9 +31,9 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   inputVersions.reserve(op->inputs()->size());
   // Extract versions for each input tensor.
   for (const auto *input : *op->inputs()) {
-    ::tt::runtime::Tensor runtimeInput =
-        context.getTensorPool().getRuntimeTensorAndValidate(input);
-    inputVersions.push_back(runtimeInput.version.load());
+    ::tt::runtime::ttnn::TTNNTensorWrapper runtimeInput =
+        context.getTensorPool().getTTNNTensorWrapperAndValidate(input);
+    inputVersions.push_back(runtimeInput.getVersion());
   }
 
   // Get the cached tensors, which will be empty if cache is invalid
@@ -52,7 +45,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
     assert(cachedOutputs->size() == op->outputs()->size());
     for (size_t i = 0; i < cachedOutputs->size(); ++i) {
-      auto output = (*cachedOutputs)[i].as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+      auto &output =
+          (*cachedOutputs)[i].as<::ttnn::Tensor>(DeviceRuntime::TTNN);
       context.getTensorPool().insertTTNNTensorAndValidate(op->outputs()->Get(i),
                                                           output);
     }
@@ -82,12 +76,11 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   LOG_DEBUG("executed sub-func: ", constEvalFuncname);
   std::vector<Tensor> outputs = exec.gatherOutputTensors();
 
-  cache->store(cacheKey, constEvalFuncname, outputs, inputVersions);
+  cache->store(cacheKey, constEvalFuncname, std::move(inputVersions), outputs);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     Tensor &runtimeOutput = outputs[i];
-    ::ttnn::Tensor output =
-        runtimeOutput.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    auto &output = runtimeOutput.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
     context.getTensorPool().insertTTNNTensorAndValidate(op->outputs()->Get(i),
                                                         output);
   }

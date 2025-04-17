@@ -4,19 +4,20 @@
 
 #include "Constants.h"
 
-#include "tt-metalium/small_vector.hpp"
 #include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/dylib.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/program_executor.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
-#include "ttnn/tensor/types.hpp"
-
 #include "ttmlir/Target/TTNN/Target.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/tensor/types.hpp"
 
 namespace tt::runtime::ttnn {
 
@@ -142,13 +143,6 @@ createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
           memoryView.largest_contiguous_bytes_free_per_bank,
       .blockTable = memoryView.block_table,
   };
-}
-
-static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
-  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-      binary.handle.get());
-  LOG_ASSERT(isTTNN, "Unsupported binary format");
-  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
 ::tt::runtime::Tensor
@@ -603,7 +597,7 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+  ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
 
   const ::ttnn::Tensor &ttnnTensor = tensorWrapper.getTensor();
@@ -620,8 +614,6 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 
   ::tt::runtime::Tensor result =
       utils::createRuntimeTensorFromTTNN(out, shouldRetain);
-  static std::atomic<uint64_t> tensorVersion{0};
-  result.version.store(tensorVersion++);
 
   if (!shouldRetain) {
     ::tt::runtime::ttnn::deallocateTensor(tensor);
@@ -951,6 +943,21 @@ submit(Device deviceHandle, Binary &executableHandle,
       meshDevice, executableHandle, programIndex, inputs);
 
   return outputs;
+}
+
+std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+                               Binary &executableHandle,
+                               std::uint32_t programIndex,
+                               std::vector<::tt::runtime::Tensor> &inputs) {
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
+  ProgramExecutor executor(program, executableHandle, inputs, &meshDevice,
+                           programIndex);
+  executor.execute();
+  std::vector<::tt::runtime::Tensor> outputTensors =
+      executor.gatherOutputTensors();
+  return outputTensors;
 }
 
 } // namespace tt::runtime::ttnn
