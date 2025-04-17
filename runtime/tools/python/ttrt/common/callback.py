@@ -19,6 +19,7 @@ class CallbackRuntimeConfig:
         atol=1e-08,
         rtol=1e-05,
         save_golden_tensors=False,
+        save_intermediate_tensors=False,
         logging=None,
         enable_golden=False,
         enable_memory=False,
@@ -32,6 +33,7 @@ class CallbackRuntimeConfig:
         self.atol = atol
         self.rtol = rtol
         self.save_golden_tensors = save_golden_tensors
+        self.save_intermediate_tensors = save_intermediate_tensors
         self.logging = logging
         self.enable_golden = enable_golden
         self.enable_memory = enable_memory
@@ -45,6 +47,7 @@ class CallbackRuntimeConfig:
         self.counter = -1
         self.golden_report = {}
         self.memory_report = {}
+        self.intermediates = {}
 
     def callback_counter(self):
         self.counter = self.counter + 1
@@ -61,6 +64,25 @@ class CallbackRuntimeConfig:
             json.dump(self.memory_report, json_file, indent=4)
 
         self.logging.debug(f"Saved memory report to={memory_report_path}")
+
+    def save_intermediate_tensors(self, program_context, op_context):
+        op_intermediate_input_ids = ttrt.runtime.get_intermediate_input_tensor_ids(
+            op_context
+        )
+        op_intermediate_output_id = ttrt.runtime.get_intermediate_output_tensor_id(
+            op_context
+        )
+        if ttrt.runtime.is_tensor_live(program_context, op_intermediate_output_id):
+            op_intermediate_output = ttrt.runtime.get_intermediate_output_tensor(
+                op_context, program_context
+            )
+            self.intermediates[op_intermediate_output_id] = op_intermediate_output
+        for op_intermediate_input_id in op_intermediate_input_ids:
+            if ttrt.runtime.is_tensor_live(program_context, op_intermediate_input_id):
+                op_intermediate_input = ttrt.runtime.get_intermediate_input_tensor(
+                    op_context, program_context
+                )
+                self.intermediates[op_intermediate_input_id] = op_intermediate_input
 
     def check_pcc(self):
         for loc, golden_data in self.golden_report.items():
@@ -302,6 +324,9 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
 
     if callback_runtime_config.enable_debugger:
         debugger(callback_runtime_config, binary, program_context, op_context)
+
+    if callback_runtime_config.save_intermediate_tensors:
+        save_intermediate_tensors(program_context, op_context)
 
 
 def post_op_get_callback_fn(callback_runtime_config):

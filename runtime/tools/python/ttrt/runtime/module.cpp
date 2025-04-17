@@ -294,7 +294,7 @@ PYBIND11_MODULE(_C, m) {
         &tt::runtime::getIntermediateOutputTensorId,
         "Get intermediate output tensor ID for an operation");
   m.def("is_tensor_live", &tt::runtime::isTensorLive,
-        "Check if a tensor is live by its global ID");
+        "Check if a tensor ID is in the tensor pool");
   m.def(
       "get_tensor",
       [](tt::runtime::CallbackContext &programContextHandle,
@@ -305,7 +305,7 @@ PYBIND11_MODULE(_C, m) {
                    ? std::nullopt
                    : std::optional<tt::runtime::Tensor>(tensor);
       },
-      "Get a tensor by its global ID");
+      "Get a tensor by its ID");
   m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
