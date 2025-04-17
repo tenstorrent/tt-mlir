@@ -96,9 +96,9 @@ runs:
     - name: Build ttmlir Python Bindings Wheel
       if: inputs.enable-ttmlir-whl == 'ON'
       shell: bash
+      working-directory: ${{ inputs.work-dir }}/python
       run: |
         source env/activate
-        cd python/
         python -m pip wheel . --wheel-dir build --verbose
 
     - name: Upload ttmlir Python Bindings Wheel
@@ -106,7 +106,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ttmlir-whl
-        path: python/build/ttmlir*.whl
+        path: ${{ inputs/work-dir }}/python/build/ttmlir*.whl
 
     # Install needs to run after the "Compile dylibs" step
     #
