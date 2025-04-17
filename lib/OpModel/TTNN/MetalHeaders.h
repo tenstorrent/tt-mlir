@@ -74,6 +74,7 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/operations/data_movement/reshape_view/reshape.hpp"
 #include "ttnn/operations/data_movement/transpose/transpose.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
+#include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
