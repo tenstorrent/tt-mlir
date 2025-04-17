@@ -14,8 +14,8 @@
 #define FMT_HEADER_ONLY
 #include "eth_l1_address_map.h"
 #include "hostdevcommon/common_values.hpp"
-#include "llrt/hal.hpp"
 #include "tt-metalium/allocator.hpp"
+#include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
 
@@ -181,8 +181,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       ::tt::target::ChipCoord(0, 0, 0, 0)};
   ::flatbuffers::FlatBufferBuilder fbb;
 
-  std::uint32_t pcieAlignment =
-      ::tt::tt_metal::hal_ref.get_alignment(HalMemType::HOST);
+  std::uint32_t pcieAlignment = ::tt::tt_metal::hal::get_pcie_alignment();
 
   for (const ::tt::tt_metal::IDevice *device : devices) {
     size_t l1UnreservedBase =
