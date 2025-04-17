@@ -1018,14 +1018,16 @@ static AttrType getAttrFromConstantChain(mlir::Value tensorVal,
   mlir::Attribute valueAttr = constOp.getValue();
   if constexpr (std::is_same_v<AttrType, mlir::FloatAttr>) {
     if (auto dense = mlir::dyn_cast<mlir::DenseFPElementsAttr>(valueAttr)) {
-      if (dense.getNumElements() == 1)
+      if (dense.getNumElements() == 1) {
         return dense.getSplatValue<mlir::FloatAttr>();
+      }
     }
   }
   if constexpr (std::is_same_v<AttrType, mlir::IntegerAttr>) {
     if (auto dense = mlir::dyn_cast<mlir::DenseIntElementsAttr>(valueAttr)) {
-      if (dense.getNumElements() == 1)
+      if (dense.getNumElements() == 1) {
         return dense.getSplatValue<mlir::IntegerAttr>();
+      }
     }
   }
   llvm_unreachable(expectedTypeMsg);
