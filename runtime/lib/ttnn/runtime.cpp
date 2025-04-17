@@ -918,8 +918,9 @@ getIntermediateInputTensorIds(OpContext opContextHandle) {
     const auto *op = opContext.type_as_LinearOp();
     ids.push_back(op->a()->global_id());
     ids.push_back(op->b()->global_id());
-    if (op->bias())
+    if (op->bias()) {
       ids.push_back(op->bias()->global_id());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::MatmulOp: {
